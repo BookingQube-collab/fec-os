@@ -611,6 +611,68 @@ export function assertOtTransition(from: HrOtStatus, to: HrOtStatus, actor: HrOt
   }
 }
 
+/**
+ * OT entered the approval workflow (not a local draft). Used by HR Excel
+ * "08 Overtime" so punch-only calculated OT never appears without a claim.
+ */
+export function isOtClaimSubmittedForExport(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim();
+  if (!s || s === "draft") return false;
+  return (HR_OT_STATUSES as readonly string[]).includes(s);
+}
+
+/** Final payroll gate: GM (or already posted). Intermediate seats do not count. */
+export function isOtFinalApprovedForPayroll(status: string | null | undefined): boolean {
+  return status === "gm_approved" || status === "payroll_posted";
+}
+
+/**
+ * Next seat still needed before GM final approval. Null when complete, rejected,
+ * cancelled, sent back, or draft.
+ */
+export function otWaitingSeatLabel(status: string | null | undefined): string | null {
+  switch (status) {
+    case "submitted":
+      return "Sr. Site Supervisor";
+    case "manager_verified":
+      return "HOO";
+    case "ops_approved":
+      return "HR";
+    case "hr_approved":
+      return "GM";
+    default:
+      return null;
+  }
+}
+
+/** Human label for OT claim status on exports (English, no i18n). */
+export function otStatusExportLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "draft":
+      return "Draft";
+    case "submitted":
+      return "Supervisor submitted";
+    case "manager_verified":
+      return "Sr. Site Supervisor approved";
+    case "ops_approved":
+      return "HOO approved";
+    case "hr_approved":
+      return "HR approved";
+    case "gm_approved":
+      return "GM approved";
+    case "payroll_posted":
+      return "Payroll posted";
+    case "changes_requested":
+      return "Changes requested";
+    case "rejected":
+      return "Rejected";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return (status ?? "").trim() || "Unknown";
+  }
+}
+
 /** AT#4: payroll_posted only once, only from gm_approved (final approver before payroll). */
 export function canMarkPayrollPosted(status: HrOtStatus): boolean {
   return status === "gm_approved";

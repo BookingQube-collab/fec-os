@@ -40,6 +40,132 @@ import {
   type ExportPunchRow,
   type ExportUnmatchedMapping,
 } from "@/lib/attendance-hr/export-workbook";
+import { isOtClaimSubmittedForExport } from "@/lib/hr-ot";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
+type OtExportDbRow = {
+  staff_id?: string | null;
+  work_date?: string | null;
+  rate_type?: string | null;
+  eligible_minutes?: number | null;
+  claimed_minutes?: number | null;
+  approved_minutes?: number | null;
+  status?: string | null;
+  notes?: string | null;
+  purpose?: string | null;
+  submitted_by?: string | null;
+  verified_signer_name?: string | null;
+  ops_approved_signer_name?: string | null;
+  approved_signer_name?: string | null;
+  gm_approved_signer_name?: string | null;
+  verified_by?: string | null;
+  ops_approved_by?: string | null;
+  approved_by?: string | null;
+  gm_approved_by?: string | null;
+  staff?:
+    | { employee_code?: string | null; full_name?: string | null; department?: string | null }
+    | { employee_code?: string | null; full_name?: string | null; department?: string | null }[]
+    | null;
+  locations?: { code?: string | null } | { code?: string | null }[] | null;
+};
+
+function oneRel<T>(value: T | T[] | null | undefined): T | null {
+  if (value == null) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+/** Resolve auth user ids → display names (profiles, then staff). */
+async function displayNamesForUserIds(userIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const ids = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return names;
+
+  const { data: profiles } = await supabaseAdmin.from("profiles").select("id, display_name").in("id", ids);
+  for (const row of profiles ?? []) {
+    const name = (row.display_name as string | null)?.trim();
+    if (name) names.set(String(row.id), name);
+  }
+  const missing = ids.filter((id) => !names.has(id));
+  if (missing.length) {
+    const { data: staffRows } = await supabaseAdmin
+      .from("staff")
+      .select("user_id, full_name")
+      .in("user_id", missing)
+      .is("deleted_at", null);
+    for (const row of staffRows ?? []) {
+      const userId = row.user_id as string | null;
+      const name = (row.full_name as string | null)?.trim();
+      if (userId && name && !names.has(userId)) names.set(userId, name);
+    }
+  }
+  return names;
+}
+
+async function loadExportOtClaims(input: {
+  // Auth-scoped client; name backfill uses supabaseAdmin separately.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (table: string) => any };
+  dateFrom: string;
+  dateTo: string;
+  locationId: string | null;
+  /** When set, keep only claims for staff already in the filtered attendance set. */
+  staffIdAllowlist: Set<string> | null;
+}): Promise<ExportOtClaim[]> {
+  let otQ = input.supabase
+    .from("hr_ot_claims")
+    .select(
+      "staff_id, work_date, rate_type, eligible_minutes, claimed_minutes, approved_minutes, status, notes, purpose, submitted_by, verified_by, verified_signer_name, ops_approved_by, ops_approved_signer_name, approved_by, approved_signer_name, gm_approved_by, gm_approved_signer_name, staff:staff_id(employee_code, full_name, department), locations:location_id(code)",
+    )
+    .gte("work_date", input.dateFrom)
+    .lte("work_date", input.dateTo)
+    .neq("status", "draft")
+    .limit(2000);
+  if (input.locationId) otQ = otQ.eq("location_id", input.locationId);
+  const { data: otRows, error: otErr } = await otQ;
+  if (otErr || !otRows) return [];
+
+  const rows = (otRows as OtExportDbRow[]).filter((r) => isOtClaimSubmittedForExport(String(r.status ?? "")));
+  const nameIds: string[] = [];
+  for (const r of rows) {
+    if (r.submitted_by) nameIds.push(String(r.submitted_by));
+    if (r.verified_by && !r.verified_signer_name) nameIds.push(String(r.verified_by));
+    if (r.ops_approved_by && !r.ops_approved_signer_name) nameIds.push(String(r.ops_approved_by));
+    if (r.approved_by && !r.approved_signer_name) nameIds.push(String(r.approved_by));
+    if (r.gm_approved_by && !r.gm_approved_signer_name) nameIds.push(String(r.gm_approved_by));
+  }
+  const names = await displayNamesForUserIds(nameIds);
+
+  const mapped: ExportOtClaim[] = rows.map((r) => {
+    const staff = oneRel(r.staff);
+    const loc = oneRel(r.locations);
+    const submittedBy = r.submitted_by ? String(r.submitted_by) : null;
+    return {
+      staffId: String(r.staff_id ?? ""),
+      workDate: String(r.work_date ?? "").slice(0, 10),
+      rateType: String(r.rate_type ?? "weekday"),
+      calculatedMinutes: Number(r.claimed_minutes ?? r.eligible_minutes ?? 0),
+      approvedMinutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
+      status: String(r.status ?? ""),
+      notes: r.notes == null ? null : String(r.notes),
+      purpose: r.purpose == null ? null : String(r.purpose),
+      requestedByName: submittedBy ? names.get(submittedBy) ?? null : null,
+      siteApproverName: (r.verified_signer_name as string | null)?.trim()
+        || (r.verified_by ? names.get(String(r.verified_by)) ?? null : null),
+      hooApproverName: (r.ops_approved_signer_name as string | null)?.trim()
+        || (r.ops_approved_by ? names.get(String(r.ops_approved_by)) ?? null : null),
+      hrApproverName: (r.approved_signer_name as string | null)?.trim()
+        || (r.approved_by ? names.get(String(r.approved_by)) ?? null : null),
+      gmApproverName: (r.gm_approved_signer_name as string | null)?.trim()
+        || (r.gm_approved_by ? names.get(String(r.gm_approved_by)) ?? null : null),
+      employeeCode: staff?.employee_code ?? null,
+      employeeName: staff?.full_name ?? null,
+      locationCode: loc?.code ?? null,
+    };
+  });
+
+  if (!input.staffIdAllowlist) return mapped;
+  return mapped.filter((c) => input.staffIdAllowlist!.has(c.staffId));
+}
 
 function asUuid(value: string | null): string | null {
   if (!value) return null;
@@ -326,28 +452,29 @@ export async function GET(request: Request) {
         });
       }
 
-      // Optional OT claims + corrections for OT / Audit sheets (best-effort; empty on failure).
+      // Submitted OT claims (+ corrections) for OT / Audit sheets (best-effort; empty on failure).
       let otClaims: ExportOtClaim[] = [];
       let corrections: ExportCorrection[] = [];
       {
-        let otQ = context.supabase
-          .from("hr_ot_claims")
-          .select("staff_id, work_date, rate_type, eligible_minutes, claimed_minutes, approved_minutes, status, notes")
-          .gte("work_date", dateFrom)
-          .lte("work_date", dateTo)
-          .limit(2000);
-        if (locationId) otQ = otQ.eq("location_id", locationId);
-        const { data: otRows, error: otErr } = await otQ;
-        if (!otErr && otRows) {
-          otClaims = otRows.map((r) => ({
-            staffId: String(r.staff_id ?? ""),
-            workDate: String(r.work_date ?? "").slice(0, 10),
-            rateType: String(r.rate_type ?? "weekday"),
-            calculatedMinutes: Number(r.claimed_minutes ?? r.eligible_minutes ?? 0),
-            approvedMinutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
-            status: String(r.status ?? ""),
-            notes: r.notes == null ? null : String(r.notes),
-          }));
+        // Keep OT rows aligned with listing filters (department / staff / search).
+        const staffScoped =
+          departmentIds.length > 0 ||
+          showOrgDepartments.length > 0 ||
+          Boolean(staffId) ||
+          Boolean(staffQ);
+        const staffIdAllowlist = staffScoped
+          ? new Set(daily.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))
+          : null;
+        try {
+          otClaims = await loadExportOtClaims({
+            supabase: context.supabase,
+            dateFrom,
+            dateTo,
+            locationId,
+            staffIdAllowlist,
+          });
+        } catch {
+          otClaims = [];
         }
       }
       {

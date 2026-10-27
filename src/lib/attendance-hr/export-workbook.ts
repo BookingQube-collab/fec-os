@@ -27,6 +27,12 @@ import {
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
+import {
+  isOtClaimSubmittedForExport,
+  isOtFinalApprovedForPayroll,
+  otStatusExportLabel,
+  otWaitingSeatLabel,
+} from "@/lib/hr-ot";
 
 export const E3_HR_EXPORT_SHEET_NAMES = [
   "01 HR Summary",
@@ -72,6 +78,20 @@ export type ExportOtClaim = {
   approvedMinutes: number | null;
   status: string;
   notes?: string | null;
+  purpose?: string | null;
+  /** Display name of the person who submitted the claim into workflow. */
+  requestedByName?: string | null;
+  /** Sr. Site Supervisor seat (manager_verified). */
+  siteApproverName?: string | null;
+  /** Head of Operations seat (ops_approved). */
+  hooApproverName?: string | null;
+  /** HR seat (hr_approved). */
+  hrApproverName?: string | null;
+  /** General Manager seat (gm_approved). */
+  gmApproverName?: string | null;
+  employeeCode?: string | null;
+  employeeName?: string | null;
+  locationCode?: string | null;
 };
 
 export type ExportCorrection = {
@@ -149,10 +169,33 @@ const ABSENCE_LEAVE_STATUSES = new Set([
   "weekly_off",
   "public_holiday",
 ]);
-const APPROVED_OT_STATUSES = new Set(["gm_approved", "payroll_posted"]);
-
 function blank(v: string | null | undefined): string {
   return v?.trim() || "";
+}
+
+/** Seats that have already acted, for Excel "who approved" columns. */
+export function formatOtApproverChain(claim: ExportOtClaim): string {
+  const parts: string[] = [];
+  if (blank(claim.siteApproverName)) parts.push(`Sr. Site: ${blank(claim.siteApproverName)}`);
+  if (blank(claim.hooApproverName)) parts.push(`HOO: ${blank(claim.hooApproverName)}`);
+  if (blank(claim.hrApproverName)) parts.push(`HR: ${blank(claim.hrApproverName)}`);
+  if (blank(claim.gmApproverName)) parts.push(`GM: ${blank(claim.gmApproverName)}`);
+  return parts.join("; ");
+}
+
+export function otExportFinalApprovalPending(status: string): boolean {
+  return otWaitingSeatLabel(status) != null;
+}
+
+export function otExportRemarks(status: string): string {
+  if (status === "payroll_posted") return "Posted to payroll";
+  if (status === "gm_approved") return "Final approved — ready for payroll";
+  if (status === "rejected") return "Rejected — not for payroll";
+  if (status === "cancelled") return "Cancelled — not for payroll";
+  if (status === "changes_requested") return "Sent back — resubmit required";
+  const waiting = otWaitingSeatLabel(status);
+  if (waiting) return `Final approval pending — waiting on ${waiting}`;
+  return "";
 }
 
 /** DD-MMM-YYYY (UTC calendar day). */
@@ -526,7 +569,7 @@ function aggregateEmployees(
   }
 
   for (const claim of otClaims) {
-    if (!APPROVED_OT_STATUSES.has(claim.status)) continue;
+    if (!isOtFinalApprovedForPayroll(claim.status)) continue;
     const cur = byStaff.get(claim.staffId);
     if (!cur) continue;
     const mins = Number(claim.approvedMinutes ?? claim.calculatedMinutes ?? 0);
@@ -1182,47 +1225,95 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
     "Approved OT Hours",
     "Reason",
     "Requested By",
-    "Approved By",
+    "Site Approver",
+    "HOO Approver",
+    "HR Approver",
+    "GM Approver",
+    "Approvers",
     "Approval Status",
+    "Final Approval Pending",
+    "Waiting On",
     "Payroll Month",
     "Remarks",
   ];
-  const claimByKey = new Map<string, ExportOtClaim>();
-  for (const c of otClaims) {
-    claimByKey.set(`${c.staffId}|${c.workDate.slice(0, 10)}`, c);
-  }
-  const payrollMonth = ctx.dateFrom.slice(0, 7);
-  const rows: (string | number | boolean | null)[][] = [];
-
+  const dailyByKey = new Map<string, AttendanceHrReportRow>();
   for (const row of daily) {
     if (!row.staff_id) continue;
-    const listing = listingOf(row);
-    const calc = resolveOvertimeMinutes(listing);
-    const claim = claimByKey.get(`${row.staff_id}|${String(row.work_date).slice(0, 10)}`);
-    if (calc <= 0 && !claim) continue;
-    const approved =
-      claim && APPROVED_OT_STATUSES.has(claim.status)
+    dailyByKey.set(`${row.staff_id}|${String(row.work_date).slice(0, 10)}`, row);
+  }
+  const payrollMonth = ctx.dateFrom.slice(0, 7);
+  const submittedClaims = otClaims.filter((c) => isOtClaimSubmittedForExport(c.status));
+  const rows: (string | number | boolean | null)[][] = submittedClaims
+    .slice()
+    .sort((a, b) => {
+      const byDate = b.workDate.slice(0, 10).localeCompare(a.workDate.slice(0, 10));
+      if (byDate !== 0) return byDate;
+      return blank(a.employeeName || a.staffId).localeCompare(blank(b.employeeName || b.staffId), undefined, {
+        sensitivity: "base",
+      });
+    })
+    .map((claim) => {
+      const day = dailyByKey.get(`${claim.staffId}|${claim.workDate.slice(0, 10)}`);
+      const listing = day ? listingOf(day) : null;
+      const punchOt = listing ? resolveOvertimeMinutes(listing) : 0;
+      const worked = listing ? resolveTotalHoursWorked(listing) : null;
+      const finalApproved = isOtFinalApprovedForPayroll(claim.status);
+      const approved = finalApproved
         ? hoursFromMinutes(claim.approvedMinutes ?? claim.calculatedMinutes)
         : 0;
-    const worked = resolveTotalHoursWorked(listing);
+      const waiting = otWaitingSeatLabel(claim.status);
+      const pending = otExportFinalApprovalPending(claim.status);
+      return [
+        formatHrExportDate(claim.workDate),
+        blank(claim.employeeCode) || (day ? blank(day.employee_code) : ""),
+        blank(claim.employeeName) || (day ? attendanceHrExportStaffName(day) : ""),
+        blank(claim.locationCode) || (day ? locationCodeOf(day) : ""),
+        day ? hoursFromMinutes(day.expected_minutes) : "",
+        worked == null ? "" : numericHours(worked),
+        otRateLabel(claim.rateType),
+        hoursFromMinutes(claim.calculatedMinutes || punchOt || 0),
+        approved,
+        blank(claim.purpose) || blank(claim.notes),
+        blank(claim.requestedByName),
+        blank(claim.siteApproverName),
+        blank(claim.hooApproverName),
+        blank(claim.hrApproverName),
+        blank(claim.gmApproverName),
+        formatOtApproverChain(claim),
+        otStatusExportLabel(claim.status),
+        pending ? "Yes" : "No",
+        waiting ?? "",
+        payrollMonth,
+        otExportRemarks(claim.status),
+      ];
+    });
+
+  if (rows.length === 0) {
     rows.push([
-      formatHrExportDate(row.work_date),
-      blank(row.employee_code),
-      attendanceHrExportStaffName(row),
-      locationCodeOf(row),
-      hoursFromMinutes(row.expected_minutes),
-      numericHours(worked),
-      claim ? otRateLabel(claim.rateType) : otTypeForDay(row),
-      hoursFromMinutes(calc || claim?.calculatedMinutes || 0),
-      approved,
-      blank(claim?.notes),
       "",
       "",
-      claim?.status ?? "Calculated",
-      payrollMonth,
-      approved > 0 ? "Approved for payroll" : "Pending approval — not for payroll",
+      "No submitted OT requests in this period for the selected filters.",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Sheet lists OT claims submitted into approval (excludes drafts and punch-only calculated OT).",
     ]);
   }
+
   return tableSheet("08 Overtime", headers, rows, {
     titleRows: titleRowsFor(ctx),
     freezeCols: 3,

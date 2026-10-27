@@ -11,6 +11,10 @@ import {
   canMarkPayrollPosted,
   canRequestOtChanges,
   canTransitionOt,
+  isOtClaimSubmittedForExport,
+  isOtFinalApprovedForPayroll,
+  otStatusExportLabel,
+  otWaitingSeatLabel,
   computeOtAmountQar,
   filterOtRequestGroups,
   groupOtClaimsIntoRequests,
@@ -614,6 +618,38 @@ describe("AT#3 OT below 1 hour rejected", () => {
 
   it("uses policy default min_claimable_minutes of 60", () => {
     expect(HR_POLICY_DEFAULTS.ot.min_claimable_minutes).toBe(60);
+  });
+});
+
+describe("OT export submitted / waiting seats", () => {
+  it("treats non-draft workflow statuses as submitted for Excel export", () => {
+    expect(isOtClaimSubmittedForExport("draft")).toBe(false);
+    expect(isOtClaimSubmittedForExport("")).toBe(false);
+    expect(isOtClaimSubmittedForExport("submitted")).toBe(true);
+    expect(isOtClaimSubmittedForExport("manager_verified")).toBe(true);
+    expect(isOtClaimSubmittedForExport("changes_requested")).toBe(true);
+    expect(isOtClaimSubmittedForExport("rejected")).toBe(true);
+    expect(isOtClaimSubmittedForExport("gm_approved")).toBe(true);
+  });
+
+  it("marks final payroll approval only at GM / posted", () => {
+    expect(isOtFinalApprovedForPayroll("ops_approved")).toBe(false);
+    expect(isOtFinalApprovedForPayroll("hr_approved")).toBe(false);
+    expect(isOtFinalApprovedForPayroll("gm_approved")).toBe(true);
+    expect(isOtFinalApprovedForPayroll("payroll_posted")).toBe(true);
+  });
+
+  it("maps waiting seat labels through the chain", () => {
+    expect(otWaitingSeatLabel("submitted")).toBe("Sr. Site Supervisor");
+    expect(otWaitingSeatLabel("manager_verified")).toBe("HOO");
+    expect(otWaitingSeatLabel("ops_approved")).toBe("HR");
+    expect(otWaitingSeatLabel("hr_approved")).toBe("GM");
+    expect(otWaitingSeatLabel("gm_approved")).toBeNull();
+    expect(otWaitingSeatLabel("payroll_posted")).toBeNull();
+    expect(otStatusExportLabel("manager_verified")).toBe("Sr. Site Supervisor approved");
+    expect(otStatusExportLabel("ops_approved")).toBe("HOO approved");
+    expect(otStatusExportLabel("hr_approved")).toBe("HR approved");
+    expect(otStatusExportLabel("gm_approved")).toBe("GM approved");
   });
 });
 

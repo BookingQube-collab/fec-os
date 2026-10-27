@@ -6,9 +6,12 @@ import {
   buildE3AttendanceHrWorkbookSheets,
   e3AttendanceExportFilename,
   employeeSummaryCellFills,
+  formatOtApproverChain,
+  otExportFinalApprovalPending,
   resolveHrAttendanceStatus,
   resolveHrPunchStatus,
   sheetsForExportFocus,
+  type ExportOtClaim,
 } from "./export-workbook";
 import { ATTENDANCE_PCT_GREEN_THRESHOLD, EXCEL_THEME, MATRIX_CODE_THEME, matrixCodeFillRgb } from "./excel-theme";
 import type { AttendanceHrReportRow } from "./report";
@@ -199,6 +202,104 @@ describe("E3 HR export workbook", () => {
       "E3_HR_Attendance_2026-08-01_to_2026-08-31.xlsx",
     );
     expect(e3AttendanceExportFilename("2026-08-01", "2026-08-31", "employee")).not.toMatch(/export\.xlsx/i);
+  });
+
+  it("08 Overtime lists only submitted OT claims with approvers and pending flag", () => {
+    const pendingClaim: ExportOtClaim = {
+      staffId: "staff-a",
+      workDate: "2026-08-28",
+      rateType: "weekday",
+      calculatedMinutes: 90,
+      approvedMinutes: null,
+      status: "manager_verified",
+      purpose: "Busy weekend cover",
+      requestedByName: "Ashfaq",
+      siteApproverName: "Mary",
+      employeeCode: "INF-CC-STF01",
+      employeeName: "Ada Lovelace",
+      locationCode: "INF-CC",
+    };
+    const approvedClaim: ExportOtClaim = {
+      staffId: "staff-a",
+      workDate: "2026-08-29",
+      rateType: "weekly_off",
+      calculatedMinutes: 120,
+      approvedMinutes: 120,
+      status: "gm_approved",
+      notes: "Rest day OT",
+      requestedByName: "Ashfaq",
+      siteApproverName: "Mary",
+      hooApproverName: "Rajan",
+      hrApproverName: "Sara",
+      gmApproverName: "GM Name",
+      employeeCode: "INF-CC-STF01",
+      employeeName: "Ada Lovelace",
+      locationCode: "INF-CC",
+    };
+    const draftIgnored: ExportOtClaim = {
+      staffId: "staff-a",
+      workDate: "2026-08-27",
+      rateType: "weekday",
+      calculatedMinutes: 60,
+      approvedMinutes: null,
+      status: "draft",
+    };
+
+    const sheets = buildE3AttendanceHrWorkbookSheets({
+      daily: [
+        day({
+          work_date: "2026-08-28",
+          status: "present",
+          overtime_minutes: 200,
+          worked_minutes: 630,
+          actual_in: "2026-08-28T04:00:00.000Z",
+          actual_out: "2026-08-28T14:30:00.000Z",
+        }),
+        day({
+          id: "r2",
+          work_date: "2026-08-29",
+          status: "weekly_off",
+          overtime_minutes: 180,
+          worked_minutes: 600,
+        }),
+      ],
+      punches: [],
+      unmatched: [],
+      imports: [],
+      otClaims: [pendingClaim, approvedClaim, draftIgnored],
+      dateFrom: "2026-08-28",
+      dateTo: "2026-08-29",
+    });
+
+    const ot = sheets.find((s) => s.name === "08 Overtime")!;
+    const headers = ot.aoa[ot.filterHeaderRow!] as string[];
+    expect(headers).toContain("Requested By");
+    expect(headers).toContain("Site Approver");
+    expect(headers).toContain("Final Approval Pending");
+    expect(headers).toContain("Waiting On");
+
+    const dataRows = ot.aoa.slice(ot.filterHeaderRow! + 1);
+    // Punch-only OT and drafts are excluded — only two submitted claims.
+    expect(dataRows).toHaveLength(2);
+
+    const pendingIdx = headers.indexOf("Final Approval Pending");
+    const waitingIdx = headers.indexOf("Waiting On");
+    const approvedHrsIdx = headers.indexOf("Approved OT Hours");
+    const requestedIdx = headers.indexOf("Requested By");
+    const siteIdx = headers.indexOf("Site Approver");
+    const approversIdx = headers.indexOf("Approvers");
+
+    const pendingRow = dataRows.find((r) => r[waitingIdx] === "HOO")!;
+    expect(pendingRow[pendingIdx]).toBe("Yes");
+    expect(pendingRow[approvedHrsIdx]).toBe(0);
+    expect(pendingRow[requestedIdx]).toBe("Ashfaq");
+    expect(pendingRow[siteIdx]).toBe("Mary");
+
+    const doneRow = dataRows.find((r) => r[pendingIdx] === "No")!;
+    expect(doneRow[approvedHrsIdx]).toBe(2);
+    expect(doneRow[approversIdx]).toBe("Sr. Site: Mary; HOO: Rajan; HR: Sara; GM: GM Name");
+    expect(otExportFinalApprovalPending("manager_verified")).toBe(true);
+    expect(formatOtApproverChain(approvedClaim)).toContain("GM: GM Name");
   });
 });
 
