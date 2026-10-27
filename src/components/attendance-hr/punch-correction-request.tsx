@@ -152,8 +152,8 @@ export function PunchCorrectionRequest({
           </p>
         </div>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
+      <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip sm:grid-cols-2">
+        <div className="min-w-0">
           <Label className="text-xs">Person</Label>
           <SearchableSelect
             className="mt-1"

@@ -297,8 +297,8 @@ export default function HrPayrollPage() {
           </HrPanel>
 
           <HrPanel delay={1}>
-            <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
-              <div>
+            <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+              <div className="min-w-0">
                 <Label htmlFor="hr-payroll-month">{t("hr.payrollRuns.readinessMonth")}</Label>
                 <Input
                   id="hr-payroll-month"
@@ -307,7 +307,7 @@ export default function HrPayrollPage() {
                   onChange={(e) => setPeriod({ month: e.target.value, ...monthBounds(e.target.value) })}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label>{t("hr.payroll.location")}</Label>
                 <Select value={locationId} onValueChange={setLocationId}>
                   <SelectTrigger>

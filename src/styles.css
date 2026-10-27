@@ -280,6 +280,26 @@
   input[type="datetime-local"],
   input[type="month"] {
     color-scheme: light;
+    /* UA styles set a content-based min-width that blows past filter cards ~390px. */
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  input[type="date"]::-webkit-datetime-edit,
+  input[type="time"]::-webkit-datetime-edit,
+  input[type="datetime-local"]::-webkit-datetime-edit,
+  input[type="month"]::-webkit-datetime-edit {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="month"]::-webkit-datetime-edit-fields-wrapper {
+    min-width: 0;
   }
 
   input[type="date"]::-webkit-calendar-picker-indicator,
@@ -288,8 +308,25 @@
   input[type="month"]::-webkit-calendar-picker-indicator {
     width: 1.125rem;
     height: 1.125rem;
+    flex-shrink: 0;
     cursor: pointer;
     opacity: 0.7;
+  }
+
+  /*
+   * Grid items that wrap native date/month controls must shrink. Without this,
+   * an implicit `auto` column sizes to the control's ~480px intrinsic width and
+   * the white field paints past the card border on ~390px phones.
+   * Prefer `grid-cols-1` (minmax(0,1fr)) on filter grids; this covers stragglers.
+   */
+  .grid > :is(
+    :has(> input[type="date"]),
+    :has(> input[type="time"]),
+    :has(> input[type="datetime-local"]),
+    :has(> input[type="month"])
+  ) {
+    min-width: 0;
+    max-width: 100%;
   }
 }
 

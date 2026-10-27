@@ -166,6 +166,35 @@ describe("suppressUnmappedWhenMappedSameDay", () => {
     ];
     expect(suppressUnmappedWhenMappedSameDay(rows)).toEqual(rows);
   });
+
+  it("does not cross-match User ID across sites (Azahar KDS-CC vs another site's 25)", () => {
+    // Listing cannot drop KDS-CC bio:25 just because INF also has mapped bio:25 —
+    // User IDs are site-scoped. Cross-site orphan cleanup lives in process.ts suppress.
+    const rows = [
+      {
+        id: "kds-orphan",
+        staff_id: null,
+        location_id: "kds-cc",
+        work_date: "2026-10-07",
+        biometric_user_id: "25",
+        actual_in: "2026-10-07T15:19:21.000Z",
+        actual_out: null,
+      },
+      {
+        id: "inf-mapped",
+        staff_id: "azahar",
+        location_id: "inf-cc",
+        work_date: "2026-10-07",
+        biometric_user_id: "25",
+        actual_in: "2026-10-07T08:00:00.000Z",
+        actual_out: "2026-10-07T16:00:00.000Z",
+      },
+    ];
+    expect(suppressUnmappedWhenMappedSameDay(rows).map((r) => r.id)).toEqual([
+      "kds-orphan",
+      "inf-mapped",
+    ]);
+  });
 });
 
 describe("suppressAbsentWithoutOnDutyRoster", () => {

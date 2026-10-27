@@ -472,17 +472,42 @@ export function isMappedAttendanceHrRow(row: Pick<AttendanceHrReportRow, "staff_
 }
 
 /**
- * Month grid is a mapped-staff roster. When every matching row is unmapped (common for
- * Status=Unscheduled), fall back to list so KPI totals match visible rows.
+ * Month grid is a mapped-staff roster. Fall back to list when the grid would hide
+ * rows the KPI strip / filters still count:
+ * - Missed punch / Unscheduled / Incomplete drill-downs (force list — unmapped
+ *   device users need the mapping table, not the roster matrix), or
+ * - every match is unmapped, or
+ * - another KPI card mixes mapped + unmapped (e.g. Late with orphan punches).
  */
 export function attendanceHrReportsUseListView(
   viewMode: "grid" | "list",
   mappedRowCount: number,
   listingRowCount: number,
+  options?: boolean | {
+    /** Missed punch / Unscheduled / Incomplete — always list so device rows stay visible. */
+    forceList?: boolean;
+    /** Other KPI cards: list only when unmapped matches would be dropped. */
+    preferListIfUnmappedHidden?: boolean;
+  },
 ): boolean {
-  if (viewMode === "list") return true;
+  // Legacy 4th-arg boolean = preferListIfUnmappedHidden (tests + older call sites).
+  const opts =
+    typeof options === "boolean"
+      ? { preferListIfUnmappedHidden: options }
+      : options ?? {};
+  if (viewMode === "list" || opts.forceList) return true;
+  if (opts.preferListIfUnmappedHidden && listingRowCount > mappedRowCount) return true;
   if (mappedRowCount > 0) return false;
   return listingRowCount > 0;
+}
+
+/** KPI / status filters that must use the list (unmapped device rows + map controls). */
+export function attendanceHrFilterForcesListView(
+  kpiFilter: AttendanceHrKpiFilter | null | undefined,
+  status: string | null | undefined,
+): boolean {
+  if (kpiFilter === "missed_punch" || kpiFilter === "unscheduled") return true;
+  return status === "missed_punch" || status === "unscheduled" || status === "incomplete";
 }
 
 /** Evidence that an exited person still belongs on the attendance listing for that day. */
@@ -734,6 +759,58 @@ export type ListingGapLeaveDay = {
   work_date: string;
   leave_type: string;
 };
+
+/**
+ * staff_id|work_date keys for person-days that touched a site via roster and/or punch.
+ * Used under a location chip so pure other-site-only days (e.g. Katrina UA-DM while
+ * viewing INF-CC) stay out of listing + KPI totals.
+ */
+export function staffDaysTouchingLocation(input: {
+  locationId: string;
+  roster: readonly ListingGapRosterDay[];
+  punchDays?: readonly ListingGapPunchDay[];
+}): Set<string> {
+  const out = new Set<string>();
+  const loc = input.locationId.trim();
+  if (!loc) return out;
+  for (const row of input.roster) {
+    const staffId = String(row.staff_id ?? "").trim();
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !day) continue;
+    if (String(row.location_id ?? "").trim() !== loc) continue;
+    out.add(`${staffId}|${day}`);
+  }
+  for (const row of input.punchDays ?? []) {
+    const staffId = String(row.staff_id ?? "").trim();
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !day) continue;
+    if (String(row.location_id ?? "").trim() !== loc) continue;
+    out.add(`${staffId}|${day}`);
+  }
+  return out;
+}
+
+/**
+ * Site chip: keep same-site summaries, plus other-site sibling rows only when that
+ * staff|day touched the selected location (roster/punch) — preserves journey labels
+ * like UA-DM → INF-CC without importing pure other-site-only days.
+ */
+export function filterAttendanceRowsToLocationTouches(input: {
+  rows: Array<Record<string, unknown>>;
+  locationId: string | null | undefined;
+  touchedStaffDays: ReadonlySet<string>;
+}): Array<Record<string, unknown>> {
+  const loc = input.locationId?.trim() || "";
+  if (!loc) return input.rows;
+  return input.rows.filter((row) => {
+    const rowLoc = String(row.location_id ?? "").trim();
+    if (rowLoc === loc) return true;
+    const staffId = typeof row.staff_id === "string" ? row.staff_id.trim() : "";
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !day) return false;
+    return input.touchedStaffDays.has(`${staffId}|${day}`);
+  });
+}
 
 const LISTING_GAP_LEAVE_STATUSES = new Set([
   "annual_leave",

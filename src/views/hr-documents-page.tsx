@@ -419,9 +419,9 @@ export function HrDocumentsWorkspace({
             </div>
             <div className="hr-intake__body">
             <p className="hr-intake__hint">{t("hr.docs.intakeHint")}</p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip sm:grid-cols-2 lg:grid-cols-5">
               {lockedStaffId ? null : (
-              <div className="lg:col-span-2">
+              <div className="min-w-0 lg:col-span-2">
                 <Label>{t("hr.docs.staff")}</Label>
                 <SearchableSelect
                   value={staffId}

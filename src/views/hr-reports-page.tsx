@@ -185,8 +185,8 @@ export default function HrReportsPage() {
           subtitle={t("hr.reports.subtitle", { range: formatPayrollRange(dateFrom, dateTo, i18n.language) })}
         >
           <HrPanel delay={0}>
-            <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 sm:p-5">
-              <div>
+            <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip p-4 sm:grid-cols-2 lg:grid-cols-4 sm:p-5">
+              <div className="min-w-0">
                 <Label>{t("hr.payroll.month")}</Label>
                 <Input
                   type="month"
@@ -194,7 +194,7 @@ export default function HrReportsPage() {
                   onChange={(e) => setPeriod({ month: e.target.value, ...monthBounds(e.target.value) })}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label>{t("hr.payroll.location")}</Label>
                 <Select value={locationId} onValueChange={setLocationId}>
                   <SelectTrigger>
@@ -210,7 +210,7 @@ export default function HrReportsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label>{t("hr.reports.filters.category")}</Label>
                 <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger>

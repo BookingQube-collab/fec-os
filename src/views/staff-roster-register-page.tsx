@@ -631,8 +631,8 @@ export default function StaffRosterRegisterPage() {
       />
 
       <div className="surface-card space-y-3 p-4 md:space-y-4 md:p-5">
-        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-          <div className="space-y-1.5">
+        <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="roster-view-period">{t("people.roster.stepPeriod")}</Label>
             <SearchableSelect
               value={periodMode}
@@ -645,7 +645,7 @@ export default function StaffRosterRegisterPage() {
             <p className="hidden text-xs text-muted-foreground sm:block">{t("people.roster.periodHelp")}</p>
           </div>
           {periodMode === "week" ? (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="roster-view-week">{t("people.roster.weekStart")}</Label>
               <Input
                 id="roster-view-week"
@@ -656,7 +656,7 @@ export default function StaffRosterRegisterPage() {
               />
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="roster-view-month">{t("people.roster.month")}</Label>
               <Input
                 id="roster-view-month"
@@ -667,7 +667,7 @@ export default function StaffRosterRegisterPage() {
               />
             </div>
           )}
-          <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+          <div className="min-w-0 space-y-1.5 sm:col-span-2 lg:col-span-1">
             <Label className="hidden sm:block">{t("people.roster.viewRangeLabel")}</Label>
             <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2.5 text-sm leading-snug tabular-nums">
               {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}

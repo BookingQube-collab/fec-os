@@ -25,7 +25,7 @@ const SelectTrigger = React.forwardRef<
     className={cn(
       buttonVariants({ variant: "outline" }),
       // Match Input: white field, warm border, soft rect — not cream pill.
-      "min-h-11 w-full justify-between gap-2 rounded-lg px-3.5 py-2.5 font-normal leading-5 data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1 [&_svg]:size-[1.125rem]",
+      "min-h-11 w-full min-w-0 max-w-full justify-between gap-2 rounded-lg px-3.5 py-2.5 font-normal leading-5 data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1 [&_svg]:size-[1.125rem]",
       className,
     )}
     {...props}

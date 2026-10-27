@@ -105,6 +105,8 @@ import {
   computeAttendanceHrReportKpis,
   isAttendanceHrUnmappedSearch,
   suppressRoamingFalseAbsentForRosterElsewhere,
+  staffDaysTouchingLocation,
+  filterAttendanceRowsToLocationTouches,
   type AttendanceHrReportRow,
   type ListingGapLeaveDay,
   type ListingGapPunchDay,
@@ -848,10 +850,10 @@ async function loadAttendanceHrDailyRows(
       });
     }
 
-    // Roaming / multisite: under a site chip pull other-site person-days, then drop
-    // false Absents (home fillers when rostered elsewhere; sibling punch-less ABSENT
-    // from other sites e.g. ABSENT CAR-AP on INF-CC). Under All locations still run
-    // suppress so home KDS fillers do not blank the grid when rostered at INF-CC.
+    // Roaming / multisite: under a site chip pull other-site siblings only for days
+    // that touched this site (roster/punch), then drop false Absents. Pure other-site
+    // days stay out of listing + KPIs. Under All locations still run suppress so home
+    // KDS fillers do not blank the grid when rostered at INF-CC.
     if (staffFilter !== "unmapped") {
       rows = await applyRoamingLocationFilterAdjustments(readContext, {
         rows,
@@ -1140,6 +1142,9 @@ type BiometricMapRow = {
  * Map a device user → staff and restamp ALL matching attendance_logs for that
  * bio (not only null staff_id). Remap previously left wrong stamps in place, so
  * listing/cross-site merge kept collapsing two people onto one row.
+ *
+ * Scope is location + User ID (not device alone): ADMS may land USERINFO on one
+ * terminal while punches arrive on a sibling at the same site.
  * Returns prior staff_ids found on those logs so callers can recalc both sides.
  */
 async function applyStaffToBiometricUser(
@@ -1147,16 +1152,18 @@ async function applyStaffToBiometricUser(
   mapping: BiometricMapRow,
   staff: StaffMapFields,
 ): Promise<{ previousLogStaffIds: string[] }> {
+  const biometricUserId = String(mapping.biometric_user_id ?? "").trim();
   const previousLogStaffIds = new Set<string>();
   {
     let prior = context.supabase
       .from("attendance_logs")
       .select("staff_id")
-      .eq("device_id", mapping.device_id)
-      .eq("biometric_user_id", mapping.biometric_user_id)
+      .eq("biometric_user_id", biometricUserId)
       .not("staff_id", "is", null);
     if (mapping.location_id) prior = prior.eq("location_id", mapping.location_id);
-    else prior = prior.is("location_id", null);
+    else {
+      prior = prior.is("location_id", null).eq("device_id", mapping.device_id);
+    }
     const { data: priorRows, error: priorErr } = await prior.limit(5000);
     if (priorErr) throw priorErr;
     for (const row of priorRows ?? []) {
@@ -1180,15 +1187,35 @@ async function applyStaffToBiometricUser(
     .eq("id", mapping.id);
   if (uErr) throw uErr;
 
+  // Sibling terminals at the same site share User ID — keep their registry rows
+  // in sync so Mapping "Unmapped (0)" matches punch resolution.
+  if (mapping.location_id && biometricUserId) {
+    const { error: siblingErr } = await context.supabase
+      .from("attendance_biometric_users")
+      .update({
+        staff_id: staff.id,
+        employee_code: staff.employee_code,
+        full_name: staff.full_name,
+        department: staff.department,
+        job_title: staff.job_title,
+        employment_status: staff.status,
+        mapped_by: context.userId,
+        mapped_at: new Date().toISOString(),
+      })
+      .eq("location_id", mapping.location_id)
+      .eq("biometric_user_id", biometricUserId)
+      .neq("id", mapping.id);
+    if (siblingErr) throw siblingErr;
+  }
+
   // Always overwrite staff_id for this bio — remap must move punches off the
   // previous person, not only fill nulls from first-time map.
   let logs = context.supabase
     .from("attendance_logs")
     .update({ staff_id: staff.id })
-    .eq("device_id", mapping.device_id)
-    .eq("biometric_user_id", mapping.biometric_user_id);
+    .eq("biometric_user_id", biometricUserId);
   if (mapping.location_id) logs = logs.eq("location_id", mapping.location_id);
-  else logs = logs.is("location_id", null);
+  else logs = logs.is("location_id", null).eq("device_id", mapping.device_id);
   const { error: logErr } = await logs;
   if (logErr) throw logErr;
 
@@ -1531,16 +1558,16 @@ async function clearMappedLogs(
   context: AuthContext,
   mapping: { location_id: unknown; device_id: unknown; biometric_user_id: unknown; staff_id: unknown },
 ): Promise<string[]> {
-  // Clear every log for this bio at the site — not only rows matching the
-  // mapping's current staff_id (stale stamps from an earlier wrong map).
+  // Clear every log for this User ID at the site (sibling terminals included) —
+  // not only rows matching the mapping's current staff_id / device_id.
+  const biometricUserId = String(mapping.biometric_user_id ?? "").trim();
   let prior = context.supabase
     .from("attendance_logs")
     .select("staff_id")
-    .eq("device_id", String(mapping.device_id))
-    .eq("biometric_user_id", String(mapping.biometric_user_id))
+    .eq("biometric_user_id", biometricUserId)
     .not("staff_id", "is", null);
   if (mapping.location_id) prior = prior.eq("location_id", String(mapping.location_id));
-  else prior = prior.is("location_id", null);
+  else prior = prior.is("location_id", null).eq("device_id", String(mapping.device_id));
   const { data: priorRows, error: priorErr } = await prior.limit(5000);
   throwPg(priorErr);
   const clearedStaffIds = [
@@ -1558,10 +1585,9 @@ async function clearMappedLogs(
   let logs = context.supabase
     .from("attendance_logs")
     .update({ staff_id: null })
-    .eq("device_id", String(mapping.device_id))
-    .eq("biometric_user_id", String(mapping.biometric_user_id));
+    .eq("biometric_user_id", biometricUserId);
   if (mapping.location_id) logs = logs.eq("location_id", String(mapping.location_id));
-  else logs = logs.is("location_id", null);
+  else logs = logs.is("location_id", null).eq("device_id", String(mapping.device_id));
   const { error } = await logs;
   throwPg(error);
   return clearedStaffIds;
@@ -3782,9 +3808,11 @@ async function enrichAttendanceHrDailyRows(
 /** Roster + mapped punch days for listing gap fill (summary-only days otherwise vanish). */
 /**
  * Roaming / multisite listing cleanup:
- * - Site chip: include punched/rostered person-days at other sites, suppress false
- *   ABSENT at this site when rostered only elsewhere, drop sibling punch-less
- *   ABSENT from other sites (ABSENT CAR-AP must not show on INF-CC).
+ * - Site chip: pull other-site siblings only for person-days that touched this
+ *   site (roster and/or punch here) so journey labels like UA-DM → INF-CC still
+ *   work; drop pure other-site-only days (Katrina UA-DM under INF-CC). Also
+ *   suppress false ABSENT at this site when rostered only elsewhere / sibling
+ *   punch-less ABSENT from other sites (ABSENT CAR-AP must not show on INF-CC).
  * - All locations: still suppress home fillers / convert week-off so move-site
  *   Present/Absent/Off remain visible (Ma luz KDS home + INF-CC roster).
  */
@@ -3829,45 +3857,8 @@ async function applyRoamingLocationFilterAdjustments(
   const crossIds = [...crossSiteStaffIds];
   let rows = [...opts.rows];
 
-  // Sibling merge only under a site chip — All locations already has every site's rows.
-  if (opts.locationId && crossIds.length) {
-    const seenIds = new Set(opts.rows.map((r) => String(r.id ?? "")));
-    const siblingPages = await Promise.all(
-      chunkStaffIds(crossIds).map((chunk) =>
-        collectPagedRowsInWaves(async (from, to) => {
-          let q = context.supabase
-            .from("attendance_daily_summary")
-            .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-            .in("staff_id", chunk)
-            .gte("work_date", opts.dateFrom)
-            .lte("work_date", opts.dateTo)
-            .order("work_date", { ascending: false })
-            .order("id", { ascending: false })
-            .range(from, to);
-          if (opts.status) q = q.eq("status", opts.status);
-          const { data: page, error } = await q;
-          if (error) throw error;
-          return (page ?? []) as Array<Record<string, unknown>>;
-        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
-      ),
-    );
-
-    for (const row of siblingPages.flat()) {
-      const id = String(row.id ?? "");
-      if (id && seenIds.has(id)) continue;
-      const staffId = String(row.staff_id ?? "");
-      const day = String(row.work_date ?? "").slice(0, 10);
-      const loc = String(row.location_id ?? "");
-      if (!staffId || !day || !crossSiteStaffIds.has(staffId)) continue;
-      // Other-site person-days only — same-site rows are already in `opts.rows`.
-      if (!loc || loc === opts.locationId) continue;
-      if (id) seenIds.add(id);
-      rows.push(row);
-    }
-  }
-
-  // Roster for every listed person — needed to drop unrostered Absents (Ruben)
-  // and to suppress roaming false Absents.
+  // Roster for every listed person — needed for touch-days, false-Absent suppress,
+  // and dropping unrostered Absents (Ruben).
   const rosterStaffIds = [...new Set([...staffIds, ...crossIds])];
   const rosterPages = await Promise.all(
     chunkStaffIds(rosterStaffIds).map((chunk) =>
@@ -3903,6 +3894,89 @@ async function applyRoamingLocationFilterAdjustments(
     });
   }
 
+  // Punches at the selected site — journey days may only have a summary at the
+  // first-punch site while still needing that other-site row under this chip.
+  const punchDaysAtSelected: ListingGapPunchDay[] = [];
+  if (opts.locationId && rosterStaffIds.length) {
+    const punchSeen = new Set<string>();
+    const punchPages = await Promise.all(
+      chunkStaffIds(rosterStaffIds).map((chunk) =>
+        collectPagedRowsInWaves(async (from, to) => {
+          const { data: page, error } = await context.supabase
+            .from("attendance_logs")
+            .select("staff_id, location_id, attendance_date")
+            .in("staff_id", chunk)
+            .eq("location_id", opts.locationId!)
+            .gte("attendance_date", opts.dateFrom)
+            .lte("attendance_date", opts.dateTo)
+            .order("staff_id", { ascending: true })
+            .order("attendance_date", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return page ?? [];
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+      ),
+    );
+    for (const row of punchPages.flat()) {
+      const staffId = String(row.staff_id ?? "");
+      const loc = String(row.location_id ?? "");
+      const day = String(row.attendance_date ?? "").slice(0, 10);
+      if (!staffId || !loc || !day) continue;
+      const key = `${staffId}|${loc}|${day}`;
+      if (punchSeen.has(key)) continue;
+      punchSeen.add(key);
+      punchDaysAtSelected.push({ staff_id: staffId, location_id: loc, work_date: day });
+    }
+  }
+
+  const touchedStaffDays = opts.locationId
+    ? staffDaysTouchingLocation({
+        locationId: opts.locationId,
+        roster,
+        punchDays: punchDaysAtSelected,
+      })
+    : new Set<string>();
+
+  // Sibling merge only under a site chip — All locations already has every site's rows.
+  // Strict: only pull other-site siblings for days that touched this site.
+  if (opts.locationId && crossIds.length) {
+    const seenIds = new Set(opts.rows.map((r) => String(r.id ?? "")));
+    const siblingPages = await Promise.all(
+      chunkStaffIds(crossIds).map((chunk) =>
+        collectPagedRowsInWaves(async (from, to) => {
+          let q = context.supabase
+            .from("attendance_daily_summary")
+            .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+            .in("staff_id", chunk)
+            .gte("work_date", opts.dateFrom)
+            .lte("work_date", opts.dateTo)
+            .order("work_date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to);
+          if (opts.status) q = q.eq("status", opts.status);
+          const { data: page, error } = await q;
+          if (error) throw error;
+          return (page ?? []) as Array<Record<string, unknown>>;
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+      ),
+    );
+
+    for (const row of siblingPages.flat()) {
+      const id = String(row.id ?? "");
+      if (id && seenIds.has(id)) continue;
+      const staffId = String(row.staff_id ?? "");
+      const day = String(row.work_date ?? "").slice(0, 10);
+      const loc = String(row.location_id ?? "");
+      if (!staffId || !day || !crossSiteStaffIds.has(staffId)) continue;
+      // Other-site person-days only — same-site rows are already in `opts.rows`.
+      if (!loc || loc === opts.locationId) continue;
+      if (!touchedStaffDays.has(`${staffId}|${day}`)) continue;
+      if (id) seenIds.add(id);
+      rows.push(row);
+    }
+  }
+
   if (crossSiteStaffIds.size) {
     rows = suppressRoamingFalseAbsentForRosterElsewhere({
       rows,
@@ -3917,7 +3991,18 @@ async function applyRoamingLocationFilterAdjustments(
   }
 
   // Unrostered staff must never show Absent (Ruben Yaralyan ABSENT INF-CC).
-  return suppressAbsentWithoutOnDutyRoster({ rows, roster });
+  rows = suppressAbsentWithoutOnDutyRoster({ rows, roster });
+
+  // Site chip KPIs/staff: same strict day set (no pure other-site-only leftovers
+  // from flex pull or pre-suppress home fillers that survived as Present elsewhere).
+  if (opts.locationId) {
+    rows = filterAttendanceRowsToLocationTouches({
+      rows,
+      locationId: opts.locationId,
+      touchedStaffDays,
+    });
+  }
+  return rows;
 }
 
 async function loadListingGapRosterAndPunchDays(

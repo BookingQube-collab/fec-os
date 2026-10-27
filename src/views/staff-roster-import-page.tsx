@@ -383,8 +383,8 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
         <p className="text-xs text-muted-foreground">{t("people.roster.keepCsv")}</p>
         <p className="text-xs text-muted-foreground">{t("people.roster.matchHint")}</p>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="space-y-1.5">
+        <div className="grid min-w-0 grid-cols-1 gap-4 overflow-x-clip sm:grid-cols-2 lg:grid-cols-3">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="roster-import-period">{t("people.roster.stepPeriod")}</Label>
             <SearchableSelect
               id="roster-import-period"
@@ -693,8 +693,8 @@ function EmbeddedMonthlyRoster({
         <p className="max-w-2xl text-sm text-muted-foreground">{t("people.roster.reviewHere")}</p>
       </div>
       <div className="hr-panel min-w-0 space-y-4 p-4 sm:p-5">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="space-y-1.5">
+        <div className="grid min-w-0 grid-cols-1 gap-4 overflow-x-clip sm:grid-cols-2 lg:grid-cols-3">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="roster-embed-period">{t("people.roster.stepPeriod")}</Label>
             <SearchableSelect
               id="roster-embed-period"

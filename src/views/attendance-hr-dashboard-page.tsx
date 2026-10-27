@@ -240,23 +240,23 @@ function AttendanceHrDashboardBody() {
       />
       <AttendanceHrNav />
       <AttendanceHrSitesHint />
-      <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/70 bg-card/40 p-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="space-y-1.5">
+      <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip rounded-xl border border-border/70 bg-card/40 p-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="attendance-hr-dashboard-month">{t("attendanceHr.dashboard.month")}</Label>
           <Input
             id="attendance-hr-dashboard-month"
             type="month"
-            className="min-h-10 w-full"
+            className="min-h-10 w-full min-w-0"
             value={month}
             onChange={(e) => applyMonth(e.target.value)}
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="attendance-hr-dashboard-from">{t("attendanceHr.dashboard.from")}</Label>
           <Input
             id="attendance-hr-dashboard-from"
             type="date"
-            className="min-h-10 w-full"
+            className="min-h-10 w-full min-w-0"
             value={dateFrom}
             onChange={(e) =>
               setPeriod((p) => ({
@@ -267,12 +267,12 @@ function AttendanceHrDashboardBody() {
             }
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="attendance-hr-dashboard-to">{t("attendanceHr.dashboard.to")}</Label>
           <Input
             id="attendance-hr-dashboard-to"
             type="date"
-            className="min-h-10 w-full"
+            className="min-h-10 w-full min-w-0"
             value={dateTo}
             onChange={(e) =>
               setPeriod((p) => ({

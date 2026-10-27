@@ -1297,8 +1297,8 @@ export default function HrOtPage() {
               ))}
             </div>
 
-            <div className="grid gap-3 rounded-lg border border-[var(--hr-border)] bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-6">
-              <div className="lg:col-span-2">
+            <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip rounded-lg border border-[var(--hr-border)] bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-6">
+              <div className="min-w-0 lg:col-span-2">
                 <Label htmlFor="ot-claim-search">{t("hr.ot.filterSearch")}</Label>
                 <Input
                   id="ot-claim-search"
@@ -1307,7 +1307,7 @@ export default function HrOtPage() {
                   placeholder={t("hr.ot.filterSearchPlaceholder")}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label htmlFor="ot-date-from">{t("hr.ot.filterDateFrom")}</Label>
                 <Input
                   id="ot-date-from"
@@ -1316,7 +1316,7 @@ export default function HrOtPage() {
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label htmlFor="ot-date-to">{t("hr.ot.filterDateTo")}</Label>
                 <Input
                   id="ot-date-to"
@@ -1325,7 +1325,7 @@ export default function HrOtPage() {
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label htmlFor="ot-filter-dept">{t("hr.ot.department")}</Label>
                 <SearchableSelect
                   id="ot-filter-dept"

@@ -223,8 +223,8 @@ export default function AttendanceHrRosterPage() {
         <p className="text-sm text-muted-foreground">{t("attendanceHr.roster.columnsHelp")}</p>
         <p className="text-xs text-muted-foreground">{t("attendanceHr.roster.replaceHelp")}</p>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="space-y-1.5">
+        <div className="grid min-w-0 grid-cols-1 gap-4 overflow-x-clip sm:grid-cols-2 lg:grid-cols-4">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-roster-mode">{t("attendanceHr.roster.mode")}</Label>
             <SearchableSelect
               id="attendance-roster-mode"
@@ -240,7 +240,7 @@ export default function AttendanceHrRosterPage() {
             />
           </div>
           {periodMode === "week" ? (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="attendance-roster-week">{t("attendanceHr.roster.weekStart")}</Label>
               <Input
                 id="attendance-roster-week"
@@ -256,7 +256,7 @@ export default function AttendanceHrRosterPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="attendance-roster-month">{t("attendanceHr.roster.month")}</Label>
               <Input
                 id="attendance-roster-month"
@@ -272,7 +272,7 @@ export default function AttendanceHrRosterPage() {
               </p>
             </div>
           )}
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-roster-location">{t("attendanceHr.roster.location")}</Label>
             <SearchableSelect
               id="attendance-roster-location"

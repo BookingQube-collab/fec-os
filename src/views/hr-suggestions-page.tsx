@@ -160,8 +160,8 @@ export default function HrSuggestionsPage() {
           subtitle={t("hr.suggestions.subtitle")}
         >
           <HrPanel delay={0}>
-            <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-6">
-              <div className="sm:col-span-2 xl:col-span-2">
+            <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="min-w-0 sm:col-span-2 xl:col-span-2">
                 <Label htmlFor="suggestion-search">{t("hr.suggestions.filterSearch")}</Label>
                 <FecSearch
                   id="suggestion-search"

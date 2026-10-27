@@ -765,6 +765,12 @@ export async function recalculateAttendanceRange(
   const summaryDeletes: Array<{ location_id: string; staff_id: string; work_date: string }> = [];
   /** Flexible days written at the anchor: wipe every other site's summary for that person-day. */
   const flexibleKeepOnly: Array<{ staff_id: string; work_date: string; keep_location_id: string }> = [];
+  /**
+   * Unmapped bio: daily rows left behind when punches merge to a staff: row at another
+   * site (Azahar KDS-CC UNMAPPED beside a Present/short_hours day at UA/INF).
+   * Suppress / keep-only used to delete only staff_id rows and orphan the bio: summary.
+   */
+  const unmappedBioDeletes: Array<{ location_id: string; work_date: string; biometric_user_id: string }> = [];
 
   function queueSummaryDelete(locId: string, staffId: string, workDate: string) {
     summaryDeletes.push({ location_id: locId, staff_id: staffId, work_date: workDate });
@@ -776,6 +782,35 @@ export async function recalculateAttendanceRange(
       work_date: workDate,
       keep_location_id: keepLocationId,
     });
+  }
+
+  function queueUnmappedBioDelete(
+    locId: string,
+    workDate: string,
+    biometricUserId: string | null | undefined,
+  ) {
+    const bio = String(biometricUserId ?? "").trim();
+    const day = String(workDate ?? "").slice(0, 10);
+    const loc = String(locId ?? "").trim();
+    if (!bio || !day || !loc) return;
+    unmappedBioDeletes.push({ location_id: loc, work_date: day, biometric_user_id: bio });
+  }
+
+  function queueUnmappedBioDeletesForPunches(
+    workDate: string,
+    punches: Array<{ locationId?: string | null; biometric_user_id?: string | null; biometricUserId?: string | null }>,
+    opts?: { onlyLocationId?: string | null; excludeLocationId?: string | null },
+  ) {
+    for (const p of punches) {
+      const punchLoc = String(p.locationId ?? "").trim() || locationId;
+      if (opts?.onlyLocationId && punchLoc !== opts.onlyLocationId) continue;
+      if (opts?.excludeLocationId && punchLoc === opts.excludeLocationId) continue;
+      queueUnmappedBioDelete(
+        punchLoc,
+        workDate,
+        p.biometric_user_id ?? p.biometricUserId ?? null,
+      );
+    }
   }
 
   let coveragePeriods: Array<{ start: string; end: string }> = [];
@@ -965,17 +1000,15 @@ export async function recalculateAttendanceRange(
             .eq("id", String(row.id));
           if (mapUpdateErr) throw mapUpdateErr;
 
-          const deviceId = row.device_id ? String(row.device_id) : "";
-          if (deviceId) {
-            const { error: logUpdateErr } = await supabase
-              .from("attendance_logs")
-              .update({ staff_id: suggested })
-              .eq("location_id", locationId)
-              .eq("device_id", deviceId)
-              .eq("biometric_user_id", uid)
-              .is("staff_id", null);
-            if (logUpdateErr) throw logUpdateErr;
-          }
+          // Site + User ID — sibling terminals may hold the punches while USERINFO
+          // landed on this registry row's device_id.
+          const { error: logUpdateErr } = await supabase
+            .from("attendance_logs")
+            .update({ staff_id: suggested })
+            .eq("location_id", locationId)
+            .eq("biometric_user_id", uid)
+            .is("staff_id", null);
+          if (logUpdateErr) throw logUpdateErr;
         }
       }
     }
@@ -1097,6 +1130,14 @@ export async function recalculateAttendanceRange(
       const action = flexibleDayRecalcAction({ locationId, punchesAcrossSites: across });
       if (action === "suppress") {
         queueSummaryDelete(locationId, staffId, workDate);
+        // Local punches may still sit under a stale bio: summary from before map.
+        queueUnmappedBioDeletesForPunches(
+          workDate,
+          punches.map((p) => ({
+            locationId,
+            biometric_user_id: (p.biometric_user_id as string | null) ?? null,
+          })),
+        );
         continue;
       }
       if (action === "write_merged") {
@@ -1114,6 +1155,10 @@ export async function recalculateAttendanceRange(
         // Wipe roster ABSENT fillers at other work sites too — not only punch sites.
         if (crossSiteStaffIdSet.has(staffId) || crossPunches.some((p) => p.locationId !== locationId)) {
           queueFlexibleKeepOnly(staffId, workDate, locationId);
+          // Sibling-site bio: orphans (pre-map unmapped days) must go with staff: keepers.
+          queueUnmappedBioDeletesForPunches(workDate, crossPunches, {
+            excludeLocationId: locationId,
+          });
         }
       }
     }
@@ -1279,6 +1324,9 @@ export async function recalculateAttendanceRange(
     });
     processed += 1;
     queueFlexibleKeepOnly(staffId, workDate, locationId);
+    queueUnmappedBioDeletesForPunches(workDate, crossPunches, {
+      excludeLocationId: locationId,
+    });
   }
 
   let workStaffIds: string[] = [];
@@ -1326,6 +1374,9 @@ export async function recalculateAttendanceRange(
       if (staffId && workDate) {
         covered.add(crossKey);
         queueSummaryDelete(locationId, staffId, workDate);
+        queueUnmappedBioDeletesForPunches(workDate, crossPunches, {
+          onlyLocationId: locationId,
+        });
       }
     } else if (
       crossSiteAnchorNeedsSummaryWrite({
@@ -1495,6 +1546,7 @@ export async function recalculateAttendanceRange(
           writeMergedSummaryFromCross(staffId, workDate, cross);
         } else if (flexibleDayRecalcAction({ locationId, punchesAcrossSites: cross }) === "suppress") {
           queueSummaryDelete(locationId, staffId, workDate);
+          queueUnmappedBioDeletesForPunches(workDate, cross, { onlyLocationId: locationId });
         }
         covered.add(`${staffId}|${workDate}`);
         continue;
@@ -1715,7 +1767,8 @@ export async function recalculateAttendanceRange(
   }
 
   // Drop stale unmapped bio: rows once a mapped staff: summary exists for the same
-  // location + day + biometric user (Fahadah orphan beside Fahadha mohamed nur).
+  // location + day + biometric user (Fahadah orphan beside Fahadha mohamed nur),
+  // and when cross-site suppress/keep-only queued sibling-site bio: orphans (Azahar).
   const orphanBioDeletes = new Map<string, { location_id: string; work_date: string; biometric_user_id: string }>();
   for (const row of mapped) {
     const bio = row.biometric_user_id == null ? "" : String(row.biometric_user_id).trim();
@@ -1727,6 +1780,10 @@ export async function recalculateAttendanceRange(
       work_date: day,
       biometric_user_id: bio,
     });
+  }
+  for (const row of unmappedBioDeletes) {
+    const key = `${row.location_id}|${row.work_date}|${row.biometric_user_id}`;
+    if (!orphanBioDeletes.has(key)) orphanBioDeletes.set(key, row);
   }
   const orphanList = [...orphanBioDeletes.values()];
   for (let i = 0; i < orphanList.length; i += 40) {

@@ -88,8 +88,11 @@ import {
   appendMissingRosterAndPunchSummaryRows,
   collapseFlexibleAttendanceReportRows,
   computeAttendanceHrReportKpis,
+  attendanceHrFilterForcesListView,
   attendanceHrReportsUseListView,
+  filterAttendanceRowsToLocationTouches,
   formatAttendanceHrLocation,
+  staffDaysTouchingLocation,
   suppressRoamingFalseAbsentForRosterElsewhere,
   type AttendanceHrReportRow,
 } from "./report";
@@ -1035,8 +1038,137 @@ describe("HR report row helpers", () => {
     ).toBe(true);
   });
 
+  it("strict site chip: drops pure other-site days; keeps journey siblings that touched the site", () => {
+    // Katrina: UA-DM-only Present must not inflate INF-CC Staff/Records/Present.
+    // Russell: UA→INF journey day still keeps the UA sibling under INF-CC.
+    const touched = staffDaysTouchingLocation({
+      locationId: "inf-cc",
+      roster: [
+        { staff_id: "russell", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
+        { staff_id: "katrina", location_id: "ua-dm", work_date: "2026-10-05", is_week_off: false },
+        { staff_id: "angie", location_id: "inf-cc", work_date: "2026-10-06", is_week_off: false },
+      ],
+      punchDays: [
+        { staff_id: "russell", location_id: "inf-cc", work_date: "2026-10-05" },
+        { staff_id: "russell", location_id: "ua-dm", work_date: "2026-10-05" },
+        { staff_id: "katrina", location_id: "ua-dm", work_date: "2026-10-05" },
+        // Punch-only journey (no INF roster) still counts as a touch.
+        { staff_id: "louie", location_id: "inf-cc", work_date: "2026-10-07" },
+        { staff_id: "louie", location_id: "ua-dm", work_date: "2026-10-07" },
+      ],
+    });
+    expect([...touched].sort()).toEqual([
+      "angie|2026-10-06",
+      "louie|2026-10-07",
+      "russell|2026-10-05",
+    ]);
+
+    const rows = [
+      {
+        id: "katrina-ua",
+        staff_id: "katrina",
+        location_id: "ua-dm",
+        work_date: "2026-10-05",
+        status: "present",
+        punch_count: 2,
+      },
+      {
+        id: "russell-ua",
+        staff_id: "russell",
+        location_id: "ua-dm",
+        work_date: "2026-10-05",
+        status: "present",
+        punch_count: 1,
+      },
+      {
+        id: "russell-inf",
+        staff_id: "russell",
+        location_id: "inf-cc",
+        work_date: "2026-10-05",
+        status: "present",
+        punch_count: 1,
+      },
+      {
+        id: "angie-inf-absent",
+        staff_id: "angie",
+        location_id: "inf-cc",
+        work_date: "2026-10-06",
+        status: "absent",
+        punch_count: 0,
+      },
+      {
+        id: "louie-ua",
+        staff_id: "louie",
+        location_id: "ua-dm",
+        work_date: "2026-10-07",
+        status: "late",
+        punch_count: 2,
+      },
+      // Stale home filler already suppressed would not appear; if it did, same-site stays
+      // until suppress — filter still keeps same-site rows for leave/true Absent.
+      {
+        id: "leave-inf",
+        staff_id: "sara",
+        location_id: "inf-cc",
+        work_date: "2026-10-08",
+        status: "annual_leave",
+        punch_count: 0,
+      },
+    ];
+    const filtered = filterAttendanceRowsToLocationTouches({
+      rows,
+      locationId: "inf-cc",
+      touchedStaffDays: touched,
+    });
+    expect(filtered.map((r) => r.id).sort()).toEqual([
+      "angie-inf-absent",
+      "leave-inf",
+      "louie-ua",
+      "russell-inf",
+      "russell-ua",
+    ]);
+    expect(filtered.some((r) => r.id === "katrina-ua")).toBe(false);
+
+    // KPIs use the same filtered day set (Staff excludes Katrina).
+    const kpis = computeAttendanceHrReportKpis(
+      filtered.map((r) => ({
+        ...(r as AttendanceHrReportRow),
+        biometric_user_id: null,
+        actual_in: r.id === "angie-inf-absent" || r.id === "leave-inf" ? null : "2026-10-05T05:00:00.000Z",
+        actual_out: r.id === "angie-inf-absent" || r.id === "leave-inf" ? null : "2026-10-05T14:00:00.000Z",
+        late_minutes: 0,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: false,
+        worked_minutes: r.id === "angie-inf-absent" || r.id === "leave-inf" ? 0 : 540,
+        employment_type: "permanent",
+        staff_name: String(r.staff_id),
+        employee_code: null,
+        qid: null,
+        location_code: String(r.location_id).toUpperCase(),
+        location_name: null,
+        location_region: null,
+      })),
+    );
+    expect(kpis.uniqueStaff).toBe(4); // russell, angie, louie, sara — not katrina
+    expect(kpis.total).toBe(5);
+
+    // All locations: filter is a no-op.
+    expect(
+      filterAttendanceRowsToLocationTouches({
+        rows,
+        locationId: null,
+        touchedStaffDays: touched,
+      }),
+    ).toEqual(rows);
+  });
+
   it("suppresses false ABSENT for roaming staff rostered on duty elsewhere", () => {
     const cross = new Set(["russell", "angie"]);
+    const roster = [
+      { staff_id: "russell", location_id: "ua-dm", work_date: "2026-10-05", is_week_off: false },
+      { staff_id: "angie", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
+    ];
     const rows = [
       {
         id: "home-absent",
@@ -1069,16 +1201,21 @@ describe("HR report row helpers", () => {
         punch_count: 0,
       },
     ];
-    const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
+    const suppressed = suppressRoamingFalseAbsentForRosterElsewhere({
       rows,
-      roster: [
-        { staff_id: "russell", location_id: "ua-dm", work_date: "2026-10-05", is_week_off: false },
-        { staff_id: "angie", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
-      ],
+      roster,
       crossSiteStaffIds: cross,
       locationId: "inf-cc",
     });
-    expect(filtered.map((r) => r.id)).toEqual(["ua-present", "true-absent"]);
+    // Suppress drops the INF home filler but still leaves the UA Present sibling.
+    expect(suppressed.map((r) => r.id)).toEqual(["ua-present", "true-absent"]);
+    // Strict site chip then drops Russell's UA-only day (no INF roster/punch that day).
+    const filtered = filterAttendanceRowsToLocationTouches({
+      rows: suppressed,
+      locationId: "inf-cc",
+      touchedStaffDays: staffDaysTouchingLocation({ locationId: "inf-cc", roster }),
+    });
+    expect(filtered.map((r) => r.id)).toEqual(["true-absent"]);
   });
 
   it("drops ABSENT CAR-AP under INF-CC filter when Mani/Maanaliza are rostered on duty at CAR-AP", () => {
@@ -1265,16 +1402,17 @@ describe("HR report row helpers", () => {
         punch_count: 0,
       },
     ];
+    const roster = [
+      { staff_id: "mani", location_id: "car-ap", work_date: "2026-10-05", is_week_off: true },
+      // Conflicting on-duty sibling at home — rest still wins over ABSENT.
+      { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
+      { staff_id: "maluz", location_id: "kds-cc", work_date: "2026-10-15", is_week_off: true },
+      // No rest on Oct 6 — true ABSENT stays.
+      { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-06", is_week_off: false },
+    ];
     const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
       rows,
-      roster: [
-        { staff_id: "mani", location_id: "car-ap", work_date: "2026-10-05", is_week_off: true },
-        // Conflicting on-duty sibling at home — rest still wins over ABSENT.
-        { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
-        { staff_id: "maluz", location_id: "kds-cc", work_date: "2026-10-15", is_week_off: true },
-        // No rest on Oct 6 — true ABSENT stays.
-        { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-06", is_week_off: false },
-      ],
+      roster,
       crossSiteStaffIds: cross,
       locationId: "inf-cc",
     });
@@ -1290,6 +1428,14 @@ describe("HR report row helpers", () => {
     expect(filtered.find((r) => r.id === "kds-absent")?.status).toBe("weekly_off");
     expect(filtered.find((r) => r.id === "true-absent")?.status).toBe("absent");
     expect(filtered.find((r) => r.id === "car-off")?.status).toBe("weekly_off");
+    // Strict INF-CC chip: Mani's CAR Off stays (day also rostered at INF); Ma Luz
+    // KDS-only Off does not belong under Inflatapark.
+    const strict = filterAttendanceRowsToLocationTouches({
+      rows: filtered,
+      locationId: "inf-cc",
+      touchedStaffDays: staffDaysTouchingLocation({ locationId: "inf-cc", roster }),
+    });
+    expect(strict.map((r) => r.id).sort()).toEqual(["car-off", "inf-absent", "true-absent"]);
   });
 
   it("All locations Ma luz: home KDS filler dropped; INF Present/Absent/Off stay visible", () => {
@@ -1839,6 +1985,27 @@ describe("HR report row helpers", () => {
     expect(attendanceHrReportsUseListView("grid", 12, 201)).toBe(false);
     expect(attendanceHrReportsUseListView("list", 0, 201)).toBe(true);
     expect(attendanceHrReportsUseListView("grid", 0, 0)).toBe(false);
+  });
+
+  it("falls back to list on KPI drill-down when some matches are unmapped", () => {
+    // Missed punch 5 = 2 mapped (Zaryab) + 3 unmapped device users — grid would show only 2.
+    expect(attendanceHrReportsUseListView("grid", 2, 5, true)).toBe(true);
+    expect(attendanceHrReportsUseListView("grid", 5, 5, true)).toBe(false);
+    expect(attendanceHrReportsUseListView("grid", 2, 5, false)).toBe(false);
+    expect(
+      attendanceHrReportsUseListView("grid", 2, 5, { preferListIfUnmappedHidden: true }),
+    ).toBe(true);
+  });
+
+  it("forces list for Missed punch / Unscheduled even when all rows are mapped", () => {
+    expect(attendanceHrFilterForcesListView("missed_punch", null)).toBe(true);
+    expect(attendanceHrFilterForcesListView("unscheduled", null)).toBe(true);
+    expect(attendanceHrFilterForcesListView("late", null)).toBe(false);
+    expect(attendanceHrFilterForcesListView(null, "missed_punch")).toBe(true);
+    expect(attendanceHrFilterForcesListView(null, "present")).toBe(false);
+    // forceList wins over grid preference so unmapped device rows cannot hide.
+    expect(attendanceHrReportsUseListView("grid", 5, 5, { forceList: true })).toBe(true);
+    expect(attendanceHrReportsUseListView("grid", 2, 5, { forceList: true })).toBe(true);
   });
 
   it("counts late from late minutes even when status is present", () => {

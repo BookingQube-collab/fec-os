@@ -58,8 +58,8 @@ export function MissedPunchApprovedHistoryFilters({
         ) : null}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <div className="space-y-1 sm:col-span-2 lg:col-span-1 xl:col-span-2">
+      <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="min-w-0 space-y-1 sm:col-span-2 lg:col-span-1 xl:col-span-2">
           <Label className="text-xs" htmlFor="approved-history-search">
             {t("hr.me.approvedHistory.staffSearch")}
           </Label>
@@ -72,7 +72,7 @@ export function MissedPunchApprovedHistoryFilters({
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label className="text-xs" htmlFor="approved-history-from">
             {t("hr.me.approvedHistory.dateFrom")}
           </Label>
@@ -85,7 +85,7 @@ export function MissedPunchApprovedHistoryFilters({
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label className="text-xs" htmlFor="approved-history-to">
             {t("hr.me.approvedHistory.dateTo")}
           </Label>
@@ -98,7 +98,7 @@ export function MissedPunchApprovedHistoryFilters({
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label className="text-xs">{t("common.site")}</Label>
           <Select
             value={filters.locationId || ALL}

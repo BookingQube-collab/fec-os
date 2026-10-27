@@ -86,6 +86,7 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import type { AttendanceListingSource } from "@/lib/attendance-display";
 import {
+  attendanceHrFilterForcesListView,
   attendanceHrReportsUseListView,
   attendanceHrToListingSource,
   attendanceHrRowMatchesKpiFilter,
@@ -170,8 +171,11 @@ export default function AttendanceHrReportsPage() {
   }, []);
   const onStatusChange = useCallback((value: string) => {
     startTransition(() => {
-      setStatus(value === "all" ? "" : value);
+      const next = value === "all" ? "" : value;
+      setStatus(next);
       setKpiFilter(null);
+      // Missed punch / Unscheduled need the list so unmapped device rows stay visible.
+      if (attendanceHrFilterForcesListView(null, next)) setViewMode("list");
     });
   }, []);
   const onLocationChip = useCallback(
@@ -281,7 +285,7 @@ export default function AttendanceHrReportsPage() {
         departments: showOrgDepartments.map((key) => t(`common.orgDepartment.${key}`)).join(", "),
       })
     : "";
-  // Location scope (incl. roaming sibling person-days) is applied in getAttendanceHrDaily.
+  // Location scope (strict site touches + journey siblings) is applied in getAttendanceHrDaily.
   const rows = useMemo(() => {
     const base = (q.data ?? []) as AttendanceHrReportRow[];
     if (!showOrgDepartments.length) return base;
@@ -309,12 +313,17 @@ export default function AttendanceHrReportsPage() {
         .map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
     [tableRows, t],
   );
-  // Status=Unscheduled is often 100% unmapped (Staff KPI 0). Grid would show the import-empty
-  // shell while KPIs still count those rows — fall back to list so table matches the strip.
+  // Missed punch / Unscheduled: always list (grid drops unmapped device users). Other KPI
+  // cards fall back to list only when the matrix would hide counted unmapped matches.
+  const forceListForFilter = attendanceHrFilterForcesListView(kpiFilter, status);
+  const preferListIfUnmappedHidden = Boolean(
+    kpiFilter && kpiFilter !== "total" && kpiFilter !== "staff" && !forceListForFilter,
+  );
   const showListView = attendanceHrReportsUseListView(
     viewMode,
     gridListingRows.length,
     listingRows.length,
+    { forceList: forceListForFilter, preferListIfUnmappedHidden },
   );
   const mapStaffOptions = useMemo((): AttendanceMapStaffOption[] => {
     if (!canMapUsers) return [];
@@ -555,13 +564,13 @@ export default function AttendanceHrReportsPage() {
           </Button>
         </div>
 
-        <div className="hidden gap-3 md:grid md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          <div className="space-y-1.5">
+        <div className="hidden min-w-0 gap-3 overflow-x-clip md:grid md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-hr-month">{t("attendanceHr.reports.month")}</Label>
             <Input
               id="attendance-hr-month"
               type="month"
-              className="min-h-10 w-full"
+              className="min-h-10 w-full min-w-0"
               value={month}
               onChange={(e) => {
                 const ym = e.target.value;
@@ -570,12 +579,12 @@ export default function AttendanceHrReportsPage() {
               }}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-hr-from">{t("attendanceHr.reports.from")}</Label>
             <Input
               id="attendance-hr-from"
               type="date"
-              className="min-h-10 w-full"
+              className="min-h-10 w-full min-w-0"
               value={from}
               onChange={(e) =>
                 setPeriod((p) => ({
@@ -586,12 +595,12 @@ export default function AttendanceHrReportsPage() {
               }
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-hr-to">{t("attendanceHr.reports.to")}</Label>
             <Input
               id="attendance-hr-to"
               type="date"
-              className="min-h-10 w-full"
+              className="min-h-10 w-full min-w-0"
               value={to}
               onChange={(e) =>
                 setPeriod((p) => ({
@@ -602,11 +611,11 @@ export default function AttendanceHrReportsPage() {
               }
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label>{t("attendanceHr.import.dateRange")}</Label>
             <p className="py-2 text-sm font-medium tabular-nums">{formatPayrollRange(from, to, i18n.language)}</p>
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label>{t("attendanceHr.reports.status")}</Label>
             <Select value={status || "all"} onValueChange={onStatusChange}>
               <SelectTrigger className="min-h-10 w-full" aria-label={t("attendanceHr.reports.status")}>
@@ -622,7 +631,7 @@ export default function AttendanceHrReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label>{t("attendanceHr.reports.department")}</Label>
             <SearchableSelect
               multiple
@@ -658,13 +667,13 @@ export default function AttendanceHrReportsPage() {
             <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-start">
               <SheetTitle>{t("common.filters")}</SheetTitle>
             </SheetHeader>
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-              <div className="space-y-1.5">
+            <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+              <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="attendance-hr-month-mobile">{t("attendanceHr.reports.month")}</Label>
                 <Input
                   id="attendance-hr-month-mobile"
                   type="month"
-                  className="min-h-10 w-full"
+                  className="min-h-10 w-full min-w-0"
                   value={month}
                   onChange={(e) => {
                     const ym = e.target.value;
@@ -673,13 +682,13 @@ export default function AttendanceHrReportsPage() {
                   }}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
+              <div className="grid min-w-0 grid-cols-2 gap-3 overflow-x-clip">
+                <div className="min-w-0 space-y-1.5">
                   <Label htmlFor="attendance-hr-from-mobile">{t("attendanceHr.reports.from")}</Label>
                   <Input
                     id="attendance-hr-from-mobile"
                     type="date"
-                    className="min-h-10 w-full"
+                    className="min-h-10 w-full min-w-0"
                     value={from}
                     onChange={(e) =>
                       setPeriod((p) => ({
@@ -690,12 +699,12 @@ export default function AttendanceHrReportsPage() {
                     }
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <Label htmlFor="attendance-hr-to-mobile">{t("attendanceHr.reports.to")}</Label>
                   <Input
                     id="attendance-hr-to-mobile"
                     type="date"
-                    className="min-h-10 w-full"
+                    className="min-h-10 w-full min-w-0"
                     value={to}
                     onChange={(e) =>
                       setPeriod((p) => ({
@@ -918,10 +927,18 @@ export default function AttendanceHrReportsPage() {
             <Button
               type="button"
               size="sm"
-              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              variant={!showListView ? "secondary" : "ghost"}
               className="h-8 gap-1.5 px-2.5"
               onClick={() => setViewMode("grid")}
-              aria-pressed={viewMode === "grid"}
+              aria-pressed={!showListView}
+              title={
+                forceListForFilter
+                  ? t("attendanceHr.reports.listRequiredForFilter", {
+                      defaultValue: "List view keeps unmapped missed punches visible",
+                    })
+                  : undefined
+              }
+              disabled={forceListForFilter}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
               {t("attendanceHr.reports.viewGrid")}
@@ -929,10 +946,10 @@ export default function AttendanceHrReportsPage() {
             <Button
               type="button"
               size="sm"
-              variant={viewMode === "list" ? "secondary" : "ghost"}
+              variant={showListView ? "secondary" : "ghost"}
               className="h-8 gap-1.5 px-2.5"
               onClick={() => setViewMode("list")}
-              aria-pressed={viewMode === "list"}
+              aria-pressed={showListView}
             >
               <LayoutList className="h-3.5 w-3.5" />
               {t("attendanceHr.reports.viewList")}
@@ -951,6 +968,8 @@ export default function AttendanceHrReportsPage() {
             // Card filters are client-side (Present includes undertime/OT). Clear the
             // status dropdown so API status and card filter do not fight.
             if (next) setStatus("");
+            // Missed punch / Unscheduled: switch to list so unmapped device rows appear.
+            if (attendanceHrFilterForcesListView(next, null)) setViewMode("list");
           });
         }}
       />

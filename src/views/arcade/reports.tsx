@@ -341,7 +341,7 @@ export function ArcadeReports() {
       />
 
       <FecCard className="print:hidden">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip md:grid-cols-2 xl:grid-cols-5">
           <Field label={t("arcadeScreens.dateFrom")}>
             <Input type="date" value={rangeFrom} max={rangeTo} onChange={(event) => commit({ from: event.target.value })} />
           </Field>

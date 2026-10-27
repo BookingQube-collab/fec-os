@@ -118,10 +118,13 @@ export {
   computeAttendanceHrReportKpis,
   isMappedAttendanceHrRow,
   attendanceHrReportsUseListView,
+  attendanceHrFilterForcesListView,
   attendanceHrIncludesStaffInListing,
   attendanceHrRowMatchesLocation,
   attendanceHrRowMatchesKpiFilter,
   suppressRoamingFalseAbsentForRosterElsewhere,
+  staffDaysTouchingLocation,
+  filterAttendanceRowsToLocationTouches,
 } from "./report";
 export {
   preferPunchedDailySummaryRows,

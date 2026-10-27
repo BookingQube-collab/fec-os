@@ -251,7 +251,7 @@ export default function AttendanceHrDeviceLogsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="min-w-0 space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label htmlFor="attendance-device-log-user">{t("attendanceHr.deviceLogs.search")}</Label>
             <div className="relative">
