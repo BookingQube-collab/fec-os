@@ -20,13 +20,21 @@ import {
   countJoiningSoon,
   countLeavingSoon,
   countMissingCvStaff,
+  countPresentStaffInRoster,
   countUnattestedEducationalDocs,
   emptyHrOverviewBreakdowns,
+  HR_OVERVIEW_PRESENT_STATUSES,
 } from "@/lib/hr-overview";
 import { readPolicySection } from "@/lib/hr-policy-read";
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
+}
+
+function chunkIds(ids: readonly string[], size = 200): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push([...ids.slice(i, i + size)]);
+  return out;
 }
 
 export const getHrOverview = createAuthenticatedAction(
@@ -58,16 +66,6 @@ export const getHrOverview = createAuthenticatedAction(
       : await staffFilter;
     if (staffErr && !tableMissing(staffErr.message)) throw staffErr;
 
-    const presentFilter = context.supabase
-      .from("attendance_daily_summary")
-      .select("id", { count: "exact", head: true })
-      .eq("work_date", today)
-      .in("status", ["present", "late", "overtime", "early_leave", "early_departure"]);
-    const { count: presentToday, error: presentErr } = data.locationId
-      ? await presentFilter.eq("location_id", data.locationId)
-      : await presentFilter;
-    if (presentErr && !tableMissing(presentErr.message)) throw presentErr;
-
     const { count: pendingLeave, error: leaveErr } = await context.supabase
       .from("hr_leave_requests")
       .select("id", { count: "exact", head: true })
@@ -75,37 +73,13 @@ export const getHrOverview = createAuthenticatedAction(
     const leaveMissing = Boolean(leaveErr && (tableMissing(leaveErr.message) || /permission/i.test(leaveErr.message)));
     if (leaveErr && !leaveMissing) throw leaveErr;
 
-    const { count: onLeaveToday, error: onLeaveErr } = await context.supabase
-      .from("hr_leave_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "approved")
-      .lte("date_from", today)
-      .gte("date_to", today);
-    const onLeaveMissing = Boolean(onLeaveErr && (tableMissing(onLeaveErr.message) || /permission/i.test(onLeaveErr.message)));
-    if (onLeaveErr && !onLeaveMissing) throw onLeaveErr;
-
+    // Present / on-leave / field check-in are resolved after the filtered roster so
+    // Active employees and Team Attendance share the same people (site + org focus).
+    let presentToday = 0;
+    let onLeaveToday = 0;
+    let onLeaveMissing = false;
     let fieldCheckedIn = 0;
-    const fieldQ = context.supabase
-      .from("staff_location_events")
-      .select("staff_id, event_type, recorded_at")
-      .gte("recorded_at", dayStart)
-      .lte("recorded_at", dayEnd)
-      .in("event_type", ["check_in", "check_out"])
-      .order("recorded_at", { ascending: false })
-      .limit(2000);
-    const { data: fieldRows, error: fieldErr } = data.locationId
-      ? await fieldQ.eq("location_id", data.locationId)
-      : await fieldQ;
-    if (fieldErr && !tableMissing(fieldErr.message) && !/permission/i.test(fieldErr.message ?? "")) throw fieldErr;
-    if (fieldRows?.length) {
-      const lastByStaff = new Map<string, string>();
-      for (const row of fieldRows) {
-        const sid = String(row.staff_id);
-        if (lastByStaff.has(sid)) continue;
-        lastByStaff.set(sid, String(row.event_type));
-      }
-      fieldCheckedIn = [...lastByStaff.values()].filter((t) => t === "check_in").length;
-    }
+    let rosterAttendanceResolved = false;
 
     let payrollBlocked = 0;
     let payrollExceptions = 0;
@@ -386,6 +360,77 @@ export const getHrOverview = createAuthenticatedAction(
       leavingSoon = countLeavingSoon(roster, today, 30);
 
       const staffIds = roster.map((m) => m.id);
+      const rosterIdSet = new Set(staffIds);
+
+      // Present today: distinct mapped staff in the Active roster with a present-like
+      // summary today. Unmapped bio: rows are excluded (orphan cleanup must not move
+      // this KPI). Site + org-focus already applied via `roster`.
+      if (staffIds.length) {
+        rosterAttendanceResolved = true;
+        const presentStaffIds: string[] = [];
+        for (const chunk of chunkIds(staffIds)) {
+          let presentQ = context.supabase
+            .from("attendance_daily_summary")
+            .select("staff_id")
+            .eq("work_date", today)
+            .in("staff_id", chunk)
+            .in("status", [...HR_OVERVIEW_PRESENT_STATUSES])
+            .limit(5000);
+          if (data.locationId) presentQ = presentQ.eq("location_id", data.locationId);
+          const { data: presentRows, error: presentErr } = await presentQ;
+          if (presentErr && !tableMissing(presentErr.message)) throw presentErr;
+          for (const row of presentRows ?? []) {
+            if (row.staff_id) presentStaffIds.push(String(row.staff_id));
+          }
+        }
+        presentToday = countPresentStaffInRoster(presentStaffIds, rosterIdSet);
+
+        const leaveIds = new Set<string>();
+        for (const chunk of chunkIds(staffIds)) {
+          const { data: leaveRows, error: onLeaveErr } = await context.supabase
+            .from("hr_leave_requests")
+            .select("staff_id")
+            .in("staff_id", chunk)
+            .eq("status", "approved")
+            .lte("date_from", today)
+            .gte("date_to", today)
+            .limit(5000);
+          onLeaveMissing = Boolean(
+            onLeaveErr && (tableMissing(onLeaveErr.message) || /permission/i.test(onLeaveErr.message ?? "")),
+          );
+          if (onLeaveErr && !onLeaveMissing) throw onLeaveErr;
+          for (const row of leaveRows ?? []) {
+            const sid = row.staff_id ? String(row.staff_id) : "";
+            if (sid && rosterIdSet.has(sid)) leaveIds.add(sid);
+          }
+        }
+        onLeaveToday = onLeaveMissing ? 0 : leaveIds.size;
+
+        const fieldQ = context.supabase
+          .from("staff_location_events")
+          .select("staff_id, event_type, recorded_at")
+          .gte("recorded_at", dayStart)
+          .lte("recorded_at", dayEnd)
+          .in("event_type", ["check_in", "check_out"])
+          .order("recorded_at", { ascending: false })
+          .limit(2000);
+        const { data: fieldRows, error: fieldErr } = data.locationId
+          ? await fieldQ.eq("location_id", data.locationId)
+          : await fieldQ;
+        if (fieldErr && !tableMissing(fieldErr.message) && !/permission/i.test(fieldErr.message ?? "")) {
+          throw fieldErr;
+        }
+        if (fieldRows?.length) {
+          const lastByStaff = new Map<string, string>();
+          for (const row of fieldRows) {
+            const sid = String(row.staff_id ?? "");
+            if (!sid || !rosterIdSet.has(sid) || lastByStaff.has(sid)) continue;
+            lastByStaff.set(sid, String(row.event_type));
+          }
+          fieldCheckedIn = [...lastByStaff.values()].filter((t) => t === "check_in").length;
+        }
+      }
+
       if (staffIds.length && (canUserDo(context.roles ?? [], "hr.docs.manage") || canUserDo(context.roles ?? [], "hr.manage"))) {
         const { data: docRows, error: docListErr } = await context.supabase
           .from("hr_employee_documents")
@@ -408,6 +453,65 @@ export const getHrOverview = createAuthenticatedAction(
         expiringPassports = countExpiringDocType(docs, "passport", today, horizon);
         missingCvs = countMissingCvStaff(staffIds, docs);
         unattestedEducational = countUnattestedEducationalDocs(docs);
+      }
+    }
+
+    // Staff-detail unavailable: still count mapped people only (never bio: orphans).
+    if (!rosterAttendanceResolved) {
+      let presentQ = context.supabase
+        .from("attendance_daily_summary")
+        .select("staff_id")
+        .eq("work_date", today)
+        .not("staff_id", "is", null)
+        .in("status", [...HR_OVERVIEW_PRESENT_STATUSES])
+        .limit(5000);
+      if (data.locationId) presentQ = presentQ.eq("location_id", data.locationId);
+      const { data: presentRows, error: presentErr } = await presentQ;
+      if (presentErr && !tableMissing(presentErr.message)) throw presentErr;
+      const mappedPresentIds = (presentRows ?? [])
+        .map((row) => (row.staff_id ? String(row.staff_id) : ""))
+        .filter(Boolean);
+      presentToday = new Set(mappedPresentIds).size;
+
+      const { data: leaveRows, error: onLeaveErr } = await context.supabase
+        .from("hr_leave_requests")
+        .select("staff_id")
+        .eq("status", "approved")
+        .lte("date_from", today)
+        .gte("date_to", today)
+        .limit(5000);
+      onLeaveMissing = Boolean(
+        onLeaveErr && (tableMissing(onLeaveErr.message) || /permission/i.test(onLeaveErr.message ?? "")),
+      );
+      if (onLeaveErr && !onLeaveMissing) throw onLeaveErr;
+      onLeaveToday = onLeaveMissing
+        ? 0
+        : new Set(
+            (leaveRows ?? []).map((row) => (row.staff_id ? String(row.staff_id) : "")).filter(Boolean),
+          ).size;
+
+      const fieldQ = context.supabase
+        .from("staff_location_events")
+        .select("staff_id, event_type, recorded_at")
+        .gte("recorded_at", dayStart)
+        .lte("recorded_at", dayEnd)
+        .in("event_type", ["check_in", "check_out"])
+        .order("recorded_at", { ascending: false })
+        .limit(2000);
+      const { data: fieldRows, error: fieldErr } = data.locationId
+        ? await fieldQ.eq("location_id", data.locationId)
+        : await fieldQ;
+      if (fieldErr && !tableMissing(fieldErr.message) && !/permission/i.test(fieldErr.message ?? "")) {
+        throw fieldErr;
+      }
+      if (fieldRows?.length) {
+        const lastByStaff = new Map<string, string>();
+        for (const row of fieldRows) {
+          const sid = String(row.staff_id ?? "");
+          if (!sid || lastByStaff.has(sid)) continue;
+          lastByStaff.set(sid, String(row.event_type));
+        }
+        fieldCheckedIn = [...lastByStaff.values()].filter((t) => t === "check_in").length;
       }
     }
 

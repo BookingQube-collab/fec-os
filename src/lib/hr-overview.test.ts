@@ -7,11 +7,19 @@ import {
   countJoiningSoon,
   countLeavingSoon,
   countMissingCvStaff,
+  countPresentStaffInRoster,
   countUnattestedEducationalDocs,
   emptyHrOverviewBreakdowns,
 } from "./hr-overview";
 
 describe("hr overview aggregators", () => {
+  it("counts distinct present staff only when they sit in the Active roster", () => {
+    const roster = new Set(["a", "b", "c"]);
+    expect(countPresentStaffInRoster(["a", "a", "x", null, "b"], roster)).toBe(2);
+    expect(countPresentStaffInRoster([null, "", "orphan"], roster)).toBe(0);
+    expect(countPresentStaffInRoster(["a"], new Set())).toBe(0);
+  });
+
   it("returns empty breakdowns without throwing on empty input", () => {
     expect(aggregateHrHeadcountBreakdowns([])).toEqual(emptyHrOverviewBreakdowns());
     expect(aggregateHrHeadcountBreakdowns(undefined as unknown as [])).toEqual(

@@ -2,6 +2,33 @@
  * HR dashboard aggregators (Phase 11). Pure — empty-safe, no Supabase.
  */
 
+/** Present-like daily statuses for Smart Board "Present today" (matches Team Today). */
+export const HR_OVERVIEW_PRESENT_STATUSES = [
+  "present",
+  "late",
+  "overtime",
+  "early_leave",
+  "early_departure",
+  "short_hours",
+] as const;
+
+/**
+ * Distinct mapped staff who are present today and also in the Active roster.
+ * Unmapped / null staff ids never count (bio: orphans must not inflate Present).
+ */
+export function countPresentStaffInRoster(
+  presentStaffIds: readonly (string | null | undefined)[],
+  rosterIds: ReadonlySet<string>,
+): number {
+  if (!rosterIds.size) return 0;
+  const hit = new Set<string>();
+  for (const id of presentStaffIds) {
+    const sid = id == null ? "" : String(id).trim();
+    if (sid && rosterIds.has(sid)) hit.add(sid);
+  }
+  return hit.size;
+}
+
 export type NamedCount = { key: string; label: string; count: number };
 
 export type HrOverviewBreakdowns = {
