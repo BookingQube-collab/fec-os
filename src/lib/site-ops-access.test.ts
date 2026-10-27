@@ -9,6 +9,7 @@ import {
   isHoOOperationsPeerTitle,
   isOperationsManagerOrLeadTitle,
   isTeamLeaderTitle,
+  punchCorrectionSubjectsAreCompanyWide,
 } from "@/lib/site-ops-access";
 
 describe("monthly roster, mapping, and team corrections", () => {
@@ -52,12 +53,23 @@ describe("monthly roster, mapping, and team corrections", () => {
       { jobTitle: "F&B Supervisor" },
       { jobTitle: "F& Supervisor" },
       { department: "F&B Supervisor" },
+      { jobTitle: "Head of Operations" },
+      { jobTitle: "Head of Operations / FEC-IT" },
     ];
     for (const identity of allowed) {
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(true);
     }
     expect(canCorrectTeamAttendance({ jobTitle: "Barista" })).toBe(false);
     expect(canCorrectTeamAttendance({ jobTitle: "F&B Manager", department: "F&B" })).toBe(true);
+  });
+
+  it("lists company-wide correction subjects for HoO and F&B Manager only", () => {
+    expect(punchCorrectionSubjectsAreCompanyWide("Head of Operations")).toBe(true);
+    expect(punchCorrectionSubjectsAreCompanyWide("Head of Operations / FEC-IT")).toBe(true);
+    expect(punchCorrectionSubjectsAreCompanyWide("F&B Manager", "F&B")).toBe(true);
+    expect(punchCorrectionSubjectsAreCompanyWide("Venue Supervisor")).toBe(false);
+    expect(punchCorrectionSubjectsAreCompanyWide("Sr. Site Supervisor")).toBe(false);
+    expect(punchCorrectionSubjectsAreCompanyWide("Cashier")).toBe(false);
   });
 
   it("rejects cashiers, team leaders, and non-supervisor titles for monthly roster and mapping", () => {
@@ -85,7 +97,12 @@ describe("monthly roster, mapping, and team corrections", () => {
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
     }
     const correctionDenied = denied.filter(
-      (identity) => identity && !("jobTitle" in identity && identity.jobTitle === "F&B Manager"),
+      (identity) =>
+        identity &&
+        !(
+          "jobTitle" in identity &&
+          (identity.jobTitle === "F&B Manager" || identity.jobTitle === "Head of Operations")
+        ),
     );
     for (const identity of correctionDenied) {
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(false);

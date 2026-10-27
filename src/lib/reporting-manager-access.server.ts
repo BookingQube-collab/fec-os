@@ -452,7 +452,8 @@ export async function loadReportingTreeStaffIds(userId: string): Promise<string[
  * Walks through exited leads so crew under a terminated supervisor still resolve,
  * and keeps exited people themselves so months they worked still list.
  * Day rows without punches/roster are dropped later by listing enrichment.
- * OT, Team overview, and corrections keep {@link loadReportingTreeStaffIds} (active only).
+ * OT and Team overview keep {@link loadReportingTreeStaffIds} (active only).
+ * Punch correction subjects reuse this listing tree (exited staff included).
  */
 export async function loadAttendanceListingReportingTreeStaffIds(userId: string): Promise<string[]> {
   const staff = await loadLinkedStaffRecord(userId);

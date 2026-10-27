@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,13 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { formatPunchTime12h } from "@/lib/attendance-display";
@@ -71,6 +65,19 @@ export function PunchCorrectionRequest({
       ]
     : [];
   const people = subjects.data?.length ? subjects.data : selfOption;
+  const personOptions = useMemo(
+    () =>
+      people.map((person) => {
+        const code = person.employeeCode?.trim() || "";
+        const label = code ? `${person.fullName} · ${code}` : person.fullName;
+        return {
+          value: person.staffId,
+          label,
+          keywords: `${person.fullName} ${code}`.trim(),
+        };
+      }),
+    [people],
+  );
   const selectedStaffId = staffId || people.find((person) => person.self)?.staffId || people[0]?.staffId || "";
   const selectedPerson = people.find((person) => person.staffId === selectedStaffId);
   const forTeam = Boolean(selectedPerson && !selectedPerson.self);
@@ -148,21 +155,17 @@ export function PunchCorrectionRequest({
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <Label className="text-xs">Person</Label>
-          <Select value={selectedStaffId || undefined} onValueChange={setStaffId} disabled={!people.length}>
-            <SelectTrigger className="mt-1">
-              <SelectValue
-                placeholder={subjects.isPending && people.length === 0 ? "Loading people" : "Choose a person"}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {people.map((person) => (
-                <SelectItem key={person.staffId} value={person.staffId}>
-                  {person.fullName}
-                  {person.employeeCode ? ` · ${person.employeeCode}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="mt-1"
+            value={selectedStaffId}
+            onValueChange={setStaffId}
+            aria-label="Person"
+            placeholder={
+              subjects.isPending && people.length === 0 ? "Loading people" : "Search by name"
+            }
+            disabled={!people.length}
+            options={personOptions}
+          />
           {subjects.isError ? (
             <p className="mt-1 text-xs text-destructive">
               {subjects.error.message}

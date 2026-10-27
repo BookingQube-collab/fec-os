@@ -2,6 +2,10 @@ import { isFnbManager, isFoodBeverageText } from "@/lib/arcade/access";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
+function isHeadOfOperationsTitle(jobTitle?: string | null): boolean {
+  return /head of operations/i.test(jobTitle ?? "");
+}
+
 /**
  * Who may create or change the monthly roster (and team-correction writes that
  * reuse the same assert).
@@ -192,7 +196,8 @@ export function canEditAttendanceMapping(identity: SiteOpsIdentity | null | unde
 
 /**
  * File or change a correction for someone other than yourself. Own punches stay separate.
- * Operations supervisors (venue / Sr. Site / Site), F&B Supervisor, and F&B Manager.
+ * Head of Operations and F&B Manager (ops seats) pick company-wide subjects.
+ * Operations supervisors (venue / Sr. Site / Site), F&B Supervisor stay team-scoped.
  * Non-F&B / non-crew HoO direct reports match Site Supervisor.
  * F&B team corrections route to the F&B Manager; Operations route to Head of Operations.
  */
@@ -200,6 +205,7 @@ export function canCorrectTeamAttendance(
   identity: (SiteOpsIdentity & { reportsToHeadOfOperations?: boolean }) | null | undefined,
 ): boolean {
   if (!identity) return false;
+  if (isHeadOfOperationsTitle(identity.jobTitle)) return true;
   if ((identity.staffRole ?? "").trim() === VENUE_SUPERVISOR_ROLE) return true;
   if (matchesAny(identity, isVenueSupervisorTitle)) return true;
   if (matchesAny(identity, isSrSiteSupervisorTitle)) return true;
@@ -207,5 +213,19 @@ export function canCorrectTeamAttendance(
   if (isFnbManager(identity.jobTitle, identity.department)) return true;
   if (isManagerTeamSupervisor(identity.jobTitle, identity.staffRole)) return true;
   if (canOpenShiftRosterAsHoOPeer(identity)) return true;
+  return false;
+}
+
+/**
+ * Person picker for Request correction lists every listing-tree staff member
+ * (active + terminated / resigned / contract finished) for ops seats.
+ * Venue / Site / Sr. Site supervisors stay on their reporting team.
+ */
+export function punchCorrectionSubjectsAreCompanyWide(
+  jobTitle?: string | null,
+  department?: string | null,
+): boolean {
+  if (isHeadOfOperationsTitle(jobTitle)) return true;
+  if (isFnbManager(jobTitle, department)) return true;
   return false;
 }

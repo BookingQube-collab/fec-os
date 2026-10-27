@@ -10,6 +10,10 @@ import {
 import { isGeneralManagerTitle } from "@/lib/attendance-hr/roster-punch-fill";
 import { STAFF_SIGNATURES_BUCKET } from "@/lib/digital-signature";
 import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
+import { isAttendanceListingTreeStaffStatus } from "@/lib/attendance-listing-access";
+import {
+  punchCorrectionSubjectsAreCompanyWide,
+} from "@/lib/site-ops-access";
 import { loadCanCorrectTeamAttendance } from "@/lib/site-ops-access.server";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
@@ -63,9 +67,9 @@ import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
+  loadAttendanceListingReportingTreeStaffIds,
   loadDirectReportStaffIds,
   loadManagerTeamStaffIds,
-  loadReportingTreeStaffIds,
   loadSupervisorOtTeamStaffIds,
 } from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
@@ -183,11 +187,13 @@ async function callerCorrectionAccess(userId: string) {
   const [roles, reports, reportingTree, managerTeam, identity, canCorrectTeam] = await Promise.all([
     loadCallerRoles(userId),
     loadDirectReportStaffIds(userId),
-    loadReportingTreeStaffIds(userId),
+    // Exited staff stay on the correction picker (same statuses as Attendance listing trees).
+    loadAttendanceListingReportingTreeStaffIds(userId),
     loadManagerTeamStaffIds(userId),
     loadLinkedStaffIdentity(userId),
     loadCanCorrectTeamAttendance(userId),
   ]);
+  const companyWide = punchCorrectionSubjectsAreCompanyWide(identity.jobTitle, identity.department);
   return {
     roles,
     staffId: reports.staffId,
@@ -202,7 +208,9 @@ async function callerCorrectionAccess(userId: string) {
       jobTitle: identity.jobTitle,
     }),
     /** Corrections for other people. Own punch requests do not use this flag. */
-    canCorrectTeam,
+    canCorrectTeam: canCorrectTeam || companyWide,
+    /** HoO / F&B Manager — company-wide Person picker (active + exited listing statuses). */
+    companyWide,
   };
 }
 
@@ -1233,6 +1241,7 @@ export async function submitMissedPunchRequest(args: {
     requesterStaffId: String(staff.id),
     targetStaffId,
     teamStaffIds: access.canCorrectTeam ? access.teamStaffIds : [],
+    companyWide: access.companyWide,
   });
   if (baseRoute == null || (!isSelf && !access.canCorrectTeam)) {
     throw new ForbiddenError("You can only request a correction for yourself or someone who reports to you.");
@@ -2098,6 +2107,7 @@ export async function resubmitMissedPunchRequest(args: {
       requesterStaffId,
       targetStaffId,
       teamStaffIds: access.canCorrectTeam ? access.teamStaffIds : [],
+      companyWide: access.companyWide,
     }) ?? "line_manager";
   const isSelf = Boolean(requesterStaffId && targetStaffId && requesterStaffId === targetStaffId);
   const route: PunchCorrectionRoutedTo =
@@ -2394,28 +2404,77 @@ export type PunchCorrectionDay = {
   correctable: boolean;
 };
 
-/** People this login may correct (self, plus team for Operations / F&B supervisors). */
-export async function listPunchCorrectionSubjects(userId: string): Promise<PunchCorrectionSubject[]> {
-  const access = await callerCorrectionAccess(userId);
-  if (!access.canRequest || !access.staffId) return [];
-  const ids = access.canCorrectTeam ? [access.staffId, ...access.teamStaffIds] : [access.staffId];
-  const data: Array<{
-    id: string;
-    full_name: string | null;
-    employee_code: string | null;
-    job_title: string | null;
-    department: string | null;
-  }> = [];
+type PunchCorrectionStaffRow = {
+  id: string;
+  full_name: string | null;
+  employee_code: string | null;
+  job_title: string | null;
+  department: string | null;
+  status?: string | null;
+};
+
+/** Company-wide Person options for HoO / F&B Manager (listing-tree statuses only). */
+async function loadCompanyWidePunchCorrectionStaffRows(): Promise<PunchCorrectionStaffRow[]> {
+  const data: PunchCorrectionStaffRow[] = [];
+  for (let from = 0; from < 20000; from += 1000) {
+    const { data: rows, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name, employee_code, job_title, department, status")
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw error;
+    const page = rows ?? [];
+    for (const row of page) {
+      if (!row.id || !isAttendanceListingTreeStaffStatus(row.status as string | null)) continue;
+      data.push({
+        id: String(row.id),
+        full_name: row.full_name ?? null,
+        employee_code: row.employee_code ?? null,
+        job_title: row.job_title ?? null,
+        department: row.department ?? null,
+        status: row.status ?? null,
+      });
+    }
+    if (page.length < 1000) break;
+  }
+  return data;
+}
+
+async function loadPunchCorrectionStaffRowsByIds(ids: readonly string[]): Promise<PunchCorrectionStaffRow[]> {
+  const data: PunchCorrectionStaffRow[] = [];
   for (let index = 0; index < ids.length; index += 100) {
     const chunk = ids.slice(index, index + 100);
     const { data: rows, error } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, employee_code, job_title, department")
+      .select("id, full_name, employee_code, job_title, department, status")
       .in("id", chunk)
       .is("deleted_at", null);
     if (error) throw error;
-    data.push(...(rows ?? []));
+    for (const row of rows ?? []) {
+      if (!row.id || !isAttendanceListingTreeStaffStatus(row.status as string | null)) continue;
+      data.push({
+        id: String(row.id),
+        full_name: row.full_name ?? null,
+        employee_code: row.employee_code ?? null,
+        job_title: row.job_title ?? null,
+        department: row.department ?? null,
+        status: row.status ?? null,
+      });
+    }
   }
+  return data;
+}
+
+/** People this login may correct (self, plus team for Operations / F&B supervisors; company-wide for HoO / F&B Manager). */
+export async function listPunchCorrectionSubjects(userId: string): Promise<PunchCorrectionSubject[]> {
+  const access = await callerCorrectionAccess(userId);
+  if (!access.canRequest || !access.staffId) return [];
+  const data = access.companyWide
+    ? await loadCompanyWidePunchCorrectionStaffRows()
+    : await loadPunchCorrectionStaffRowsByIds(
+        access.canCorrectTeam ? [access.staffId, ...access.teamStaffIds] : [access.staffId],
+      );
   return data
     .map((row) => {
       const jobTitle = row.job_title ? String(row.job_title) : null;
@@ -2447,6 +2506,7 @@ export async function findPunchCorrectionDay(args: {
       requesterStaffId: access.staffId,
       targetStaffId: args.staffId,
       directReportStaffIds: teamIds,
+      companyWide: access.companyWide,
     })
   ) {
     throw new ForbiddenError("You can only correct your own punches or punches for people who report to you.");

@@ -737,6 +737,30 @@ describe("missed punch approval chain", () => {
         directReportStaffIds: ["team-member"],
       }),
     ).toBe(false);
+    expect(
+      canCorrectStaffPunch({
+        requesterStaffId: "hoo-staff",
+        targetStaffId: "atif-staff",
+        directReportStaffIds: [],
+        companyWide: true,
+      }),
+    ).toBe(true);
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: "hoo-staff",
+        targetStaffId: "atif-staff",
+        teamStaffIds: [],
+        companyWide: true,
+      }),
+    ).toBe("ops");
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: "hoo-staff",
+        targetStaffId: "hoo-staff",
+        teamStaffIds: [],
+        companyWide: true,
+      }),
+    ).toBe("line_manager");
   });
 
   it("allows a wrong punch-in and punch-out to be corrected when both clocks already exist", () => {

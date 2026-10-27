@@ -371,15 +371,19 @@ export function canRequestAttendanceCorrection(input: {
 /**
  * Self, or someone in directReportStaffIds.
  * Callers pass direct reports and everyone who reports through them.
+ * Ops seats (HoO / F&B Manager) pass companyWide and may correct anyone listed.
  * People outside that list cannot be corrected.
  */
 export function canCorrectStaffPunch(input: {
   requesterStaffId: string | null;
   targetStaffId: string;
   directReportStaffIds: readonly string[];
+  /** Head of Operations / F&B Manager — any listing-tree staff. */
+  companyWide?: boolean;
 }): boolean {
   if (!input.requesterStaffId) return false;
   if (input.targetStaffId === input.requesterStaffId) return true;
+  if (input.companyWide) return true;
   return input.directReportStaffIds.includes(input.targetStaffId);
 }
 
@@ -401,9 +405,12 @@ export function punchCorrectionRoute(input: {
   requesterStaffId: string | null;
   targetStaffId: string;
   teamStaffIds: readonly string[];
+  /** Head of Operations / F&B Manager — any listing-tree staff is a team correction. */
+  companyWide?: boolean;
 }): "line_manager" | "ops" | null {
   if (!input.requesterStaffId) return null;
   if (input.targetStaffId === input.requesterStaffId) return "line_manager";
+  if (input.companyWide) return "ops";
   if (input.teamStaffIds.includes(input.targetStaffId)) return "ops";
   return null;
 }
