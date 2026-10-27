@@ -3,14 +3,16 @@ import {
   opsStepApproverUserIds,
   type OpsApprovalLane,
 } from "@/lib/approval-ops-routing";
+import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
 /**
  * Punch-correction ladder (ops-final):
  * supervisor submit → Sr. Site Supervisor → Head of Operations (or F&B Manager).
  * HoO / F&B Manager approval is terminal — attendance applies immediately.
  * HR and GM keep history/print access only (no approve seat).
- * Only a Venue / Site / Sr. Site supervisor title may auto-complete the manager seat on team submit.
- * A regular supervisor team-submit waits on that seat (e.g. Mary) and does not skip to HoO.
+ * Only a Sr. Site Supervisor title may auto-complete the manager seat on team submit
+ * (same product rule as Supervisor OT). Venue / Site / regular supervisors (e.g. Ashfaq)
+ * leave that seat pending for Mary and must not skip to HoO.
  * Legacy rows may still carry `hr` / `gm` step roles from older chains.
  */
 export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
@@ -72,9 +74,9 @@ export type ApprovalDirectory = {
   /** Set only when the reporting manager has a login. Empty means derive from the site. */
   reportingManagerUserIdByStaffId: ReadonlyMap<string, string>;
   /**
-   * Nearest Venue / Site / Sr. Site supervisor up the reporting chain who has a login.
-   * Manager-step first approval prefers this over a Team Lead / non-site direct manager
-   * so Ashfaq (Venue Supervisor) sees Ma luz / Marissa / Wahaj crew requests first.
+   * Nearest Sr. Site Supervisor up the reporting chain who has a login.
+   * Manager-step first approval prefers this over a Team Lead / Venue / Site supervisor
+   * so Mary holds the Sr. Site seat (Ashfaq stays on the supervisor submit seat).
    */
   siteSupervisorManagerUserIdByStaffId: ReadonlyMap<string, string>;
   branchGmUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
@@ -390,8 +392,8 @@ export type PunchCorrectionRoutedTo = "line_manager" | "ops" | "ops_first" | "fi
 /**
  * Own requests wait for the requester's line manager, then ops (HoO or F&B Manager).
  * A team correction returns `"ops"` as a base signal — callers refine with
- * {@link teamCorrectionRoute} so only Venue / Site / Sr. Site titles auto-approve the
- * manager seat; regular supervisors wait on that seat instead.
+ * {@link teamCorrectionRoute} so only Sr. Site titles auto-approve the manager seat;
+ * Venue / Site / regular supervisors wait on that seat instead.
  * Null means the target is outside the team.
  * Callers upgrade own `line_manager` to `ops_first` when the line manager already holds ops.
  */
@@ -445,23 +447,37 @@ export function shouldHealOwnCorrectionToOpsFirst(
 }
 
 /**
- * True when a team correction wrongly treated a regular supervisor submit as the
- * Sr. Site Supervisor (manager) seat and is already waiting on ops.
+ * True when the manager (Sr. Site) seat was completed by someone who does not hold
+ * that title — e.g. Venue Supervisor Ashfaq self-stamped on team submit, or approved
+ * as first-line — and the request is already waiting on ops (skipped Mary).
  */
 export function shouldHealTeamCorrectionToManagerSeat(input: {
   row: CorrectionApprovalView;
   managerStep: { status: string; actedBy: string | null } | null | undefined;
+  /** Job title of the person who acted on the manager step (preferred). */
+  actorJobTitle?: string | null;
+  actorStaffRole?: string | null;
+  /** @deprecated Prefer actorJobTitle — kept for older call sites / tests. */
   requesterJobTitle?: string | null;
   requesterStaffRole?: string | null;
   directory: ApprovalDirectory;
 }): boolean {
   const { row, managerStep, directory } = input;
   if (row.status !== "pending" || row.currentStepRole !== "ops") return false;
-  if (!row.requesterStaffId || !row.staffId || row.requesterStaffId === row.staffId) return false;
   if (!managerStep || managerStep.status !== "approved") return false;
-  if (!managerStep.actedBy || managerStep.actedBy !== row.requestedBy) return false;
-  if (isSiteSupervisorTitle(input.requesterJobTitle, input.requesterStaffRole)) return false;
-  if (approverUserIdsForStep(directory, "ops", row.locationId, row.staffId).includes(row.requestedBy)) {
+  if (!managerStep.actedBy) return false;
+  const actorTitle = input.actorJobTitle ?? input.requesterJobTitle ?? null;
+  const actorRole = input.actorStaffRole ?? input.requesterStaffRole ?? null;
+  // Sr. Site Supervisor (Mary) correctly completed the seat — leave ops waiting.
+  if (missedPunchSubmitterAutoCompletesManagerSeat(actorTitle, actorRole)) return false;
+  // Require evidence the actor is not Sr. Site — never heal when the title is unknown.
+  const title = (actorTitle ?? "").trim();
+  const knownNonSrSiteActor =
+    (title.length > 0 && !isSrSiteSupervisorTitle(title)) ||
+    (actorRole === "venue_supervisor" && !isSrSiteSupervisorTitle(title));
+  if (!knownNonSrSiteActor) return false;
+  // Ops-seat holders who also stamped manager (HoO team final) are not this mis-route.
+  if (approverUserIdsForStep(directory, "ops", row.locationId, row.staffId).includes(managerStep.actedBy)) {
     return false;
   }
   return true;
@@ -475,9 +491,9 @@ export function correctionWaitingStep(route: PunchCorrectionRoutedTo): MissedPun
 }
 
 /**
- * Team corrections by a Venue / Site / Sr. Site supervisor record the manager step as
- * approved and wait on ops (or mark fully approved when the submitter already holds ops).
- * Regular supervisor team-submit uses `line_manager` (manager seat still pending).
+ * Team corrections by a Sr. Site Supervisor record the manager step as approved and
+ * wait on ops (or mark fully approved when the submitter already holds ops).
+ * Venue / Site / regular supervisor team-submit uses `line_manager` (manager seat pending).
  * Own requests leave every step pending, unless the line manager is already the ops
  * seat — then manager is skipped and ops is first.
  */
@@ -527,8 +543,8 @@ function teamCorrectionPunchTrail(input: {
 }
 
 /**
- * Saved when a Venue / Site / Sr. Site supervisor files for their team and auto-completes
- * the manager seat. HoO / HR can see who approved and which punches changed.
+ * Saved when a Sr. Site Supervisor files for their team and auto-completes the manager
+ * seat. HoO / HR can see who approved and which punches changed.
  */
 export function managerTeamCorrectionNote(input: {
   managerName: string;
@@ -563,7 +579,7 @@ export function rewriteAutoApproveNoteToSupervisorSubmitted(note: string | null 
   return note.replace(/requested and approved this correction/i, "submitted this correction");
 }
 
-/** Site in-charge: venue supervisor role, or a site/venue supervisor title. Not every "supervisor" job. */
+/** Site in-charge: venue supervisor role, or a site/venue/Sr. Site supervisor title. Not every "supervisor" job. */
 export function isSiteSupervisorTitle(jobTitle: string | null | undefined, staffRole: string | null | undefined): boolean {
   if (staffRole === "venue_supervisor") return true;
   const title = (jobTitle ?? "").trim();
@@ -572,6 +588,60 @@ export function isSiteSupervisorTitle(jobTitle: string | null | undefined, staff
     /(?:^|[\s/])(?:sr\.?\s+|senior\s+)?site supervisor\b/i.test(title) ||
     /\bvenue supervisor\b/i.test(title)
   );
+}
+
+/**
+ * Team submit may auto-complete the manager (Sr. Site Supervisor) seat only when the
+ * submitter holds that title — same rule as Supervisor OT. Venue / Site / regular
+ * supervisors wait on Mary.
+ */
+export function missedPunchSubmitterAutoCompletesManagerSeat(
+  jobTitle: string | null | undefined,
+  _staffRole?: string | null | undefined,
+): boolean {
+  void _staffRole;
+  return isSrSiteSupervisorTitle(jobTitle);
+}
+
+/**
+ * Display label for an approval seat. Manager = Sr. Site Supervisor; ops = HoO / F&B.
+ * Use {@link missedPunchPriorApprovalLabel} when the actor may be a supervisor submit stamp.
+ */
+export function missedPunchStepSeatLabel(
+  step: MissedPunchStepRole | string | null | undefined,
+  opts?: { opsLane?: OpsApprovalLane },
+): string {
+  if (step === "manager") return "Sr. Site Supervisor";
+  if (step === "ops") {
+    return opts?.opsLane === "fnb_manager" ? "F&B Manager" : "Head of Operations";
+  }
+  if (step === "hr") return "HR";
+  if (step === "gm") return "General Manager";
+  return "Sr. Site Supervisor";
+}
+
+/**
+ * "Already approved" trail line for a completed seat.
+ * Supervisor team-submit (not Sr. Site) must not read as "Sr. Site Supervisor approved".
+ */
+export function missedPunchPriorApprovalLabel(input: {
+  stepRole: string;
+  status: string;
+  actedByName?: string | null;
+  /** Manager seat was only a regular / Venue supervisor submit stamp. */
+  supervisorSubmitOnly?: boolean;
+  opsLane?: OpsApprovalLane;
+}): string {
+  if (input.status === "skipped") {
+    return `${missedPunchStepSeatLabel(input.stepRole, { opsLane: input.opsLane })} skipped`;
+  }
+  if (input.stepRole === "manager" && input.supervisorSubmitOnly) {
+    const name = input.actedByName?.trim();
+    return name ? `Supervisor approved · ${name}` : "Supervisor approved";
+  }
+  const seat = missedPunchStepSeatLabel(input.stepRole, { opsLane: input.opsLane });
+  const name = input.actedByName?.trim();
+  return name ? `${seat} approved · ${name}` : `${seat} approved`;
 }
 
 export function isHeadOfOperationsTitle(jobTitle: string | null | undefined): boolean {
@@ -594,7 +664,8 @@ export function lineManagerUserIds(
 
 /**
  * Walk `reportingManagerStaffIdByStaffId` from `staffId` and return the nearest
- * Venue / Site / Sr. Site supervisor login. Team leads and other non-site titles are skipped.
+ * Sr. Site Supervisor login. Venue / Site / Team Lead titles are skipped so Ashfaq
+ * does not take Mary's manager seat.
  */
 export function nearestSiteSupervisorUserId(input: {
   staffId: string;
@@ -613,7 +684,7 @@ export function nearestSiteSupervisorUserId(input: {
     let managerId: string | null = input.reportingManagerStaffIdByStaffId.get(cursor) ?? null;
     if (!managerId) break;
     const manager = input.managerByStaffId.get(managerId);
-    if (manager && isSiteSupervisorTitle(manager.jobTitle, manager.staffRole) && manager.userId) {
+    if (manager && isSrSiteSupervisorTitle(manager.jobTitle) && manager.userId) {
       return manager.userId;
     }
     cursor = managerId;
@@ -622,9 +693,9 @@ export function nearestSiteSupervisorUserId(input: {
 }
 
 /**
- * First approver is the nearest site / venue supervisor up the requester's reporting
- * chain (Ashfaq for crew under Ma luz / Marissa / Wahaj). Falls back to the named
- * direct manager, then other site supervisors at the location.
+ * First approver is the nearest Sr. Site Supervisor up the requester's reporting
+ * chain (Mary for crew under Ashfaq / Ma luz / Marissa / Wahaj). Falls back to the
+ * named direct manager, then other site supervisors at the location.
  * The requester is never the approver, and this step does not fall through to the CEO.
  */
 export function requesterLineManagerUserIds(
@@ -647,9 +718,10 @@ export function requesterLineManagerUserIds(
 }
 
 /**
- * Venue / Site supervisors may first-approve manager-step corrections for anyone in
+ * Sr. Site Supervisors may first-approve manager-step corrections for anyone in
  * their supervisor OT team (org chart, or managed-venue fallback when the chart is empty)
  * even when the named direct manager is a Team Lead without a walk to them.
+ * Venue / Site supervisors do not hold this seat — they submit and wait on Sr. Site.
  */
 export function canSiteSupervisorActOnTeamCorrection(input: {
   userId: string;
@@ -704,8 +776,8 @@ export function correctionOpsLane(
 /**
  * Refine a team-submit base route (`punchCorrectionRoute` → `"ops"`):
  * - Submitter already holds the ops seat (HoO / F&B Manager) → `"final"` (ops is terminal)
- * - Submitter title is Venue / Site / Sr. Site supervisor → `"ops"` (manager seat auto-approved)
- * - Otherwise (regular supervisor) → `"line_manager"` (wait on Sr. Site Supervisor)
+ * - Submitter title is Sr. Site Supervisor → `"ops"` (manager seat auto-approved)
+ * - Otherwise (Venue / Site / regular supervisor) → `"line_manager"` (wait on Sr. Site)
  */
 export function teamCorrectionRoute(
   directory: ApprovalDirectory,
@@ -716,7 +788,7 @@ export function teamCorrectionRoute(
   if (approverUserIdsForStep(directory, "ops", "", staffId).includes(requesterUserId)) {
     return "final";
   }
-  if (isSiteSupervisorTitle(requester?.jobTitle, requester?.staffRole)) {
+  if (missedPunchSubmitterAutoCompletesManagerSeat(requester?.jobTitle, requester?.staffRole)) {
     return "ops";
   }
   return "line_manager";

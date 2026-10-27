@@ -36,6 +36,7 @@ import {
   isEditableMissedPunchStatus,
   isMissedPunchSupervisorSubmitOnlyNote,
   isMissedPunchTeamSubmittedNote,
+  missedPunchPriorApprovalLabel,
   missedPunchPrintSignatureActors,
   missedPunchRequestSide,
   missedPunchTeamSubmitterName,
@@ -262,12 +263,12 @@ export function MissedPunchApprovalQueue({
             <>
               <p className="font-medium">No missed punch requests are waiting on you.</p>
               <p className="text-muted-foreground">
-                A correction for yourself goes to your site supervisor (Sr. Site Supervisor), then Head
-                of Operations (or F&B Manager for F&B staff). Once that ops seat approves, attendance
-                updates immediately — HR and General Manager only keep history. When your reporting
-                manager is already that ops seat, the request waits there first. A regular supervisor
-                team correction waits on the Sr. Site Supervisor first; only a Venue / Site / Sr. Site
-                supervisor title may approve that seat on submit, then ops.
+                A correction for yourself goes to the Sr. Site Supervisor, then Head of Operations (or
+                F&B Manager for F&B staff). Once that ops seat approves, attendance updates immediately —
+                HR and General Manager only keep history. When your reporting manager is already that
+                ops seat, the request waits there first. A Supervisor / Venue Supervisor team correction
+                waits on the Sr. Site Supervisor first; only a Sr. Site Supervisor title may complete
+                that seat on submit, then ops.
               </p>
             </>
           )}
@@ -302,14 +303,11 @@ export function MissedPunchApprovalQueue({
             const teamNote = row.reviewNote || row.reason;
             const supervisorSubmitOnly = isMissedPunchSupervisorSubmitOnlyNote(teamNote);
             const submitterName = missedPunchTeamSubmitterName(teamNote);
-            const managerStep = row.steps.find((step) => step.stepRole === "manager");
-            const managerSeatOpen =
-              !managerStep || managerStep.status === "pending";
             const priorSteps = row.steps.filter(
               (step) => step.status === "approved" || step.status === "skipped",
             );
-            const showSupervisorSubmitted =
-              supervisorSubmitOnly && managerSeatOpen && Boolean(submitterName);
+            // Keep the supervisor submit stamp in "Already approved" even after Mary acts.
+            const showSupervisorSubmitted = supervisorSubmitOnly && Boolean(submitterName);
             const name = row.staffName ?? "Staff";
             const numberLabel = card.requestNumbers.length
               ? card.requestNumbers.join(" · ")
@@ -368,10 +366,14 @@ export function MissedPunchApprovalQueue({
                         ) : null}
                         {priorSteps.map((step) => (
                           <li key={step.stepRole}>
-                            {step.status === "skipped"
-                              ? `${stepLabel(step.stepRole)} skipped`
-                              : `${stepLabel(step.stepRole)} approved`}
-                            {step.actedByName ? ` · ${step.actedByName}` : ""}
+                            {missedPunchPriorApprovalLabel({
+                              stepRole: step.stepRole,
+                              status: step.status,
+                              actedByName: step.actedByName,
+                              // Manager seat completed by a non–Sr. Site submitter is healed;
+                              // keep supervisor-submit trail from the note, not a false Sr. Site line.
+                              supervisorSubmitOnly: false,
+                            })}
                           </li>
                         ))}
                       </ul>

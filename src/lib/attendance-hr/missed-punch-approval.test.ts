@@ -23,6 +23,9 @@ import {
   isHeadOfOperationsTitle,
   missedPunchCopiesExecutives,
   isSiteSupervisorTitle,
+  missedPunchPriorApprovalLabel,
+  missedPunchStepSeatLabel,
+  missedPunchSubmitterAutoCompletesManagerSeat,
   punchAtFromCorrectionValue,
   punchTimeInputValue,
   canCorrectStaffPunch,
@@ -220,6 +223,43 @@ describe("missed punch approval chain", () => {
     expect(isSiteSupervisorTitle("AV Specialist / FEC Supervisor", "other")).toBe(false);
     expect(isSiteSupervisorTitle("Head of Operations / FEC-IT", "other")).toBe(false);
     expect(isHeadOfOperationsTitle("Head of Operations / FEC-IT")).toBe(true);
+  });
+
+  it("only lets Sr. Site Supervisor auto-complete the manager seat (Ashfaq / Venue do not)", () => {
+    expect(missedPunchSubmitterAutoCompletesManagerSeat("Sr. Site Supervisor", "venue_supervisor")).toBe(true);
+    expect(missedPunchSubmitterAutoCompletesManagerSeat("Senior Site Supervisor", null)).toBe(true);
+    expect(missedPunchSubmitterAutoCompletesManagerSeat("Venue Supervisor", "venue_supervisor")).toBe(false);
+    expect(missedPunchSubmitterAutoCompletesManagerSeat("Site Supervisor", "venue_supervisor")).toBe(false);
+    expect(missedPunchSubmitterAutoCompletesManagerSeat("Supervisor", "other")).toBe(false);
+    expect(missedPunchSubmitterAutoCompletesManagerSeat(null, "venue_supervisor")).toBe(false);
+  });
+
+  it("labels Already-approved seats by real seat title (Supervisor ≠ Sr. Site)", () => {
+    expect(missedPunchStepSeatLabel("manager")).toBe("Sr. Site Supervisor");
+    expect(missedPunchStepSeatLabel("ops")).toBe("Head of Operations");
+    expect(missedPunchStepSeatLabel("ops", { opsLane: "fnb_manager" })).toBe("F&B Manager");
+    expect(
+      missedPunchPriorApprovalLabel({
+        stepRole: "manager",
+        status: "approved",
+        actedByName: "Ashfaq Noori",
+        supervisorSubmitOnly: true,
+      }),
+    ).toBe("Supervisor approved · Ashfaq Noori");
+    expect(
+      missedPunchPriorApprovalLabel({
+        stepRole: "manager",
+        status: "approved",
+        actedByName: "Mary Wangare Muiruri",
+      }),
+    ).toBe("Sr. Site Supervisor approved · Mary Wangare Muiruri");
+    expect(
+      missedPunchPriorApprovalLabel({
+        stepRole: "ops",
+        status: "approved",
+        actedByName: "Rajan Pathak",
+      }),
+    ).toBe("Head of Operations approved · Rajan Pathak");
   });
 
   it("derives the line manager from the site when nobody is named as reporting manager", () => {
@@ -938,12 +978,12 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
   });
 
-  it("routes crew under a Team Lead to Ashfaq (Venue Supervisor) before HoO", () => {
+  it("routes crew under a Team Lead / Venue Supervisor to Mary (Sr. Site) before HoO", () => {
     const crew = "crew-under-maluz";
     const maluzUser = "maluz-user";
     const dir = directory({
       reportingManagerUserIdByStaffId: new Map([[crew, maluzUser]]),
-      siteSupervisorManagerUserIdByStaffId: new Map([[crew, ASHFAQ]]),
+      siteSupervisorManagerUserIdByStaffId: new Map([[crew, MARY]]),
       headOfOperationsUserIds: [RAJAN],
     });
     expect(
@@ -953,7 +993,7 @@ describe("missed punch approval chain", () => {
         requestedBy: "crew-user",
         requesterStaffId: crew,
       }),
-    ).toEqual([ASHFAQ]);
+    ).toEqual([MARY]);
     const request = row({
       staffId: crew,
       requestedBy: "crew-user",
@@ -961,19 +1001,21 @@ describe("missed punch approval chain", () => {
       locationId: KDS,
       currentStepRole: "manager",
     });
-    expect(canUserActOnCorrection(dir, ASHFAQ, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, MARY, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, ASHFAQ, request)).toBe(false);
     expect(canUserActOnCorrection(dir, maluzUser, request)).toBe(false);
     expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
   });
 
-  it("walks past Team Lead titles to the nearest Venue / Site supervisor", () => {
+  it("walks past Team Lead and Venue Supervisor to the nearest Sr. Site Supervisor", () => {
     expect(
       nearestSiteSupervisorUserId({
         staffId: "crew",
         reportingManagerStaffIdByStaffId: new Map([
           ["crew", "maluz"],
           ["maluz", "ashfaq"],
-          ["ashfaq", "rajan"],
+          ["ashfaq", "mary"],
+          ["mary", "rajan"],
         ]),
         managerByStaffId: new Map([
           [
@@ -985,33 +1027,37 @@ describe("missed punch approval chain", () => {
             { userId: ASHFAQ, jobTitle: "Venue Supervisor", staffRole: "venue_supervisor" },
           ],
           [
+            "mary",
+            { userId: MARY, jobTitle: "Sr. Site Supervisor", staffRole: "venue_supervisor" },
+          ],
+          [
             "rajan",
             { userId: RAJAN, jobTitle: "Head of Operations", staffRole: "other" },
           ],
         ]),
       }),
-    ).toBe(ASHFAQ);
+    ).toBe(MARY);
   });
 
-  it("lets a Venue Supervisor act on manager-step corrections for their OT team when chart walk is empty", () => {
+  it("lets Sr. Site Supervisor act on manager-step corrections for their OT team when chart walk is empty", () => {
     const crew = "venue-crew";
     const request = row({
       staffId: crew,
       requestedBy: "crew-user",
       requesterStaffId: crew,
-      locationId: KDS,
+      locationId: INF,
       currentStepRole: "manager",
     });
     expect(
       canSiteSupervisorActOnTeamCorrection({
-        userId: ASHFAQ,
+        userId: MARY,
         teamStaffIds: [crew, "other"],
         row: request,
       }),
     ).toBe(true);
     expect(
       canSiteSupervisorActOnTeamCorrection({
-        userId: ASHFAQ,
+        userId: MARY,
         teamStaffIds: ["someone-else"],
         row: request,
       }),
@@ -1062,7 +1108,7 @@ describe("missed punch approval chain", () => {
     expect(correctionWaitingStep("final")).toBeNull();
   });
 
-  it("keeps a regular supervisor team submit on Sr. Site Supervisor (does not skip Mary)", () => {
+  it("keeps a regular / Venue supervisor team submit on Sr. Site Supervisor (does not skip Mary)", () => {
     const waqarUser = "waqar-user";
     const waqarStaff = "waqar-staff";
     const sarah = "sarah-staff";
@@ -1070,10 +1116,13 @@ describe("missed punch approval chain", () => {
       reportingManagerUserIdByStaffId: new Map([
         [waqarStaff, MARY],
         [sarah, waqarUser],
+        ["uzzal-staff", ASHFAQ],
       ]),
       siteSupervisorManagerUserIdByStaffId: new Map([
         [waqarStaff, MARY],
         [sarah, MARY],
+        ["uzzal-staff", MARY],
+        ["ashfaq-staff", MARY],
       ]),
       headOfOperationsUserIds: [RAJAN],
     });
@@ -1090,28 +1139,50 @@ describe("missed punch approval chain", () => {
         staffRole: "other",
       }),
     ).toBe("line_manager");
+    expect(
+      teamCorrectionRoute(dir, "uzzal-staff", ASHFAQ, {
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      }),
+    ).toBe("line_manager");
     expect(correctionWaitingStep("line_manager")).toBe("manager");
     expect(correctionStepSeed("line_manager").map((step) => step.status)).toEqual(["pending", "pending"]);
     const submitted = supervisorTeamSubmittedNote({
-      supervisorName: "Waqar Asghar",
-      requestedPunchIn: "12:00",
-      requestedPunchOut: "21:00",
-      previousPunchIn: "2026-09-28T09:00:00+03:00",
+      supervisorName: "Ashfaq Noori",
+      requestedPunchIn: "11:00",
+      requestedPunchOut: "20:00",
+      previousPunchIn: null,
       previousPunchOut: null,
     });
-    expect(submitted).toContain("Waqar Asghar submitted this correction.");
+    expect(submitted).toContain("Ashfaq Noori submitted this correction.");
     expect(isMissedPunchSupervisorSubmitOnlyNote(submitted)).toBe(true);
     expect(isMissedPunchTeamAutoApprovedNote(submitted)).toBe(false);
-    expect(missedPunchTeamSubmitterName(submitted)).toBe("Waqar Asghar");
+    expect(missedPunchTeamSubmitterName(submitted)).toBe("Ashfaq Noori");
     const waitingOnMary = row({
-      staffId: sarah,
-      requestedBy: waqarUser,
-      requesterStaffId: waqarStaff,
+      staffId: "uzzal-staff",
+      requestedBy: ASHFAQ,
+      requesterStaffId: "ashfaq-staff",
       currentStepRole: "manager",
+      locationId: KDS,
     });
     expect(canUserActOnCorrection(dir, MARY, waitingOnMary)).toBe(true);
     expect(canUserActOnCorrection(dir, RAJAN, waitingOnMary)).toBe(false);
-    expect(canUserActOnCorrection(dir, waqarUser, waitingOnMary)).toBe(false);
+    expect(canUserActOnCorrection(dir, ASHFAQ, waitingOnMary)).toBe(false);
+    expect(
+      shouldHealTeamCorrectionToManagerSeat({
+        row: row({
+          staffId: "uzzal-staff",
+          requestedBy: ASHFAQ,
+          requesterStaffId: "ashfaq-staff",
+          currentStepRole: "ops",
+          locationId: KDS,
+        }),
+        managerStep: { status: "approved", actedBy: ASHFAQ },
+        actorJobTitle: "Venue Supervisor",
+        actorStaffRole: "venue_supervisor",
+        directory: dir,
+      }),
+    ).toBe(true);
     expect(
       shouldHealTeamCorrectionToManagerSeat({
         row: row({
@@ -1176,6 +1247,15 @@ describe("missed punch approval chain", () => {
         managerStep: { status: "approved", actedBy: MARY },
         requesterJobTitle: "Sr. Site Supervisor",
         requesterStaffRole: "venue_supervisor",
+        directory: dir,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHealTeamCorrectionToManagerSeat({
+        row: waitingOnOps,
+        managerStep: { status: "approved", actedBy: MARY },
+        actorJobTitle: null,
+        actorStaffRole: null,
         directory: dir,
       }),
     ).toBe(false);
