@@ -6094,6 +6094,19 @@ export type Database = {
         Args: never
         Returns: string
       }
+      attendance_listing_punch_days: {
+        Args: {
+          p_date_from: string
+          p_date_to: string
+          p_location_id?: string | null
+          p_staff_ids?: string[] | null
+        }
+        Returns: {
+          staff_id: string
+          location_id: string
+          attendance_date: string
+        }[]
+      }
       generate_maintenance_request_number: {
         Args: never
         Returns: string

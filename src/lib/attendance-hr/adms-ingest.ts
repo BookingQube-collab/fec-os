@@ -457,8 +457,10 @@ export async function touchAdmsDevice(
   const update: Record<string, unknown> = {
     last_adms_at: new Date().toISOString(),
     last_adms_error: patch.error ?? null,
-    connection_mode: "adms",
   };
+  // Idle getrequest/cdata already runs as ADMS — rewriting connection_mode on every
+  // heartbeat was a top UPDATE fingerprint (~3k calls) with no behavioral change.
+  if (!patch.idleThrottle) update.connection_mode = "adms";
   if (patch.attlogStamp) update.adms_attlog_stamp = patch.attlogStamp;
   if (patch.operlogStamp) update.adms_operlog_stamp = patch.operlogStamp;
   if (patch.users) update.last_user_sync_at = new Date().toISOString();

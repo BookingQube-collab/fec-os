@@ -279,6 +279,8 @@ export async function recalculateAttendanceRange(
       .eq("location_id", locationId)
       .gte("attendance_date", dateFrom)
       .lte("attendance_date", dateTo)
+      // Match idx_attendance_logs_location_attendance_date (location_id, attendance_date, id).
+      .order("attendance_date", { ascending: true })
       .order("id", { ascending: true });
     // Staff-scoped confirm must still see unmapped punches so bio / device_name
     // aliasing can attach them to the uploaded cafe staff.
@@ -296,6 +298,9 @@ export async function recalculateAttendanceRange(
       .eq("location_id", locationId)
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo)
+      // Match idx_attendance_roster_location_work_date (location_id, work_date, staff_id, id).
+      .order("work_date", { ascending: true })
+      .order("staff_id", { ascending: true })
       .order("id", { ascending: true });
     if (staffScope) q = q.in("staff_id", staffScope);
     return q;
@@ -552,6 +557,9 @@ export async function recalculateAttendanceRange(
           .in("staff_id", chunk)
           .gte("attendance_date", dateFrom)
           .lte("attendance_date", dateTo)
+          // Match idx_attendance_logs_staff_attendance_date (staff_id, attendance_date, id).
+          .order("staff_id", { ascending: true })
+          .order("attendance_date", { ascending: true })
           .order("id", { ascending: true });
       const buildCrossRosterQuery = () =>
         supabase
@@ -560,6 +568,9 @@ export async function recalculateAttendanceRange(
           .in("staff_id", chunk)
           .gte("work_date", dateFrom)
           .lte("work_date", dateTo)
+          // Match idx_attendance_roster_staff_work_date_inc (staff_id, work_date, id).
+          .order("staff_id", { ascending: true })
+          .order("work_date", { ascending: true })
           .order("id", { ascending: true });
       const [logsPage, rosterPage] = await Promise.all([
         fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossLogsQuery().range(from, to)),

@@ -611,16 +611,49 @@ async function distinctColumnIds(
   table: "attendance_logs" | "attendance_daily_summary" | "attendance_roster_assignments" | "staff_work_locations",
   staffIds: string[],
 ): Promise<string[]> {
+  // Bound historical tables — unbounded attendance_logs / roster scans were ~500–650ms
+  // mean and dominated coverage-location discovery when that path was used.
+  const sinceYmd =
+    table === "staff_work_locations"
+      ? null
+      : (() => {
+          const days = table === "attendance_logs" ? 180 : 365;
+          const d = new Date();
+          d.setUTCDate(d.getUTCDate() - days);
+          return d.toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
+        })();
+
   const ids = new Set<string>();
   for (let index = 0; index < staffIds.length; index += 50) {
     const chunk = staffIds.slice(index, index + 50);
     let from = 0;
     for (let page = 0; page < 30; page += 1) {
-      const { data, error } = await supabaseAdmin
-        .from(table)
-        .select("location_id")
-        .in("staff_id", chunk)
-        .range(from, from + 999);
+      const { data, error } = await (async () => {
+        if (table === "attendance_logs" && sinceYmd) {
+          return supabaseAdmin
+            .from(table)
+            .select("location_id")
+            .in("staff_id", chunk)
+            .gte("attendance_date", sinceYmd)
+            .range(from, from + 999);
+        }
+        if (
+          (table === "attendance_daily_summary" || table === "attendance_roster_assignments") &&
+          sinceYmd
+        ) {
+          return supabaseAdmin
+            .from(table)
+            .select("location_id")
+            .in("staff_id", chunk)
+            .gte("work_date", sinceYmd)
+            .range(from, from + 999);
+        }
+        return supabaseAdmin
+          .from(table)
+          .select("location_id")
+          .in("staff_id", chunk)
+          .range(from, from + 999);
+      })();
       if (error) throw new Error(error.message);
       const rows = data ?? [];
       for (const row of rows) {

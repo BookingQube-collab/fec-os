@@ -801,6 +801,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           locationChunksForQuery.flatMap((locationChunk) =>
             staffChunks.map((staffChunk) =>
               collectPagedRowsInWaves<AssignmentPageRow>(async (from, to) => {
+                // ORDER BY matches idx_attendance_roster_location_work_date /
+                // idx_attendance_roster_staff_work_date_inc covering indexes.
                 let q = db
                   .from("attendance_roster_assignments")
                   .select(

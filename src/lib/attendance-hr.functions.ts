@@ -3872,12 +3872,15 @@ async function applyRoamingLocationFilterAdjustments(
   const rosterPages = await Promise.all(
     chunkStaffIds(rosterStaffIds).map((chunk) =>
       collectPagedRowsInWaves(async (from, to) => {
+        // Match idx_attendance_roster_staff_work_date_inc (staff_id, work_date, id).
         const { data: page, error } = await context.supabase
           .from("attendance_roster_assignments")
           .select("staff_id, location_id, work_date, is_week_off")
           .in("staff_id", chunk)
           .gte("work_date", opts.dateFrom)
           .lte("work_date", opts.dateTo)
+          .order("staff_id", { ascending: true })
+          .order("work_date", { ascending: true })
           .order("id", { ascending: true })
           .range(from, to);
         if (error) throw error;
@@ -3937,16 +3940,33 @@ async function loadListingGapRosterAndPunchDays(
   }
 
   const loadRoster = async (): Promise<ListingGapRosterDay[]> => {
+    // ORDER BY matches idx_attendance_roster_staff_work_date_inc /
+    // idx_attendance_roster_location_work_date (…, work_date, staff_id|id).
     const pages = await collectPagedRowsInWaves(async (from, to) => {
       let q = context.supabase
         .from("attendance_roster_assignments")
         .select("staff_id, location_id, work_date, is_week_off")
         .gte("work_date", dateFrom)
-        .lte("work_date", dateTo)
-        .order("id", { ascending: true })
-        .range(from, to);
-      if (staffIds?.length) q = q.in("staff_id", staffIds);
-      else if (locationId) q = q.eq("location_id", locationId);
+        .lte("work_date", dateTo);
+      if (staffIds?.length) {
+        q = q
+          .in("staff_id", staffIds)
+          .order("staff_id", { ascending: true })
+          .order("work_date", { ascending: true })
+          .order("id", { ascending: true });
+      } else if (locationId) {
+        q = q
+          .eq("location_id", locationId)
+          .order("work_date", { ascending: true })
+          .order("staff_id", { ascending: true })
+          .order("id", { ascending: true });
+      } else {
+        q = q
+          .order("work_date", { ascending: true })
+          .order("staff_id", { ascending: true })
+          .order("id", { ascending: true });
+      }
+      q = q.range(from, to);
       const { data: page, error } = await q;
       if (error) throw error;
       return page ?? [];
@@ -3968,9 +3988,47 @@ async function loadListingGapRosterAndPunchDays(
   };
 
   const loadPunchDays = async (): Promise<ListingGapPunchDay[]> => {
+    // Prefer DISTINCT RPC (one round-trip) over paging every punch row (~640ms).
+    // Fall back to the indexed paged select when the migration is not applied yet.
+    const punchSeen = new Set<string>();
+    const punchDays: ListingGapPunchDay[] = [];
+    const pushRow = (staffId: string, loc: string, day: string) => {
+      if (!staffId || !loc || !day) return;
+      const key = `${staffId}|${loc}|${day}`;
+      if (punchSeen.has(key)) return;
+      punchSeen.add(key);
+      punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
+    };
+
+    const staffChunks: Array<string[] | null> = staffIds?.length
+      ? chunkStaffIds(staffIds, 200)
+      : [null];
+    let rpcOk = true;
+    for (const chunk of staffChunks) {
+      const { data, error } = await context.supabase.rpc("attendance_listing_punch_days", {
+        p_date_from: dateFrom,
+        p_date_to: dateTo,
+        p_location_id: staffIds?.length ? null : locationId,
+        p_staff_ids: chunk,
+      });
+      if (error) {
+        rpcOk = false;
+        break;
+      }
+      for (const row of data ?? []) {
+        pushRow(
+          String(row.staff_id ?? ""),
+          String(row.location_id ?? ""),
+          String(row.attendance_date ?? "").slice(0, 10),
+        );
+      }
+    }
+    if (rpcOk) return punchDays;
+
+    punchSeen.clear();
+    punchDays.length = 0;
     // Order must match idx_attendance_logs_staff_attendance_date /
     // idx_attendance_logs_location_attendance_date (…, attendance_date, id).
-    // ORDER BY id alone forced Sort / PK walks (~100–650ms in Query Performance).
     const pages = await collectPagedRowsInWaves(async (from, to) => {
       let q = context.supabase
         .from("attendance_logs")
@@ -3991,27 +4049,19 @@ async function loadListingGapRosterAndPunchDays(
           .order("attendance_date", { ascending: true })
           .order("id", { ascending: true });
       } else {
-        // Match idx_attendance_logs_mapped_attendance_date (attendance_date, id).
-        q = q
-          .order("attendance_date", { ascending: true })
-          .order("id", { ascending: true });
+        q = q.order("attendance_date", { ascending: true }).order("id", { ascending: true });
       }
       q = q.range(from, to);
       const { data: page, error } = await q;
       if (error) throw error;
       return page ?? [];
     }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
-    const punchSeen = new Set<string>();
-    const punchDays: ListingGapPunchDay[] = [];
     for (const row of pages) {
-      const staffId = String(row.staff_id ?? "");
-      const loc = String(row.location_id ?? "");
-      const day = String(row.attendance_date ?? "").slice(0, 10);
-      if (!staffId || !loc || !day) continue;
-      const key = `${staffId}|${loc}|${day}`;
-      if (punchSeen.has(key)) continue;
-      punchSeen.add(key);
-      punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
+      pushRow(
+        String(row.staff_id ?? ""),
+        String(row.location_id ?? ""),
+        String(row.attendance_date ?? "").slice(0, 10),
+      );
     }
     return punchDays;
   };
