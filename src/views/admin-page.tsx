@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Building2, GripVertical, HeartPulse, Loader2, Phone, Settings, Shield, Sparkles, Trash2 } from "lucide-react";
+import { Building2, GripVertical, HeartPulse, Loader2, Mail, Phone, Settings, Shield, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -128,6 +128,25 @@ function AdminPage() {
           </div>
           <span className="shrink-0 rounded-full border border-input bg-card px-3 py-1.5 text-xs font-semibold shadow-elevated-xs">
             {t("livekitSettings.adminCard.open")}
+          </span>
+        </Link>
+      ) : null}
+      {canManage ? (
+        <Link
+          href="/admin/email"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs transition-shadow hover:shadow-elevated-sm"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="icon-well">
+              <Mail className="h-4 w-4 stroke-[1.5]" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{t("emailSettings.adminCard.title")}</p>
+              <p className="text-xs text-muted-foreground">{t("emailSettings.adminCard.body")}</p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full border border-input bg-card px-3 py-1.5 text-xs font-semibold shadow-elevated-xs">
+            {t("emailSettings.adminCard.open")}
           </span>
         </Link>
       ) : null}

@@ -648,6 +648,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
       ...withSection("nav.adminSectionIntegrations", [
         { href: "/admin/ai-integrations", labelKey: "nav.aiIntegrations", icon: Sparkles, capability: "admin.view" },
         { href: "/admin/livekit", labelKey: "nav.livekit", icon: Phone, capability: "admin.view" },
+        { href: "/admin/email", labelKey: "nav.emailSettings", icon: Mail, capability: "admin.view" },
       ]),
       ...withSection("nav.adminSectionSystem", [
         { href: "/admin/sidebar", labelKey: "nav.sidebarOrder", icon: GripVertical, capability: "admin.view" },

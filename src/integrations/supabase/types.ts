@@ -1860,6 +1860,7 @@ export type Database = {
           display_name: string | null
           employee_code: string | null
           id: string
+          login_email_self_edit_at: string | null
           phone: string | null
           pin_hash: string | null
           preferred_language: string
@@ -1873,6 +1874,7 @@ export type Database = {
           display_name?: string | null
           employee_code?: string | null
           id: string
+          login_email_self_edit_at?: string | null
           phone?: string | null
           pin_hash?: string | null
           preferred_language?: string
@@ -1886,6 +1888,7 @@ export type Database = {
           display_name?: string | null
           employee_code?: string | null
           id?: string
+          login_email_self_edit_at?: string | null
           phone?: string | null
           pin_hash?: string | null
           preferred_language?: string

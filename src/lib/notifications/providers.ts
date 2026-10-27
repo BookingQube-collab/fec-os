@@ -45,14 +45,17 @@ export const inAppProvider: NotificationProvider = {
 };
 
 /**
- * Email via NOTIFICATION_EMAIL_WEBHOOK (same JSON POST pattern as maintenance).
+ * Email via Admin UI / env webhook (same JSON POST pattern as maintenance).
+ * Prefers app_email_settings when managed; otherwise NOTIFICATION_EMAIL_WEBHOOK.
  * Skips cleanly when unset — no third-party SDK.
  */
 export const emailProvider: NotificationProvider = {
   channel: "email",
   providerName: "webhook",
   async dispatch(payload) {
-    const webhook = process.env.NOTIFICATION_EMAIL_WEBHOOK?.trim();
+    const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+    const config = await getOutboundEmailConfig();
+    const webhook = config?.webhookUrl?.trim();
     if (!webhook) {
       return { channel: "email", provider: "webhook", status: "skipped" };
     }
@@ -102,7 +105,9 @@ export const emailProvider: NotificationProvider = {
 export async function dispatchHrEmailIfConfigured(
   payload: DispatchPayload,
 ): Promise<DispatchResult> {
-  if (!process.env.NOTIFICATION_EMAIL_WEBHOOK?.trim()) {
+  const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+  const config = await getOutboundEmailConfig();
+  if (!config?.webhookUrl?.trim()) {
     return { channel: "email", provider: "webhook", status: "skipped" };
   }
   return emailProvider.dispatch(payload);

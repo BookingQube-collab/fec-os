@@ -46,6 +46,7 @@ import {
   getMyAccountSnapshot,
   getMyDigitalSignature,
   setMySignatureAutoApply,
+  updateMyLoginEmailOnce,
   updateMyProfile,
   uploadMyDigitalSignature,
 } from "@/lib/profile.functions";
@@ -182,6 +183,8 @@ export default function ProfilePage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [signatureBusy, setSignatureBusy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -229,6 +232,10 @@ export default function ProfilePage() {
   }, [profile?.display_name]);
 
   useEffect(() => {
+    setEmailDraft(user?.email ?? "");
+  }, [user?.email]);
+
+  useEffect(() => {
     if (typeof Notification === "undefined") {
       setNotifyPermission("unsupported");
       return;
@@ -254,6 +261,7 @@ export default function ProfilePage() {
 
   const email = user?.email ?? "";
   const username = usernameFromEmail(email);
+  const canEditLoginEmailOnce = snapshot.data?.canEditLoginEmailOnce === true;
   const primaryRole = roles[0]?.role ? translateRole(t, roles[0].role) : t("account.access.notAssigned");
   const department = snapshot.data?.department?.trim() || t("account.access.notAssigned");
   const displayName = profile?.display_name?.trim() || joinDisplayName(firstName, lastName) || username || email;
@@ -296,6 +304,31 @@ export default function ProfilePage() {
     const next = splitDisplayName(profile?.display_name);
     setFirstName(next.first);
     setLastName(next.last);
+  };
+
+  const onSaveLoginEmail = async () => {
+    const next = emailDraft.trim();
+    if (!next) {
+      toast.error(t("account.profile.emailInvalid"));
+      return;
+    }
+    if (next.toLowerCase() === email.trim().toLowerCase()) {
+      toast.error(t("account.profile.emailUnchanged"));
+      return;
+    }
+    setEmailBusy(true);
+    try {
+      const result = await updateMyLoginEmailOnce({ email: next });
+      if (!result.ok) throw new Error(result.error);
+      await supabase.auth.refreshSession();
+      await snapshot.refetch();
+      setEmailDraft(result.data.email);
+      toast.success(t("account.profile.emailSaved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("account.profile.emailFailed"));
+    } finally {
+      setEmailBusy(false);
+    }
   };
 
   const persistPhoto = async (avatarUrl: string | null) => {
@@ -757,9 +790,45 @@ export default function ProfilePage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="account-email">{t("account.profile.signInEmail")}</Label>
-                        <Input id="account-email" value={email} readOnly disabled />
+                        <Input
+                          id="account-email"
+                          type="email"
+                          value={canEditLoginEmailOnce ? emailDraft : email}
+                          readOnly={!canEditLoginEmailOnce}
+                          disabled={!canEditLoginEmailOnce || emailBusy || snapshot.isLoading}
+                          autoComplete="email"
+                          onChange={(event) => setEmailDraft(event.target.value)}
+                        />
                       </div>
                     </div>
+                    {canEditLoginEmailOnce ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <p className="account-hint flex-1 basis-full sm:basis-auto">{t("account.profile.emailOneTimeHint")}</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="account-btn"
+                          disabled={emailBusy || !emailDraft.trim()}
+                          onClick={() => void onSaveLoginEmail()}
+                        >
+                          {emailBusy ? t("common.saving") : t("account.profile.emailSave")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={emailBusy || emailDraft === email}
+                          onClick={() => setEmailDraft(email)}
+                        >
+                          {t("account.profile.reset")}
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="account-hint">
+                        {snapshot.isLoading
+                          ? t("account.profile.managedNote")
+                          : t("account.profile.emailOneTimeUsed")}
+                      </p>
+                    )}
                     <p className="account-hint">{t("account.profile.managedNote")}</p>
                   </div>
 

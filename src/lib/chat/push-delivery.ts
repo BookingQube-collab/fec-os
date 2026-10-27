@@ -153,7 +153,9 @@ export async function deliverChatChannels(input: {
     warnChannel("push");
   }
 
-  const webhookConfigured = Boolean(process.env.NOTIFICATION_EMAIL_WEBHOOK?.trim());
+  const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+  const emailConfig = await getOutboundEmailConfig().catch(() => null);
+  const webhookConfigured = Boolean(emailConfig?.webhookUrl?.trim());
   if (!webhookConfigured) return;
 
   try {

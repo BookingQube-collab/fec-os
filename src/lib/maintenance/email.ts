@@ -100,9 +100,15 @@ async function logEmail(
 }
 
 async function dispatchEmail(payload: EmailPayload): Promise<{ sent: boolean; reason?: string }> {
-  const webhook = process.env.NOTIFICATION_EMAIL_WEBHOOK;
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.MAINTENANCE_EMAIL_FROM ?? process.env.EMAIL_FROM ?? "maintenance@fec.qa";
+  const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+  const config = await getOutboundEmailConfig();
+  if (!config) {
+    return { sent: false, reason: "email_provider_not_configured" };
+  }
+
+  const from = config.fromAddress;
+  const resendKey = config.resendApiKey;
+  const webhook = config.webhookUrl;
 
   if (resendKey) {
     const res = await fetch("https://api.resend.com/emails", {

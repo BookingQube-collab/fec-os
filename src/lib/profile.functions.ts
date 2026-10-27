@@ -13,6 +13,11 @@ import {
 } from "@/lib/digital-signature";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { profileAvatarApiUrl } from "@/lib/profile-avatar";
+import {
+  isDuplicateAuthEmailError,
+  planSelfServeLoginEmailChange,
+  selfServeLoginEmailErrorMessage,
+} from "@/lib/profile-login-email";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -104,7 +109,7 @@ export const updateMyProfile = createAuthenticatedAction(
   },
 );
 
-/** Own staff department and the current request IP. No other sessions are stored. */
+/** Own staff department, request IP, and one-time login-email edit status. */
 export const getMyAccountSnapshot = createAuthenticatedActionNoInput(async (context) => {
   const headerList = await headers();
   const ip = readClientIp(headerList);
@@ -126,8 +131,136 @@ export const getMyAccountSnapshot = createAuthenticatedActionNoInput(async (cont
     const fallback = typeof data.department === "string" ? data.department.trim() : "";
     department = names.length > 0 ? names.join(", ") : fallback || null;
   }
-  return { department, ip };
+
+  let loginEmailSelfEditAt: string | null = null;
+  const { data: flagRow, error: flagErr } = await supabaseAdmin
+    .from("profiles")
+    .select("login_email_self_edit_at")
+    .eq("id", context.userId)
+    .maybeSingle();
+  if (flagErr) {
+    // Column missing until migration is applied — treat as already locked so UI stays safe.
+    console.warn("[getMyAccountSnapshot] login_email_self_edit_at read failed", flagErr.message);
+    loginEmailSelfEditAt = new Date(0).toISOString();
+  } else {
+    const raw = (flagRow as { login_email_self_edit_at?: string | null } | null)?.login_email_self_edit_at;
+    loginEmailSelfEditAt = typeof raw === "string" && raw.trim() ? raw : null;
+  }
+
+  return { department, ip, loginEmailSelfEditAt, canEditLoginEmailOnce: loginEmailSelfEditAt == null };
 });
+
+/**
+ * One-time self-serve sign-in email change for any authenticated user with a profile.
+ * Claims the flag first (race-safe), updates auth.users.email (confirmed) + staff.email,
+ * and rolls the flag back only if the auth update fails before commit.
+ */
+export const updateMyLoginEmailOnce = createSafeAuthenticatedAction(
+  z.object({
+    email: z.string().trim().min(3).max(200),
+  }),
+  async (data, context) => {
+    const { data: authUser, error: authReadErr } = await supabaseAdmin.auth.admin.getUserById(context.userId);
+    if (authReadErr) throw new Error(selfServeLoginEmailErrorMessage(authReadErr));
+    const currentEmail = authUser.user?.email ?? null;
+
+    const { data: profileRow, error: profileErr } = await supabaseAdmin
+      .from("profiles")
+      .select("id, login_email_self_edit_at")
+      .eq("id", context.userId)
+      .maybeSingle();
+    if (profileErr) {
+      throw new Error(
+        /login_email_self_edit_at|column/i.test(profileErr.message)
+          ? "Email change is not ready. Apply the login email self-edit migration."
+          : profileErr.message,
+      );
+    }
+    if (!profileRow) throw new Error("Profile not found.");
+
+    const alreadyUsedAt =
+      (profileRow as { login_email_self_edit_at?: string | null }).login_email_self_edit_at ?? null;
+
+    const plan = planSelfServeLoginEmailChange({
+      currentEmail,
+      nextEmailRaw: data.email,
+      alreadyUsedAt,
+    });
+    if (!plan.ok) {
+      if (plan.reason === "already_used") {
+        throw new Error("You have already used your one-time sign-in email change.");
+      }
+      if (plan.reason === "unchanged") {
+        throw new Error("That is already your sign-in email.");
+      }
+      throw new Error("Enter a valid email address.");
+    }
+
+    const email = plan.email;
+    const usedAt = new Date().toISOString();
+
+    const { data: claimed, error: claimErr } = await supabaseAdmin
+      .from("profiles")
+      .update({ login_email_self_edit_at: usedAt, updated_at: usedAt })
+      .eq("id", context.userId)
+      .is("login_email_self_edit_at", null)
+      .select("login_email_self_edit_at")
+      .maybeSingle();
+    if (claimErr) throw new Error(claimErr.message);
+    if (!claimed) {
+      throw new Error("You have already used your one-time sign-in email change.");
+    }
+
+    const releaseClaim = async () => {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ login_email_self_edit_at: null, updated_at: new Date().toISOString() })
+        .eq("id", context.userId)
+        .eq("login_email_self_edit_at", usedAt);
+    };
+
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(context.userId, {
+      email,
+      email_confirm: true,
+    });
+    if (updateErr) {
+      await releaseClaim();
+      if (isDuplicateAuthEmailError(updateErr)) {
+        throw new Error("A login with this email already exists.");
+      }
+      throw new Error(selfServeLoginEmailErrorMessage(updateErr));
+    }
+
+    const { error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .update({ email })
+      .eq("user_id", context.userId)
+      .is("deleted_at", null);
+    if (staffErr) {
+      // Auth already moved — keep the claim so they cannot change again.
+      console.error("[updateMyLoginEmailOnce] staff.email sync failed", staffErr.message);
+    }
+
+    const { error: auditErr } = await context.supabase.rpc("log_audit", {
+      _action: "profile.login_email_self_edit",
+      _table_name: "profiles",
+      _row_id: context.userId,
+      _after: { email, staff_email_synced: !staffErr },
+      _metadata: { previous_email: currentEmail },
+    });
+    if (auditErr) console.error("[updateMyLoginEmailOnce] audit log failed");
+
+    if (staffErr) {
+      throw new Error("Sign-in email updated, but the staff roster email could not be synced. Contact HR.");
+    }
+
+    return {
+      email,
+      loginEmailSelfEditAt:
+        (claimed as { login_email_self_edit_at?: string | null }).login_email_self_edit_at ?? usedAt,
+    };
+  },
+);
 
 /** Whether the signed-in user may manage a digital signature, plus current settings. */
 export const getMyDigitalSignature = createSafeAuthenticatedActionNoInput(async (context) => {

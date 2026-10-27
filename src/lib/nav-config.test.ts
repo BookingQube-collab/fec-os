@@ -26,6 +26,7 @@ const ADMIN_HREFS = [
   "/admin/roles",
   "/admin/ai-integrations",
   "/admin/livekit",
+  "/admin/email",
   "/admin/sidebar",
   "/admin/diagnostics",
   "/admin/api-explorer",
