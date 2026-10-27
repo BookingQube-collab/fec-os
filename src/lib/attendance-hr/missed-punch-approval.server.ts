@@ -56,6 +56,7 @@ import {
   shouldHealTeamCorrectionToManagerSeat,
   supervisorTeamSubmittedNote,
   teamCorrectionRoute,
+  unmappedLogIdsToClaimForCorrection,
   type ApprovalDirectory,
   type CorrectionApprovalView,
   type CorrectionPunchSide,
@@ -1605,9 +1606,128 @@ async function recalculateCorrectionDay(row: CorrectionRow) {
   );
 }
 
+/**
+ * Stamp same-day unmapped device punches (matched via original_value times) onto the
+ * correction staff, and ensure a biometric registry row exists so Mapping / device-logs
+ * / recalc keep resolving that User ID (CAR-AP blank-name User ID 1 → Zaryab).
+ */
+async function claimUnmappedDevicePunchesForCorrection(row: CorrectionRow) {
+  const staffId = row.staff_id ? String(row.staff_id) : "";
+  const locationId = row.location_id ? String(row.location_id) : "";
+  const workDate = row.work_date ? String(row.work_date).slice(0, 10) : "";
+  if (!staffId || !locationId || !workDate) return;
+
+  const previous = previousPunchesFromOriginalValue(row.original_value);
+  if (!previous.previousPunchIn && !previous.previousPunchOut) return;
+
+  const { data: logs, error } = await supabaseAdmin
+    .from("attendance_logs")
+    .select("id, biometric_user_id, device_id, punch_at, staff_id")
+    .eq("location_id", locationId)
+    .eq("attendance_date", workDate)
+    .is("staff_id", null)
+    .eq("excluded_from_calc", false)
+    .limit(500);
+  if (error) throw error;
+
+  const claim = unmappedLogIdsToClaimForCorrection({
+    logs: (logs ?? []).map((log) => ({
+      id: String(log.id),
+      biometric_user_id: log.biometric_user_id == null ? null : String(log.biometric_user_id),
+      device_id: log.device_id == null ? null : String(log.device_id),
+      punch_at: String(log.punch_at),
+    })),
+    previousPunchIn: previous.previousPunchIn,
+    previousPunchOut: previous.previousPunchOut,
+  });
+  if (!claim.logIds.length) return;
+
+  const { error: stampErr } = await supabaseAdmin
+    .from("attendance_logs")
+    .update({ staff_id: staffId })
+    .in("id", claim.logIds);
+  if (stampErr) throw stampErr;
+
+  if (!claim.biometricUserId) return;
+
+  const { data: staffMeta } = await supabaseAdmin
+    .from("staff")
+    .select("full_name, employee_code, department, job_title, status")
+    .eq("id", staffId)
+    .maybeSingle();
+
+  const { data: existingMaps, error: mapFindErr } = await supabaseAdmin
+    .from("attendance_biometric_users")
+    .select("id, device_id, staff_id")
+    .eq("location_id", locationId)
+    .eq("biometric_user_id", claim.biometricUserId)
+    .limit(20);
+  if (mapFindErr) throw mapFindErr;
+
+  const mappedAt = new Date().toISOString();
+  const staffPatch = {
+    staff_id: staffId,
+    full_name: staffMeta?.full_name ?? null,
+    employee_code: staffMeta?.employee_code ?? null,
+    department: staffMeta?.department ?? null,
+    job_title: staffMeta?.job_title ?? null,
+    employment_status: staffMeta?.status ?? "unknown",
+    mapped_at: mappedAt,
+  };
+
+  if (existingMaps?.length) {
+    const { error: mapUpdateErr } = await supabaseAdmin
+      .from("attendance_biometric_users")
+      .update(staffPatch)
+      .eq("location_id", locationId)
+      .eq("biometric_user_id", claim.biometricUserId);
+    if (mapUpdateErr) throw mapUpdateErr;
+    return;
+  }
+
+  let deviceId = claim.deviceId;
+  let companyId: string | null = null;
+  if (deviceId) {
+    const { data: device } = await supabaseAdmin
+      .from("attendance_devices")
+      .select("id, company_id")
+      .eq("id", deviceId)
+      .maybeSingle();
+    companyId = device?.company_id ? String(device.company_id) : null;
+  }
+  if (!deviceId || !companyId) {
+    const { data: siteDevice } = await supabaseAdmin
+      .from("attendance_devices")
+      .select("id, company_id")
+      .eq("location_id", locationId)
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!deviceId) deviceId = siteDevice?.id ? String(siteDevice.id) : null;
+    if (!companyId) companyId = siteDevice?.company_id ? String(siteDevice.company_id) : null;
+  }
+  if (!deviceId || !companyId) return;
+
+  const { error: insertErr } = await supabaseAdmin.from("attendance_biometric_users").upsert(
+    {
+      company_id: companyId,
+      location_id: locationId,
+      device_id: deviceId,
+      biometric_user_id: claim.biometricUserId,
+      device_name: staffMeta?.full_name ?? null,
+      ...staffPatch,
+    },
+    { onConflict: "company_id,location_id,device_id,biometric_user_id" },
+  );
+  if (insertErr) throw insertErr;
+}
+
 /** Write this request's stored punch(es) once. A later step must not insert them again. */
 async function writeCorrectionPunch(row: CorrectionRow) {
   if (String(row.kind) !== "add_punch") return;
+  // Claim device punches before inserting the correction clock so recalc sees both.
+  await claimUnmappedDevicePunchesForCorrection(row);
   const clocks = punchesOf(row.new_value);
   const sides: Array<{ side: "in" | "out"; punchAt: string }> = [];
   if (clocks.punchInAt) sides.push({ side: "in", punchAt: clocks.punchInAt });

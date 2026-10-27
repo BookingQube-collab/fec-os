@@ -11,6 +11,7 @@ import {
   groupOpenLegacyPunchPairs,
   previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
+  unmappedLogIdsToClaimForCorrection,
   approverHistoryCorrectionRows,
   isMissedPunchOpsTerminalStep,
   isPunchCorrectionHistoryViewer,
@@ -1455,6 +1456,36 @@ describe("missed punch print signatures", () => {
         "gm",
       ),
     ).toBe(false);
+  });
+});
+
+describe("unmappedLogIdsToClaimForCorrection", () => {
+  const deviceIn = "2026-09-28T16:16:57+00:00";
+  const logs = [
+    { id: "a", biometric_user_id: "1", device_id: "dev", punch_at: deviceIn },
+    { id: "b", biometric_user_id: "1", device_id: "dev", punch_at: "2026-09-28T20:43:08+00:00" },
+    { id: "c", biometric_user_id: "5", device_id: "dev", punch_at: "2026-09-28T16:16:57+00:00" },
+  ];
+
+  it("claims every same-day punch for the matched device user (CAR-AP User ID 1)", () => {
+    const claim = unmappedLogIdsToClaimForCorrection({
+      logs,
+      previousPunchIn: deviceIn,
+      previousPunchOut: null,
+    });
+    expect(claim.biometricUserId).toBe("1");
+    expect(claim.deviceId).toBe("dev");
+    expect(claim.logIds.sort()).toEqual(["a", "b"]);
+  });
+
+  it("returns empty when original times do not match any log", () => {
+    expect(
+      unmappedLogIdsToClaimForCorrection({
+        logs,
+        previousPunchIn: "2026-09-28T12:00:00+00:00",
+        previousPunchOut: null,
+      }),
+    ).toEqual({ logIds: [], biometricUserId: null, deviceId: null });
   });
 });
 

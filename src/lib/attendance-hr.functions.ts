@@ -162,7 +162,9 @@ import {
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   applyAcceptedCorrectionTimes,
+  previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
+  unmappedLogIdsToClaimForCorrection,
   type AcceptedCorrectionPunch,
   type MissedPunchStepRole,
 } from "@/lib/attendance-hr/missed-punch-approval";
@@ -1662,9 +1664,11 @@ async function recalcRecentAttendanceForStaff(
     ...[...locationIds].filter((id) => id !== primaryLocationId),
   ];
   for (const locationId of ordered) {
+    // After unmap/remove, punches are staff_id=null again — must include them so
+    // bio: summaries rebuild and stale staff: punch rows are not left orphaned.
     await recalculateAttendanceRange(context.supabase, locationId, from, to, {
       staffIds: scope,
-      includeUnmappedPunches: false,
+      includeUnmappedPunches: true,
     });
   }
 }
@@ -2597,6 +2601,37 @@ async function applyCorrection(context: AuthContext, row: Record<string, unknown
   }
   if (kind === "add_punch" && row.id) {
     const correctionId = String(row.id);
+    const staffId = row.staff_id ? String(row.staff_id) : "";
+    const locationIdForClaim = row.location_id ? String(row.location_id) : "";
+    const workDateForClaim = row.work_date ? String(row.work_date).slice(0, 10) : "";
+    if (staffId && locationIdForClaim && workDateForClaim) {
+      const previous = previousPunchesFromOriginalValue(
+        (row.original_value ?? {}) as Record<string, unknown>,
+      );
+      if (previous.previousPunchIn || previous.previousPunchOut) {
+        const { data: unmappedLogs } = await context.supabase
+          .from("attendance_logs")
+          .select("id, biometric_user_id, device_id, punch_at")
+          .eq("location_id", locationIdForClaim)
+          .eq("attendance_date", workDateForClaim)
+          .is("staff_id", null)
+          .eq("excluded_from_calc", false)
+          .limit(500);
+        const claim = unmappedLogIdsToClaimForCorrection({
+          logs: (unmappedLogs ?? []).map((log) => ({
+            id: String(log.id),
+            biometric_user_id: log.biometric_user_id == null ? null : String(log.biometric_user_id),
+            device_id: log.device_id == null ? null : String(log.device_id),
+            punch_at: String(log.punch_at),
+          })),
+          previousPunchIn: previous.previousPunchIn,
+          previousPunchOut: previous.previousPunchOut,
+        });
+        if (claim.logIds.length) {
+          await context.supabase.from("attendance_logs").update({ staff_id: staffId }).in("id", claim.logIds);
+        }
+      }
+    }
     const clocks = punchesFromCorrectionValue(next);
     const sides: Array<{ side: "in" | "out"; punchAt: string }> = [];
     if (clocks.punchInAt) sides.push({ side: "in", punchAt: clocks.punchInAt });

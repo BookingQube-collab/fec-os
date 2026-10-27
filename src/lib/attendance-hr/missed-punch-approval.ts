@@ -1242,6 +1242,58 @@ export function previousPunchesFromOriginalValue(
   };
 }
 
+export type CorrectionClaimLog = {
+  id: string;
+  biometric_user_id: string | null;
+  device_id?: string | null;
+  punch_at: string;
+};
+
+/**
+ * When HoO approves a missed-punch OUT (or IN), device punches for that day often still
+ * sit on staff_id=null (blank-name CAR-AP User ID, no biometric registry row). Matching
+ * original_value times claims those logs — and every same-day punch for that device user —
+ * so recalc pairs device IN + correction OUT under the staff row instead of leaving an
+ * UNMAPPED bio: orphan beside a broken staff summary.
+ */
+export function unmappedLogIdsToClaimForCorrection(input: {
+  logs: readonly CorrectionClaimLog[];
+  previousPunchIn: string | null;
+  previousPunchOut: string | null;
+  /** Same window as excludeReplacedPunches. */
+  matchWindowMs?: number;
+}): { logIds: string[]; biometricUserId: string | null; deviceId: string | null } {
+  const windowMs = input.matchWindowMs ?? 1500;
+  const anchors = [input.previousPunchIn, input.previousPunchOut]
+    .map((t) => (t ? Date.parse(t) : NaN))
+    .filter((ms) => Number.isFinite(ms));
+  if (!anchors.length || !input.logs.length) {
+    return { logIds: [], biometricUserId: null, deviceId: null };
+  }
+
+  const matched = input.logs.filter((log) => {
+    const ms = Date.parse(String(log.punch_at));
+    return Number.isFinite(ms) && anchors.some((prev) => Math.abs(ms - prev) < windowMs);
+  });
+  if (!matched.length) {
+    return { logIds: [], biometricUserId: null, deviceId: null };
+  }
+
+  const biometricUserId =
+    matched.map((l) => String(l.biometric_user_id ?? "").trim()).find(Boolean) ?? null;
+  const deviceId = matched.map((l) => String(l.device_id ?? "").trim()).find(Boolean) ?? null;
+
+  const claim = biometricUserId
+    ? input.logs.filter((log) => String(log.biometric_user_id ?? "").trim() === biometricUserId)
+    : matched;
+
+  return {
+    logIds: [...new Set(claim.map((l) => String(l.id)).filter(Boolean))],
+    biometricUserId,
+    deviceId,
+  };
+}
+
 export type AcceptedCorrectionPunch = {
   id: string;
   staffId: string | null;
