@@ -4,7 +4,7 @@ import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
-import { ChevronDown, FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
+import { ChevronDown, FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -36,6 +36,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { AttendanceRecordsGrid } from "@/components/people/attendance-records-grid";
 import {
   AttendanceHoursSummaryStrip,
@@ -134,6 +141,7 @@ export default function AttendanceHrReportsPage() {
   const [staffQ, setStaffQ] = useState("");
   const [staffQDebounced, setStaffQDebounced] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [mappingBusyIds, setMappingBusyIds] = useState<Record<string, true>>({});
   const { data: sites } = useSites();
@@ -467,7 +475,7 @@ export default function AttendanceHrReportsPage() {
         subtitle={t("attendanceHr.reports.subtitle")}
       />
       <AttendanceHrNav />
-      <p className="text-xs text-muted-foreground">{t("attendanceHr.reports.flexibleHint")}</p>
+      <p className="hidden text-xs text-muted-foreground sm:block">{t("attendanceHr.reports.flexibleHint")}</p>
 
       <NeumorphicCard className="space-y-4 p-4">
         <div className="space-y-1.5">
@@ -475,10 +483,14 @@ export default function AttendanceHrReportsPage() {
             <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
             {t("attendanceHr.reports.location")}
           </Label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t("attendanceHr.reports.location")}>
+          <div
+            className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden"
+            role="group"
+            aria-label={t("attendanceHr.reports.location")}
+          >
             <button
               type="button"
-              className={cn("filter-chip", !listingLocationId && "filter-chip-active")}
+              className={cn("filter-chip shrink-0", !listingLocationId && "filter-chip-active")}
               aria-pressed={!listingLocationId}
               onClick={() => onLocationChip(null)}
             >
@@ -491,19 +503,23 @@ export default function AttendanceHrReportsPage() {
                 key={site.id}
                 type="button"
                 title={label}
-                className={cn("filter-chip max-w-[18rem] truncate", listingLocationId === site.id && "filter-chip-active")}
+                className={cn(
+                  "filter-chip max-w-[14rem] shrink-0 truncate sm:max-w-[18rem]",
+                  listingLocationId === site.id && "filter-chip-active",
+                )}
                 aria-pressed={listingLocationId === site.id}
                 onClick={() => onLocationChip(site.id)}
               >
-                {label}
+                <span className="sm:hidden">{site.code}</span>
+                <span className="hidden sm:inline">{label}</span>
               </button>
               );
             })}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-56 flex-1 space-y-1.5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <Label htmlFor="attendance-hr-staff-search">{t("attendanceHr.reports.staff")}</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -514,7 +530,7 @@ export default function AttendanceHrReportsPage() {
                 placeholder={t("attendanceHr.reports.staffSearch")}
                 autoComplete="off"
                 aria-busy={showSearchBusy}
-                className={cn("ps-9", showSearchBusy && "pe-9")}
+                className={cn("min-h-10 ps-9", showSearchBusy && "pe-9")}
               />
               {showSearchBusy ? (
                 <Loader2
@@ -524,11 +540,28 @@ export default function AttendanceHrReportsPage() {
               ) : null}
             </div>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-10 w-full justify-start gap-2 md:hidden"
+            onClick={() => setFiltersOpen(true)}
+          >
+            <SlidersHorizontal className="h-4 w-4 shrink-0" />
+            <span className="truncate">{t("common.filters")}</span>
+            {status || departmentIds.length || activeShowOnlyOrgDepartments(orgChecks, departmentIds).length > 0 ? (
+              <span className="ms-auto inline-flex h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />
+            ) : null}
+          </Button>
+        </div>
+
+        <div className="hidden gap-3 md:grid md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
           <div className="space-y-1.5">
             <Label htmlFor="attendance-hr-month">{t("attendanceHr.reports.month")}</Label>
             <Input
               id="attendance-hr-month"
               type="month"
+              className="min-h-10 w-full"
               value={month}
               onChange={(e) => {
                 const ym = e.target.value;
@@ -542,6 +575,7 @@ export default function AttendanceHrReportsPage() {
             <Input
               id="attendance-hr-from"
               type="date"
+              className="min-h-10 w-full"
               value={from}
               onChange={(e) =>
                 setPeriod((p) => ({
@@ -557,6 +591,7 @@ export default function AttendanceHrReportsPage() {
             <Input
               id="attendance-hr-to"
               type="date"
+              className="min-h-10 w-full"
               value={to}
               onChange={(e) =>
                 setPeriod((p) => ({
@@ -569,12 +604,12 @@ export default function AttendanceHrReportsPage() {
           </div>
           <div className="space-y-1.5">
             <Label>{t("attendanceHr.import.dateRange")}</Label>
-            <p className="py-2 text-sm font-medium">{formatPayrollRange(from, to, i18n.language)}</p>
+            <p className="py-2 text-sm font-medium tabular-nums">{formatPayrollRange(from, to, i18n.language)}</p>
           </div>
-          <div className="min-w-44 space-y-1.5">
+          <div className="space-y-1.5">
             <Label>{t("attendanceHr.reports.status")}</Label>
             <Select value={status || "all"} onValueChange={onStatusChange}>
-              <SelectTrigger aria-label={t("attendanceHr.reports.status")}>
+              <SelectTrigger className="min-h-10 w-full" aria-label={t("attendanceHr.reports.status")}>
                 <SelectValue placeholder={t("attendanceHr.reports.allStatuses")} />
               </SelectTrigger>
               <SelectContent>
@@ -587,7 +622,7 @@ export default function AttendanceHrReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="min-w-44 space-y-1.5">
+          <div className="space-y-1.5">
             <Label>{t("attendanceHr.reports.department")}</Label>
             <SearchableSelect
               multiple
@@ -598,11 +633,11 @@ export default function AttendanceHrReportsPage() {
               selectedCountLabel={(count) => t("attendanceHr.reports.departmentsSelected", { count })}
               options={departmentOptions}
               aria-label={t("attendanceHr.reports.department")}
-              triggerClassName="h-10 min-h-10 w-auto min-w-[11rem] font-normal"
-              className="w-auto"
+              triggerClassName="h-10 min-h-10 w-full font-normal"
+              className="w-full"
             />
           </div>
-          <div className="min-w-0 w-full max-w-full basis-full sm:w-auto sm:max-w-xs sm:basis-auto">
+          <div className="min-w-0 md:col-span-2 xl:col-span-2">
             <OrgDepartmentsFilter
               checks={orgChecks}
               disabled={!orgDepartmentSelectionIsAll(departmentIds)}
@@ -610,6 +645,128 @@ export default function AttendanceHrReportsPage() {
             />
           </div>
         </div>
+
+        <p className="text-xs tabular-nums text-muted-foreground md:hidden">
+          {formatPayrollRange(from, to, i18n.language)}
+        </p>
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent
+            side="bottom"
+            className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0 sm:max-w-none"
+          >
+            <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-start">
+              <SheetTitle>{t("common.filters")}</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="attendance-hr-month-mobile">{t("attendanceHr.reports.month")}</Label>
+                <Input
+                  id="attendance-hr-month-mobile"
+                  type="month"
+                  className="min-h-10 w-full"
+                  value={month}
+                  onChange={(e) => {
+                    const ym = e.target.value;
+                    if (!/^\d{4}-\d{2}$/.test(ym)) return;
+                    setPeriod({ month: ym, ...monthBounds(ym) });
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="attendance-hr-from-mobile">{t("attendanceHr.reports.from")}</Label>
+                  <Input
+                    id="attendance-hr-from-mobile"
+                    type="date"
+                    className="min-h-10 w-full"
+                    value={from}
+                    onChange={(e) =>
+                      setPeriod((p) => ({
+                        dateFrom: e.target.value,
+                        dateTo: p.dateTo,
+                        month: payrollMonthMatchingBounds(e.target.value, p.dateTo) ?? p.month,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="attendance-hr-to-mobile">{t("attendanceHr.reports.to")}</Label>
+                  <Input
+                    id="attendance-hr-to-mobile"
+                    type="date"
+                    className="min-h-10 w-full"
+                    value={to}
+                    onChange={(e) =>
+                      setPeriod((p) => ({
+                        dateFrom: p.dateFrom,
+                        dateTo: e.target.value,
+                        month: payrollMonthMatchingBounds(p.dateFrom, e.target.value) ?? p.month,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <p className="text-sm font-medium tabular-nums">{formatPayrollRange(from, to, i18n.language)}</p>
+              <div className="space-y-1.5">
+                <Label>{t("attendanceHr.reports.status")}</Label>
+                <Select value={status || "all"} onValueChange={onStatusChange}>
+                  <SelectTrigger className="min-h-10 w-full" aria-label={t("attendanceHr.reports.status")}>
+                    <SelectValue placeholder={t("attendanceHr.reports.allStatuses")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("attendanceHr.reports.allStatuses")}</SelectItem>
+                    {ATTENDANCE_STATUSES.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {t(`attendanceHr.reports.statuses.${value}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("attendanceHr.reports.department")}</Label>
+                <SearchableSelect
+                  multiple
+                  values={departmentIds}
+                  onValuesChange={onDepartmentsChange}
+                  placeholder={t("attendanceHr.reports.allDepartments")}
+                  emptyOption={{ value: "", label: t("attendanceHr.reports.allDepartments") }}
+                  selectedCountLabel={(count) => t("attendanceHr.reports.departmentsSelected", { count })}
+                  options={departmentOptions}
+                  aria-label={t("attendanceHr.reports.department")}
+                  triggerClassName="h-10 min-h-10 w-full font-normal"
+                  className="w-full"
+                />
+              </div>
+              <OrgDepartmentsFilter
+                checks={orgChecks}
+                disabled={!orgDepartmentSelectionIsAll(departmentIds)}
+                onChange={onOrgChecksChange}
+              />
+            </div>
+            <SheetFooter className="shrink-0 !flex-row gap-2 border-t border-border/60 px-4 py-3 sm:justify-stretch sm:space-x-0">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-10 flex-1"
+                onClick={() => {
+                  startTransition(() => {
+                    setStatus("");
+                    setDepartmentIds([]);
+                    setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED);
+                    setKpiFilter(null);
+                  });
+                }}
+              >
+                {t("common.clear")}
+              </Button>
+              <Button type="button" className="min-h-10 flex-1" onClick={() => setFiltersOpen(false)}>
+                {t("common.apply")}
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
 
         <div className="flex flex-wrap items-center gap-2">
           {showHrExport ? (fileExport.stage === "error" ? (

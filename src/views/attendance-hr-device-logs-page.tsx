@@ -216,10 +216,14 @@ export default function AttendanceHrDeviceLogsPage() {
             <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
             {t("attendanceHr.reports.location")}
           </Label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t("attendanceHr.reports.location")}>
+          <div
+            className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden"
+            role="group"
+            aria-label={t("attendanceHr.reports.location")}
+          >
             <button
               type="button"
-              className={cn("filter-chip", !locationId && "filter-chip-active")}
+              className={cn("filter-chip shrink-0", !locationId && "filter-chip-active")}
               aria-pressed={!locationId}
               onClick={() => setCurrentLocationId(null)}
             >
@@ -232,19 +236,23 @@ export default function AttendanceHrDeviceLogsPage() {
                   key={site.id}
                   type="button"
                   title={label}
-                  className={cn("filter-chip max-w-[18rem] truncate", locationId === site.id && "filter-chip-active")}
+                  className={cn(
+                    "filter-chip max-w-[14rem] shrink-0 truncate sm:max-w-[18rem]",
+                    locationId === site.id && "filter-chip-active",
+                  )}
                   aria-pressed={locationId === site.id}
                   onClick={() => setCurrentLocationId(site.id)}
                 >
-                  {label}
+                  <span className="sm:hidden">{site.code}</span>
+                  <span className="hidden sm:inline">{label}</span>
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-56 flex-1 space-y-1.5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="min-w-0 space-y-1.5 sm:col-span-2 xl:col-span-2">
             <Label htmlFor="attendance-device-log-user">{t("attendanceHr.deviceLogs.search")}</Label>
             <div className="relative">
               <SearchableSelect
@@ -269,11 +277,12 @@ export default function AttendanceHrDeviceLogsPage() {
               ) : null}
             </div>
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-device-log-month">{t("attendanceHr.reports.month")}</Label>
             <Input
               id="attendance-device-log-month"
               type="month"
+              className="min-h-10 w-full"
               value={month}
               onChange={(e) => {
                 const ym = e.target.value;
@@ -282,11 +291,12 @@ export default function AttendanceHrDeviceLogsPage() {
               }}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-device-log-from">{t("attendanceHr.reports.from")}</Label>
             <Input
               id="attendance-device-log-from"
               type="date"
+              className="min-h-10 w-full"
               value={from}
               onChange={(e) =>
                 setPeriod((p) => ({
@@ -297,11 +307,12 @@ export default function AttendanceHrDeviceLogsPage() {
               }
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="attendance-device-log-to">{t("attendanceHr.reports.to")}</Label>
             <Input
               id="attendance-device-log-to"
               type="date"
+              className="min-h-10 w-full"
               value={to}
               onChange={(e) =>
                 setPeriod((p) => ({
@@ -312,15 +323,15 @@ export default function AttendanceHrDeviceLogsPage() {
               }
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="hidden min-w-0 space-y-1.5 sm:block">
             <Label>{t("attendanceHr.import.dateRange")}</Label>
-            <p className="py-2 text-sm font-medium">{formatPayrollRange(from, to, i18n.language)}</p>
+            <p className="py-2 text-sm font-medium tabular-nums">{formatPayrollRange(from, to, i18n.language)}</p>
           </div>
           {deviceOptions.length > 1 ? (
-            <div className="min-w-52 space-y-1.5">
+            <div className="min-w-0 space-y-1.5 sm:col-span-2 xl:col-span-1">
               <Label>{t("attendanceHr.deviceLogs.device")}</Label>
               <Select value={deviceId || "all"} onValueChange={(value) => setDeviceId(value === "all" ? "" : value)}>
-                <SelectTrigger aria-label={t("attendanceHr.deviceLogs.device")}>
+                <SelectTrigger className="min-h-10 w-full" aria-label={t("attendanceHr.deviceLogs.device")}>
                   <SelectValue placeholder={t("attendanceHr.deviceLogs.allDevices")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -340,14 +351,18 @@ export default function AttendanceHrDeviceLogsPage() {
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button asChild>
+        <p className="text-xs tabular-nums text-muted-foreground sm:hidden">
+          {formatPayrollRange(from, to, i18n.language)}
+        </p>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button asChild className="min-h-10 w-full sm:w-auto">
             <a href={exportHref}>{t("attendanceHr.reports.exportExcel")}</a>
           </Button>
-          <Button variant="secondary" asChild>
+          <Button variant="secondary" asChild className="min-h-10 w-full sm:w-auto">
             <a href={`${exportHref}&format=csv`}>{t("attendanceHr.reports.exportCsv")}</a>
           </Button>
-          <Button variant="secondary" asChild>
+          <Button variant="secondary" asChild className="min-h-10 w-full sm:w-auto">
             <a href={`${exportHref}&format=pdf`}>{t("attendanceHr.reports.exportPdf")}</a>
           </Button>
         </div>

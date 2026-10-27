@@ -475,15 +475,15 @@ export default function TrainingCourseBuilderPage() {
             />
             {data.course.thumbnail_path ? <p className="text-xs text-muted-foreground">{data.course.thumbnail_path}</p> : null}
           </Field>
-          <div className="flex flex-wrap items-end gap-2">
-            {canEdit ? <Button type="submit">{t("trainingCourses.save")}</Button> : null}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+            {canEdit ? <Button type="submit" className="min-h-10 w-full sm:w-auto">{t("trainingCourses.save")}</Button> : null}
             {version && canEdit && contentLocked ? (
-              <Button type="button" variant="outline" onClick={() => void run(() => createTrainingDraftVersion({ courseId, sourceVersionId: version.id }))}>
+              <Button type="button" variant="outline" className="min-h-10 w-full sm:w-auto" onClick={() => void run(() => createTrainingDraftVersion({ courseId, sourceVersionId: version.id }))}>
                 {t("trainingCourses.newVersion")}
               </Button>
             ) : null}
             {version && canPublish && data.course.status !== "PUBLISHED" ? (
-              <Button type="button" variant="outline" onClick={() => void run(() => setTrainingCourseStatus({ courseId, versionId: version.id, status: "PUBLISHED" }))}>
+              <Button type="button" variant="outline" className="min-h-10 w-full sm:w-auto" onClick={() => void run(() => setTrainingCourseStatus({ courseId, versionId: version.id, status: "PUBLISHED" }))}>
                 {t("trainingCourses.publish")}
               </Button>
             ) : null}
@@ -491,6 +491,7 @@ export default function TrainingCourseBuilderPage() {
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-10 w-full sm:w-auto"
                 onClick={() => {
                   void (async () => {
                     const result = await assignPublishedRetraining({ courseId });
@@ -502,12 +503,12 @@ export default function TrainingCourseBuilderPage() {
               </Button>
             ) : null}
             {version && canEdit && data.course.status === "DRAFT" ? (
-              <Button type="button" variant="outline" onClick={() => void run(() => setTrainingCourseStatus({ courseId, versionId: version.id, status: "UNDER_REVIEW" }))}>
+              <Button type="button" variant="outline" className="min-h-10 w-full sm:w-auto" onClick={() => void run(() => setTrainingCourseStatus({ courseId, versionId: version.id, status: "UNDER_REVIEW" }))}>
                 {t("trainingCourses.markReview")}
               </Button>
             ) : null}
             {version && canArchive && data.course.status !== "ARCHIVED" ? (
-              <Button type="button" variant="outline" onClick={() => void run(() => setTrainingCourseStatus({ courseId, versionId: version.id, status: "ARCHIVED" }))}>
+              <Button type="button" variant="outline" className="min-h-10 w-full sm:w-auto" onClick={() => void run(() => setTrainingCourseStatus({ courseId, versionId: version.id, status: "ARCHIVED" }))}>
                 {t("trainingCourses.archive")}
               </Button>
             ) : null}

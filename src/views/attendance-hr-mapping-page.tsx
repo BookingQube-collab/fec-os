@@ -618,10 +618,14 @@ export default function AttendanceHrMappingPage() {
             <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
             {t("attendanceHr.mapping.location")}
           </Label>
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t("attendanceHr.mapping.location")}>
+          <div
+            className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden"
+            role="group"
+            aria-label={t("attendanceHr.mapping.location")}
+          >
             <button
               type="button"
-              className={cn("filter-chip", !mappingLocationId && "filter-chip-active")}
+              className={cn("filter-chip shrink-0", !mappingLocationId && "filter-chip-active")}
               aria-pressed={!mappingLocationId}
               onClick={() => setCurrentLocationId(null)}
             >
@@ -634,11 +638,15 @@ export default function AttendanceHrMappingPage() {
                 key={site.id}
                 type="button"
                 title={label}
-                className={cn("filter-chip max-w-[18rem] truncate", mappingLocationId === site.id && "filter-chip-active")}
+                className={cn(
+                  "filter-chip max-w-[14rem] shrink-0 truncate sm:max-w-[18rem]",
+                  mappingLocationId === site.id && "filter-chip-active",
+                )}
                 aria-pressed={mappingLocationId === site.id}
                 onClick={() => setCurrentLocationId(site.id)}
               >
-                {label}
+                <span className="sm:hidden">{site.code}</span>
+                <span className="hidden sm:inline">{label}</span>
               </button>
               );
             })}

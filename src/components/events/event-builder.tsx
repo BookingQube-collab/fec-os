@@ -722,14 +722,20 @@ export function EventBuilder({
         >
           {t("events.wizard.back")}
         </Button>
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-end">
           {eventId ? (
-            <Button type="button" variant="ghost" onClick={() => router.push(`/events/${eventId}`)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-10 w-full sm:w-auto"
+              onClick={() => router.push(`/events/${eventId}`)}
+            >
               {t("events.builder.skipWorkspace")}
             </Button>
           ) : null}
           <Button
             type="button"
+            className="min-h-10 w-full sm:w-auto"
             disabled={busy || !form.name || !locationId || (step === "basics" && !form.event_start)}
             onClick={() => void continueStep()}
           >

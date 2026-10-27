@@ -164,25 +164,27 @@ export default function HrPayrollPage() {
         >
           <HrPanel delay={0}>
             <div className="space-y-3 p-4 sm:p-5">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+                <div className="min-w-0">
                   <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {t("hr.payrollRuns.periodsTitle")}
                   </p>
-                  <p className="mt-1 text-sm text-muted-foreground">{t("hr.payrollRuns.periodsHint")}</p>
+                  <p className="mt-1 hidden text-sm text-muted-foreground sm:block">{t("hr.payrollRuns.periodsHint")}</p>
                 </div>
                 {canGenerate ? (
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div>
+                  <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-end">
+                    <div className="min-w-0">
                       <Label htmlFor="hr-payroll-create-month">{t("hr.payroll.month")}</Label>
                       <Input
                         id="hr-payroll-create-month"
                         type="month"
+                        className="min-h-10 w-full sm:w-auto"
                         value={createMonth}
                         onChange={(e) => setCreateMonth(e.target.value)}
                       />
                     </div>
                     <Button
+                      className="min-h-10 w-full sm:w-auto"
                       disabled={pending || !createMonth}
                       onClick={() => {
                         startTransition(async () => {
@@ -197,7 +199,7 @@ export default function HrPayrollPage() {
                         });
                       }}
                     >
-                      <Plus className="mr-1 h-4 w-4" />
+                      <Plus className="me-1 h-4 w-4" />
                       {t("hr.payrollRuns.create")}
                     </Button>
                     <Button

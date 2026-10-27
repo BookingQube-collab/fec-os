@@ -1583,15 +1583,20 @@ export default function HrOtPage() {
           <HrPanel delay={2}>
             <div className="space-y-3 p-4 sm:p-5">
               <h3 className="text-sm font-semibold">{t("hr.ot.summariesTitle")}</h3>
-              <div className="flex flex-wrap items-end gap-3">
-                <div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0 space-y-1.5">
                   <Label>{t("hr.ot.month")}</Label>
-                  <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+                  <Input
+                    type="month"
+                    className="min-h-10 w-full"
+                    value={month}
+                    onChange={(e) => setMonth(e.target.value)}
+                  />
                 </div>
-                <div>
+                <div className="min-w-0 space-y-1.5">
                   <Label>{t("hr.ot.groupBy")}</Label>
                   <select
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    className="flex min-h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                     value={groupBy}
                     onChange={(e) =>
                       setGroupBy(e.target.value as typeof groupBy)

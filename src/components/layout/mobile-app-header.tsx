@@ -47,7 +47,7 @@ export function MobileAppHeader({ className }: { className?: string }) {
           <p className="truncate text-sm font-bold tracking-tight text-foreground">
             {t("app.name")}
           </p>
-          <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="hidden truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground min-[400px]:block">
             {t("app.tagline")}
           </p>
         </Link>

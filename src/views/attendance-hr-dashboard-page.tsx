@@ -226,66 +226,72 @@ function AttendanceHrDashboardBody() {
         subtitle={t("attendanceHr.subtitle", {
           defaultValue: "Combine ZKTeco punches with employee records, flag exceptions, and export HR workbooks.",
         })}
+        // Import lives in AttendanceHrNav on phone; keep header CTA for desktop only.
         actions={
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="attendance-hr-dashboard-month">{t("attendanceHr.dashboard.month")}</Label>
-              <Input
-                id="attendance-hr-dashboard-month"
-                type="month"
-                value={month}
-                onChange={(e) => applyMonth(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="attendance-hr-dashboard-from">{t("attendanceHr.dashboard.from")}</Label>
-              <Input
-                id="attendance-hr-dashboard-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) =>
-                  setPeriod((p) => ({
-                    dateFrom: e.target.value,
-                    dateTo: p.dateTo,
-                    month: payrollMonthMatchingBounds(e.target.value, p.dateTo) ?? p.month,
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="attendance-hr-dashboard-to">{t("attendanceHr.dashboard.to")}</Label>
-              <Input
-                id="attendance-hr-dashboard-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) =>
-                  setPeriod((p) => ({
-                    dateFrom: p.dateFrom,
-                    dateTo: e.target.value,
-                    month: payrollMonthMatchingBounds(p.dateFrom, e.target.value) ?? p.month,
-                  }))
-                }
-              />
-            </div>
-            <div className="min-w-0 w-full max-w-full basis-full sm:w-auto sm:max-w-xs sm:basis-auto space-y-1.5">
-              <Label>{t("common.orgDepartmentsMenu", { defaultValue: "Operations, Maintenance & F&B" })}</Label>
-              <OrgDepartmentsFilter checks={orgChecks} onChange={setOrgChecks} />
-            </div>
-            {fullAttendance ? (
-            <Button asChild>
+          fullAttendance ? (
+            <Button asChild className="hidden lg:inline-flex">
               <Link href="/people/attendance/import">
                 <Upload className="h-4 w-4" />
                 {t("attendanceHr.importFiles", { defaultValue: "Import files" })}
               </Link>
             </Button>
-            ) : null}
-          </div>
+          ) : null
         }
       />
       <AttendanceHrNav />
       <AttendanceHrSitesHint />
+      <div className="grid grid-cols-1 gap-3 rounded-xl border border-border/70 bg-card/40 p-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="attendance-hr-dashboard-month">{t("attendanceHr.dashboard.month")}</Label>
+          <Input
+            id="attendance-hr-dashboard-month"
+            type="month"
+            className="min-h-10 w-full"
+            value={month}
+            onChange={(e) => applyMonth(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="attendance-hr-dashboard-from">{t("attendanceHr.dashboard.from")}</Label>
+          <Input
+            id="attendance-hr-dashboard-from"
+            type="date"
+            className="min-h-10 w-full"
+            value={dateFrom}
+            onChange={(e) =>
+              setPeriod((p) => ({
+                dateFrom: e.target.value,
+                dateTo: p.dateTo,
+                month: payrollMonthMatchingBounds(e.target.value, p.dateTo) ?? p.month,
+              }))
+            }
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="attendance-hr-dashboard-to">{t("attendanceHr.dashboard.to")}</Label>
+          <Input
+            id="attendance-hr-dashboard-to"
+            type="date"
+            className="min-h-10 w-full"
+            value={dateTo}
+            onChange={(e) =>
+              setPeriod((p) => ({
+                dateFrom: p.dateFrom,
+                dateTo: e.target.value,
+                month: payrollMonthMatchingBounds(p.dateFrom, e.target.value) ?? p.month,
+              }))
+            }
+          />
+        </div>
+        <div className="min-w-0 space-y-1.5 sm:col-span-2 lg:col-span-1">
+          <Label className="hidden sm:block">
+            {t("common.orgDepartmentsMenu", { defaultValue: "Operations, Maintenance & F&B" })}
+          </Label>
+          <OrgDepartmentsFilter checks={orgChecks} onChange={setOrgChecks} />
+        </div>
+      </div>
       {fromLabel && toLabel ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="hidden text-xs tabular-nums text-muted-foreground sm:block">
           {usedImported
             ? t("attendanceHr.dashboard.importedPeriodHint", { from: fromLabel, to: toLabel })
             : t("attendanceHr.dashboard.periodHint", { from: fromLabel, to: toLabel })}

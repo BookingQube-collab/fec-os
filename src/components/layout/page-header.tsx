@@ -77,7 +77,7 @@ export function PageHeader({
               </FadeContent>
             )}
             {subtitle ? (
-              <p className="page-subtitle w-full min-w-0 max-w-full line-clamp-2 lg:line-clamp-none">
+              <p className="page-subtitle hidden w-full min-w-0 max-w-full sm:line-clamp-2 sm:block lg:line-clamp-none">
                 {subtitle}
               </p>
             ) : null}

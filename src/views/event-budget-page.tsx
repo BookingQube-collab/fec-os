@@ -693,9 +693,9 @@ export default function EventBudgetPage() {
       </section>
 
       {editable ? (
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-end">
           <Select value={newLine.category_id} onValueChange={(v) => setNewLine({ category_id: v, subcategory_id: "", title: newLine.title })}>
-            <SelectTrigger className="w-56"><SelectValue placeholder={t("events.budget.category")} /></SelectTrigger>
+            <SelectTrigger className="min-h-10 w-full sm:w-56"><SelectValue placeholder={t("events.budget.category")} /></SelectTrigger>
             <SelectContent>
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>{ar ? c.label_ar : c.label_en}</SelectItem>
@@ -703,15 +703,28 @@ export default function EventBudgetPage() {
             </SelectContent>
           </Select>
           <Select value={newLine.subcategory_id || undefined} onValueChange={(v) => setNewLine((s) => ({ ...s, subcategory_id: v }))} disabled={!filteredSubs.length}>
-            <SelectTrigger className="w-48"><SelectValue placeholder={t("events.budget.subcategory")} /></SelectTrigger>
+            <SelectTrigger className="min-h-10 w-full sm:w-48"><SelectValue placeholder={t("events.budget.subcategory")} /></SelectTrigger>
             <SelectContent>
               {filteredSubs.map((s) => (
                 <SelectItem key={s.id} value={s.id}>{ar ? s.label_ar : s.label_en}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Input className="w-48" placeholder={t("events.budget.lineTitle")} value={newLine.title} onChange={(e) => setNewLine((s) => ({ ...s, title: e.target.value }))} />
-          <Button size="sm" variant="outline" onClick={addLine} disabled={!newLine.category_id}>{t("events.budget.addLine")}</Button>
+          <Input
+            className="min-h-10 w-full sm:w-48"
+            placeholder={t("events.budget.lineTitle")}
+            value={newLine.title}
+            onChange={(e) => setNewLine((s) => ({ ...s, title: e.target.value }))}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-10 w-full sm:w-auto"
+            onClick={addLine}
+            disabled={!newLine.category_id}
+          >
+            {t("events.budget.addLine")}
+          </Button>
         </div>
       ) : null}
 

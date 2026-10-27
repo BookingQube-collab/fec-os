@@ -31,12 +31,12 @@ const NAV_ICONS: Record<string, LucideIcon> = {
 
 /** Same destinations as sidebar `hr-attendance` group — path routes, not query tabs. */
 const TABS = [
-  { href: "/people/attendance", labelKey: "nav.attendanceDashboard" },
-  { href: "/people/attendance/import", labelKey: "nav.attendanceImport" },
-  { href: "/people/attendance/reports", labelKey: "nav.attendanceListing" },
-  { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping" },
-  { href: "/people/attendance/device-logs", labelKey: "nav.attendanceDeviceLogs" },
-  { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices" },
+  { href: "/people/attendance", labelKey: "nav.attendanceDashboard", shortKey: "nav.attendanceDashboard" },
+  { href: "/people/attendance/import", labelKey: "nav.attendanceImport", shortKey: "nav.attendanceImport" },
+  { href: "/people/attendance/reports", labelKey: "nav.attendanceListing", shortKey: "nav.attendanceListingShort" },
+  { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping", shortKey: "nav.attendanceMapping" },
+  { href: "/people/attendance/device-logs", labelKey: "nav.attendanceDeviceLogs", shortKey: "nav.attendanceDeviceLogsShort" },
+  { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices", shortKey: "nav.attendanceDevicesShort" },
 ] as const;
 
 export function AttendanceHrNav() {
@@ -69,7 +69,8 @@ export function AttendanceHrNav() {
             className={pillTabItemClass(active)}
           >
             <Icon aria-hidden />
-            {t(tab.labelKey)}
+            <span className="sm:hidden">{t(tab.shortKey)}</span>
+            <span className="hidden sm:inline">{t(tab.labelKey)}</span>
           </Link>
         );
       })}
@@ -79,7 +80,7 @@ export function AttendanceHrNav() {
 
 export function AttendanceHrSitesHint() {
   return (
-    <p className="text-xs text-muted-foreground">
+    <p className="hidden text-xs text-muted-foreground md:block">
       <Building2 className="mr-1 inline h-3.5 w-3.5" />
       InflataPark City Center · Kids Driving School City Center · Urban Arena Doha Mall · Kids Mini Doha Mall ·
       Carousel Aspire Park · Crayons &amp; Bricks Vendome · Crayons &amp; Bricks Dar Al Salam · Winter Mirage Vendome

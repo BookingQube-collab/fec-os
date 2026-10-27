@@ -565,7 +565,7 @@ export default function StaffRosterRegisterPage() {
     <Button asChild variant="outline" size="sm" className="min-h-10 flex-1">
       <Link href="/people/import">
         <Upload className="h-4 w-4" />
-        {t("nav.importRoster")}
+        <span className="truncate">{t("nav.importRoster")}</span>
       </Link>
     </Button>
   ) : periodMode === "month" ? (
@@ -573,12 +573,12 @@ export default function StaffRosterRegisterPage() {
       type="button"
       size="sm"
       variant="outline"
-      className="min-h-10 flex-1"
+      className="min-h-10 min-w-0 flex-1"
       disabled={downloadPrevDisabled}
       onClick={openDownloadChoice}
     >
-      {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-      {t("people.roster.downloadPreviousMonth")}
+      {previousBusy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Download className="h-4 w-4 shrink-0" />}
+      <span className="truncate">{t("people.roster.downloadPreviousMonthShort")}</span>
     </Button>
   ) : null;
 
@@ -669,17 +669,14 @@ export default function StaffRosterRegisterPage() {
           )}
           <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
             <Label className="hidden sm:block">{t("people.roster.viewRangeLabel")}</Label>
-            <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2.5 text-sm leading-snug">
-              <span className="sm:hidden text-muted-foreground">{t("people.roster.viewRangeLabel")}: </span>
+            <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2.5 text-sm leading-snug tabular-nums">
               {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="hidden md:block">
-        <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} enabled={gridReady} />
-      </div>
+      <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} enabled={gridReady} />
 
       <RosterRegisterPanel
         // Remount when the branch switcher changes so the Location filter

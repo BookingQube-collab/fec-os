@@ -37,12 +37,24 @@ function weekdayShort(ymd: string, locale: string) {
   );
 }
 
-function monthLabel(monthKey: string, locale: string) {
+function monthLabel(monthKey: string, locale: string, compact = false) {
   const intlLocale = locale.toLowerCase().startsWith("ar") ? "ar" : "en-GB";
-  return new Intl.DateTimeFormat(intlLocale, { month: "long", year: "numeric", timeZone: "UTC" }).format(
-    new Date(`${monthKey}-01T12:00:00.000Z`),
-  );
+  return new Intl.DateTimeFormat(intlLocale, {
+    month: compact ? "short" : "long",
+    year: compact ? "2-digit" : "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${monthKey}-01T12:00:00.000Z`));
 }
+
+const ATT_STICKY_NO =
+  "sticky start-0 z-10 w-8 border-e border-border/70 bg-card px-1 py-1 text-center tabular-nums text-muted-foreground sm:w-10 sm:px-1.5";
+const ATT_STICKY_NO_TH =
+  "sticky start-0 z-30 w-8 border-b border-e border-border/70 bg-card px-1 py-1 text-center font-medium sm:w-10 sm:px-1.5";
+const ATT_STICKY_STAFF =
+  "sticky start-8 z-10 min-w-[7.5rem] max-w-[9rem] border-e border-border/70 bg-card px-1.5 py-1.5 sm:start-10 sm:min-w-[11rem] sm:max-w-[14rem] sm:px-2";
+const ATT_STICKY_STAFF_TH =
+  "sticky start-8 z-30 min-w-[7.5rem] max-w-[9rem] border-b border-e border-border/70 bg-card px-1.5 py-1 text-start font-medium sm:start-10 sm:min-w-[11rem] sm:max-w-[14rem] sm:px-2";
+const ATT_DAY_COL = "min-w-[3.5rem] border-b border-border/60 px-0.5 py-1 text-center font-medium sm:min-w-[4.75rem] sm:px-1";
 
 function dayNumber(ymd: string) {
   return Number(ymd.slice(8, 10));
@@ -69,10 +81,8 @@ const AttendanceStaffRow = memo(function AttendanceStaffRow({
 }: AttendanceStaffRowProps) {
   return (
     <tr className="border-b border-border/50" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 3rem" }}>
-      <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
-        {index + 1}
-      </td>
-      <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
+      <td className={ATT_STICKY_NO}>{index + 1}</td>
+      <td className={ATT_STICKY_STAFF}>
         <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
         <div className="truncate text-[10px] text-muted-foreground">
           {person.employeeCode || person.qid || ""}
@@ -123,7 +133,7 @@ const AttendanceStaffRow = memo(function AttendanceStaffRow({
                         <div className="mt-0.5 text-[9px] tabular-nums text-muted-foreground">{content.meta}</div>
                       ) : null}
                       {entry.locationLabel ? (
-                        <div className="mt-0.5 truncate text-[9px] text-muted-foreground">
+                        <div className="mt-0.5 hidden truncate text-[9px] text-muted-foreground sm:block">
                           {entry.locationLabel.split("—")[0]?.trim() || entry.locationLabel}
                         </div>
                       ) : null}
@@ -211,24 +221,21 @@ export const AttendanceRecordsGrid = memo(function AttendanceRecordsGrid({
                   colSpan={span.count}
                   className="border-b border-border/70 px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
                 >
-                  {monthLabel(span.monthKey, i18n.language)}
+                  <span className="sm:hidden">{monthLabel(span.monthKey, i18n.language, true)}</span>
+                  <span className="hidden sm:inline">{monthLabel(span.monthKey, i18n.language)}</span>
                 </th>
               ))}
             </tr>
             <tr className="bg-card">
-              <th className="sticky start-0 z-30 w-10 border-b border-e border-border/70 bg-card px-1.5 py-1 text-center font-medium">
-                {t("attendanceHr.reports.colNo")}
-              </th>
-              <th className="sticky start-10 z-30 min-w-[11rem] border-b border-e border-border/70 bg-card px-2 py-1 text-start font-medium">
-                {t("attendanceHr.reports.colStaff")}
-              </th>
+              <th className={ATT_STICKY_NO_TH}>{t("attendanceHr.reports.colNo")}</th>
+              <th className={ATT_STICKY_STAFF_TH}>{t("attendanceHr.reports.colStaff")}</th>
               {matrix.dates.map((ymd) => {
                 const weekend = isWeekendYmd(ymd);
                 return (
                   <th
                     key={`wd-${ymd}`}
                     className={cn(
-                      "min-w-[4.75rem] border-b border-border/60 px-1 py-1 text-center font-medium",
+                      ATT_DAY_COL,
                       weekend ? "bg-muted/60 text-muted-foreground" : "bg-muted/40 text-muted-foreground",
                     )}
                   >
@@ -238,15 +245,15 @@ export const AttendanceRecordsGrid = memo(function AttendanceRecordsGrid({
               })}
             </tr>
             <tr className="bg-card">
-              <th className="sticky start-0 z-30 border-b border-e border-border/70 bg-card" />
-              <th className="sticky start-10 z-30 border-b border-e border-border/70 bg-card" />
+              <th className="sticky start-0 z-30 w-8 border-b border-e border-border/70 bg-card sm:w-10" />
+              <th className="sticky start-8 z-30 border-b border-e border-border/70 bg-card sm:start-10" />
               {matrix.dates.map((ymd) => {
                 const weekend = isWeekendYmd(ymd);
                 return (
                   <th
                     key={`dn-${ymd}`}
                     className={cn(
-                      "border-b border-border/60 px-1 py-1 text-center tabular-nums font-semibold",
+                      "border-b border-border/60 px-0.5 py-1 text-center tabular-nums font-semibold sm:px-1",
                       weekend ? "bg-muted/40" : "bg-card",
                     )}
                   >

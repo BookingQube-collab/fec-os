@@ -94,21 +94,24 @@ export function AttendanceTablePanel({
         isLoading={isLoading}
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-1 flex-wrap items-end gap-2">
-          <div className="relative min-w-[12rem] flex-1 max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-8"
-              placeholder={t("people.attendance.searchStaff")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="relative min-w-0 sm:col-span-2 xl:col-span-2">
+            <Label className="mb-1 block text-xs text-muted-foreground">{t("people.attendance.searchStaff")}</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="min-h-10 ps-8"
+                placeholder={t("people.attendance.searchStaff")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="min-w-[10rem]">
+          <div className="min-w-0">
             <Label className="mb-1 block text-xs text-muted-foreground">{t("people.attendance.filterUser")}</Label>
             <Select value={staffFilter} onValueChange={setStaffFilter}>
-              <SelectTrigger className="w-[10rem]">
+              <SelectTrigger className="min-h-10 w-full">
                 <SelectValue placeholder={t("people.attendance.allUsers")} />
               </SelectTrigger>
               <SelectContent>
@@ -121,10 +124,10 @@ export function AttendanceTablePanel({
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <Label className="mb-1 block text-xs text-muted-foreground">{t("people.attendance.datePreset")}</Label>
             <Select value={datePreset} onValueChange={(v) => applyPreset(v as AttendanceDatePreset)}>
-              <SelectTrigger className="w-[9.5rem]">
+              <SelectTrigger className="min-h-10 w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -134,11 +137,11 @@ export function AttendanceTablePanel({
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <Label className="mb-1 block text-xs text-muted-foreground">{t("people.attendance.dateFrom")}</Label>
             <Input
               type="date"
-              className="w-[9.5rem]"
+              className="min-h-10 w-full"
               value={dateFrom}
               max={dateTo || todayIsoDate()}
               onChange={(e) => {
@@ -147,11 +150,11 @@ export function AttendanceTablePanel({
               }}
             />
           </div>
-          <div>
+          <div className="min-w-0">
             <Label className="mb-1 block text-xs text-muted-foreground">{t("people.attendance.dateTo")}</Label>
             <Input
               type="date"
-              className="w-[9.5rem]"
+              className="min-h-10 w-full"
               value={dateTo}
               min={dateFrom}
               max={todayIsoDate()}
@@ -161,18 +164,23 @@ export function AttendanceTablePanel({
               }}
             />
           </div>
-          <p className="pb-2 text-xs text-muted-foreground">{formatPayrollRange(from, to, i18n.language)}</p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={!filtered.length}
-          onClick={exportCsv}
-        >
-          <Download className="h-3.5 w-3.5" />
-          <span className="ml-1.5">{t("people.attendance.exportCsv")}</span>
-        </Button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {formatPayrollRange(from, to, i18n.language)}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-10 w-full sm:w-auto"
+            disabled={!filtered.length}
+            onClick={exportCsv}
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="ms-1.5">{t("people.attendance.exportCsv")}</span>
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (

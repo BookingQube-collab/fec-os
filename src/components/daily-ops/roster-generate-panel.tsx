@@ -253,22 +253,22 @@ export function RosterGeneratePanel({
               <CalendarDays className="h-3.5 w-3.5" />
               {t("dailyOps.roster.stepWeek")}
             </Label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
               <Input
                 type="date"
                 value={genWeekStart}
                 onChange={(e) => setGenWeekStart(e.target.value)}
                 disabled={!locationId || aiGenerateMutation.isPending}
-                className="min-w-0 flex-1"
+                className="min-h-10 min-w-0 w-full"
                 aria-label={t("dailyOps.roster.from")}
               />
-              <span className="text-xs text-muted-foreground">{t("dailyOps.roster.to")}</span>
+              <span className="hidden text-xs text-muted-foreground sm:inline">{t("dailyOps.roster.to")}</span>
               <Input
                 type="date"
                 value={genWeekEnd}
                 onChange={(e) => setGenWeekEnd(e.target.value)}
                 disabled={!locationId || aiGenerateMutation.isPending}
-                className="min-w-0 flex-1"
+                className="min-h-10 min-w-0 w-full"
                 aria-label={t("dailyOps.roster.to")}
               />
             </div>

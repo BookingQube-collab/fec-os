@@ -1782,11 +1782,13 @@
   }
 }
 
-/* Inner page tabs — My Account pills. Active fill is the violet brand token. */
+/* Inner page tabs — My Account pills. Active fill is the violet brand token.
+   nowrap + overflow-x keeps Attendance / Daily Ops as a phone-friendly pill scroller
+   instead of a tall 2-column wrap. Chat hub opts back into wrap below. */
 .fec-inner-tabs,
 .account-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.35rem;
   width: max-content;
@@ -1801,6 +1803,7 @@
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .fec-inner-tabs::-webkit-scrollbar,

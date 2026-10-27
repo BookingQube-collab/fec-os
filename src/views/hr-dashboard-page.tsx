@@ -102,11 +102,11 @@ export default function HrDashboardPage() {
   useRegisterHrAssist(assistPatch);
 
   const filters = (
-    <div className="flex flex-wrap items-end gap-3 px-1">
-      <div className="min-w-[10rem] flex-1 sm:max-w-xs">
+    <div className="grid grid-cols-1 gap-3 px-1 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="min-w-0">
         <Label htmlFor="hr-dashboard-site">{t("common.site")}</Label>
         <Select value={locationId} onValueChange={setLocationId}>
-          <SelectTrigger id="hr-dashboard-site" className="mt-1.5 bg-card">
+          <SelectTrigger id="hr-dashboard-site" className="mt-1.5 min-h-10 w-full bg-card">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -119,13 +119,13 @@ export default function HrDashboardPage() {
           </SelectContent>
         </Select>
       </div>
-      <div className="min-w-[12rem] flex-1 sm:max-w-xs">
-        <Label>{t("common.department")}</Label>
+      <div className="min-w-0">
+        <Label className="hidden sm:block">{t("common.department")}</Label>
         <OrgDepartmentsFilter checks={orgChecks} onChange={setOrgChecks} className="mt-1.5" />
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 sm:col-span-2 lg:col-span-1">
         <Label>{t("hr.dashboard.filters.period")}</Label>
-        <FecFilterGroup className="mt-1.5">
+        <FecFilterGroup className="mt-1.5 overflow-x-auto">
           <FecFilter active={periodMode === "fec"} onClick={() => setPeriodMode("fec")}>
             {t("hr.dashboard.filters.fecMonth")}
           </FecFilter>

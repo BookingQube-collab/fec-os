@@ -326,14 +326,26 @@ export function AmcContractDetailPage({ id }: { id: string }) {
       </div>
 
       <CapabilityGate capability="amc.manage">
-        <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-4">
-          <div>
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-2">
+          <div className="min-w-0 flex-1 space-y-1.5 sm:flex-none">
             <Label>{t("amc.form.recordPayment", { qar: t("common.qar") })}</Label>
-            <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(Number(e.target.value))} className="w-40" />
+            <Input
+              type="number"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(Number(e.target.value))}
+              className="min-h-10 w-full sm:w-40"
+            />
           </div>
-          <Button size="sm" onClick={() => payMut.mutate()} disabled={paymentAmount <= 0}>{t("amc.form.markPayment")}</Button>
-          <Label className="cursor-pointer">
-            <span className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted">
+          <Button
+            size="sm"
+            className="min-h-10 w-full sm:w-auto"
+            onClick={() => payMut.mutate()}
+            disabled={paymentAmount <= 0}
+          >
+            {t("amc.form.markPayment")}
+          </Button>
+          <Label className="w-full cursor-pointer sm:w-auto">
+            <span className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted sm:w-auto">
               <Upload className="h-4 w-4" />Upload attachment
             </span>
             <input type="file" className="hidden" accept=".pdf,image/*" onChange={(e) => {

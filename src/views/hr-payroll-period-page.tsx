@@ -800,11 +800,11 @@ export default function HrPayrollPeriodPage() {
           ) : null}
 
           <HrPanel delay={5} className="mt-3">
-            <div className="flex flex-wrap items-end gap-3 p-4">
-              <div>
+            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
+              <div className="min-w-0 space-y-1.5">
                 <Label>Search</Label>
                 <Input
-                  className="w-48"
+                  className="min-h-10 w-full lg:w-48"
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
@@ -813,10 +813,10 @@ export default function HrPayrollPeriodPage() {
                   placeholder="Name / code / QID"
                 />
               </div>
-              <div>
+              <div className="min-w-0 space-y-1.5">
                 <Label>Workplace</Label>
                 <Input
-                  className="w-44"
+                  className="min-h-10 w-full lg:w-44"
                   value={workplace}
                   onChange={(e) => {
                     setWorkplace(e.target.value);
@@ -825,7 +825,7 @@ export default function HrPayrollPeriodPage() {
                   placeholder="Filter location"
                 />
               </div>
-              <div>
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("hr.payrollRuns.filterMethod")}</Label>
                 <Select
                   value={method}
@@ -834,7 +834,7 @@ export default function HrPayrollPeriodPage() {
                     setPage(0);
                   }}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="min-h-10 w-full lg:w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -846,7 +846,7 @@ export default function HrPayrollPeriodPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              <div className="min-w-0 space-y-1.5">
                 <Label>Type</Label>
                 <Select
                   value={category}
@@ -855,7 +855,7 @@ export default function HrPayrollPeriodPage() {
                     setPage(0);
                   }}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="min-h-10 w-full lg:w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -868,7 +868,7 @@ export default function HrPayrollPeriodPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              <div className="min-w-0 space-y-1.5">
                 <Label>Review</Label>
                 <Select
                   value={reviewFilter}
@@ -877,7 +877,7 @@ export default function HrPayrollPeriodPage() {
                     setPage(0);
                   }}
                 >
-                  <SelectTrigger className="w-36">
+                  <SelectTrigger className="min-h-10 w-full lg:w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -890,19 +890,21 @@ export default function HrPayrollPeriodPage() {
                 </Select>
               </div>
               {canExport ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap lg:col-span-2">
                   <Button
                     variant="outline"
                     size="sm"
+                    className="min-h-10 w-full sm:w-auto"
                     disabled={exportXlsxMut.isPending}
                     onClick={() => exportXlsxMut.mutate("full")}
                   >
-                    <Download className="mr-1 h-4 w-4" />
+                    <Download className="me-1 h-4 w-4" />
                     Full Excel
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
+                    className="min-h-10 w-full sm:w-auto"
                     disabled={exportXlsxMut.isPending}
                     onClick={() => exportXlsxMut.mutate("summary")}
                   >
@@ -911,6 +913,7 @@ export default function HrPayrollPeriodPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="min-h-10 w-full sm:w-auto"
                     disabled={exportXlsxMut.isPending}
                     onClick={() => exportXlsxMut.mutate("reconciliation")}
                   >
@@ -919,6 +922,7 @@ export default function HrPayrollPeriodPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="min-h-10 w-full sm:w-auto"
                     disabled={exportXlsxMut.isPending}
                     onClick={() => exportXlsxMut.mutate("project_staff")}
                   >
@@ -927,6 +931,7 @@ export default function HrPayrollPeriodPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="min-h-10 w-full sm:w-auto"
                     disabled={exportCsvMut.isPending}
                     onClick={() => exportCsvMut.mutate("wps")}
                   >

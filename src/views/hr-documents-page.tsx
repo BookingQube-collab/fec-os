@@ -564,7 +564,11 @@ export function HrDocumentsWorkspace({
                 </>
               ) : null}
               <div className="flex items-end lg:col-span-5">
-                <Button disabled={!staffId || !file || upload.isPending} onClick={() => upload.mutate()}>
+                <Button
+                  className="min-h-10 w-full sm:w-auto"
+                  disabled={!staffId || !file || upload.isPending}
+                  onClick={() => upload.mutate()}
+                >
                   {t("hr.docs.upload")}
                 </Button>
               </div>
@@ -574,21 +578,32 @@ export function HrDocumentsWorkspace({
 
           {replaceId ? (
             <div className="hr-slip hr-enter">
-              <div className="flex flex-wrap items-end gap-3 p-4 sm:p-5">
-                <div>
+              <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end sm:p-5">
+                <div className="min-w-0 flex-1 space-y-1.5">
                   <Label>{t("hr.docs.replaceFile")}</Label>
                   <Input
                     type="file"
                     accept=".pdf,image/*"
+                    className="min-h-10 w-full"
                     onChange={(e) => setReplaceFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
-                <Button disabled={!replaceFile || replace.isPending} onClick={() => replace.mutate()}>
-                  {t("hr.docs.replace")}
-                </Button>
-                <Button variant="ghost" onClick={() => { setReplaceId(null); setReplaceFile(null); }}>
-                  {t("common.cancel")}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    className="min-h-10 flex-1 sm:flex-none"
+                    disabled={!replaceFile || replace.isPending}
+                    onClick={() => replace.mutate()}
+                  >
+                    {t("hr.docs.replace")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="min-h-10 flex-1 sm:flex-none"
+                    onClick={() => { setReplaceId(null); setReplaceFile(null); }}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : null}

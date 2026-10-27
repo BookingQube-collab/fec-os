@@ -274,11 +274,11 @@ export default function HrReportsPage() {
                   className="w-full"
                 />
               </div>
-              <div className="flex flex-wrap items-end gap-2">
-                <Button asChild size="sm">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-end">
+                <Button asChild size="sm" className="min-h-10 w-full sm:w-auto">
                   <a href={report.data?.payrollExportHref ?? "#"}>{t("hr.reports.payrollWorkbook")}</a>
                 </Button>
-                <Button asChild size="sm" variant="secondary">
+                <Button asChild size="sm" variant="secondary" className="min-h-10 w-full sm:w-auto">
                   <Link href={report.data?.attendanceReportsHref ?? "/people/attendance/reports"}>
                     {t("hr.reports.attendanceLink")}
                   </Link>

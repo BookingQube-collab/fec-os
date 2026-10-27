@@ -204,11 +204,11 @@ function AdminRolesView() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <div className="min-w-0 flex-1 space-y-1.5 sm:max-w-xs">
           <p className="text-xs font-medium text-muted-foreground">{t("adminRoles.selectRole")}</p>
           <Select value={role} onValueChange={(v) => setRole(v as AppRole)}>
-            <SelectTrigger className="w-[260px]">
+            <SelectTrigger className="min-h-10 w-full sm:w-[260px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -220,15 +220,17 @@ function AdminRolesView() {
             </SelectContent>
           </Select>
         </div>
-        <Badge variant="secondary">
-          {t("adminRoles.pageCount", { count: pagesForRole.length })}
-        </Badge>
-        <Badge variant="outline">
-          {t("adminRoles.capabilityCount", { count: capsForRole.length })}
-        </Badge>
-        {grantsQuery.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">
+            {t("adminRoles.pageCount", { count: pagesForRole.length })}
+          </Badge>
+          <Badge variant="outline">
+            {t("adminRoles.capabilityCount", { count: capsForRole.length })}
+          </Badge>
+          {grantsQuery.isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
       </div>
 
       <section className="space-y-3">

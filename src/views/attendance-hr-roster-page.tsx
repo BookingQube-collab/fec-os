@@ -306,9 +306,9 @@ export default function AttendanceHrRosterPage() {
                 resetPreview();
               }}
             />
-            <Button type="button" variant="outline" className="w-full" onClick={() => fileRef.current?.click()} disabled={!canUpload}>
-              <Upload className="h-4 w-4" />
-              {file ? file.name : t("attendanceHr.roster.chooseFile")}
+            <Button type="button" variant="outline" className="min-h-10 w-full justify-start gap-2" onClick={() => fileRef.current?.click()} disabled={!canUpload}>
+              <Upload className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 truncate">{file ? file.name : t("attendanceHr.roster.chooseFile")}</span>
             </Button>
           </div>
         </div>
@@ -403,28 +403,32 @@ export default function AttendanceHrRosterPage() {
         ) : !(uploads.data ?? []).length ? (
           <p className="text-sm text-muted-foreground">{t("attendanceHr.roster.uploadsEmpty")}</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("attendanceHr.roster.uploadedAt")}</TableHead>
-                <TableHead>{t("attendanceHr.roster.file")}</TableHead>
-                <TableHead>{t("attendanceHr.roster.period")}</TableHead>
-                <TableHead>{t("attendanceHr.roster.rowsImported")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(uploads.data ?? []).map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.created_at ? new Date(String(row.created_at)).toLocaleString() : "—"}</TableCell>
-                  <TableCell>{row.file_name}</TableCell>
-                  <TableCell>
-                    {row.period_start && row.period_end ? `${row.period_start} – ${row.period_end}` : "—"}
-                  </TableCell>
-                  <TableCell>{row.rows_imported}</TableCell>
+          <div className="overflow-x-auto">
+            <Table className="min-w-max">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("attendanceHr.roster.uploadedAt")}</TableHead>
+                  <TableHead>{t("attendanceHr.roster.file")}</TableHead>
+                  <TableHead className="hidden sm:table-cell">{t("attendanceHr.roster.period")}</TableHead>
+                  <TableHead>{t("attendanceHr.roster.rowsImported")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {(uploads.data ?? []).map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="whitespace-nowrap text-xs sm:text-sm">
+                      {row.created_at ? new Date(String(row.created_at)).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell className="max-w-[10rem] truncate sm:max-w-[16rem]">{row.file_name}</TableCell>
+                    <TableCell className="hidden whitespace-nowrap sm:table-cell">
+                      {row.period_start && row.period_end ? `${row.period_start} – ${row.period_end}` : "—"}
+                    </TableCell>
+                    <TableCell>{row.rows_imported}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </NeumorphicCard>
     </div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Download, MapPin, Share2, Sparkles, Upload, Users, ChevronDown } from "lucide-react";
+import { CalendarDays, Download, MapPin, MoreHorizontal, Share2, Sparkles, Upload, Users, ChevronDown } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -240,24 +240,103 @@ function DailyOpsRosterPage() {
   }
 
   const pageActions = (
-    <div className="flex flex-wrap gap-2">
-      {canUpload && (
-        <>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/people/attendance/roster">
-              <Upload className="mr-1.5 h-3.5 w-3.5" />
-              {t("dailyOps.roster.attendanceTallyCta")}
-            </Link>
+    <div className="flex w-full min-w-0 flex-wrap gap-2">
+      {canUpload ? (
+        <label className="inline-flex min-w-0 flex-1 cursor-pointer items-center sm:flex-none">
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-10 w-full sm:w-auto"
+            asChild
+            disabled={!locationId || uploadMutation.isPending}
+          >
+            <span>
+              <Upload className="me-1.5 h-3.5 w-3.5" />
+              {t("dailyOps.roster.upload")}
+            </span>
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                <Download />
-                {t("dailyOps.roster.downloadSample")}
-                <ChevronDown className="opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            disabled={!locationId || uploadMutation.isPending}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) uploadMutation.mutate(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      ) : null}
+      <div className="hidden flex-wrap gap-2 lg:flex">
+        {canUpload ? (
+          <>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/people/attendance/roster">
+                <Upload className="me-1.5 h-3.5 w-3.5" />
+                {t("dailyOps.roster.attendanceTallyCta")}
+              </Link>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  <Download />
+                  {t("dailyOps.roster.downloadSample")}
+                  <ChevronDown className="opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => downloadCsvContent(buildRosterDatedSampleCsv(), "roster-dated-sample.csv")}
+                >
+                  {t("dailyOps.roster.sampleRosterDated")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => downloadCsvContent(buildRosterWeeklySampleCsv(), "roster-weekly-sample.csv")}
+                >
+                  {t("dailyOps.roster.sampleRosterWeekly")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        ) : null}
+        {canShareWhatsApp ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void shareWhatsApp()}
+            disabled={!locationId || isSharing || shiftsLoading}
+          >
+            <Share2 className="me-1.5 h-3.5 w-3.5" />
+            {t("dailyOps.roster.shareWhatsApp")}
+          </Button>
+        ) : null}
+        <Button variant="outline" size="sm" onClick={exportShifts} disabled={!locationId}>
+          <Download className="me-1.5 h-3.5 w-3.5" />
+          {t("dailyOps.roster.export")}
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/people">{t("dailyOps.roster.fullPeople")}</Link>
+        </Button>
+      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-10 min-w-10 px-2.5 lg:hidden"
+            aria-label={t("nav.more")}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[14rem]">
+          {canUpload ? (
+            <>
+              <DropdownMenuItem asChild>
+                <Link href="/people/attendance/roster">{t("dailyOps.roster.attendanceTallyCta")}</Link>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => downloadCsvContent(buildRosterDatedSampleCsv(), "roster-dated-sample.csv")}
               >
@@ -268,47 +347,24 @@ function DailyOpsRosterPage() {
               >
                 {t("dailyOps.roster.sampleRosterWeekly")}
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <label className="inline-flex cursor-pointer items-center">
-            <Button variant="outline" size="sm" asChild disabled={!locationId || uploadMutation.isPending}>
-              <span>
-                <Upload className="mr-1.5 h-3.5 w-3.5" />
-                {t("dailyOps.roster.upload")}
-              </span>
-            </Button>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              disabled={!locationId || uploadMutation.isPending}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) uploadMutation.mutate(file);
-                e.target.value = "";
-              }}
-            />
-          </label>
-        </>
-      )}
-      {canShareWhatsApp && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void shareWhatsApp()}
-          disabled={!locationId || isSharing || shiftsLoading}
-        >
-          <Share2 className="mr-1.5 h-3.5 w-3.5" />
-          {t("dailyOps.roster.shareWhatsApp")}
-        </Button>
-      )}
-      <Button variant="outline" size="sm" onClick={exportShifts} disabled={!locationId}>
-        <Download className="mr-1.5 h-3.5 w-3.5" />
-        {t("dailyOps.roster.export")}
-      </Button>
-      <Button variant="outline" size="sm" asChild>
-        <Link href="/people">{t("dailyOps.roster.fullPeople")}</Link>
-      </Button>
+            </>
+          ) : null}
+          {canShareWhatsApp ? (
+            <DropdownMenuItem
+              disabled={!locationId || isSharing || shiftsLoading}
+              onClick={() => void shareWhatsApp()}
+            >
+              {t("dailyOps.roster.shareWhatsApp")}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem disabled={!locationId} onClick={exportShifts}>
+            {t("dailyOps.roster.export")}
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/people">{t("dailyOps.roster.fullPeople")}</Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 
@@ -327,31 +383,33 @@ function DailyOpsRosterPage() {
       subtitle={t("dailyOps.roster.subtitle")}
       actions={pageActions}
     >
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#E2E8F0] bg-white/60 px-3 py-2.5">
-        <MapPin className="h-4 w-4 shrink-0 text-[#64748B]" />
-        <Label htmlFor="roster-location" className="sr-only">
-          {t("dailyOps.roster.locationFilter")}
-        </Label>
-        <Select
-          value={locationId ?? ""}
-          onValueChange={(v) => setCurrentLocationId(v || null)}
-        >
-          <SelectTrigger id="roster-location" className="w-full max-w-xs">
-            <SelectValue placeholder={t("dailyOps.roster.locationPlaceholder")} />
-          </SelectTrigger>
-          <SelectContent>
-            {activeSites.map((site) => (
-              <SelectItem key={site.id} value={site.id}>
-                {site.code} — {site.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedSite && (
-          <span className="text-xs text-[#64748B]">
+      <div className="flex flex-col gap-2 rounded-lg border border-[#E2E8F0] bg-white/60 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <MapPin className="h-4 w-4 shrink-0 text-[#64748B]" />
+          <Label htmlFor="roster-location" className="sr-only">
+            {t("dailyOps.roster.locationFilter")}
+          </Label>
+          <Select
+            value={locationId ?? ""}
+            onValueChange={(v) => setCurrentLocationId(v || null)}
+          >
+            <SelectTrigger id="roster-location" className="min-h-10 w-full max-w-none sm:max-w-xs">
+              <SelectValue placeholder={t("dailyOps.roster.locationPlaceholder")} />
+            </SelectTrigger>
+            <SelectContent>
+              {activeSites.map((site) => (
+                <SelectItem key={site.id} value={site.id}>
+                  {site.code} — {site.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {selectedSite ? (
+          <span className="hidden text-xs text-[#64748B] sm:inline">
             {t("dailyOps.roster.weeklyPerLocation")}
           </span>
-        )}
+        ) : null}
       </div>
 
       {!locationId && (
@@ -361,12 +419,32 @@ function DailyOpsRosterPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="calendar"><CalendarDays aria-hidden />{t("dailyOps.roster.tabCalendar")}</TabsTrigger>
-          <TabsTrigger value="staff"><Users aria-hidden />{t("dailyOps.roster.tabStaff")}</TabsTrigger>
-          <TabsTrigger value="uploads"><Upload aria-hidden />{t("dailyOps.roster.tabUploads")}</TabsTrigger>
-          {canGenerate && <TabsTrigger value="generate"><Sparkles aria-hidden />{t("dailyOps.roster.tabGenerate")}</TabsTrigger>}
-        </TabsList>
+        <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="inline-flex w-max min-w-full justify-start">
+            <TabsTrigger value="calendar" className="gap-1.5">
+              <CalendarDays aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">{t("dailyOps.roster.tabCalendar")}</span>
+              <span className="sm:hidden">{t("dailyOps.roster.tabCalendarShort", { defaultValue: "Cal" })}</span>
+            </TabsTrigger>
+            <TabsTrigger value="staff" className="gap-1.5">
+              <Users aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">{t("dailyOps.roster.tabStaff")}</span>
+              <span className="sm:hidden">{t("dailyOps.roster.tabStaffShort", { defaultValue: "Staff" })}</span>
+            </TabsTrigger>
+            <TabsTrigger value="uploads" className="gap-1.5">
+              <Upload aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">{t("dailyOps.roster.tabUploads")}</span>
+              <span className="sm:hidden">{t("dailyOps.roster.tabUploadsShort", { defaultValue: "Files" })}</span>
+            </TabsTrigger>
+            {canGenerate ? (
+              <TabsTrigger value="generate" className="gap-1.5">
+                <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">{t("dailyOps.roster.tabGenerate")}</span>
+                <span className="sm:hidden">{t("dailyOps.roster.tabGenerateShort", { defaultValue: "AI" })}</span>
+              </TabsTrigger>
+            ) : null}
+          </TabsList>
+        </div>
 
         <TabsContent value="calendar" className="mt-4">
           <RosterMonthCalendar

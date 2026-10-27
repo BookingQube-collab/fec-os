@@ -61,31 +61,37 @@ export default function MaintenanceWeeklyReportsExecutivePage() {
 
   return (
     <MaintenanceWeeklyReportsLayout>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold text-foreground">
             {t("maintenanceWeeklyReports.nav.executive")}
           </h2>
-          <p className="mt-1 text-sm text-[#64748B]">{t("maintenanceWeeklyReports.executive.subtitle")}</p>
+          <p className="mt-1 hidden text-sm text-[#64748B] sm:block">
+            {t("maintenanceWeeklyReports.executive.subtitle")}
+          </p>
         </div>
         {canExecutive && (
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
+          <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-end">
+            <div className="min-w-0">
               <label className="mb-1 block text-xs text-muted-foreground">{t("maintenanceWeeklyReports.filters.week")}</label>
               <input
                 type="date"
-                className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm"
+                className="min-h-10 w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm sm:w-auto"
                 value={weekStart}
                 onChange={(e) => setWeekStart(e.target.value)}
               />
             </div>
-            <Button onClick={() => generateMut.mutate()} disabled={generateMut.isPending}>
+            <Button
+              className="min-h-10 w-full sm:w-auto"
+              onClick={() => generateMut.mutate()}
+              disabled={generateMut.isPending}
+            >
               {generateMut.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="me-2 h-4 w-4 animate-spin" />
               ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
+                <Sparkles className="me-2 h-4 w-4" />
               )}
-              {t("maintenanceWeeklyReports.generateExecutive")}
+              <span className="truncate">{t("maintenanceWeeklyReports.generateExecutive")}</span>
             </Button>
           </div>
         )}

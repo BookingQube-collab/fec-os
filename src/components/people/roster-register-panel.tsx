@@ -173,12 +173,25 @@ function weekdayShort(ymd: string, locale: string) {
   );
 }
 
-function monthLabel(monthKey: string, locale: string) {
+function monthLabel(monthKey: string, locale: string, compact = false) {
   const intlLocale = locale.toLowerCase().startsWith("ar") ? "ar" : "en-GB";
-  return new Intl.DateTimeFormat(intlLocale, { month: "long", year: "numeric", timeZone: "UTC" }).format(
-    new Date(`${monthKey}-01T12:00:00.000Z`),
-  );
+  return new Intl.DateTimeFormat(intlLocale, {
+    month: compact ? "short" : "long",
+    year: compact ? "2-digit" : "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${monthKey}-01T12:00:00.000Z`));
 }
+
+/** Sticky # + staff columns: narrower on phone so day cells stay visible (~375px). */
+const ROSTER_STICKY_NO =
+  "sticky start-0 z-10 w-8 border-e border-border/70 bg-card px-1 py-1 text-center tabular-nums text-muted-foreground sm:w-10 sm:px-1.5";
+const ROSTER_STICKY_NO_TH =
+  "sticky start-0 z-30 w-8 border-b border-e border-border/70 bg-card px-1 py-1 text-center font-medium sm:w-10 sm:px-1.5";
+const ROSTER_STICKY_STAFF =
+  "sticky start-8 z-10 min-w-[7.5rem] max-w-[9rem] border-e border-border/70 bg-card px-1.5 py-1.5 sm:start-10 sm:min-w-[11rem] sm:max-w-[14rem] sm:px-2";
+const ROSTER_STICKY_STAFF_TH =
+  "sticky start-8 z-30 min-w-[7.5rem] max-w-[9rem] border-b border-e border-border/70 bg-card px-1.5 py-1 text-start font-medium sm:start-10 sm:min-w-[11rem] sm:max-w-[14rem] sm:px-2";
+const ROSTER_DAY_COL = "min-w-[3.5rem] border-b border-border/60 px-0.5 py-1 text-center font-medium sm:min-w-[4.75rem] sm:px-1";
 
 function dayNumber(ymd: string) {
   return Number(ymd.slice(8, 10));
@@ -216,10 +229,8 @@ const RosterMatrixStaffRow = memo(function RosterMatrixStaffRow({
 }: RosterMatrixStaffRowProps) {
   return (
     <tr className="border-b border-border/50" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 3rem" }}>
-      <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
-        {index + 1}
-      </td>
-      <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
+      <td className={ROSTER_STICKY_NO}>{index + 1}</td>
+      <td className={ROSTER_STICKY_STAFF}>
         <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
         <div className="truncate text-[10px] text-muted-foreground">
           {person.employeeCode || person.qid || ""}
@@ -272,7 +283,9 @@ const RosterMatrixStaffRow = memo(function RosterMatrixStaffRow({
                         </div>
                       )}
                       {entry.locationCode ? (
-                        <div className="mt-0.5 text-center text-[9px] text-muted-foreground">{entry.locationCode}</div>
+                        <div className="mt-0.5 hidden text-center text-[9px] text-muted-foreground sm:block">
+                          {entry.locationCode}
+                        </div>
                       ) : null}
                     </>
                   );
@@ -1205,13 +1218,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     return (
       <div className="surface-card space-y-3 overflow-visible p-4 md:space-y-4 md:p-5">
         <div className="space-y-1">
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 md:gap-3">
+          <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between md:gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {!hideHeader ? <h2 className="text-sm font-semibold">{t("people.roster.registerTitle")}</h2> : null}
-              <Badge variant="outline" className="max-w-full truncate">
+              <Badge variant="outline" className="max-w-[11rem] truncate sm:max-w-full">
                 {periodRange}
               </Badge>
-              <Badge variant="secondary">{t("people.roster.registerCount", { count: filtered.length })}</Badge>
+              <Badge variant="secondary" className="hidden sm:inline-flex">
+                {t("people.roster.registerCount", { count: filtered.length })}
+              </Badge>
               <Badge variant="outline" className="hidden sm:inline-flex">
                 {t("people.roster.registerStaffCount", { count: matrix.staff.length })}
               </Badge>
@@ -1313,24 +1328,21 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                       colSpan={span.count}
                       className="border-b border-border/70 px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
                     >
-                      {monthLabel(span.monthKey, i18n.language)}
+                      <span className="sm:hidden">{monthLabel(span.monthKey, i18n.language, true)}</span>
+                      <span className="hidden sm:inline">{monthLabel(span.monthKey, i18n.language)}</span>
                     </th>
                   ))}
                 </tr>
                 <tr className="bg-card">
-                  <th className="sticky start-0 z-30 w-10 border-b border-e border-border/70 bg-card px-1.5 py-1 text-center font-medium">
-                    {t("people.roster.registerColNo")}
-                  </th>
-                  <th className="sticky start-10 z-30 min-w-[11rem] border-b border-e border-border/70 bg-card px-2 py-1 text-start font-medium">
-                    {t("people.roster.colStaff")}
-                  </th>
+                  <th className={ROSTER_STICKY_NO_TH}>{t("people.roster.registerColNo")}</th>
+                  <th className={ROSTER_STICKY_STAFF_TH}>{t("people.roster.colStaff")}</th>
                   {matrix.dates.map((ymd) => {
                     const weekend = isWeekendYmd(ymd);
                     return (
                       <th
                         key={`wd-${ymd}`}
                         className={cn(
-                          "min-w-[4.75rem] border-b border-border/60 px-1 py-1 text-center font-medium",
+                          ROSTER_DAY_COL,
                           weekend ? "bg-destructive/10 text-destructive" : "bg-muted/40 text-muted-foreground",
                         )}
                       >
@@ -1340,15 +1352,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                   })}
                 </tr>
                 <tr className="bg-card">
-                  <th className="sticky start-0 z-30 border-b border-e border-border/70 bg-card" />
-                  <th className="sticky start-10 z-30 border-b border-e border-border/70 bg-card" />
+                  <th className="sticky start-0 z-30 w-8 border-b border-e border-border/70 bg-card sm:w-10" />
+                  <th className="sticky start-8 z-30 border-b border-e border-border/70 bg-card sm:start-10" />
                   {matrix.dates.map((ymd) => {
                     const weekend = isWeekendYmd(ymd);
                     return (
                       <th
                         key={`dn-${ymd}`}
                         className={cn(
-                          "border-b border-border/60 px-1 py-1 text-center tabular-nums font-semibold",
+                          "border-b border-border/60 px-0.5 py-1 text-center tabular-nums font-semibold sm:px-1",
                           weekend ? "bg-destructive/5" : "bg-card",
                         )}
                       >
@@ -1361,10 +1373,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               <tbody>
                 {matrix.staff.length === 0 && canAmend ? (
                   <tr className="border-b border-border/50" style={{ contentVisibility: "auto" }}>
-                    <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
-                      1
-                    </td>
-                    <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
+                    <td className={ROSTER_STICKY_NO}>1</td>
+                    <td className={ROSTER_STICKY_STAFF}>
                       <div className="truncate font-medium leading-tight">{t("people.roster.registerAdd")}</div>
                     </td>
                     {matrix.dates.map((ymd) => {
@@ -1434,11 +1444,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           </>
         ) : (
           <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
-            <Table>
+            <Table className="min-w-max">
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   {canAmend ? (
-                    <TableHead className="w-10">
+                    <TableHead className="sticky start-0 z-20 w-10 bg-card">
                       <Checkbox
                         checked={headerChecked}
                         disabled={deleting || filtered.length === 0}
@@ -1451,12 +1461,19 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                       />
                     </TableHead>
                   ) : null}
-                  <TableHead>{t("people.roster.colDate")}</TableHead>
+                  <TableHead
+                    className={cn(
+                      "sticky z-20 whitespace-nowrap bg-card",
+                      canAmend ? "start-10" : "start-0",
+                    )}
+                  >
+                    {t("people.roster.colDate")}
+                  </TableHead>
                   <TableHead>{t("people.roster.colStaff")}</TableHead>
-                  <TableHead>{t("people.roster.col.location")}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t("people.roster.col.location")}</TableHead>
                   <TableHead>{t("people.roster.colShift")}</TableHead>
                   <TableHead>{t("people.roster.colDuty")}</TableHead>
-                  <TableHead>{t("people.roster.registerSource")}</TableHead>
+                  <TableHead className="hidden sm:table-cell">{t("people.roster.registerSource")}</TableHead>
                   {canAmend ? <TableHead className="text-end">{t("people.roster.registerActions")}</TableHead> : null}
                 </TableRow>
               </TableHeader>
@@ -1467,7 +1484,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                   return (
                     <TableRow key={row.id} data-state={rowSelected ? "selected" : undefined}>
                       {canAmend ? (
-                        <TableCell>
+                        <TableCell className="sticky start-0 z-10 bg-card">
                           <Checkbox
                             checked={rowSelected}
                             disabled={deleting}
@@ -1479,12 +1496,24 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                           />
                         </TableCell>
                       ) : null}
-                      <TableCell className="whitespace-nowrap">{row.workDate}</TableCell>
-                      <TableCell>
-                        <div className="font-medium">{row.staffName || "—"}</div>
-                        <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
+                      <TableCell
+                        className={cn(
+                          "sticky z-10 whitespace-nowrap bg-card tabular-nums",
+                          canAmend ? "start-10" : "start-0",
+                        )}
+                      >
+                        <span className="sm:hidden">
+                          {weekdayShort(row.workDate, i18n.language)} {dayNumber(row.workDate)}
+                        </span>
+                        <span className="hidden sm:inline">{row.workDate}</span>
                       </TableCell>
-                      <TableCell>{editing ? renderLocationEditor() : (row.locationCode ?? "—")}</TableCell>
+                      <TableCell>
+                        <div className="max-w-[9rem] truncate font-medium sm:max-w-none">{row.staffName || "—"}</div>
+                        <div className="truncate text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {editing ? renderLocationEditor() : (row.locationCode ?? "—")}
+                      </TableCell>
                       <TableCell>
                         {editing ? (
                           <ShiftRangeEditor
@@ -1522,10 +1551,10 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                           cellStatusLabel(row, t)
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <Badge variant="outline">{sourceLabel(row.source, t)}</Badge>
                       </TableCell>
-                      {canAmend ? <TableCell className="text-end">{renderAmendActions(row)}</TableCell> : null}
+                      {canAmend ? <TableCell className="text-end">{renderAmendActions(row, true)}</TableCell> : null}
                     </TableRow>
                   );
                 })}
@@ -1579,11 +1608,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                 <Badge variant="outline">{sourceLabel(editingRow.source, t)}</Badge>
               </div>
             ) : null}
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2">
               {createWorkDate ? null : (
                 <Button
                   type="button"
                   variant="destructive"
+                  className="w-full sm:w-auto"
                   disabled={!editingRow || deleting}
                   onClick={() => editingRow && confirmDelete(editingRow.id)}
                 >
@@ -1594,6 +1624,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               <Button
                 type="button"
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={cancelEdit}
                 disabled={saveMut.isPending || createMut.isPending}
               >
@@ -1601,6 +1632,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               </Button>
               <Button
                 type="button"
+                className="w-full sm:w-auto"
                 disabled={
                   createWorkDate
                     ? createMut.isPending || !createStaffId || !draft?.locationId
