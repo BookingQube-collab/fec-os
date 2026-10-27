@@ -106,6 +106,136 @@ async function displayNamesForUserIds(userIds: string[]): Promise<Map<string, st
   return names;
 }
 
+type CorrectionExportDbRow = {
+  id?: string | null;
+  requested_at?: string | null;
+  staff_id?: string | null;
+  work_date?: string | null;
+  kind?: string | null;
+  original_value?: unknown;
+  new_value?: unknown;
+  reason?: string | null;
+  requested_by?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  status?: string | null;
+  current_step_role?: string | null;
+  review_note?: string | null;
+  staff?:
+    | { employee_code?: string | null; full_name?: string | null }
+    | { employee_code?: string | null; full_name?: string | null }[]
+    | null;
+  locations?: { code?: string | null } | { code?: string | null }[] | null;
+};
+
+/** Punch / missed-punch corrections + approval seats for sheet 07 and Audit Trail. */
+async function loadExportCorrections(input: {
+  // Auth-scoped client; approval steps + names use supabaseAdmin (service-role table).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (table: string) => any };
+  dateFrom: string;
+  dateTo: string;
+  locationId: string | null;
+  staffIdAllowlist: Set<string> | null;
+}): Promise<ExportCorrection[]> {
+  let corrQ = input.supabase
+    .from("attendance_corrections")
+    .select(
+      "id, requested_at, staff_id, work_date, kind, original_value, new_value, reason, requested_by, reviewed_by, reviewed_at, status, current_step_role, review_note, staff:staff_id(employee_code, full_name), locations:location_id(code)",
+    )
+    .gte("work_date", input.dateFrom)
+    .lte("work_date", input.dateTo)
+    .order("requested_at", { ascending: false })
+    .limit(2000);
+  if (input.locationId) corrQ = corrQ.eq("location_id", input.locationId);
+  const { data: corrRows, error: corrErr } = await corrQ;
+  if (corrErr || !corrRows?.length) return [];
+
+  let rows = corrRows as CorrectionExportDbRow[];
+  if (input.staffIdAllowlist) {
+    rows = rows.filter((r) => r.staff_id && input.staffIdAllowlist!.has(String(r.staff_id)));
+  }
+  if (!rows.length) return [];
+
+  const correctionIds = rows.map((r) => String(r.id)).filter(Boolean);
+  const stepsByCorrection = new Map<
+    string,
+    Array<{ stepRole: string; status: string; actedBy: string | null; actedAt: string | null; stepOrder: number }>
+  >();
+  if (correctionIds.length) {
+    const { data: stepRows, error: stepErr } = await supabaseAdmin
+      .from("attendance_correction_approvals")
+      .select("correction_id, step_order, step_role, status, acted_by, acted_at")
+      .in("correction_id", correctionIds)
+      .order("step_order");
+    if (!stepErr && stepRows) {
+      for (const step of stepRows) {
+        const id = String(step.correction_id);
+        const list = stepsByCorrection.get(id) ?? [];
+        list.push({
+          stepRole: String(step.step_role ?? ""),
+          status: String(step.status ?? ""),
+          actedBy: step.acted_by == null ? null : String(step.acted_by),
+          actedAt: step.acted_at == null ? null : String(step.acted_at),
+          stepOrder: Number(step.step_order ?? 0),
+        });
+        stepsByCorrection.set(id, list);
+      }
+    }
+  }
+
+  const nameIds: string[] = [];
+  for (const r of rows) {
+    if (r.requested_by) nameIds.push(String(r.requested_by));
+    if (r.reviewed_by) nameIds.push(String(r.reviewed_by));
+  }
+  for (const steps of stepsByCorrection.values()) {
+    for (const step of steps) {
+      if (step.actedBy) nameIds.push(step.actedBy);
+    }
+  }
+  const names = await displayNamesForUserIds(nameIds);
+
+  return rows.map((r) => {
+    const staff = oneRel(r.staff);
+    const loc = oneRel(r.locations);
+    const id = r.id == null ? null : String(r.id);
+    const requestedBy = r.requested_by == null ? null : String(r.requested_by);
+    const reviewedBy = r.reviewed_by == null ? null : String(r.reviewed_by);
+    const steps = (id ? stepsByCorrection.get(id) ?? [] : [])
+      .slice()
+      .sort((a, b) => a.stepOrder - b.stepOrder)
+      .map((step) => ({
+        stepRole: step.stepRole,
+        status: step.status,
+        actedByName: step.actedBy ? names.get(step.actedBy) ?? null : null,
+        actedAt: step.actedAt,
+      }));
+    return {
+      id,
+      requestedAt: String(r.requested_at ?? ""),
+      staffId: r.staff_id == null ? null : String(r.staff_id),
+      employeeCode: staff?.employee_code ?? null,
+      employeeName: staff?.full_name ?? null,
+      workDate: r.work_date == null ? null : String(r.work_date).slice(0, 10),
+      kind: String(r.kind ?? ""),
+      originalValue: r.original_value,
+      newValue: r.new_value,
+      reason: String(r.reason ?? ""),
+      requestedBy,
+      requestedByName: requestedBy ? names.get(requestedBy) ?? null : null,
+      reviewedBy,
+      reviewedByName: reviewedBy ? names.get(reviewedBy) ?? null : null,
+      reviewedAt: r.reviewed_at == null ? null : String(r.reviewed_at),
+      status: String(r.status ?? ""),
+      currentStepRole: r.current_step_role == null ? null : String(r.current_step_role),
+      reviewNote: r.review_note == null ? null : String(r.review_note),
+      steps,
+      locationCode: loc?.code ?? null,
+    };
+  });
+}
+
 async function loadExportOtClaims(input: {
   // Auth-scoped client; name backfill uses supabaseAdmin separately.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -462,62 +592,39 @@ export async function GET(request: Request) {
         });
       }
 
-      // Submitted OT claims (+ corrections) for OT / Audit sheets (best-effort; empty on failure).
+      // Submitted OT claims (+ corrections) for OT / Missed Punches / Audit (best-effort).
       let otClaims: ExportOtClaim[] = [];
       let corrections: ExportCorrection[] = [];
-      {
-        // Keep OT rows aligned with listing filters (department / staff / search).
-        const staffScoped =
-          departmentIds.length > 0 ||
-          showOrgDepartments.length > 0 ||
-          Boolean(staffId) ||
-          Boolean(staffQ);
-        const staffIdAllowlist = staffScoped
-          ? new Set(daily.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))
-          : null;
-        try {
-          otClaims = await loadExportOtClaims({
-            supabase: context.supabase,
-            dateFrom,
-            dateTo,
-            locationId,
-            staffIdAllowlist,
-          });
-        } catch {
-          otClaims = [];
-        }
+      // Keep OT / correction rows aligned with listing filters (department / staff / search).
+      const staffScoped =
+        departmentIds.length > 0 ||
+        showOrgDepartments.length > 0 ||
+        Boolean(staffId) ||
+        Boolean(staffQ);
+      const staffIdAllowlist = staffScoped
+        ? new Set(daily.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))
+        : null;
+      try {
+        otClaims = await loadExportOtClaims({
+          supabase: context.supabase,
+          dateFrom,
+          dateTo,
+          locationId,
+          staffIdAllowlist,
+        });
+      } catch {
+        otClaims = [];
       }
-      {
-        let corrQ = context.supabase
-          .from("attendance_corrections")
-          .select(
-            "requested_at, staff_id, work_date, kind, original_value, new_value, reason, requested_by, reviewed_by, status, staff:staff_id(employee_code, full_name)",
-          )
-          .gte("work_date", dateFrom)
-          .lte("work_date", dateTo)
-          .order("requested_at", { ascending: false })
-          .limit(500);
-        if (locationId) corrQ = corrQ.eq("location_id", locationId);
-        const { data: corrRows, error: corrErr } = await corrQ;
-        if (!corrErr && corrRows) {
-          corrections = corrRows.map((r) => {
-            const staff = r.staff as { employee_code?: string | null; full_name?: string | null } | null;
-            return {
-              requestedAt: String(r.requested_at ?? ""),
-              staffId: r.staff_id == null ? null : String(r.staff_id),
-              employeeCode: staff?.employee_code ?? null,
-              employeeName: staff?.full_name ?? null,
-              workDate: r.work_date == null ? null : String(r.work_date).slice(0, 10),
-              kind: String(r.kind ?? ""),
-              originalValue: r.original_value,
-              newValue: r.new_value,
-              reason: String(r.reason ?? ""),
-              requestedBy: r.requested_by == null ? null : String(r.requested_by),
-              reviewedBy: r.reviewed_by == null ? null : String(r.reviewed_by),
-              status: String(r.status ?? ""),
-            };
-          });
-        }
+      try {
+        corrections = await loadExportCorrections({
+          supabase: context.supabase,
+          dateFrom,
+          dateTo,
+          locationId,
+          staffIdAllowlist,
+        });
+      } catch {
+        corrections = [];
       }
 
       // xlsx-js-style: drop-in SheetJS with cell fills (community xlsx ignores styles).

@@ -4,13 +4,20 @@ import {
   E3_HR_EXPORT_SHEET_NAMES,
   EMPLOYEE_SUMMARY_HEADERS,
   buildE3AttendanceHrWorkbookSheets,
+  correctedTimesFromExportCorrection,
   e3AttendanceExportFilename,
   employeeSummaryCellFills,
+  formatMissedPunchApprovalDecision,
+  formatMissedPunchCorrectionBy,
+  formatMissedPunchExportStatus,
+  formatMissedPunchSupervisorVerification,
   formatOtApproverChain,
+  latestPunchCorrectionByStaffDate,
   otExportFinalApprovalPending,
   resolveHrAttendanceStatus,
   resolveHrPunchStatus,
   sheetsForExportFocus,
+  type ExportCorrection,
   type ExportOtClaim,
 } from "./export-workbook";
 import { ATTENDANCE_PCT_GREEN_THRESHOLD, EXCEL_THEME, MATRIX_CODE_THEME, matrixCodeFillRgb } from "./excel-theme";
@@ -332,6 +339,250 @@ describe("E3 HR export workbook", () => {
     expect(doneRow[approvedAmtIdx]).toBe(33.33);
     expect(otExportFinalApprovalPending("manager_verified")).toBe(true);
     expect(formatOtApproverChain(approvedClaim)).toContain("GM: GM Name");
+  });
+
+  it("07 Missed Punches fills explanation, seats, decision, and corrected times from latest request", () => {
+    const older: ExportCorrection = {
+      id: "c-old",
+      requestedAt: "2026-10-26T08:00:00.000Z",
+      staffId: "staff-a",
+      employeeCode: "INF-CC-STF01",
+      employeeName: "Ada Lovelace",
+      workDate: "2026-10-27",
+      kind: "edit_out",
+      originalValue: { actual_in: "2026-10-27T09:00:00+03:00", actual_out: null },
+      newValue: {
+        missed_punch_request: true,
+        punch_type: "out",
+        punch_out_at: "2026-10-27T22:00:00+03:00",
+      },
+      reason: "Old reason",
+      status: "rejected",
+      currentStepRole: null,
+      steps: [],
+    };
+    const latest: ExportCorrection = {
+      id: "c-new",
+      requestedAt: "2026-10-27T10:00:00.000Z",
+      staffId: "staff-a",
+      employeeCode: "INF-CC-STF01",
+      employeeName: "Ada Lovelace",
+      workDate: "2026-10-27",
+      kind: "edit_out",
+      originalValue: { actual_in: "2026-10-27T09:00:00+03:00", actual_out: null },
+      newValue: {
+        missed_punch_request: true,
+        punch_type: "out",
+        punch_in_at: null,
+        punch_out_at: "2026-10-27T22:05:00+03:00",
+        requested_punch_out: "22:05",
+      },
+      reason: "Forgot to punch out — device offline",
+      requestedByName: "Ashfaq Noori",
+      status: "pending",
+      currentStepRole: "ops",
+      reviewNote: "Ashfaq Noori submitted this correction. Punch out 22:05.",
+      steps: [
+        {
+          stepRole: "manager",
+          status: "approved",
+          actedByName: "Mary Wangare Muiruri",
+          actedAt: "2026-10-27T11:00:00.000Z",
+        },
+        { stepRole: "ops", status: "pending", actedByName: null, actedAt: null },
+      ],
+      locationCode: "INF-CC",
+    };
+
+    expect(latestPunchCorrectionByStaffDate([older, latest]).get("staff-a|2026-10-27")?.id).toBe("c-new");
+    expect(formatMissedPunchSupervisorVerification(latest)).toContain("Supervisor submitted · Ashfaq Noori");
+    expect(formatMissedPunchSupervisorVerification(latest)).toContain(
+      "Sr. Site Supervisor approved · Mary Wangare Muiruri",
+    );
+    expect(formatMissedPunchApprovalDecision(latest)).toBe("Pending — waiting on Head of Operations");
+    expect(formatMissedPunchExportStatus(latest)).toBe("Pending");
+    expect(correctedTimesFromExportCorrection(latest).correctedOut).toMatch(/10:05\s*PM/i);
+    expect(formatMissedPunchCorrectionBy(latest)).toBe("Mary Wangare Muiruri");
+
+    const approved: ExportCorrection = {
+      ...latest,
+      id: "c-approved",
+      status: "approved",
+      currentStepRole: null,
+      steps: [
+        {
+          stepRole: "manager",
+          status: "approved",
+          actedByName: "Mary Wangare Muiruri",
+          actedAt: "2026-10-27T11:00:00.000Z",
+        },
+        {
+          stepRole: "ops",
+          status: "approved",
+          actedByName: "Rajan Pathak",
+          actedAt: "2026-10-27T12:00:00.000Z",
+        },
+      ],
+    };
+    expect(formatMissedPunchApprovalDecision(approved)).toBe(
+      "Approved · Head of Operations · Rajan Pathak",
+    );
+    expect(formatMissedPunchExportStatus(approved)).toBe("Approved");
+    // No invented HR approve language.
+    expect(formatMissedPunchApprovalDecision(approved)).not.toMatch(/\bHR\b/i);
+
+    const sheets = buildE3AttendanceHrWorkbookSheets({
+      daily: [
+        day({
+          work_date: "2026-10-27",
+          status: "missed_punch",
+          missed_punch: true,
+          actual_in: "2026-10-27T06:00:00.000Z",
+          actual_out: null,
+          staff_name: "Ada Lovelace",
+        }),
+      ],
+      punches: [],
+      unmatched: [],
+      imports: [],
+      corrections: [older, latest],
+      dateFrom: "2026-10-27",
+      dateTo: "2026-10-27",
+    });
+    const sheet = sheets.find((s) => s.name === "07 Missed Punches")!;
+    const headers = sheet.aoa[sheet.filterHeaderRow!] as string[];
+    expect(headers).toContain("Employee Explanation");
+    expect(headers).toContain("Approval Status");
+    expect(headers).not.toContain("HR Decision");
+    const data = sheet.aoa[sheet.filterHeaderRow! + 1]!;
+    expect(data[headers.indexOf("Employee Explanation")]).toBe("Forgot to punch out — device offline");
+    expect(String(data[headers.indexOf("Supervisor Verification")])).toContain("Mary Wangare Muiruri");
+    expect(data[headers.indexOf("Approval Status")]).toBe("Pending — waiting on Head of Operations");
+    expect(String(data[headers.indexOf("Corrected OUT")])).toMatch(/10:05\s*PM/i);
+    expect(data[headers.indexOf("Correction By")]).toBe("Mary Wangare Muiruri");
+    expect(data[headers.indexOf("Status")]).toBe("Pending");
+  });
+
+  it("07 Missed Punches keeps request rows after punches are healed", () => {
+    const correction: ExportCorrection = {
+      requestedAt: "2026-10-27T10:00:00.000Z",
+      staffId: "staff-a",
+      workDate: "2026-10-27",
+      kind: "edit_out",
+      originalValue: {},
+      newValue: {
+        missed_punch_request: true,
+        punch_out_at: "2026-10-27T22:00:00+03:00",
+        punch_type: "out",
+      },
+      reason: "Applied after HoO",
+      status: "approved",
+      currentStepRole: null,
+      requestedByName: "Ada",
+      steps: [
+        { stepRole: "manager", status: "approved", actedByName: "Mary", actedAt: "2026-10-27T11:00:00.000Z" },
+        { stepRole: "ops", status: "approved", actedByName: "Rajan", actedAt: "2026-10-27T12:00:00.000Z" },
+      ],
+    };
+    const sheets = buildE3AttendanceHrWorkbookSheets({
+      daily: [
+        day({
+          work_date: "2026-10-27",
+          status: "present",
+          actual_in: "2026-10-27T06:00:00.000Z",
+          actual_out: "2026-10-27T19:00:00.000Z",
+          worked_minutes: 780,
+        }),
+      ],
+      punches: [],
+      unmatched: [],
+      imports: [],
+      corrections: [correction],
+      dateFrom: "2026-10-27",
+      dateTo: "2026-10-27",
+    });
+    const sheet = sheets.find((s) => s.name === "07 Missed Punches")!;
+    const headers = sheet.aoa[sheet.filterHeaderRow!] as string[];
+    const dataRows = sheet.aoa.slice(sheet.filterHeaderRow! + 1);
+    expect(dataRows).toHaveLength(1);
+    expect(dataRows[0]![headers.indexOf("Missing Punch Type")]).toBe("Corrected");
+    expect(dataRows[0]![headers.indexOf("Status")]).toBe("Approved");
+    expect(dataRows[0]![headers.indexOf("Approval Status")]).toContain("Head of Operations");
+  });
+
+  it("keeps 04–06 / 08–09 tallies stable when corrections are attached", () => {
+    const daily = [
+      day({
+        work_date: "2026-10-27",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-27T06:00:00.000Z",
+        late_minutes: 15,
+        overtime_minutes: 60,
+        worked_minutes: 480,
+      }),
+      day({
+        id: "r2",
+        work_date: "2026-10-26",
+        status: "absent",
+        worked_minutes: 0,
+      }),
+    ];
+    const otClaim: ExportOtClaim = {
+      staffId: "staff-a",
+      workDate: "2026-10-27",
+      rateType: "weekday",
+      calculatedMinutes: 60,
+      approvedMinutes: 60,
+      status: "gm_approved",
+      rateMultiplier: 1.25,
+      amountQar: 6.94,
+      basicQarSnapshot: 3000,
+      hoursPerDaySnapshot: 9,
+      daysPerMonthSnapshot: 30,
+      siteApproverName: "Mary",
+      hooApproverName: "Rajan",
+      hrApproverName: "Sara",
+      gmApproverName: "GM",
+    };
+    const without = buildE3AttendanceHrWorkbookSheets({
+      daily,
+      punches: [],
+      unmatched: [],
+      imports: [],
+      otClaims: [otClaim],
+      dateFrom: "2026-10-26",
+      dateTo: "2026-10-27",
+    });
+    const withCorr = buildE3AttendanceHrWorkbookSheets({
+      daily,
+      punches: [],
+      unmatched: [],
+      imports: [],
+      otClaims: [otClaim],
+      corrections: [
+        {
+          requestedAt: "2026-10-27T10:00:00.000Z",
+          staffId: "staff-a",
+          workDate: "2026-10-27",
+          kind: "edit_out",
+          originalValue: {},
+          newValue: { missed_punch_request: true, punch_out_at: "2026-10-27T22:00:00+03:00" },
+          reason: "x",
+          status: "pending",
+          currentStepRole: "manager",
+          steps: [],
+        },
+      ],
+      dateFrom: "2026-10-26",
+      dateTo: "2026-10-27",
+    });
+
+    for (const name of ["04 Daily Attendance", "05 Late & Early Exit", "06 Absence & Leave", "08 Overtime", "09 Payroll Input"] as const) {
+      const a = without.find((s) => s.name === name)!;
+      const b = withCorr.find((s) => s.name === name)!;
+      expect(b.aoa.slice(b.filterHeaderRow!)).toEqual(a.aoa.slice(a.filterHeaderRow!));
+    }
   });
 });
 

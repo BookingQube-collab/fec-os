@@ -34,6 +34,13 @@ import {
   otWaitingSeatLabel,
   resolveOtExportAmountBreakdown,
 } from "@/lib/hr-ot";
+import {
+  isMissedPunchSupervisorSubmitOnlyNote,
+  missedPunchPriorApprovalLabel,
+  missedPunchStepSeatLabel,
+  missedPunchTeamSubmitterName,
+  punchesFromCorrectionValue,
+} from "@/lib/attendance-hr/missed-punch-approval";
 
 export const E3_HR_EXPORT_SHEET_NAMES = [
   "01 HR Summary",
@@ -105,7 +112,15 @@ export type ExportOtClaim = {
   locationCode?: string | null;
 };
 
+export type ExportCorrectionStep = {
+  stepRole: string;
+  status: string;
+  actedByName?: string | null;
+  actedAt?: string | null;
+};
+
 export type ExportCorrection = {
+  id?: string | null;
   requestedAt: string;
   staffId: string | null;
   employeeCode?: string | null;
@@ -116,8 +131,18 @@ export type ExportCorrection = {
   newValue: unknown;
   reason: string;
   requestedBy?: string | null;
+  requestedByName?: string | null;
   reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
   status: string;
+  /** Current waiting seat (manager / ops). Legacy hr/gm may still appear. */
+  currentStepRole?: string | null;
+  /** Team-submit / auto-approve note used for supervisor verification trail. */
+  reviewNote?: string | null;
+  /** Approval ladder seats (Sr. Site → HoO). Loaded via service role. */
+  steps?: ExportCorrectionStep[];
+  locationCode?: string | null;
 };
 
 export type ExportPunchRow = {
@@ -207,6 +232,185 @@ export function otExportRemarks(status: string): string {
   const waiting = otWaitingSeatLabel(status);
   if (waiting) return `Final approval pending — waiting on ${waiting}`;
   return "";
+}
+
+const PUNCH_CORRECTION_KINDS = new Set(["edit_in", "edit_out", "add_punch"]);
+
+/** Missed-punch / My Day punch-correction rows (exclude leave/map/OT corrections). */
+export function isExportPunchCorrection(correction: ExportCorrection): boolean {
+  const value =
+    correction.newValue && typeof correction.newValue === "object" && !Array.isArray(correction.newValue)
+      ? (correction.newValue as Record<string, unknown>)
+      : null;
+  if (value?.missed_punch_request === true) return true;
+  return PUNCH_CORRECTION_KINDS.has(correction.kind);
+}
+
+/** Latest punch-correction request per staff + work date (requestedAt desc). */
+export function latestPunchCorrectionByStaffDate(
+  corrections: readonly ExportCorrection[],
+): Map<string, ExportCorrection> {
+  const sorted = corrections
+    .filter(isExportPunchCorrection)
+    .slice()
+    .sort((a, b) => String(b.requestedAt ?? "").localeCompare(String(a.requestedAt ?? "")));
+  const map = new Map<string, ExportCorrection>();
+  for (const correction of sorted) {
+    const staffId = blank(correction.staffId);
+    const workDate = blank(correction.workDate).slice(0, 10);
+    if (!staffId || !workDate) continue;
+    const key = `${staffId}|${workDate}`;
+    if (!map.has(key)) map.set(key, correction);
+  }
+  return map;
+}
+
+function correctionNewValueRecord(correction: ExportCorrection): Record<string, unknown> | null {
+  if (!correction.newValue || typeof correction.newValue !== "object" || Array.isArray(correction.newValue)) {
+    return null;
+  }
+  return correction.newValue as Record<string, unknown>;
+}
+
+/** Corrected IN / OUT clocks from the latest request (never invent times). */
+export function correctedTimesFromExportCorrection(correction: ExportCorrection): {
+  correctedIn: string;
+  correctedOut: string;
+} {
+  const clocks = punchesFromCorrectionValue(correctionNewValueRecord(correction));
+  return {
+    correctedIn: clocks.punchInAt ? formatReportingTime12h(clocks.punchInAt) : "",
+    correctedOut: clocks.punchOutAt ? formatReportingTime12h(clocks.punchOutAt) : "",
+  };
+}
+
+/**
+ * Supervisor / Sr. Site / HoO verification trail for Excel.
+ * Does not invent an HR approve seat — punch corrections end at HoO.
+ */
+export function formatMissedPunchSupervisorVerification(correction: ExportCorrection): string {
+  const note = correction.reviewNote ?? null;
+  const supervisorSubmitOnly = isMissedPunchSupervisorSubmitOnlyNote(note);
+  const parts: string[] = [];
+
+  // Regular / Venue supervisor filed for their team — manager seat still needs Sr. Site.
+  if (supervisorSubmitOnly) {
+    const submitter =
+      missedPunchTeamSubmitterName(note) || blank(correction.requestedByName) || null;
+    parts.push(submitter ? `Supervisor submitted · ${submitter}` : "Supervisor submitted");
+  }
+
+  const steps = [...(correction.steps ?? [])].sort((a, b) => {
+    const order = (role: string) =>
+      role === "manager" ? 1 : role === "ops" ? 2 : role === "hr" ? 3 : role === "gm" ? 4 : 9;
+    return order(a.stepRole) - order(b.stepRole);
+  });
+
+  for (const step of steps) {
+    if (step.status !== "approved" && step.status !== "skipped") continue;
+    // Legacy HR/GM stamps only when that seat actually acted (history); no inventing HR approve.
+    if (step.stepRole === "hr" || step.stepRole === "gm") {
+      parts.push(
+        missedPunchPriorApprovalLabel({
+          stepRole: step.stepRole,
+          status: step.status,
+          actedByName: step.actedByName,
+        }),
+      );
+      continue;
+    }
+    parts.push(
+      missedPunchPriorApprovalLabel({
+        stepRole: step.stepRole,
+        status: step.status,
+        actedByName: step.actedByName,
+        // Submit line already covers Venue supervisor file; manager approve = Sr. Site.
+        supervisorSubmitOnly: false,
+      }),
+    );
+  }
+
+  return parts.join("; ");
+}
+
+/**
+ * "HR Decision" column value — product approval status (ops-final).
+ * Never labels a decision as HR-approved when the workflow ends at HoO.
+ */
+export function formatMissedPunchApprovalDecision(correction: ExportCorrection): string {
+  const status = blank(correction.status).toLowerCase();
+  if (status === "approved") {
+    const ops = (correction.steps ?? []).find(
+      (step) => step.stepRole === "ops" && (step.status === "approved" || step.status === "skipped"),
+    );
+    const name = blank(ops?.actedByName);
+    if (name) return `Approved · Head of Operations · ${name}`;
+    return "Approved";
+  }
+  if (status === "rejected") {
+    const name = blank(correction.reviewedByName);
+    return name ? `Rejected · ${name}` : "Rejected";
+  }
+  if (status === "change_required") return "Changes requested";
+  if (status === "pending") {
+    const step = blank(correction.currentStepRole);
+    // Legacy mid-chain after ops — treat as approved for export (no HR/GM seat).
+    if (step === "hr" || step === "gm") return "Approved";
+    if (step === "manager" || step === "ops") {
+      return `Pending — waiting on ${missedPunchStepSeatLabel(step)}`;
+    }
+    return "Pending";
+  }
+  return blank(correction.status);
+}
+
+/** Short Status column for sheet 07. */
+export function formatMissedPunchExportStatus(correction: ExportCorrection | null | undefined): string {
+  if (!correction) return "No request";
+  const status = blank(correction.status).toLowerCase();
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  if (status === "change_required") return "Changes requested";
+  if (status === "pending") {
+    if (correction.currentStepRole === "hr" || correction.currentStepRole === "gm") return "Approved";
+    return "Pending";
+  }
+  return blank(correction.status) || "No request";
+}
+
+/** Who last acted (or filed) the correction. */
+export function formatMissedPunchCorrectionBy(correction: ExportCorrection): string {
+  const acted = (correction.steps ?? [])
+    .filter(
+      (step) =>
+        (step.status === "approved" || step.status === "skipped" || step.status === "rejected") &&
+        blank(step.actedByName),
+    )
+    .slice()
+    .sort((a, b) => String(b.actedAt ?? "").localeCompare(String(a.actedAt ?? "")));
+  if (acted[0]?.actedByName) return blank(acted[0].actedByName);
+  if (blank(correction.reviewedByName)) return blank(correction.reviewedByName);
+  return blank(correction.requestedByName);
+}
+
+function formatMissedPunchCorrectionDate(correction: ExportCorrection): string {
+  const acted = (correction.steps ?? [])
+    .filter((step) => blank(step.actedAt))
+    .slice()
+    .sort((a, b) => String(b.actedAt ?? "").localeCompare(String(a.actedAt ?? "")));
+  const iso = blank(acted[0]?.actedAt) || blank(correction.reviewedAt) || blank(correction.requestedAt);
+  if (!iso) return "";
+  const day = formatHrExportDate(iso.slice(0, 10));
+  const time = formatReportingTime12h(iso);
+  return time ? `${day} ${time}` : day;
+}
+
+function missingPunchTypeFromCorrection(correction: ExportCorrection): string {
+  const clocks = punchesFromCorrectionValue(correctionNewValueRecord(correction));
+  if (clocks.punchType === "both") return "Both Missing";
+  if (clocks.punchType === "in") return "Missing IN";
+  if (clocks.punchType === "out") return "Missing OUT";
+  return "Corrected";
 }
 
 /** DD-MMM-YYYY (UTC calendar day). */
@@ -1152,7 +1356,11 @@ function buildAbsenceLeave(daily: AttendanceHrReportRow[], ctx: SheetContext): E
   });
 }
 
-function buildMissedPunches(daily: AttendanceHrReportRow[], ctx: SheetContext): ExcelSheetSpec {
+function buildMissedPunches(
+  daily: AttendanceHrReportRow[],
+  corrections: ExportCorrection[],
+  ctx: SheetContext,
+): ExcelSheetSpec {
   const headers = [
     "Date",
     "Employee Code",
@@ -1163,58 +1371,103 @@ function buildMissedPunches(daily: AttendanceHrReportRow[], ctx: SheetContext): 
     "Missing Punch Type",
     "Employee Explanation",
     "Supervisor Verification",
-    "HR Decision",
+    "Approval Status",
     "Corrected IN",
     "Corrected OUT",
     "Correction By",
     "Correction Date",
     "Status",
   ];
-  const rows = daily
-    .filter((r) => {
-      const punch = resolveHrPunchStatus(r);
-      return punch !== "Complete";
+  const latestByKey = latestPunchCorrectionByStaffDate(corrections);
+  const dailyByKey = new Map<string, AttendanceHrReportRow>();
+  for (const row of daily) {
+    if (!row.staff_id) continue;
+    dailyByKey.set(`${row.staff_id}|${String(row.work_date).slice(0, 10)}`, row);
+  }
+
+  const includeIncomplete = (r: AttendanceHrReportRow): boolean => {
+    const punch = resolveHrPunchStatus(r);
+    if (punch === "Complete") return false;
+    const status = resolveHoursBasedAttendanceStatus(listingOf(r));
+    if (
+      (status === "weekly_off" ||
+        status === "public_holiday" ||
+        status === "not_joined" ||
+        LEAVE_STATUSES.has(status)) &&
+      !r.actual_in &&
+      !r.actual_out
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  const keys = new Set<string>();
+  for (const row of daily) {
+    if (!row.staff_id || !includeIncomplete(row)) continue;
+    keys.add(`${row.staff_id}|${String(row.work_date).slice(0, 10)}`);
+  }
+  // Prefer including rows that have an active/submitted request even if listing punches healed.
+  for (const [key, correction] of latestByKey) {
+    const status = blank(correction.status).toLowerCase();
+    if (!status || status === "cancelled" || status === "draft") continue;
+    keys.add(key);
+  }
+
+  const rows = [...keys]
+    .sort((a, b) => {
+      const [staffA, dateA = ""] = a.split("|");
+      const [staffB, dateB = ""] = b.split("|");
+      const byDate = String(dateB).localeCompare(String(dateA));
+      if (byDate !== 0) return byDate;
+      const dayA = dailyByKey.get(a);
+      const dayB = dailyByKey.get(b);
+      const nameA = dayA
+        ? attendanceHrExportStaffName(dayA)
+        : blank(latestByKey.get(a)?.employeeName);
+      const nameB = dayB
+        ? attendanceHrExportStaffName(dayB)
+        : blank(latestByKey.get(b)?.employeeName);
+      return nameA.localeCompare(nameB, undefined, { sensitivity: "base" }) ||
+        String(staffA).localeCompare(String(staffB));
     })
-    .filter((r) => {
-      const status = resolveHoursBasedAttendanceStatus(listingOf(r));
-      if (
-        (status === "weekly_off" ||
-          status === "public_holiday" ||
-          status === "not_joined" ||
-          LEAVE_STATUSES.has(status)) &&
-        !r.actual_in &&
-        !r.actual_out
-      ) {
-        return false;
-      }
-      return true;
-    })
-    .map((row) => {
-      const available = row.actual_in
+    .map((key) => {
+      const row = dailyByKey.get(key);
+      const correction = latestByKey.get(key) ?? null;
+      const available = row?.actual_in
         ? `IN ${formatReportingTime12h(row.actual_in)}`
-        : row.actual_out
+        : row?.actual_out
           ? `OUT ${formatReportingTime12h(row.actual_out)}`
           : "";
       const shift =
-        row.scheduled_in || row.scheduled_out
+        row && (row.scheduled_in || row.scheduled_out)
           ? `${formatReportingTime12h(row.scheduled_in) || "—"} – ${formatReportingTime12h(row.scheduled_out) || "—"}`
           : "";
+      const punchComplete = row ? resolveHrPunchStatus(row) === "Complete" : false;
+      const missingType = row
+        ? punchComplete && correction
+          ? "Corrected"
+          : missingPunchType(row)
+        : correction
+          ? missingPunchTypeFromCorrection(correction)
+          : "";
+      const times = correction ? correctedTimesFromExportCorrection(correction) : { correctedIn: "", correctedOut: "" };
       return [
-        formatHrExportDate(row.work_date),
-        blank(row.employee_code),
-        attendanceHrExportStaffName(row),
-        locationCodeOf(row),
+        formatHrExportDate(row?.work_date ?? correction?.workDate),
+        blank(row?.employee_code) || blank(correction?.employeeCode),
+        row ? attendanceHrExportStaffName(row) : blank(correction?.employeeName),
+        row ? locationCodeOf(row) : blank(correction?.locationCode),
         shift,
         available,
-        missingPunchType(row),
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "Pending",
+        missingType,
+        correction ? blank(correction.reason) : "",
+        correction ? formatMissedPunchSupervisorVerification(correction) : "",
+        correction ? formatMissedPunchApprovalDecision(correction) : "",
+        times.correctedIn,
+        times.correctedOut,
+        correction ? formatMissedPunchCorrectionBy(correction) : "",
+        correction ? formatMissedPunchCorrectionDate(correction) : "",
+        formatMissedPunchExportStatus(correction),
       ];
     });
   return tableSheet("07 Missed Punches", headers, rows, {
@@ -1719,7 +1972,7 @@ export function buildE3AttendanceHrWorkbookSheets(input: BuildE3AttendanceHrWork
     buildDailyAttendance(input.daily, ctx),
     buildLateEarly(input.daily, ctx),
     buildAbsenceLeave(input.daily, ctx),
-    buildMissedPunches(input.daily, ctx),
+    buildMissedPunches(input.daily, corrections, ctx),
     buildOvertime(input.daily, otClaims, ctx),
     buildPayrollInput(employees, ctx),
     buildDataIssues(input.unmatched, input.punches, input.imports, input.daily, ctx),
