@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutGrid, LayoutList, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { FileDown, FileSpreadsheet, LayoutGrid, LayoutList, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   forwardRef,
   memo,
@@ -17,10 +17,13 @@ import {
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { ExportButton } from "@/components/export/export-button";
 import { FecLoader } from "@/components/fec";
 
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
+import { useFileExport } from "@/hooks/use-file-export";
+import { e3RosterRegisterExportFilename } from "@/lib/attendance-hr/roster-register-export";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -518,6 +521,73 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const periodRange = formatPayrollRange(dateFrom, dateTo, i18n.language);
     const gridPending =
       deferredQuery !== query || deferredStaffId !== staffId || deferredLocationId !== locationId;
+    const fileExport = useFileExport();
+
+    const exportHrefBase = useMemo(() => {
+      const p = new URLSearchParams({ dateFrom, dateTo });
+      if (locationId) p.set("locationId", locationId);
+      if (staffId) p.set("staffId", staffId);
+      if (deferredQuery.trim()) p.set("search", deferredQuery.trim());
+      if (excludedDepartmentIds.length) p.set("excludedDepartmentIds", excludedDepartmentIds.join(","));
+      if (showOnlyDepartmentIds.length) p.set("showOnlyDepartmentIds", showOnlyDepartmentIds.join(","));
+      if (showOnlyOrgDepartments.length) p.set("showOrgDepartments", showOnlyOrgDepartments.join(","));
+      if (sourceUploadOnly) p.set("sourceUploadOnly", "1");
+      else if (sourceFilter !== "all") p.set("source", sourceFilter);
+
+      const location = (sites.data ?? []).find((site) => site.id === locationId);
+      p.set(
+        "locationLabel",
+        location
+          ? formatLocationLabel(location.code, location.name)
+          : t("people.roster.registerAllLocations"),
+      );
+      if (staffId) {
+        const staffLabel = staffOptions.find((opt) => opt.value === staffId)?.label;
+        if (staffLabel) p.set("staffLabel", staffLabel);
+      }
+      if (excludedDepartmentIds.length) {
+        p.set(
+          "departmentLabel",
+          t("people.roster.registerDepartmentsExcluding", { count: excludedDepartmentIds.length }),
+        );
+      }
+      if (showOnlyOrgDepartments.length) {
+        const groupNames = showOnlyOrgDepartments.map((key) => t(`common.orgDepartment.${key}`));
+        if (groupNames.length) p.set("groupLabel", groupNames.join(", "));
+      }
+      if (!sourceUploadOnly && sourceFilter !== "all") {
+        p.set(
+          "sourceLabel",
+          sourceFilter === "upload"
+            ? t("people.roster.registerSourceUpload")
+            : sourceFilter === "amend"
+              ? t("people.roster.registerSourceAmend")
+              : sourceFilter === "manual"
+                ? t("people.roster.registerSourceManual")
+                : t("people.roster.registerSourceCopied"),
+        );
+      }
+      return `/api/people/roster-register/export?${p.toString()}`;
+    }, [
+      dateFrom,
+      dateTo,
+      locationId,
+      staffId,
+      deferredQuery,
+      excludedDepartmentIds,
+      showOnlyDepartmentIds,
+      showOnlyOrgDepartments,
+      sourceUploadOnly,
+      sourceFilter,
+      sites.data,
+      staffOptions,
+      t,
+    ]);
+
+    const exportLocationToken =
+      (sites.data ?? []).find((site) => site.id === locationId)?.code ??
+      filtered.find((row) => row.locationCode)?.locationCode ??
+      null;
 
     const selectionScopeKey = [
       dateFrom,
@@ -946,6 +1016,58 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       </div>
     );
 
+    const exportDisabled = register.isLoading || register.isError || (!filtered.length && !matrix.staff.length);
+    const exportActions = (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {fileExport.stage === "error" ? (
+          <Button type="button" size="sm" variant="destructive" className="h-9 gap-1.5 sm:h-8" onClick={() => fileExport.retry()}>
+            {t("people.roster.exportRetry")}
+          </Button>
+        ) : (
+          <>
+            <ExportButton
+              size="sm"
+              variant="outline"
+              className="h-9 gap-1.5 px-2.5 sm:h-8"
+              href={`${exportHrefBase}&format=xlsx`}
+              kind="excel"
+              filename={e3RosterRegisterExportFilename(dateFrom, dateTo, "xlsx", exportLocationToken)}
+              idleLabel={
+                <>
+                  <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+                  <span className="hidden sm:inline">{t("people.roster.downloadExcel")}</span>
+                  <span className="sm:hidden">{t("people.roster.downloadExcelShort")}</span>
+                </>
+              }
+              successMessage={t("people.roster.exportSuccessExcel")}
+              exportState={fileExport}
+              disabled={exportDisabled}
+              aria-label={t("people.roster.downloadExcel")}
+            />
+            <ExportButton
+              size="sm"
+              variant="outline"
+              className="h-9 gap-1.5 px-2.5 sm:h-8"
+              href={`${exportHrefBase}&format=pdf`}
+              kind="pdf"
+              filename={e3RosterRegisterExportFilename(dateFrom, dateTo, "pdf", exportLocationToken)}
+              idleLabel={
+                <>
+                  <FileDown className="h-3.5 w-3.5" aria-hidden />
+                  <span className="hidden sm:inline">{t("people.roster.downloadPdf")}</span>
+                  <span className="sm:hidden">{t("people.roster.downloadPdfShort")}</span>
+                </>
+              }
+              successMessage={t("people.roster.exportSuccessPdf")}
+              exportState={fileExport}
+              disabled={exportDisabled}
+              aria-label={t("people.roster.downloadPdf")}
+            />
+          </>
+        )}
+      </div>
+    );
+
     const renderAmendActions = (row: RosterRegisterRow, compact = false) => {
       if (!canAmend) return null;
       const editing = editingId === row.id && draft && viewMode === "list";
@@ -1095,6 +1217,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               </Badge>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {exportActions}
               {viewToggle}
               {deleteAllButton}
             </div>
