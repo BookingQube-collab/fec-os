@@ -975,6 +975,131 @@ export function computeOtAmountQar(input: {
   return Math.round(amount * 100) / 100;
 }
 
+/** Compact number text for Excel formula labels (trim trailing zeros). */
+function formatOtFormulaNumber(n: number, maxDigits = 4): string {
+  if (!Number.isFinite(n)) return "0";
+  const fixed = n.toFixed(maxDigits);
+  return fixed.replace(/\.?0+$/, "") || "0";
+}
+
+/**
+ * Human-readable Qatar OT amount formula (same math as {@link computeOtAmountQar}):
+ * `OT hours × (basic ÷ (daysPerMonth × hoursPerDay)) × rateMultiplier`
+ */
+export function formatOtAmountFormula(input: {
+  otHours: number;
+  basicQar?: number | null;
+  hoursPerDay?: number | null;
+  daysPerMonth?: number | null;
+  rateMultiplier: number;
+  hourlyRateQar?: number | null;
+}): string {
+  const hours = Math.max(0, Number(input.otHours) || 0);
+  const daysRaw = Number(input.daysPerMonth);
+  const hpdRaw = Number(input.hoursPerDay);
+  const days = Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : 30;
+  const hpd = Number.isFinite(hpdRaw) && hpdRaw > 0 ? hpdRaw : OT_DEFAULT_HOURS_PER_DAY;
+  const mult = Math.max(0, Number(input.rateMultiplier) || 0);
+  const hoursLabel = `${formatOtFormulaNumber(hours, 2)}h`;
+  const multLabel = formatOtFormulaNumber(mult, 2);
+  const basic = Number(input.basicQar);
+  if (Number.isFinite(basic) && basic > 0) {
+    return `${hoursLabel} × (${formatOtFormulaNumber(basic, 2)} ÷ (${formatOtFormulaNumber(days, 2)} × ${formatOtFormulaNumber(hpd, 2)})) × ${multLabel}`;
+  }
+  const hourly = Number(input.hourlyRateQar);
+  if (Number.isFinite(hourly) && hourly > 0) {
+    return `${hoursLabel} × ${formatOtFormulaNumber(hourly, 4)} QAR/h × ${multLabel}`;
+  }
+  return `${hoursLabel} × (basic ÷ (${formatOtFormulaNumber(days, 2)} × ${formatOtFormulaNumber(hpd, 2)})) × ${multLabel} — basic salary missing`;
+}
+
+export type OtExportAmountBreakdown = {
+  otHours: number;
+  basicQar: number | null;
+  hoursPerDay: number;
+  daysPerMonth: number;
+  rateMultiplier: number;
+  hourlyRateQar: number;
+  formula: string;
+  computedAmountQar: number;
+  /** Stored claim amount when usable; otherwise recomputed from snapshots. */
+  amountQar: number;
+  isFinalApproved: boolean;
+  /** Claimed/calculated-hours estimate while still in approval. */
+  estimatedAmountQar: number | "";
+  /** Final amount after GM (or payroll posted). */
+  approvedAmountQar: number | "";
+};
+
+/**
+ * Excel "08 Overtime" amount columns: reuse claim snapshots + {@link computeOtAmountQar}.
+ * Final-approved rows use approved minutes; otherwise claimed/calculated minutes.
+ */
+export function resolveOtExportAmountBreakdown(input: {
+  status: string;
+  calculatedMinutes: number;
+  approvedMinutes?: number | null;
+  rateMultiplier?: number | null;
+  amountQar?: number | null;
+  basicQarSnapshot?: number | null;
+  hoursPerDaySnapshot?: number | null;
+  daysPerMonthSnapshot?: number | null;
+}): OtExportAmountBreakdown {
+  const isFinalApproved = isOtFinalApprovedForPayroll(input.status);
+  const minutes = isFinalApproved
+    ? Math.max(0, Number(input.approvedMinutes ?? input.calculatedMinutes) || 0)
+    : Math.max(0, Number(input.calculatedMinutes) || 0);
+  const otHours = minutes / 60;
+  const hoursRaw = Number(input.hoursPerDaySnapshot);
+  const daysRaw = Number(input.daysPerMonthSnapshot);
+  const hoursPerDay = Number.isFinite(hoursRaw) && hoursRaw > 0 ? hoursRaw : OT_DEFAULT_HOURS_PER_DAY;
+  const daysPerMonth = Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : 30;
+  const rateMultiplier = Math.max(0, Number(input.rateMultiplier) || 0);
+  const basicRaw = Number(input.basicQarSnapshot);
+  const basicQar = Number.isFinite(basicRaw) && basicRaw > 0 ? basicRaw : null;
+  const hourlyRateQar = hourlyRateFromPay({
+    monthlyBasicQar: basicQar,
+    hoursPerDay,
+    daysPerMonth,
+  });
+  const computedAmountQar = computeOtAmountQar({
+    approvedMinutes: minutes,
+    rateMultiplier,
+    hourlyRateQar,
+  });
+  const stored = Number(input.amountQar);
+  // Prefer recomputed amount so the Excel formula column matches the QAR figure;
+  // fall back to stored claim amount when basic/hourly cannot be derived.
+  const amountQar =
+    hourlyRateQar > 0
+      ? computedAmountQar
+      : Number.isFinite(stored) && stored >= 0
+        ? Math.round(stored * 100) / 100
+        : 0;
+  const formula = formatOtAmountFormula({
+    otHours,
+    basicQar,
+    hoursPerDay,
+    daysPerMonth,
+    rateMultiplier,
+    hourlyRateQar,
+  });
+  return {
+    otHours,
+    basicQar,
+    hoursPerDay,
+    daysPerMonth,
+    rateMultiplier,
+    hourlyRateQar: Math.round(hourlyRateQar * 10_000) / 10_000,
+    formula,
+    computedAmountQar,
+    amountQar,
+    isFinalApproved,
+    estimatedAmountQar: isFinalApproved ? "" : amountQar,
+    approvedAmountQar: isFinalApproved ? amountQar : "",
+  };
+}
+
 /**
  * Prefer stored attendance overtime_minutes; optionally reuse computeAttendanceOvertimeMinutes
  * via a precomputed fallback — never invent a second attendance engine here.

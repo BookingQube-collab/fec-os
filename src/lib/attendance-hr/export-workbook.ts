@@ -32,6 +32,7 @@ import {
   isOtFinalApprovedForPayroll,
   otStatusExportLabel,
   otWaitingSeatLabel,
+  resolveOtExportAmountBreakdown,
 } from "@/lib/hr-ot";
 
 export const E3_HR_EXPORT_SHEET_NAMES = [
@@ -79,6 +80,16 @@ export type ExportOtClaim = {
   status: string;
   notes?: string | null;
   purpose?: string | null;
+  /** Claim rate multiplier (weekday 1.25 / weekly off 1.5 / PH / Eid). */
+  rateMultiplier?: number | null;
+  /** Stored OT amount (QAR) from claim workflow. */
+  amountQar?: number | null;
+  /** Monthly basic salary snapshot used for OT hourly rate. */
+  basicQarSnapshot?: number | null;
+  /** Hours/day divisor snapshot (staff expected hours or policy). */
+  hoursPerDaySnapshot?: number | null;
+  /** Days/month divisor snapshot (policy, default 30). */
+  daysPerMonthSnapshot?: number | null;
   /** Display name of the person who submitted the claim into workflow. */
   requestedByName?: string | null;
   /** Sr. Site Supervisor seat (manager_verified). */
@@ -1223,6 +1234,12 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
     "OT Type",
     "Calculated OT Hours",
     "Approved OT Hours",
+    "Basic Salary (QAR)",
+    "OT Hourly Rate (QAR)",
+    "Rate Multiplier",
+    "OT Formula",
+    "Estimated Amount (QAR)",
+    "Approved Amount (QAR)",
     "Reason",
     "Requested By",
     "Site Approver",
@@ -1263,6 +1280,16 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
         : 0;
       const waiting = otWaitingSeatLabel(claim.status);
       const pending = otExportFinalApprovalPending(claim.status);
+      const amount = resolveOtExportAmountBreakdown({
+        status: claim.status,
+        calculatedMinutes: claim.calculatedMinutes || punchOt || 0,
+        approvedMinutes: claim.approvedMinutes,
+        rateMultiplier: claim.rateMultiplier,
+        amountQar: claim.amountQar,
+        basicQarSnapshot: claim.basicQarSnapshot,
+        hoursPerDaySnapshot: claim.hoursPerDaySnapshot,
+        daysPerMonthSnapshot: claim.daysPerMonthSnapshot,
+      });
       return [
         formatHrExportDate(claim.workDate),
         blank(claim.employeeCode) || (day ? blank(day.employee_code) : ""),
@@ -1273,6 +1300,12 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
         otRateLabel(claim.rateType),
         hoursFromMinutes(claim.calculatedMinutes || punchOt || 0),
         approved,
+        amount.basicQar ?? "",
+        amount.hourlyRateQar > 0 ? amount.hourlyRateQar : "",
+        amount.rateMultiplier > 0 ? amount.rateMultiplier : "",
+        amount.formula,
+        amount.estimatedAmountQar,
+        amount.approvedAmountQar,
         blank(claim.purpose) || blank(claim.notes),
         blank(claim.requestedByName),
         blank(claim.siteApproverName),
@@ -1293,6 +1326,12 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
       "",
       "",
       "No submitted OT requests in this period for the selected filters.",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       "",

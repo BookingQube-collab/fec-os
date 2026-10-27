@@ -213,6 +213,11 @@ describe("E3 HR export workbook", () => {
       approvedMinutes: null,
       status: "manager_verified",
       purpose: "Busy weekend cover",
+      rateMultiplier: 1.25,
+      amountQar: 6.94,
+      basicQarSnapshot: 3000,
+      hoursPerDaySnapshot: 9,
+      daysPerMonthSnapshot: 30,
       requestedByName: "Ashfaq",
       siteApproverName: "Mary",
       employeeCode: "INF-CC-STF01",
@@ -227,6 +232,11 @@ describe("E3 HR export workbook", () => {
       approvedMinutes: 120,
       status: "gm_approved",
       notes: "Rest day OT",
+      rateMultiplier: 1.5,
+      amountQar: 33.33,
+      basicQarSnapshot: 3000,
+      hoursPerDaySnapshot: 9,
+      daysPerMonthSnapshot: 30,
       requestedByName: "Ashfaq",
       siteApproverName: "Mary",
       hooApproverName: "Rajan",
@@ -277,6 +287,11 @@ describe("E3 HR export workbook", () => {
     expect(headers).toContain("Site Approver");
     expect(headers).toContain("Final Approval Pending");
     expect(headers).toContain("Waiting On");
+    expect(headers).toContain("OT Formula");
+    expect(headers).toContain("Estimated Amount (QAR)");
+    expect(headers).toContain("Approved Amount (QAR)");
+    expect(headers).toContain("Rate Multiplier");
+    expect(headers).toContain("OT Hourly Rate (QAR)");
 
     const dataRows = ot.aoa.slice(ot.filterHeaderRow! + 1);
     // Punch-only OT and drafts are excluded — only two submitted claims.
@@ -288,16 +303,33 @@ describe("E3 HR export workbook", () => {
     const requestedIdx = headers.indexOf("Requested By");
     const siteIdx = headers.indexOf("Site Approver");
     const approversIdx = headers.indexOf("Approvers");
+    const formulaIdx = headers.indexOf("OT Formula");
+    const estimatedIdx = headers.indexOf("Estimated Amount (QAR)");
+    const approvedAmtIdx = headers.indexOf("Approved Amount (QAR)");
+    const multIdx = headers.indexOf("Rate Multiplier");
 
     const pendingRow = dataRows.find((r) => r[waitingIdx] === "HOO")!;
     expect(pendingRow[pendingIdx]).toBe("Yes");
     expect(pendingRow[approvedHrsIdx]).toBe(0);
     expect(pendingRow[requestedIdx]).toBe("Ashfaq");
     expect(pendingRow[siteIdx]).toBe("Mary");
+    expect(pendingRow[multIdx]).toBe(1.25);
+    expect(String(pendingRow[formulaIdx])).toContain("1.5h");
+    expect(String(pendingRow[formulaIdx])).toContain("3000");
+    expect(String(pendingRow[formulaIdx])).toContain("1.25");
+    // 1.5h × (3000 ÷ (30 × 9)) × 1.25 = 20.833… → 20.83
+    expect(pendingRow[estimatedIdx]).toBe(20.83);
+    expect(pendingRow[approvedAmtIdx]).toBe("");
 
     const doneRow = dataRows.find((r) => r[pendingIdx] === "No")!;
     expect(doneRow[approvedHrsIdx]).toBe(2);
     expect(doneRow[approversIdx]).toBe("Sr. Site: Mary; HOO: Rajan; HR: Sara; GM: GM Name");
+    expect(doneRow[multIdx]).toBe(1.5);
+    expect(String(doneRow[formulaIdx])).toContain("2h");
+    expect(String(doneRow[formulaIdx])).toContain("1.5");
+    // 2h × (3000 ÷ (30 × 9)) × 1.5 = 33.333… → 33.33
+    expect(doneRow[estimatedIdx]).toBe("");
+    expect(doneRow[approvedAmtIdx]).toBe(33.33);
     expect(otExportFinalApprovalPending("manager_verified")).toBe(true);
     expect(formatOtApproverChain(approvedClaim)).toContain("GM: GM Name");
   });

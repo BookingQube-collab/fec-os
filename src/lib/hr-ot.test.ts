@@ -17,8 +17,10 @@ import {
   otWaitingSeatLabel,
   computeOtAmountQar,
   filterOtRequestGroups,
+  formatOtAmountFormula,
   groupOtClaimsIntoRequests,
   hourlyRateFromPay,
+  resolveOtExportAmountBreakdown,
   isOtEligible,
   isSupervisorOtContract,
   mergeSupervisorOtTeamStaffIds,
@@ -796,6 +798,58 @@ describe("OT amount", () => {
         hourlyRateQar: hourly,
       }),
     ).toBe(83.33);
+  });
+
+  it("formats the human-readable OT amount formula for HR Excel", () => {
+    expect(
+      formatOtAmountFormula({
+        otHours: 18,
+        basicQar: 1000,
+        hoursPerDay: 9,
+        daysPerMonth: 30,
+        rateMultiplier: 1.25,
+      }),
+    ).toBe("18h × (1000 ÷ (30 × 9)) × 1.25");
+    expect(
+      formatOtAmountFormula({
+        otHours: 2,
+        basicQar: null,
+        hoursPerDay: 9,
+        daysPerMonth: 30,
+        rateMultiplier: 1.5,
+      }),
+    ).toContain("basic salary missing");
+  });
+
+  it("resolves estimated vs approved OT amounts for Excel export", () => {
+    const pending = resolveOtExportAmountBreakdown({
+      status: "manager_verified",
+      calculatedMinutes: 90,
+      approvedMinutes: null,
+      rateMultiplier: 1.25,
+      basicQarSnapshot: 3000,
+      hoursPerDaySnapshot: 9,
+      daysPerMonthSnapshot: 30,
+    });
+    expect(pending.isFinalApproved).toBe(false);
+    expect(pending.formula).toBe("1.5h × (3000 ÷ (30 × 9)) × 1.25");
+    expect(pending.estimatedAmountQar).toBe(20.83);
+    expect(pending.approvedAmountQar).toBe("");
+
+    const approved = resolveOtExportAmountBreakdown({
+      status: "gm_approved",
+      calculatedMinutes: 180,
+      approvedMinutes: 120,
+      rateMultiplier: 1.5,
+      basicQarSnapshot: 3000,
+      hoursPerDaySnapshot: 9,
+      daysPerMonthSnapshot: 30,
+      amountQar: 33.33,
+    });
+    expect(approved.isFinalApproved).toBe(true);
+    expect(approved.formula).toBe("2h × (3000 ÷ (30 × 9)) × 1.5");
+    expect(approved.estimatedAmountQar).toBe("");
+    expect(approved.approvedAmountQar).toBe(33.33);
   });
 
   it("prefers staff.expected_hours over policy hours_per_day", () => {

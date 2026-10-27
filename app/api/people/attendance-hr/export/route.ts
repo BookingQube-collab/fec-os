@@ -50,6 +50,11 @@ type OtExportDbRow = {
   eligible_minutes?: number | null;
   claimed_minutes?: number | null;
   approved_minutes?: number | null;
+  rate_multiplier?: number | null;
+  amount_qar?: number | null;
+  basic_qar_snapshot?: number | null;
+  hours_per_day_snapshot?: number | null;
+  days_per_month_snapshot?: number | null;
   status?: string | null;
   notes?: string | null;
   purpose?: string | null;
@@ -114,7 +119,7 @@ async function loadExportOtClaims(input: {
   let otQ = input.supabase
     .from("hr_ot_claims")
     .select(
-      "staff_id, work_date, rate_type, eligible_minutes, claimed_minutes, approved_minutes, status, notes, purpose, submitted_by, verified_by, verified_signer_name, ops_approved_by, ops_approved_signer_name, approved_by, approved_signer_name, gm_approved_by, gm_approved_signer_name, staff:staff_id(employee_code, full_name, department), locations:location_id(code)",
+      "staff_id, work_date, rate_type, eligible_minutes, claimed_minutes, approved_minutes, rate_multiplier, amount_qar, basic_qar_snapshot, hours_per_day_snapshot, days_per_month_snapshot, status, notes, purpose, submitted_by, verified_by, verified_signer_name, ops_approved_by, ops_approved_signer_name, approved_by, approved_signer_name, gm_approved_by, gm_approved_signer_name, staff:staff_id(employee_code, full_name, department), locations:location_id(code)",
     )
     .gte("work_date", input.dateFrom)
     .lte("work_date", input.dateTo)
@@ -148,6 +153,11 @@ async function loadExportOtClaims(input: {
       status: String(r.status ?? ""),
       notes: r.notes == null ? null : String(r.notes),
       purpose: r.purpose == null ? null : String(r.purpose),
+      rateMultiplier: r.rate_multiplier == null ? null : Number(r.rate_multiplier),
+      amountQar: r.amount_qar == null ? null : Number(r.amount_qar),
+      basicQarSnapshot: r.basic_qar_snapshot == null ? null : Number(r.basic_qar_snapshot),
+      hoursPerDaySnapshot: r.hours_per_day_snapshot == null ? null : Number(r.hours_per_day_snapshot),
+      daysPerMonthSnapshot: r.days_per_month_snapshot == null ? null : Number(r.days_per_month_snapshot),
       requestedByName: submittedBy ? names.get(submittedBy) ?? null : null,
       siteApproverName: (r.verified_signer_name as string | null)?.trim()
         || (r.verified_by ? names.get(String(r.verified_by)) ?? null : null),
