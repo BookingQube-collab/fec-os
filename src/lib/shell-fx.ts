@@ -20,7 +20,7 @@ export function isHeavyShellFxRoute(pathname: string | null | undefined): boolea
   return HEAVY_SHELL_FX_PATHS.some((re) => re.test(pathname));
 }
 
-/** True when Aurora / ClickSpark may mount (preference + route; reduced-motion checked by callers). */
+/** True when Aurora / click sparks may mount (preference + route; reduced-motion checked by callers). */
 export function mayMountShellFx(options: {
   pathname: string | null | undefined;
   shellFxEnabled: boolean;
@@ -28,6 +28,8 @@ export function mayMountShellFx(options: {
 }): boolean {
   if (!options.shellFxEnabled) return false;
   if (options.prefersReducedMotion) return false;
+  // Unknown route → keep FX off (avoids mounting during pathname gaps / remounts).
+  if (!options.pathname) return false;
   if (isHeavyShellFxRoute(options.pathname)) return false;
   return true;
 }

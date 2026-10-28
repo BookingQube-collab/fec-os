@@ -31,5 +31,11 @@ describe("shell-fx", () => {
         prefersReducedMotion: false,
       }),
     ).toBe(false);
+    expect(
+      mayMountShellFx({ pathname: null, shellFxEnabled: true, prefersReducedMotion: false }),
+    ).toBe(false);
+    expect(
+      mayMountShellFx({ pathname: undefined, shellFxEnabled: true, prefersReducedMotion: false }),
+    ).toBe(false);
   });
 });

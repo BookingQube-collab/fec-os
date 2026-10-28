@@ -14,15 +14,17 @@ import {
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { useAppStore } from "@/stores/app-store";
 import { translateRole, type SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/hooks/use-auth";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { useSites } from "@/hooks/queries/useSites";
 import { formatLocationRecord } from "@/lib/locations/normalize";
 import { BitsShine } from "@/components/layout/bits-shine";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { isHeavyShellFxRoute, mayMountShellFx } from "@/lib/shell-fx";
 import { topbarIdentityLabel, usesOpsCommandSubtitle } from "@/lib/topbar-identity";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,14 @@ export function AppTopbar() {
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const { user, profile, roles, signOut } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const shellFxActiveHere = mayMountShellFx({
+    pathname,
+    shellFxEnabled,
+    prefersReducedMotion,
+  });
+  const shellFxPausedHere = shellFxEnabled && isHeavyShellFxRoute(pathname);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sitesRequested, setSitesRequested] = useState(false);
   const [avatarBroken, setAvatarBroken] = useState(false);
@@ -186,13 +196,16 @@ export function AppTopbar() {
             size="icon"
             className={cn(
               "hidden sm:inline-flex",
-              shellFxEnabled &&
+              shellFxActiveHere &&
                 "border-violet-600 bg-violet-600 text-white hover:bg-violet-500 hover:text-white",
+              shellFxPausedHere &&
+                "border-violet-300 bg-violet-100 text-violet-800 hover:bg-violet-200 hover:text-violet-900",
             )}
             onClick={() => setShellFxEnabled(!shellFxEnabled)}
-            title={t("common.shellFx")}
+            title={shellFxPausedHere ? t("layout.helpShellFx") : t("common.shellFx")}
             aria-label={t("common.shellFx")}
             aria-pressed={shellFxEnabled}
+            aria-description={shellFxPausedHere ? t("layout.helpShellFx") : undefined}
           >
             <Sparkles className="h-4 w-4" />
           </Button>

@@ -140,9 +140,10 @@ export default function ClickSpark({
   return (
     <div className={`relative w-full ${className}`} onClick={handleClick}>
       {children}
+      {/* No z-index: DOM order paints sparks above children; high z trapped overlays. */}
       <canvas
         ref={canvasRef}
-        className="pointer-events-none absolute inset-0 z-20 h-full w-full"
+        className="pointer-events-none absolute inset-0 h-full w-full"
         aria-hidden
       />
     </div>

@@ -28,8 +28,14 @@ const HrFieldSync = dynamic(
   { ssr: false },
 );
 
-/** Canvas click sparks — only load when shell FX are allowed on this route. */
-const ClickSpark = dynamic(() => import("@/components/react-bits/click-spark"), { ssr: false });
+/**
+ * Overlay sparks only — never wrap the shell. A dynamic parent wrapper blanked
+ * the whole app while the chunk loaded and remounted People on toggle/route change.
+ */
+const ShellClickSparks = dynamic(
+  () => import("@/components/layout/shell-click-sparks").then((m) => m.ShellClickSparks),
+  { ssr: false },
+);
 
 /** Employee home and /hr/me use the employee phone header. Footer stays the shared bottom nav. */
 function isEmployeeHome(pathname: string) {
@@ -54,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const chatRoute = pathname === "/chat";
   const accountRoute = pathname === "/profile";
 
-  const body = (
+  return (
     <div
       className="relative min-h-screen w-full max-w-full overflow-x-clip text-foreground"
       data-surge-mode={surgeMode ? "true" : "false"}
@@ -100,14 +106,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </div>
       <MobileBottomNav />
+      {showShellFx ? <ShellClickSparks /> : null}
     </div>
-  );
-
-  if (!showShellFx) return body;
-
-  return (
-    <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
-      {body}
-    </ClickSpark>
   );
 }
