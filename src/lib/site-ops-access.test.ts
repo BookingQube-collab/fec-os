@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canBulkDeleteMonthlyRoster,
   canCorrectTeamAttendance,
   canEditAttendanceMapping,
   canManageMonthlyRoster,
@@ -27,6 +28,35 @@ describe("monthly roster, mapping, and team corrections", () => {
     for (const identity of allowed) {
       expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(true);
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(true);
+    }
+  });
+
+  it("gives Delete all to Sr. Site Supervisor and privileged editors, not Venue / Site / F&B supervisors", () => {
+    for (const identity of [
+      { jobTitle: "Sr. Site Supervisor" },
+      { jobTitle: "Senior Site Supervisor" },
+      { department: "Sr. Site Supervisor" },
+      { roles: ["regional_ops"] },
+      { roles: ["branch_gm"] },
+      { roles: ["ceo"] },
+      { roles: ["hr"] },
+      { jobTitle: "General Manager" },
+      { jobTitle: "Operations Manager", reportsToHeadOfOperations: true },
+    ]) {
+      expect(canBulkDeleteMonthlyRoster(identity), JSON.stringify(identity)).toBe(true);
+    }
+    for (const identity of [
+      { jobTitle: "Venue Supervisor" },
+      { staffRole: "venue_supervisor" },
+      { jobTitle: "Site Supervisor" },
+      { jobTitle: "F&B Supervisor" },
+      { jobTitle: "Operations Supervisor" },
+      { jobTitle: "Cashier" },
+      { roles: ["cashier_host"] },
+      { jobTitle: "Head of Operations" },
+      null,
+    ]) {
+      expect(canBulkDeleteMonthlyRoster(identity), JSON.stringify(identity)).toBe(false);
     }
   });
 

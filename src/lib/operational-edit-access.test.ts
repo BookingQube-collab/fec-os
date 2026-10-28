@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { canAmendShiftRoster, canManageAnnouncements, canUserDo } from "@/lib/rbac";
+import {
+  canAmendShiftRoster,
+  canBulkDeleteMonthlyRoster,
+  canManageAnnouncements,
+  canUserDo,
+} from "@/lib/rbac";
 import { setActiveCapabilityGrants, toGrantMap } from "@/lib/rbac-grants";
 
 const SUPERVISOR_ROLES = ["duty_manager", "tech_supervisor"] as const;
@@ -39,6 +44,17 @@ describe("supervisor and manager operational edit", () => {
     expect(canAmendShiftRoster(["cashier_host"], "Admin Team Leader")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Cashier")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Team Leader")).toBe(false);
+  });
+
+  it("lets Sr. Site Supervisor use Delete all while Venue / Site keep row amend only", () => {
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], "Sr. Site Supervisor")).toBe(true);
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], "Senior Site Supervisor")).toBe(true);
+    expect(canBulkDeleteMonthlyRoster(["regional_ops"], "Head of Operations")).toBe(true);
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], "Venue Supervisor")).toBe(false);
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], "Site Supervisor")).toBe(false);
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], "F&B Supervisor")).toBe(false);
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], "Operations Supervisor")).toBe(false);
+    expect(canBulkDeleteMonthlyRoster(["cashier_host"], null, "venue_supervisor")).toBe(false);
   });
 
   it("lets HoO direct-report ops peers amend the shift roster (Technician / blank title included)", () => {

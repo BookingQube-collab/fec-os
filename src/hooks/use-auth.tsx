@@ -22,7 +22,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { canOpenPeopleDirectory, peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
-import { canAmendShiftRoster, type AppRole, type RoleAssignment } from "@/lib/rbac";
+import {
+  canAmendShiftRoster,
+  canBulkDeleteMonthlyRoster,
+  type AppRole,
+  type RoleAssignment,
+} from "@/lib/rbac";
 
 export type Profile = AuthProfile;
 
@@ -312,6 +317,19 @@ export function useCanAmendShiftRoster(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
   return canAmendShiftRoster(
+    roles,
+    profile?.job_title,
+    profile?.staff_role,
+    profile?.department,
+    profile?.reports_to_head_of_operations,
+  );
+}
+
+/** Monthly roster header Delete all. Privileged editors + Sr. Site Supervisor. */
+export function useCanBulkDeleteMonthlyRoster(): boolean {
+  const { profile } = useAuth();
+  const roles = useUserRoles();
+  return canBulkDeleteMonthlyRoster(
     roles,
     profile?.job_title,
     profile?.staff_role,

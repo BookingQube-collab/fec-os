@@ -4,7 +4,10 @@ import { z } from "zod";
 
 import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
+import {
+  assertCanBulkDeleteMonthlyRoster,
+  assertCanOpenShiftRoster,
+} from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import {
@@ -168,6 +171,10 @@ async function syncRosterLeaveRecord(
 
 async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles">) {
   await assertCanOpenShiftRoster(context.userId);
+}
+
+async function assertCanBulkDeleteRoster(context: Pick<AuthContext, "userId" | "roles">) {
+  await assertCanBulkDeleteMonthlyRoster(context.userId);
 }
 
 type RosterActor = {
@@ -1597,7 +1604,7 @@ export const deleteRosterAssignments = createAuthenticatedAction(
     ids: z.array(z.string().uuid()).max(10000).optional(),
   }),
   async (data, context) => {
-    await assertCanAmendRoster(context);
+    await assertCanBulkDeleteRoster(context);
     const actor = await resolveRosterActor(context);
     const db = actor.db;
     assertRosterDeletePeriod(data.dateFrom, data.dateTo);

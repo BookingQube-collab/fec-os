@@ -8,6 +8,7 @@ import { ForbiddenError, getUserRoles } from "@/lib/server/authorize";
 import { attendanceMappingIsCompanyWide } from "@/lib/attendance-listing-access";
 import type { AppRole } from "@/lib/rbac";
 import {
+  canBulkDeleteMonthlyRoster,
   canCorrectTeamAttendance,
   canEditAttendanceMapping,
   canManageMonthlyRoster,
@@ -77,6 +78,21 @@ export async function assertCanOpenShiftRoster(userId: string): Promise<void> {
   ]);
   if (!canOpenShiftRoster({ ...identity, roles, reportsToHeadOfOperations })) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");
+  }
+}
+
+/**
+ * Monthly roster header Delete all. Privileged editors + Sr. Site Supervisor
+ * (team-scoped on the delete path). Venue / Site supervisors stay on row trash.
+ */
+export async function assertCanBulkDeleteMonthlyRoster(userId: string): Promise<void> {
+  const [identity, roles, reportsToHeadOfOperations] = await Promise.all([
+    loadLinkedStaffIdentity(userId),
+    getUserRoles(supabaseAdmin, userId),
+    loadReportsToHeadOfOperations(userId),
+  ]);
+  if (!canBulkDeleteMonthlyRoster({ ...identity, roles, reportsToHeadOfOperations })) {
+    throw new ForbiddenError("Forbidden: missing capability to delete the monthly roster.");
   }
 }
 

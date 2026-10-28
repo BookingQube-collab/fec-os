@@ -9,7 +9,10 @@ import {
   grantKey,
   type CapabilityGrantMap,
 } from "@/lib/rbac-grants";
-import { canOpenShiftRoster } from "@/lib/site-ops-access";
+import {
+  canBulkDeleteMonthlyRoster as canBulkDeleteMonthlyRosterAccess,
+  canOpenShiftRoster,
+} from "@/lib/site-ops-access";
 
 export type { CapabilityGrantMap };
 
@@ -490,11 +493,12 @@ export function isRosterAmendJobTitle(jobTitle: string | null | undefined): bool
 }
 
 /**
- * Pencil, trash, upload, copy, and Delete all on the monthly roster, plus the Shift roster option.
+ * Pencil, trash, upload, and copy on the monthly roster, plus the Shift roster option.
  * Site supervisors and other *Supervisor* titles keep it, as do Venue / Sr. Site / F&B.
  * Operations managers/leads who report to Head of Operations keep it too.
  * Logins with people.edit_roster (duty manager, tech supervisor, HR, CEO, GM) keep it too.
  * Team Leader (TEAM_LEAD) and Admin Team Leader stay out unless that login has people.edit_roster.
+ * Header Delete all is canBulkDeleteMonthlyRoster (privileged + Sr. Site only).
  */
 export function canAmendShiftRoster(
   roles: readonly string[],
@@ -504,6 +508,26 @@ export function canAmendShiftRoster(
   reportsToHeadOfOperations?: boolean,
 ): boolean {
   return canOpenShiftRoster({ roles, jobTitle, staffRole, department, reportsToHeadOfOperations });
+}
+
+/**
+ * Red Delete all on the monthly roster. Privileged edit-roster seats and executives,
+ * plus Sr. Site Supervisor (team-scoped server-side). Venue / Site supervisors stay on row trash.
+ */
+export function canBulkDeleteMonthlyRoster(
+  roles: readonly string[],
+  jobTitle?: string | null,
+  staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
+): boolean {
+  return canBulkDeleteMonthlyRosterAccess({
+    roles,
+    jobTitle,
+    staffRole,
+    department,
+    reportsToHeadOfOperations,
+  });
 }
 
 /** Where a freshly signed-in user should land based on their highest role. */

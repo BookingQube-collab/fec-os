@@ -57,7 +57,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useCanAmendShiftRoster } from "@/hooks/use-auth";
+import { useCanAmendShiftRoster, useCanBulkDeleteMonthlyRoster } from "@/hooks/use-auth";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
   ALL_ORG_DEPARTMENTS_CHECKED,
@@ -343,6 +343,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const { t, i18n } = useTranslation();
     const qc = useQueryClient();
     const canAmend = useCanAmendShiftRoster();
+    const canBulkDelete = useCanBulkDeleteMonthlyRoster();
     const sites = useSites();
     const { data: departments = [] } = useMasterDepartments();
 
@@ -776,15 +777,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       ref,
       () => ({
         openDeleteAll: () => {
-          if (canAmend) setDeleteAllOpen(true);
+          if (canBulkDelete) setDeleteAllOpen(true);
         },
       }),
-      [canAmend],
+      [canBulkDelete],
     );
 
     useEffect(() => {
-      onDeleteAllStateChange?.({ canDelete: canAmend, disabled: deleteAllDisabled, selectedCount });
-    }, [canAmend, deleteAllDisabled, onDeleteAllStateChange, selectedCount]);
+      onDeleteAllStateChange?.({ canDelete: canBulkDelete, disabled: deleteAllDisabled, selectedCount });
+    }, [canBulkDelete, deleteAllDisabled, onDeleteAllStateChange, selectedCount]);
 
     const startEdit = useCallback((row: RosterRegisterRow) => {
       setCreateWorkDate(null);
@@ -872,7 +873,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
 
     // When the parent page owns Delete all (hideHeader), keep it off this card on phone/desktop.
     const deleteAllButton =
-      canAmend && !hideHeader ? (
+      canBulkDelete && !hideHeader ? (
         <Button
           type="button"
           size="sm"

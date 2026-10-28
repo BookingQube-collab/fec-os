@@ -180,11 +180,28 @@ export type ShiftRosterIdentity = MonthlyRosterIdentity & {
  * has people.edit_roster (duty manager, tech supervisor, HR, and the rest).
  * Team Leader stays out unless that login also has people.edit_roster.
  * Mapping stays on canEditAttendanceMapping (narrower).
+ * Header "Delete all" is narrower — see canBulkDeleteMonthlyRoster.
  */
 export function canOpenShiftRoster(identity: ShiftRosterIdentity | null | undefined): boolean {
   if (!identity) return false;
   if (canManageMonthlyRoster(identity)) return true;
   if (matchesAny(identity, isExecutiveRosterLabel)) return true;
+  return (identity.roles ?? []).some((role) => ROSTER_SAVE_ROLES.has(role));
+}
+
+/**
+ * Red "Delete all" on the monthly roster header (bulk wipe for the filtered period).
+ * Privileged roster editors (people.edit_roster seats: HoO / GM / CEO / HR / …),
+ * executive titles, and HoO ops peers keep it. Sr. Site Supervisor is included
+ * so Mary can clear her reporting-team scope (server still filters team / sites).
+ * Venue / Site / F&B / Operations supervisors keep row trash via canOpenShiftRoster
+ * but not this bulk control.
+ */
+export function canBulkDeleteMonthlyRoster(identity: ShiftRosterIdentity | null | undefined): boolean {
+  if (!identity) return false;
+  if (matchesAny(identity, isSrSiteSupervisorTitle)) return true;
+  if (matchesAny(identity, isExecutiveRosterLabel)) return true;
+  if (canOpenShiftRosterAsHoOPeer(identity)) return true;
   return (identity.roles ?? []).some((role) => ROSTER_SAVE_ROLES.has(role));
 }
 

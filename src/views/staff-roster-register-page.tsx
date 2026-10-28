@@ -70,7 +70,7 @@ import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import type { PreviousMonthRosterDepartment } from "@/lib/staff-roster/previous-month-export";
 import { useAppStore } from "@/stores/app-store";
-import { useCanAmendShiftRoster } from "@/hooks/use-auth";
+import { useCanAmendShiftRoster, useCanBulkDeleteMonthlyRoster } from "@/hooks/use-auth";
 
 /** Coverage chips load after the month grid — keep them off the critical JS path. */
 const RosterLocationCoverage = dynamic(
@@ -103,12 +103,13 @@ export default function StaffRosterRegisterPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const canManageRoster = useCanAmendShiftRoster();
+  const canBulkDelete = useCanBulkDeleteMonthlyRoster();
   const canUpload = canManageRoster;
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 
   const registerRef = useRef<RosterRegisterPanelHandle>(null);
   const [deleteAllState, setDeleteAllState] = useState<RosterDeleteAllState>({
-    canDelete: canManageRoster,
+    canDelete: canBulkDelete,
     disabled: true,
     selectedCount: 0,
   });
@@ -539,7 +540,7 @@ export default function StaffRosterRegisterPage() {
           {t("people.roster.copyNextMonth")}
         </Button>
       ) : null}
-      {canManageRoster ? (
+      {canBulkDelete ? (
         <Button
           type="button"
           size="sm"
@@ -583,7 +584,7 @@ export default function StaffRosterRegisterPage() {
     </Button>
   ) : null;
 
-  const mobileOverflow = canManageRoster ? (
+  const mobileOverflow = canManageRoster || canBulkDelete ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" size="sm" variant="outline" className="min-h-10 min-w-10 px-2.5" aria-label={t("nav.more")}>
@@ -603,7 +604,7 @@ export default function StaffRosterRegisterPage() {
             {t("people.roster.copyNextMonth")}
           </DropdownMenuItem>
         ) : null}
-        {canManageRoster ? (
+        {canBulkDelete ? (
           <DropdownMenuItem
             disabled={deleteAllState.disabled}
             className="text-destructive focus:text-destructive"
