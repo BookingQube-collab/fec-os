@@ -33,6 +33,7 @@ export type AttendanceDashboardDayRow = {
   flexible_attendance?: boolean | null;
   scheduled_in?: string | null;
   scheduled_out?: string | null;
+  hasRosterAssignment?: boolean;
   hire_date?: string | null;
   /** staff.department for org focus filter parity with listing. */
   department?: string | null;
@@ -59,6 +60,7 @@ export function attendanceReportRowToDashboardDay(row: AttendanceHrReportRow): A
     flexible_attendance: listing.flexible_attendance,
     scheduled_in: listing.scheduled_in,
     scheduled_out: listing.scheduled_out,
+    hasRosterAssignment: listing.hasRosterAssignment,
     hire_date: listing.hire_date,
     department: row.department ?? null,
   };
@@ -80,6 +82,7 @@ function dashboardRowToSharedKpiInput(row: AttendanceDashboardDayRow): Attendanc
     work_date: row.work_date,
     scheduled_in: row.scheduled_in,
     scheduled_out: row.scheduled_out,
+    hasRosterAssignment: row.hasRosterAssignment,
     hire_date: row.hire_date,
   };
 }

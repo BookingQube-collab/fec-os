@@ -27,6 +27,11 @@ export type AttendanceHrReportRow = {
   actual_out: string | null;
   scheduled_in?: string | null;
   scheduled_out?: string | null;
+  /**
+   * On-duty roster assignment for this staff+day (not week-off).
+   * Used so punchless jokers stay Absent when rostered even if shift times are blank.
+   */
+  has_roster_assignment?: boolean;
   late_minutes: number;
   early_leave_minutes: number;
   overtime_minutes: number;
@@ -327,6 +332,8 @@ export function collapseFlexibleAttendanceReportRows(
       actual_out: actualOut,
       scheduled_in: scheduledIn,
       scheduled_out: scheduledOut,
+      has_roster_assignment:
+        ranked.some((r) => r.has_roster_assignment) || Boolean(scheduledIn || scheduledOut),
       worked_minutes: worked,
       punch_count: punchCount,
       overtime_minutes: overtime,
@@ -369,6 +376,7 @@ export function attendanceHrToListingSource(
   actual_out: string | null;
   scheduled_in: string | null;
   scheduled_out: string | null;
+  hasRosterAssignment: boolean;
   reporting_time_minutes: number | null;
   overtime_minutes: number;
   late_minutes: number;
@@ -409,6 +417,9 @@ export function attendanceHrToListingSource(
     actual_out: row.actual_out,
     scheduled_in: row.scheduled_in ?? null,
     scheduled_out: row.scheduled_out ?? null,
+    hasRosterAssignment: Boolean(
+      row.has_roster_assignment ?? (row.scheduled_in || row.scheduled_out),
+    ),
     reporting_time_minutes:
       row.location_reporting_time_minutes != null &&
       Number.isFinite(Number(row.location_reporting_time_minutes))
@@ -460,6 +471,7 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
         work_date: listing.work_date,
         scheduled_in: listing.scheduled_in,
         scheduled_out: listing.scheduled_out,
+        hasRosterAssignment: listing.hasRosterAssignment,
         hire_date: listing.hire_date,
       };
     }),
@@ -595,6 +607,7 @@ export function attendanceHrRowMatchesKpiFilter(
     work_date: listing.work_date,
     scheduled_in: listing.scheduled_in,
     scheduled_out: listing.scheduled_out,
+    hasRosterAssignment: listing.hasRosterAssignment,
     hire_date: listing.hire_date,
   });
   switch (filter) {

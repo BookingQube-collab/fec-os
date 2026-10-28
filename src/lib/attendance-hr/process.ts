@@ -1616,11 +1616,13 @@ export async function recalculateAttendanceRange(
         rules,
         flexibleAttendance: Boolean(timing.flex?.flexibleAttendance),
       });
-      // Jokers with no punches are not Absent — keep leave / week-off / holiday.
+      // Punchless jokers without a roster stay out of Absent (omit / unscheduled).
+      // Rostered joker days keep Absent like permanent staff.
       const suppressJokerAbsent = shouldSuppressPunchlessJokerAbsent({
         status: statusByStaffId.get(staffId),
         employment_type: employmentByStaffId.get(staffId),
         hasPunches: false,
+        hasRosterAssignment: hasRealRosterAssignment,
         weekOff: isWeekOff,
         leaveType,
         holidayName,

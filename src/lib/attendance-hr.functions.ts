@@ -3407,6 +3407,7 @@ async function enrichAttendanceHrDailyRows(
       flexible_attendance: Boolean(staff?.flexible_attendance),
       cross_site_day_merge: crossSiteDayMerge,
       hire_date: staff?.hire_date ? String(staff.hire_date).slice(0, 10) : null,
+      has_roster_assignment: hasRosterRow && !rosterWeekOff,
     };
   });
 
@@ -3437,6 +3438,7 @@ async function enrichAttendanceHrDailyRows(
         hire_date: row.hire_date,
         scheduled_in: row.scheduled_in,
         scheduled_out: row.scheduled_out,
+        hasRosterAssignment: row.has_roster_assignment,
         sitePolicy: {
           permanentHours: row.permanent_hours,
           secondmentHours: row.secondment_hours,

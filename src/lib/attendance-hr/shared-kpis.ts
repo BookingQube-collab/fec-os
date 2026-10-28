@@ -20,6 +20,7 @@ export type AttendanceSharedKpiInput = {
   work_date?: string | null;
   scheduled_in?: string | null;
   scheduled_out?: string | null;
+  hasRosterAssignment?: boolean;
   hire_date?: string | null;
 };
 
@@ -57,6 +58,7 @@ export function attendanceSharedKpiFlags(row: AttendanceSharedKpiInput): Attenda
     work_date: row.work_date,
     scheduled_in: row.scheduled_in,
     scheduled_out: row.scheduled_out,
+    hasRosterAssignment: row.hasRosterAssignment,
     hire_date: row.hire_date,
   });
   return {

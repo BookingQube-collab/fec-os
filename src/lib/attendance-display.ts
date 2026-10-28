@@ -473,6 +473,8 @@ export function resolveHoursBasedAttendanceStatus(
     break_minutes?: number | null;
     expected_minutes?: number | null;
     employment_type?: string | null;
+    /** `staff.status` — status=joker counts as joker even when employment_type differs. */
+    staff_status?: string | null;
     sitePolicy?: SiteShiftPolicyOverrides | null;
     flexible_attendance?: boolean | null;
     late_minutes?: number | null;
@@ -481,6 +483,11 @@ export function resolveHoursBasedAttendanceStatus(
     scheduled_in?: string | null;
     /** Roster shift end — incomplete in/out closes at later of this and Qatar day end. */
     scheduled_out?: string | null;
+    /**
+     * Explicit on-duty roster for the day. When omitted, scheduled_in/out imply a roster
+     * assignment (listing enriches bounds only for working roster rows).
+     */
+    hasRosterAssignment?: boolean;
     /** Injected clock for tests; defaults to Date.now(). */
     asOf?: Date | string | number;
     /** `staff.hire_date`. Strictly earlier days that would be Absent become not_joined. */
@@ -517,12 +524,16 @@ export function resolveHoursBasedAttendanceStatus(
         workDate: row.work_date,
         hireDate: row.hire_date,
       });
-      // Jokers with no times are not Absent (on-call / day labour).
+      // Punchless jokers without a roster → Unscheduled; rostered days stay Absent.
+      const hasRosterAssignment =
+        row.hasRosterAssignment ?? Boolean(row.scheduled_in || row.scheduled_out);
       return resolvePunchlessJokerListingStatus({
         status: afterPreJoin,
         employment_type: row.employment_type,
+        staffStatus: row.staff_status,
         hasIn: false,
         hasOut: false,
+        hasRosterAssignment,
       });
     }
   }
@@ -578,12 +589,14 @@ export function getAttendanceStatusDisplay(
     break_minutes?: number | null;
     expected_minutes?: number | null;
     employment_type?: string | null;
+    staff_status?: string | null;
     sitePolicy?: SiteShiftPolicyOverrides | null;
     flexible_attendance?: boolean | null;
     late_minutes?: number | null;
     work_date?: string | null;
     scheduled_in?: string | null;
     scheduled_out?: string | null;
+    hasRosterAssignment?: boolean;
     asOf?: Date | string | number;
     hire_date?: string | null;
   },
@@ -740,6 +753,8 @@ export type AttendanceListingSource = {
   actual_out: string | null;
   scheduled_in?: string | null;
   scheduled_out?: string | null;
+  /** On-duty roster for the day — punchless jokers stay Absent when true. */
+  hasRosterAssignment?: boolean;
   /** Site reporting lead minutes before roster start (live compute). */
   reporting_time_minutes?: number | null;
   overtime_minutes: number;

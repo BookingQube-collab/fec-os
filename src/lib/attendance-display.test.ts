@@ -815,7 +815,7 @@ describe("pre-join attendance status", () => {
     ).toBe("absent");
   });
 
-  it("does not show punchless jokers as Absent", () => {
+  it("does not show punchless jokers as Absent when there is no roster", () => {
     expect(
       resolveHoursBasedAttendanceStatus({
         status: "absent",
@@ -835,6 +835,45 @@ describe("pre-join attendance status", () => {
         work_date: "2026-09-20",
       }).label,
     ).toBe("Unscheduled");
+  });
+
+  it("shows rostered punchless jokers as Absent (Bilal / UA-DM style)", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        employment_type: "joker",
+        work_date: "2026-10-01",
+        scheduled_in: "2026-10-01T09:00:00.000Z",
+        scheduled_out: "2026-10-01T18:00:00.000Z",
+        asOf: "2026-10-02T12:00:00.000Z",
+      }),
+    ).toBe("absent");
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        employment_type: "joker",
+        work_date: "2026-10-01",
+        hasRosterAssignment: true,
+        asOf: "2026-10-02T12:00:00.000Z",
+      }),
+    ).toBe("absent");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "absent",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        employment_type: "joker",
+        work_date: "2026-10-01",
+        scheduled_in: "2026-10-01T09:00:00.000Z",
+        scheduled_out: "2026-10-01T18:00:00.000Z",
+        asOf: "2026-10-02T12:00:00.000Z",
+      }).label,
+    ).toBe("Absent");
   });
 
   it("counts punch-driven (no roster) days with punches as present, not unscheduled", () => {
