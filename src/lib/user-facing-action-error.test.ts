@@ -36,4 +36,23 @@ describe("userFacingActionError", () => {
       userFacingActionError(new Error("column staff_profile_ext.contract_working_days does not exist"), fallback),
     ).toBe(fallback);
   });
+
+  it("keeps remapped OT revise audit messages", () => {
+    expect(
+      userFacingActionError(
+        new Error(
+          'Could not record OT audit action "revised". Apply the latest OT migration and try again.',
+        ),
+        fallback,
+      ),
+    ).toBe(
+      'Could not record OT audit action "revised". Apply the latest OT migration and try again.',
+    );
+    expect(
+      userFacingActionError(
+        new Error("An active OT claim already exists for 2026-09-30."),
+        fallback,
+      ),
+    ).toBe("An active OT claim already exists for 2026-09-30.");
+  });
 });

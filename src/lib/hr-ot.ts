@@ -210,6 +210,33 @@ export function canReviseOtRequest(input: {
   return false;
 }
 
+/**
+ * Audit action written on revise. Must stay in
+ * `hr_ot_claim_approvals_action_chk` (`revised` | `resubmitted`).
+ */
+export function otReviseApprovalAction(resubmitted: boolean): "resubmitted" | "revised" {
+  return resubmitted ? "resubmitted" : "revised";
+}
+
+/** Diff existing request day-rows vs the next date set (cancel / update / insert). */
+export function planOtRequestDaySync(input: {
+  existingDates: readonly string[];
+  nextDates: readonly string[];
+}): {
+  datesToCancel: string[];
+  datesToUpdate: string[];
+  datesToInsert: string[];
+} {
+  const normalize = (d: string) => String(d).slice(0, 10);
+  const existing = new Set(input.existingDates.map(normalize));
+  const next = new Set(input.nextDates.map(normalize));
+  return {
+    datesToCancel: [...existing].filter((d) => !next.has(d)).sort(),
+    datesToUpdate: [...next].filter((d) => existing.has(d)).sort(),
+    datesToInsert: [...next].filter((d) => !existing.has(d)).sort(),
+  };
+}
+
 /** Approver may request changes at the same steps where reject is allowed. */
 export function canRequestOtChanges(status: HrOtStatus): boolean {
   return (

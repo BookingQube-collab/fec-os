@@ -12,6 +12,8 @@ import {
   canRequestOtChanges,
   canReviseOtRequest,
   canTransitionOt,
+  otReviseApprovalAction,
+  planOtRequestDaySync,
   isOtClaimSubmittedForExport,
   isOtFinalApprovedForPayroll,
   otStatusExportLabel,
@@ -344,6 +346,35 @@ describe("OT claim transitions", () => {
         canHrApprove: true,
       }),
     ).toBe(true);
+  });
+
+  it("records revised vs resubmitted audit actions for HOO date replace", () => {
+    // HOO edit while ops_approved stays put — must use `revised` (DB check allows it).
+    expect(otReviseApprovalAction(false)).toBe("revised");
+    expect(otReviseApprovalAction(true)).toBe("resubmitted");
+  });
+
+  it("plans cancel / update / insert when HOO replaces OT dates", () => {
+    expect(
+      planOtRequestDaySync({
+        existingDates: ["2026-10-15", "2026-10-16"],
+        nextDates: ["2026-09-30", "2026-10-20"],
+      }),
+    ).toEqual({
+      datesToCancel: ["2026-10-15", "2026-10-16"],
+      datesToUpdate: [],
+      datesToInsert: ["2026-09-30", "2026-10-20"],
+    });
+    expect(
+      planOtRequestDaySync({
+        existingDates: ["2026-09-30", "2026-10-16"],
+        nextDates: ["2026-09-30", "2026-10-20"],
+      }),
+    ).toEqual({
+      datesToCancel: ["2026-10-16"],
+      datesToUpdate: ["2026-09-30"],
+      datesToInsert: ["2026-10-20"],
+    });
   });
 
   it("lets approvers request changes, then submitter resubmit", () => {

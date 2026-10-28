@@ -19,6 +19,14 @@ export function userFacingActionError(error: unknown, fallback: string): string 
     return fallback;
   }
   if (/^(Forbidden|Unauthorized)\b/i.test(msg)) return fallback;
+  // Keep remapped OT audit / validation copy; hide raw PostgREST / schema noise.
+  if (
+    /Could not record OT audit|An active OT claim already exists|Add at least one overtime/i.test(
+      msg,
+    )
+  ) {
+    return msg;
+  }
   if (/column|relation|PGRST|schema cache|permission denied|JWT|does not exist/i.test(msg)) {
     return fallback;
   }

@@ -14,6 +14,8 @@ import {
   canRequestOtChanges,
   computeOtAmountQar,
   hourlyRateFromPay,
+  otReviseApprovalAction,
+  planOtRequestDaySync,
   HR_OT_RATE_TYPES,
   HR_OT_STATUSES,
   isOtAmountRefreshableStatus,
@@ -771,14 +773,39 @@ async function appendApproval(
   opts?: { useAdmin?: boolean },
 ) {
   const db = opts?.useAdmin ? supabaseAdmin : context.supabase;
-  const { error } = await db.from("hr_ot_claim_approvals").insert({
+  const row = {
     claim_id: claimId,
     step,
     action,
     actor_id: context.userId,
     note: note ?? null,
-  });
-  if (error && !tableMissing(error.message)) throw error;
+  };
+  const { error } = await db.from("hr_ot_claim_approvals").insert(row);
+  if (!error || tableMissing(error.message)) return;
+  // Pre-migration DBs reject `revised`; fall back to submitted with a note tag
+  // so HOO/HR revise still saves. Prefer applying 20261028140000_ot_revise_approval_action.
+  if (
+    action === "revised" &&
+    /hr_ot_claim_approvals_action_chk|check constraint/i.test(error.message)
+  ) {
+    const { error: fallbackErr } = await db.from("hr_ot_claim_approvals").insert({
+      ...row,
+      action: "submitted",
+      note: note ? `[revised] ${note}` : "[revised]",
+    });
+    if (fallbackErr && !tableMissing(fallbackErr.message)) {
+      throw new Error(
+        'Could not record OT audit action "revised". Apply the latest OT migration and try again.',
+      );
+    }
+    return;
+  }
+  if (/hr_ot_claim_approvals_action_chk|check constraint/i.test(error.message)) {
+    throw new Error(
+      `Could not record OT audit action "${action}". Apply the latest OT migration and try again.`,
+    );
+  }
+  throw error;
 }
 
 function otPayDivisors(policy: Record<string, unknown>, pay?: Pick<StaffOtPay, "expectedHoursPerDay"> | null) {
@@ -2629,7 +2656,11 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     const canOps = canOtOpsApprove(context);
     const canHr = canOtHrStep(context);
     const teamScope = await otSiteSupervisorTeamStaffIds(context);
-    const claimDb = teamScope || canOps ? supabaseAdmin : context.supabase;
+    const claimDb = teamScope || canOps || canHr ? supabaseAdmin : context.supabase;
+    const useAdminAudit = Boolean(teamScope) || canOps || canHr;
+
+    const reviseClaimSelect =
+      "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, submitted_at, claim_source, rate_type, contract_working_days, verified_by, verified_at, verified_signer_name, verified_signer_signature_url, ops_approved_by, ops_approved_at, ops_approved_signer_name, ops_approved_signer_signature_url, approved_by, approved_at, approved_signer_name, approved_signer_signature_url, gm_approved_by, gm_approved_at, gm_approved_signer_name, gm_approved_signer_signature_url";
 
     let existingRows: Array<{
       id: string;
@@ -2640,17 +2671,32 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
       request_batch_id: string | null;
       request_number: string | null;
       submitted_by: string | null;
+      submitted_at: string | null;
       claim_source: string | null;
       rate_type: string;
       contract_working_days: number | null;
+      verified_by: string | null;
+      verified_at: string | null;
+      verified_signer_name: string | null;
+      verified_signer_signature_url: string | null;
+      ops_approved_by: string | null;
+      ops_approved_at: string | null;
+      ops_approved_signer_name: string | null;
+      ops_approved_signer_signature_url: string | null;
+      approved_by: string | null;
+      approved_at: string | null;
+      approved_signer_name: string | null;
+      approved_signer_signature_url: string | null;
+      gm_approved_by: string | null;
+      gm_approved_at: string | null;
+      gm_approved_signer_name: string | null;
+      gm_approved_signer_signature_url: string | null;
     }> = [];
 
     if (data.claimIds?.length) {
       const { data: byIds, error } = await claimDb
         .from("hr_ot_claims")
-        .select(
-          "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, claim_source, rate_type, contract_working_days",
-        )
+        .select(reviseClaimSelect)
         .in("id", data.claimIds)
         .order("work_date", { ascending: true });
       if (error) throw error;
@@ -2658,9 +2704,7 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     } else if (data.requestBatchId) {
       const { data: byBatch, error } = await claimDb
         .from("hr_ot_claims")
-        .select(
-          "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, claim_source, rate_type, contract_working_days",
-        )
+        .select(reviseClaimSelect)
         .eq("request_batch_id", data.requestBatchId)
         .order("work_date", { ascending: true });
       if (error) throw error;
@@ -2668,15 +2712,18 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
       if (!existingRows.length) {
         const single = await claimDb
           .from("hr_ot_claims")
-          .select(
-            "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, claim_source, rate_type, contract_working_days",
-          )
+          .select(reviseClaimSelect)
           .eq("id", data.requestBatchId)
           .maybeSingle();
         if (single.error) throw single.error;
         existingRows = single.data ? ([single.data] as typeof existingRows) : [];
       }
     }
+    // Prior revises cancel removed day-rows in-place; ignore them so status stays
+    // uniform and date replace can re-add a previously cancelled work_date.
+    existingRows = existingRows.filter(
+      (row) => row.status !== "cancelled" && row.status !== "rejected",
+    );
     if (!existingRows.length) throw new Error("OT request not found.");
 
     const statuses = new Set(existingRows.map((row) => String(row.status)));
@@ -2742,22 +2789,27 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
       });
     }
 
+    const template = existingRows[0]!;
     const requestBatchId =
-      (existingRows[0]!.request_batch_id as string | null) ?? data.requestBatchId ?? null;
-    const requestNumber = (existingRows[0]!.request_number as string | null) ?? null;
-    const locationId = (existingRows[0]!.location_id as string | null) ?? null;
+      (template.request_batch_id as string | null) ?? data.requestBatchId ?? null;
+    const requestNumber = (template.request_number as string | null) ?? null;
+    const locationId = (template.location_id as string | null) ?? null;
     const existingByDate = new Map(
       existingRows.map((row) => [String(row.work_date).slice(0, 10), row] as const),
     );
-    const nextDates = new Set(days.map((day) => day.workDate));
+    const dayPlan = planOtRequestDaySync({
+      existingDates: existingRows.map((row) => String(row.work_date)),
+      nextDates: days.map((day) => day.workDate),
+    });
     const shouldResubmit = Boolean(data.resubmit) && from === "changes_requested";
     const nextStatus: HrOtStatus = shouldResubmit ? "submitted" : from;
+    const reviseAction = otReviseApprovalAction(shouldResubmit);
     const now = new Date().toISOString();
 
-    // Cancel day-rows removed from the request.
-    for (const row of existingRows) {
-      const workDate = String(row.work_date).slice(0, 10);
-      if (nextDates.has(workDate)) continue;
+    // Cancel day-rows removed from the request (before inserts — frees active unique key).
+    for (const workDate of dayPlan.datesToCancel) {
+      const row = existingByDate.get(workDate);
+      if (!row) continue;
       const { error } = await claimDb
         .from("hr_ot_claims")
         .update({
@@ -2768,18 +2820,17 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
         .eq("status", from);
       if (error) throw error;
       await appendApproval(context, String(row.id), "submit", "cancelled", purpose, {
-        useAdmin: Boolean(teamScope) || canOps,
+        useAdmin: useAdminAudit,
       });
     }
 
     // Block collisions for newly added dates (other active claims).
-    const newDates = days.map((d) => d.workDate).filter((d) => !existingByDate.has(d));
-    if (newDates.length > 0) {
+    if (dayPlan.datesToInsert.length > 0) {
       const { data: collisions, error: collisionErr } = await claimDb
         .from("hr_ot_claims")
         .select("work_date, status, rate_type")
         .eq("staff_id", staffId)
-        .in("work_date", newDates)
+        .in("work_date", dayPlan.datesToInsert)
         .eq("rate_type", rateType);
       if (collisionErr) throw collisionErr;
       const blocked = (collisions ?? []).filter(
@@ -2838,40 +2889,56 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           .eq("id", prior.id)
           .eq("status", from);
         if (error) throw error;
-        await appendApproval(
-          context,
-          String(prior.id),
-          "submit",
-          shouldResubmit ? "resubmitted" : "revised",
-          purpose,
-          { useAdmin: Boolean(teamScope) || canOps },
-        );
+        await appendApproval(context, String(prior.id), "submit", reviseAction, purpose, {
+          useAdmin: useAdminAudit,
+        });
         keptIds.push(String(prior.id));
       } else {
+        const insertRow: Record<string, unknown> = {
+          staff_id: staffId,
+          location_id: locationId,
+          work_date: day.workDate,
+          eligible_minutes: meta.claimedMinutes,
+          claimed_minutes: meta.claimedMinutes,
+          approved_minutes: null,
+          rate_type: rateType,
+          rate_multiplier: rateMultiplier,
+          amount_qar: meta.amountQar,
+          ...paySnapshot,
+          status: nextStatus,
+          notes: purpose,
+          purpose,
+          claim_source: template.claim_source ?? "supervisor",
+          contract_working_days: contractDays,
+          request_batch_id: requestBatchId,
+          request_number: requestNumber,
+          submitted_by: template.submitted_by ?? context.userId,
+          submitted_at: shouldResubmit ? now : (template.submitted_at ?? now),
+          created_by: context.userId,
+        };
+        // Keep HOO/HR/GM stamps on new day-rows when revising without resubmit.
+        if (!shouldResubmit) {
+          insertRow.verified_by = template.verified_by;
+          insertRow.verified_at = template.verified_at;
+          insertRow.verified_signer_name = template.verified_signer_name;
+          insertRow.verified_signer_signature_url = template.verified_signer_signature_url;
+          insertRow.ops_approved_by = template.ops_approved_by;
+          insertRow.ops_approved_at = template.ops_approved_at;
+          insertRow.ops_approved_signer_name = template.ops_approved_signer_name;
+          insertRow.ops_approved_signer_signature_url =
+            template.ops_approved_signer_signature_url;
+          insertRow.approved_by = template.approved_by;
+          insertRow.approved_at = template.approved_at;
+          insertRow.approved_signer_name = template.approved_signer_name;
+          insertRow.approved_signer_signature_url = template.approved_signer_signature_url;
+          insertRow.gm_approved_by = template.gm_approved_by;
+          insertRow.gm_approved_at = template.gm_approved_at;
+          insertRow.gm_approved_signer_name = template.gm_approved_signer_name;
+          insertRow.gm_approved_signer_signature_url = template.gm_approved_signer_signature_url;
+        }
         const { data: inserted, error } = await claimDb
           .from("hr_ot_claims")
-          .insert({
-            staff_id: staffId,
-            location_id: locationId,
-            work_date: day.workDate,
-            eligible_minutes: meta.claimedMinutes,
-            claimed_minutes: meta.claimedMinutes,
-            approved_minutes: null,
-            rate_type: rateType,
-            rate_multiplier: rateMultiplier,
-            amount_qar: meta.amountQar,
-            ...paySnapshot,
-            status: nextStatus,
-            notes: purpose,
-            purpose,
-            claim_source: existingRows[0]!.claim_source ?? "supervisor",
-            contract_working_days: contractDays,
-            request_batch_id: requestBatchId,
-            request_number: requestNumber,
-            submitted_by: existingRows[0]!.submitted_by ?? context.userId,
-            submitted_at: now,
-            created_by: context.userId,
-          })
+          .insert(insertRow)
           .select("id")
           .single();
         if (error) {
@@ -2880,14 +2947,9 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           }
           throw error;
         }
-        await appendApproval(
-          context,
-          String(inserted.id),
-          "submit",
-          shouldResubmit ? "resubmitted" : "revised",
-          purpose,
-          { useAdmin: Boolean(teamScope) || canOps },
-        );
+        await appendApproval(context, String(inserted.id), "submit", reviseAction, purpose, {
+          useAdmin: useAdminAudit,
+        });
         keptIds.push(String(inserted.id));
       }
     }
