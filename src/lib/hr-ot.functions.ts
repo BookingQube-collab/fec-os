@@ -14,6 +14,7 @@ import {
   canRequestOtChanges,
   computeOtAmountQar,
   hourlyRateFromPay,
+  isOtActiveRequestDayStatus,
   otReviseApprovalAction,
   planOtRequestDaySync,
   HR_OT_RATE_TYPES,
@@ -2463,7 +2464,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       .in("work_date", dates);
     if (existingErr) throw existingErr;
     const blocked = (existing ?? []).filter((row) => {
-      if (row.status === "rejected" || row.status === "cancelled") return false;
+      if (!isOtActiveRequestDayStatus(row.status)) return false;
       const key = `${String(row.staff_id)}:${String(row.work_date).slice(0, 10)}:${String(row.rate_type)}`;
       return slotKey.has(key);
     });
@@ -2721,9 +2722,7 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     }
     // Prior revises cancel removed day-rows in-place; ignore them so status stays
     // uniform and date replace can re-add a previously cancelled work_date.
-    existingRows = existingRows.filter(
-      (row) => row.status !== "cancelled" && row.status !== "rejected",
-    );
+    existingRows = existingRows.filter((row) => isOtActiveRequestDayStatus(row.status));
     if (!existingRows.length) throw new Error("OT request not found.");
 
     const statuses = new Set(existingRows.map((row) => String(row.status)));
@@ -2810,15 +2809,21 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     for (const workDate of dayPlan.datesToCancel) {
       const row = existingByDate.get(workDate);
       if (!row) continue;
-      const { error } = await claimDb
+      const { data: cancelledRows, error } = await claimDb
         .from("hr_ot_claims")
         .update({
           status: "cancelled",
           updated_at: now,
         })
         .eq("id", row.id)
-        .eq("status", from);
+        .eq("status", from)
+        .select("id");
       if (error) throw error;
+      if (!cancelledRows?.length) {
+        throw new Error(
+          `Could not remove OT date ${workDate}; refresh the request and try again.`,
+        );
+      }
       await appendApproval(context, String(row.id), "submit", "cancelled", purpose, {
         useAdmin: useAdminAudit,
       });
@@ -2833,8 +2838,8 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
         .in("work_date", dayPlan.datesToInsert)
         .eq("rate_type", rateType);
       if (collisionErr) throw collisionErr;
-      const blocked = (collisions ?? []).filter(
-        (row) => row.status !== "rejected" && row.status !== "cancelled",
+      const blocked = (collisions ?? []).filter((row) =>
+        isOtActiveRequestDayStatus(row.status),
       );
       if (blocked.length > 0) {
         throw new Error(

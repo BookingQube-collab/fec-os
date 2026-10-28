@@ -12,7 +12,9 @@ import {
   canRequestOtChanges,
   canReviseOtRequest,
   canTransitionOt,
+  isOtActiveRequestDayStatus,
   otReviseApprovalAction,
+  pickOtRequestDayRows,
   planOtRequestDaySync,
   isOtClaimSubmittedForExport,
   isOtFinalApprovedForPayroll,
@@ -375,6 +377,34 @@ describe("OT claim transitions", () => {
       datesToUpdate: ["2026-09-30"],
       datesToInsert: ["2026-10-20"],
     });
+    // Removing one kept date from a three-day request cancels only that day.
+    expect(
+      planOtRequestDaySync({
+        existingDates: ["2026-09-20", "2026-09-30", "2026-10-20"],
+        nextDates: ["2026-09-30", "2026-10-20"],
+      }),
+    ).toEqual({
+      datesToCancel: ["2026-09-20"],
+      datesToUpdate: ["2026-09-30", "2026-10-20"],
+      datesToInsert: [],
+    });
+  });
+
+  it("treats cancelled and rejected day-rows as inactive for edit load", () => {
+    expect(isOtActiveRequestDayStatus("ops_approved")).toBe(true);
+    expect(isOtActiveRequestDayStatus("cancelled")).toBe(false);
+    expect(isOtActiveRequestDayStatus("rejected")).toBe(false);
+    expect(
+      pickOtRequestDayRows([
+        { status: "cancelled", workDate: "2026-09-20" },
+        { status: "ops_approved", workDate: "2026-09-30" },
+        { status: "ops_approved", workDate: "2026-10-20" },
+      ]).map((row) => row.workDate),
+    ).toEqual(["2026-09-30", "2026-10-20"]);
+    // Fully cancelled batches stay visible for history.
+    expect(
+      pickOtRequestDayRows([{ status: "cancelled", workDate: "2026-09-20" }]),
+    ).toHaveLength(1);
   });
 
   it("lets approvers request changes, then submitter resubmit", () => {
@@ -450,6 +480,69 @@ describe("OT request grouping", () => {
     expect(groups[0]!.totalClaimedMinutes).toBe(2160);
     expect(groups[0]!.missingBasicPay).toBe(true);
     expect(groups[0]!.requestNumber).toBe("OT-20261017-0001");
+  });
+
+  it("excludes cancelled day-rows from edit dates and claim totals", () => {
+    // Mirrors OT-20261021-0004 after HOO removed 2026-09-20 (cancelled in DB).
+    const groups = groupOtClaimsIntoRequests([
+      {
+        id: "c-cancelled",
+        requestBatchId: "b-ot4",
+        requestNumber: "OT-20261021-0004",
+        staffId: "s1",
+        staffName: "Staff",
+        workDate: "2026-09-20",
+        eligibleMinutes: 540,
+        claimedMinutes: 540,
+        approvedMinutes: 540,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 43.33,
+        status: "cancelled",
+        purpose: "High occupancy",
+        claimSource: "supervisor",
+      },
+      {
+        id: "c-keep-1",
+        requestBatchId: "b-ot4",
+        requestNumber: "OT-20261021-0004",
+        staffId: "s1",
+        staffName: "Staff",
+        workDate: "2026-09-30",
+        eligibleMinutes: 540,
+        claimedMinutes: 540,
+        approvedMinutes: 540,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 43.33,
+        status: "ops_approved",
+        purpose: "High occupancy",
+        claimSource: "supervisor",
+      },
+      {
+        id: "c-keep-2",
+        requestBatchId: "b-ot4",
+        requestNumber: "OT-20261021-0004",
+        staffId: "s1",
+        staffName: "Staff",
+        workDate: "2026-10-20",
+        eligibleMinutes: 540,
+        claimedMinutes: 540,
+        approvedMinutes: 540,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 43.33,
+        status: "ops_approved",
+        purpose: "High occupancy",
+        claimSource: "supervisor",
+      },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.status).toBe("ops_approved");
+    expect(groups[0]!.workDates).toEqual(["2026-09-30", "2026-10-20"]);
+    expect(groups[0]!.claims.map((c) => c.id)).toEqual(["c-keep-1", "c-keep-2"]);
+    expect(groups[0]!.totalClaimedMinutes).toBe(1080);
+    expect(groups[0]!.totalAmountQar).toBe(86.66);
   });
 
   it("merges same-person supervisor day-rows without a batch id", () => {

@@ -237,6 +237,23 @@ export function planOtRequestDaySync(input: {
   };
 }
 
+/**
+ * Day-rows still part of an open OT request (edit / totals / print).
+ * Removed dates are cancelled in place; rejected days are terminal — both stay
+ * out of the request card unless the whole batch is inactive.
+ */
+export function isOtActiveRequestDayStatus(status: string | null | undefined): boolean {
+  return status !== "cancelled" && status !== "rejected";
+}
+
+/** Prefer active day-rows; keep cancelled/rejected only when nothing active remains. */
+export function pickOtRequestDayRows<T extends { status: string }>(
+  rows: readonly T[],
+): T[] {
+  const active = rows.filter((row) => isOtActiveRequestDayStatus(row.status));
+  return active.length > 0 ? active : [...rows];
+}
+
 /** Approver may request changes at the same steps where reject is allowed. */
 export function canRequestOtChanges(status: HrOtStatus): boolean {
   return (
@@ -585,7 +602,11 @@ export function groupOtClaimsIntoRequests(
   }
   const groups: OtRequestGroup[] = [];
   for (const [key, claims] of map) {
-    const sorted = [...claims].sort((a, b) => a.workDate.localeCompare(b.workDate));
+    // Revise cancels removed dates in place; Edit / totals must use active days only.
+    const sorted = pickOtRequestDayRows(claims).sort((a, b) =>
+      a.workDate.localeCompare(b.workDate),
+    );
+    if (!sorted.length) continue;
     const first = sorted[0]!;
     const staffIds = [...new Set(sorted.map((c) => c.staffId))];
     const staffNames = [

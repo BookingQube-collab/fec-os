@@ -808,6 +808,8 @@ function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload 
 function draftFromOtGroup(group: OtRequestGroup): StaffOtDraft {
   const hoursByDate: Record<string, string> = {};
   for (const claim of group.claims) {
+    // Grouping already drops cancelled/rejected; skip again for safety.
+    if (claim.status === "cancelled" || claim.status === "rejected") continue;
     const hours = Math.round((claim.claimedMinutes / 60) * 100) / 100;
     hoursByDate[claim.workDate] = String(hours);
   }
