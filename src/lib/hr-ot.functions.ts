@@ -41,6 +41,10 @@ import {
   shouldRefreshOtAmountForStalePay,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
+  FNB_CAFE_OT_AUTO_APPROVED_STATUS,
+  FNB_CAFE_OT_MAX_HOURS,
+  isFnbCafeOtEntryReady,
+  planFnbCafeOtClaim,
   type HrOtActor,
   type HrOtRateType,
   type HrOtRounding,
@@ -51,6 +55,7 @@ import { policyNumber } from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { canActorPerform } from "@/lib/arcade/access";
+import { isFoodBeverageStaff } from "@/lib/approval-ops-routing";
 import {
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
@@ -450,6 +455,8 @@ function mapClaimRow(row: Record<string, unknown>) {
     notes: (row.notes as string | null) ?? null,
     purpose: (row.purpose as string | null) ?? (row.notes as string | null) ?? null,
     claimSource: (row.claim_source as string | null) ?? "attendance",
+    periodFrom: row.period_from == null ? null : String(row.period_from).slice(0, 10),
+    periodTo: row.period_to == null ? null : String(row.period_to).slice(0, 10),
     contractWorkingDays:
       row.contract_working_days == null ? null : Number(row.contract_working_days),
     submittedBy: (row.submitted_by as string | null) ?? null,
@@ -863,7 +870,7 @@ function otPaySnapshot(
 }
 
 const CLAIM_SELECT =
-  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, hours_per_day_snapshot, days_per_month_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, verified_signer_signature_url, ops_approved_by, ops_approved_at, ops_approved_signer_name, ops_approved_signer_signature_url, gm_approved_by, gm_approved_at, gm_approved_signer_name, gm_approved_signer_signature_url, approved_by, approved_at, approved_signer_name, approved_signer_signature_url, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
+  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, hours_per_day_snapshot, days_per_month_snapshot, status, evidence_path, notes, purpose, claim_source, period_from, period_to, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, verified_signer_signature_url, ops_approved_by, ops_approved_at, ops_approved_signer_name, ops_approved_signer_signature_url, gm_approved_by, gm_approved_at, gm_approved_signer_name, gm_approved_signer_signature_url, approved_by, approved_at, approved_signer_name, approved_signer_signature_url, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
 
 async function nextOtRequestNumber(context: AuthContext): Promise<string> {
   const { data, error } = await context.supabase.rpc("generate_ot_request_number");
@@ -2120,7 +2127,7 @@ export const getOtPolicySnapshot = createAuthenticatedActionNoInput(async (conte
     ratePublicHoliday: resolveOtRateMultiplier("public_holiday", policy),
     rateEid: resolveOtRateMultiplier("eid", policy),
   };
-}, { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve", "hr.policy.configure"] } });
+}, { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve", "hr.policy.configure", "hr.ot.fnb"] } });
 
 const SUPERVISOR_OT_AUTH = {
   auth: { anyCapability: ["hr.ot.verify", "hr.ot.approve"] as ["hr.ot.verify", "hr.ot.approve"] },
@@ -3012,4 +3019,439 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     };
   },
   { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
+);
+
+/* ---------------------------------------------------------------------------
+ * F&B Cafe OT — separate channel from Operations supervisor OT
+ * --------------------------------------------------------------------------- */
+
+function canSubmitFnbCafeOt(context: AuthContext): boolean {
+  return canActorPerform(context.roles ?? [], "hr.ot.fnb", otAccess(context));
+}
+
+function assertCanSubmitFnbCafeOt(context: AuthContext): void {
+  if (!canSubmitFnbCafeOt(context)) {
+    throw new ForbiddenError("Only the F&B Manager can submit F&B Cafe OT.");
+  }
+}
+
+type FnbCafeOtStaffRow = {
+  id: string;
+  fullName: string;
+  employeeCode: string | null;
+  phone: string | null;
+  department: string | null;
+  jobTitle: string | null;
+  locationId: string | null;
+  locationName: string | null;
+};
+
+/**
+ * F&B Cafe team for the F&B Manager picker.
+ * Prefer reporting-chart subtree filtered to F&B staff; if empty, all active
+ * F&B/cafe staff (same breadth as F&B missed-punch ops seat).
+ */
+async function loadFnbCafeOtTeamStaff(userId: string): Promise<FnbCafeOtStaffRow[]> {
+  const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(userId);
+  const candidateIds = [...new Set(teamStaffIds.filter(Boolean))];
+
+  const selectStaff = async (ids: string[] | null) => {
+    const rows: Array<{
+      id: string;
+      full_name: string | null;
+      employee_code: string | null;
+      phone: string | null;
+      department: string | null;
+      job_title: string | null;
+      location_id: string | null;
+    }> = [];
+    if (ids && ids.length === 0) return rows;
+    if (ids) {
+      for (let i = 0; i < ids.length; i += 100) {
+        const chunk = ids.slice(i, i + 100);
+        const { data, error } = await supabaseAdmin
+          .from("staff")
+          .select("id, full_name, employee_code, phone, department, job_title, location_id")
+          .in("id", chunk)
+          .in("status", ["active", "on_leave", "serving_notice"])
+          .is("deleted_at", null)
+          .order("full_name");
+        if (error) throw new Error(error.message);
+        for (const row of data ?? []) {
+          rows.push({
+            id: String(row.id),
+            full_name: (row.full_name as string | null) ?? null,
+            employee_code: (row.employee_code as string | null) ?? null,
+            phone: (row.phone as string | null) ?? null,
+            department: (row.department as string | null) ?? null,
+            job_title: (row.job_title as string | null) ?? null,
+            location_id: (row.location_id as string | null) ?? null,
+          });
+        }
+      }
+      return rows;
+    }
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name, employee_code, phone, department, job_title, location_id")
+      .in("status", ["active", "on_leave", "serving_notice"])
+      .is("deleted_at", null)
+      .order("full_name")
+      .limit(500);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      rows.push({
+        id: String(row.id),
+        full_name: (row.full_name as string | null) ?? null,
+        employee_code: (row.employee_code as string | null) ?? null,
+        phone: (row.phone as string | null) ?? null,
+        department: (row.department as string | null) ?? null,
+        job_title: (row.job_title as string | null) ?? null,
+        location_id: (row.location_id as string | null) ?? null,
+      });
+    }
+    return rows;
+  };
+
+  let raw = await selectStaff(candidateIds);
+  let fnbRows = raw.filter((row) => isFoodBeverageStaff(row.job_title, row.department));
+  if (fnbRows.length === 0) {
+    raw = await selectStaff(null);
+    fnbRows = raw.filter((row) => isFoodBeverageStaff(row.job_title, row.department));
+  }
+  fnbRows.sort((a, b) => String(a.full_name ?? "").localeCompare(String(b.full_name ?? "")));
+
+  const locationNameById = new Map<string, string>();
+  const locationIds = [...new Set(fnbRows.map((row) => row.location_id).filter(Boolean))] as string[];
+  for (let i = 0; i < locationIds.length; i += 100) {
+    const chunk = locationIds.slice(i, i + 100);
+    const { data: locs, error: locErr } = await supabaseAdmin
+      .from("locations")
+      .select("id, name")
+      .in("id", chunk);
+    if (locErr) {
+      console.warn("[fnb-cafe-ot] location name lookup failed", locErr.message);
+      break;
+    }
+    for (const loc of locs ?? []) {
+      if (loc.id && loc.name) locationNameById.set(String(loc.id), String(loc.name));
+    }
+  }
+
+  return fnbRows.map((row) => ({
+    id: row.id,
+    fullName: String(row.full_name ?? ""),
+    employeeCode: row.employee_code,
+    phone: row.phone,
+    department: row.department,
+    jobTitle: row.job_title,
+    locationId: row.location_id,
+    locationName: row.location_id ? (locationNameById.get(row.location_id) ?? null) : null,
+  }));
+}
+
+export const listStaffForFnbCafeOt = createSafeAuthenticatedActionNoInput(
+  async (context) => {
+    assertCanSubmitFnbCafeOt(context);
+    return loadFnbCafeOtTeamStaff(context.userId);
+  },
+  { auth: { capability: "hr.ot.fnb" } },
+);
+
+/** Recent F&B Cafe OT only — does not grant Ops OT verify/approve seats. */
+export const listFnbCafeOtClaims = createAuthenticatedAction(
+  z.object({
+    limit: z.number().int().min(1).max(100).optional().default(40),
+  }),
+  async (data, context) => {
+    assertCanSubmitFnbCafeOt(context);
+    const { data: rows, error } = await context.supabase
+      .from("hr_ot_claims")
+      .select(CLAIM_SELECT)
+      .eq("claim_source", "fnb_cafe")
+      .order("submitted_at", { ascending: false })
+      .limit(data.limit);
+    if (error) {
+      if (tableMissing(error.message) || columnMissing(error.message)) {
+        const { data: legacy, error: legacyErr } = await context.supabase
+          .from("hr_ot_claims")
+          .select(
+            "id, request_batch_id, request_number, staff_id, location_id, work_date, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, status, notes, purpose, claim_source, submitted_by, submitted_at, created_at, staff(full_name, employee_code, phone, job_title, department), locations(id, code, name)",
+          )
+          .eq("claim_source", "fnb_cafe")
+          .order("submitted_at", { ascending: false })
+          .limit(data.limit);
+        if (legacyErr) {
+          if (/fnb_cafe|claim_source|schema cache|does not exist/i.test(legacyErr.message)) {
+            return [];
+          }
+          throw legacyErr;
+        }
+        return (legacy ?? []).map((r) => mapClaimRow(r as Record<string, unknown>));
+      }
+      if (/fnb_cafe|claim_source/i.test(error.message)) return [];
+      throw error;
+    }
+    return (rows ?? []).map((r) => mapClaimRow(r as Record<string, unknown>));
+  },
+  { auth: { capability: "hr.ot.fnb" } },
+);
+
+export const submitFnbCafeOtClaim = createAuthenticatedAction(
+  z.object({
+    entries: z
+      .array(
+        z.object({
+          staffId: z.string().uuid(),
+          periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          /** Total required OT hours for the whole From–To period (not per day). */
+          requiredHours: z.number().gte(1).lte(FNB_CAFE_OT_MAX_HOURS),
+          rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
+          purpose: z.string().trim().min(3).max(1000),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  async (data, context) => {
+    assertCanSubmitFnbCafeOt(context);
+
+    const staffIds = [...new Set(data.entries.map((entry) => entry.staffId))];
+    if (staffIds.length !== data.entries.length) {
+      throw new Error("Each selected employee may appear only once.");
+    }
+
+    for (const entry of data.entries) {
+      if (
+        !isFnbCafeOtEntryReady({
+          staffId: entry.staffId,
+          periodFrom: entry.periodFrom,
+          periodTo: entry.periodTo,
+          requiredHours: entry.requiredHours,
+          purpose: entry.purpose,
+        })
+      ) {
+        throw new Error("Complete From–To dates, required hours, and purpose for every employee.");
+      }
+    }
+
+    const allowedTeam = await loadFnbCafeOtTeamStaff(context.userId);
+    const teamSet = new Set(allowedTeam.map((row) => row.id));
+    for (const staffId of staffIds) {
+      if (!teamSet.has(staffId)) {
+        throw new ForbiddenError("You can only request F&B Cafe OT for F&B cafe team members.");
+      }
+    }
+
+    const staffById = new Map<
+      string,
+      {
+        id: string;
+        full_name: string | null;
+        location_id: string | null;
+        job_title: string | null;
+        department: string | null;
+      }
+    >();
+    for (let i = 0; i < staffIds.length; i += 100) {
+      const chunk = staffIds.slice(i, i + 100);
+      const { data: rows, error: staffErr } = await supabaseAdmin
+        .from("staff")
+        .select("id, full_name, location_id, job_title, department")
+        .in("id", chunk)
+        .is("deleted_at", null);
+      if (staffErr) throw staffErr;
+      for (const row of rows ?? []) {
+        staffById.set(String(row.id), {
+          id: String(row.id),
+          full_name: (row.full_name as string | null) ?? null,
+          location_id: (row.location_id as string | null) ?? null,
+          job_title: (row.job_title as string | null) ?? null,
+          department: (row.department as string | null) ?? null,
+        });
+      }
+    }
+    for (const staffId of staffIds) {
+      const staff = staffById.get(staffId);
+      if (!staff) throw new Error("Staff not found.");
+      if (!isFoodBeverageStaff(staff.job_title, staff.department)) {
+        throw new Error("F&B Cafe OT is only for F&B cafe team members.");
+      }
+    }
+
+    const policy = await loadOtPolicy(context);
+    const minClaimable = policyNumber(policy.min_claimable_minutes, 60);
+    const rounding = String(policy.rounding ?? "down") as HrOtRounding;
+    const now = new Date().toISOString();
+    const sig = await otActorSignatureSnapshot(context);
+    const initialStatus = FNB_CAFE_OT_AUTO_APPROVED_STATUS;
+
+    type FnbMeta = {
+      rateType: HrOtRateType;
+      rateMultiplier: number;
+      purpose: string;
+      periodFrom: string;
+      periodTo: string;
+      workDate: string;
+      claimedMinutes: number;
+      amountQar: number;
+      paySnapshot: ReturnType<typeof otPaySnapshot>;
+    };
+    const metaByStaff = new Map<string, FnbMeta>();
+    for (const entry of data.entries) {
+      const plan = planFnbCafeOtClaim({
+        periodFrom: entry.periodFrom,
+        periodTo: entry.periodTo,
+        requiredHours: entry.requiredHours,
+      });
+      const claimedMinutes = assertMinClaimableMinutes(plan.claimedMinutes, minClaimable, rounding);
+      const rateMultiplier = resolveOtRateMultiplier(entry.rateType, policy);
+      const pay = await staffPay(entry.staffId);
+      metaByStaff.set(entry.staffId, {
+        rateType: entry.rateType,
+        rateMultiplier,
+        purpose: entry.purpose.trim(),
+        periodFrom: plan.periodFrom,
+        periodTo: plan.periodTo,
+        workDate: plan.workDate,
+        claimedMinutes,
+        amountQar: amountFor(claimedMinutes, rateMultiplier, pay, policy, null),
+        paySnapshot: otPaySnapshot(pay, policy, null),
+      });
+    }
+
+    const workDates = [...new Set([...metaByStaff.values()].map((m) => m.workDate))].sort();
+    const slotKey = new Set(
+      staffIds.map((staffId) => {
+        const meta = metaByStaff.get(staffId)!;
+        return `${staffId}:${meta.workDate}:${meta.rateType}`;
+      }),
+    );
+
+    const { data: existing, error: existingErr } = await context.supabase
+      .from("hr_ot_claims")
+      .select("staff_id, work_date, rate_type, status")
+      .in("staff_id", staffIds)
+      .in("work_date", workDates);
+    if (existingErr) throw existingErr;
+    const blocked = (existing ?? []).filter((row) => {
+      if (!isOtActiveRequestDayStatus(row.status)) return false;
+      const key = `${String(row.staff_id)}:${String(row.work_date).slice(0, 10)}:${String(row.rate_type)}`;
+      return slotKey.has(key);
+    });
+    if (blocked.length > 0) {
+      const labels = blocked.map((row) => {
+        const name = String(staffById.get(String(row.staff_id))?.full_name ?? "Staff");
+        return `${name} (${String(row.work_date).slice(0, 10)})`;
+      });
+      throw new Error(`An active OT claim already exists for ${labels.join(", ")}.`);
+    }
+
+    const requestByStaff = new Map<string, { requestBatchId: string; requestNumber: string }>();
+    for (const staffId of staffIds) {
+      requestByStaff.set(staffId, {
+        requestBatchId: crypto.randomUUID(),
+        requestNumber: await nextOtRequestNumber(context),
+      });
+    }
+
+    const rows = staffIds.flatMap((staffId) => {
+      const staff = staffById.get(staffId);
+      const meta = metaByStaff.get(staffId);
+      const request = requestByStaff.get(staffId);
+      if (!staff || !meta || !request) return [];
+      return [
+        {
+          staff_id: staffId,
+          location_id: staff.location_id ?? null,
+          work_date: meta.workDate,
+          period_from: meta.periodFrom,
+          period_to: meta.periodTo,
+          eligible_minutes: meta.claimedMinutes,
+          claimed_minutes: meta.claimedMinutes,
+          approved_minutes: meta.claimedMinutes,
+          rate_type: meta.rateType,
+          rate_multiplier: meta.rateMultiplier,
+          amount_qar: meta.amountQar,
+          ...meta.paySnapshot,
+          status: initialStatus,
+          notes: meta.purpose,
+          purpose: meta.purpose,
+          claim_source: "fnb_cafe" as const,
+          contract_working_days: null,
+          request_batch_id: request.requestBatchId,
+          request_number: request.requestNumber,
+          submitted_by: context.userId,
+          submitted_at: now,
+          verified_by: context.userId,
+          verified_at: now,
+          verified_signer_name: sig.name,
+          verified_signer_signature_url: sig.signatureUrl,
+          ops_approved_by: context.userId,
+          ops_approved_at: now,
+          ops_approved_signer_name: sig.name,
+          ops_approved_signer_signature_url: sig.signatureUrl,
+          approved_by: context.userId,
+          approved_at: now,
+          approved_signer_name: sig.name,
+          approved_signer_signature_url: sig.signatureUrl,
+          gm_approved_by: context.userId,
+          gm_approved_at: now,
+          gm_approved_signer_name: sig.name,
+          gm_approved_signer_signature_url: sig.signatureUrl,
+          created_by: context.userId,
+        },
+      ];
+    });
+
+    const { data: inserted, error } = await context.supabase
+      .from("hr_ot_claims")
+      .insert(rows)
+      .select("id, work_date, staff_id, request_batch_id, request_number");
+    if (error) {
+      if (/hr_ot_claims_active_uq|duplicate key/i.test(error.message)) {
+        throw new Error("An active OT claim already exists for this staff, date, and rate type.");
+      }
+      if (/fnb_cafe|period_from|period_to|claim_source|schema cache|does not exist/i.test(error.message)) {
+        throw new Error(
+          "F&B Cafe OT is not available yet. Apply the latest OT migration and retry.",
+        );
+      }
+      throw error;
+    }
+
+    for (const row of inserted ?? []) {
+      const purpose = metaByStaff.get(String(row.staff_id))?.purpose;
+      await appendApproval(context, String(row.id), "submit", "submitted", purpose);
+      await appendApproval(context, String(row.id), "manager", "verified", "F&B Cafe OT auto-approved");
+      await appendApproval(context, String(row.id), "ops", "approved", "F&B Cafe OT auto-approved");
+      await appendApproval(context, String(row.id), "hr", "approved", "F&B Cafe OT auto-approved");
+      await appendApproval(context, String(row.id), "gm", "approved", "F&B Cafe OT auto-approved");
+    }
+
+    const requests = staffIds.map((staffId) => {
+      const meta = requestByStaff.get(staffId)!;
+      return {
+        staffId,
+        requestBatchId: meta.requestBatchId,
+        requestNumber: meta.requestNumber,
+        claimIds: (inserted ?? [])
+          .filter((row) => String(row.staff_id) === staffId)
+          .map((row) => String(row.id)),
+      };
+    });
+
+    return {
+      count: inserted?.length ?? rows.length,
+      staffCount: staffIds.length,
+      requestCount: requests.length,
+      ids: (inserted ?? []).map((row) => String(row.id)),
+      requestBatchId: requests[0]?.requestBatchId ?? null,
+      requestNumber: requests[0]?.requestNumber ?? null,
+      requests,
+      status: initialStatus,
+    };
+  },
+  { auth: { capability: "hr.ot.fnb" } },
 );

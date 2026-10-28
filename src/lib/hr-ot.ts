@@ -486,6 +486,9 @@ export type OtClaimListRow = {
   status: HrOtStatus;
   purpose?: string | null;
   claimSource?: string | null;
+  /** F&B Cafe OT period (inclusive). Null for Ops attendance/supervisor claims. */
+  periodFrom?: string | null;
+  periodTo?: string | null;
   contractWorkingDays?: number | null;
   submittedBy?: string | null;
   submittedAt?: string | null;
@@ -541,6 +544,10 @@ export function otRequestGroupKey(row: OtClaimListRow): string {
   if (row.claimSource === "supervisor" && row.submittedBy && row.submittedAt) {
     const sec = row.submittedAt.slice(0, 19);
     return `sup:${row.staffId}:${row.submittedBy}:${sec}`;
+  }
+  if (row.claimSource === "fnb_cafe" && row.submittedBy && row.submittedAt) {
+    const sec = row.submittedAt.slice(0, 19);
+    return `fnb:${row.staffId}:${row.submittedBy}:${sec}`;
   }
   return row.id;
 }
@@ -1268,4 +1275,127 @@ export function aggregateOtSummaries(
     map.set(key, existing);
   }
   return [...map.values()].sort((a, b) => b.amountQar - a.amountQar);
+}
+
+/* ---------------------------------------------------------------------------
+ * F&B Cafe OT (separate from Operations supervisor / attendance OT)
+ *
+ * Submitter: F&B Manager. Auto-approves to gm_approved (payroll-ready) — no
+ * Sr. Site / HOO / HR / GM chain. No 26/28 contract gate. Same rate × amount
+ * formula as Ops OT ({@link computeOtAmountQar}).
+ *
+ * Storage choice: one claim row per staff with total required hours for the
+ * From–To period (not expanded to per-day rows). work_date = period_to so the
+ * monthly summary counts the claim in the period’s end month. Expanding days
+ * would fail the 1-hour minimum when a monthly total is split across many days.
+ * --------------------------------------------------------------------------- */
+
+export const HR_OT_CLAIM_SOURCES = ["attendance", "supervisor", "fnb_cafe"] as const;
+export type HrOtClaimSource = (typeof HR_OT_CLAIM_SOURCES)[number];
+
+/** Terminal approved status for F&B Cafe OT — matches payroll “final approved”. */
+export const FNB_CAFE_OT_AUTO_APPROVED_STATUS: HrOtStatus = "gm_approved";
+
+export function isFnbCafeOtClaimSource(source: string | null | undefined): boolean {
+  return source === "fnb_cafe";
+}
+
+export type FnbCafeOtFieldError = "period" | "hours" | "purpose" | "staff";
+
+/** Max total hours for one F&B Cafe period claim (month-scale). */
+export const FNB_CAFE_OT_MAX_HOURS = 200;
+
+export function normalizeIsoDate(value: string | null | undefined): string | null {
+  const d = String(value ?? "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+/**
+ * Validate F&B Cafe OT period + total required hours (no 26/28 contract check).
+ */
+export function fnbCafeOtFieldErrors(input: {
+  periodFrom?: string | null;
+  periodTo?: string | null;
+  requiredHours?: number | null;
+  purpose?: string | null;
+  staffId?: string | null;
+}): FnbCafeOtFieldError[] {
+  const errors: FnbCafeOtFieldError[] = [];
+  if (!input.staffId) errors.push("staff");
+  const from = normalizeIsoDate(input.periodFrom);
+  const to = normalizeIsoDate(input.periodTo);
+  if (!from || !to || from > to) errors.push("period");
+  const hours = Number(input.requiredHours);
+  if (!Number.isFinite(hours) || hours < 1 || hours > FNB_CAFE_OT_MAX_HOURS) {
+    errors.push("hours");
+  }
+  if ((input.purpose ?? "").trim().length < 3) errors.push("purpose");
+  return errors;
+}
+
+export function isFnbCafeOtEntryReady(input: {
+  periodFrom?: string | null;
+  periodTo?: string | null;
+  requiredHours?: number | null;
+  purpose?: string | null;
+  staffId?: string | null;
+}): boolean {
+  return fnbCafeOtFieldErrors(input).length === 0;
+}
+
+/**
+ * Plan a single F&B Cafe claim row: total hours → minutes; work_date = period_to.
+ * Caller still runs {@link assertMinClaimableMinutes} / amount helpers.
+ */
+export function planFnbCafeOtClaim(input: {
+  periodFrom: string;
+  periodTo: string;
+  requiredHours: number;
+}): {
+  periodFrom: string;
+  periodTo: string;
+  workDate: string;
+  claimedMinutes: number;
+} {
+  const periodFrom = normalizeIsoDate(input.periodFrom);
+  const periodTo = normalizeIsoDate(input.periodTo);
+  if (!periodFrom || !periodTo || periodFrom > periodTo) {
+    throw new Error("F&B Cafe OT needs a valid From–To date range.");
+  }
+  const hours = Number(input.requiredHours);
+  if (!Number.isFinite(hours) || hours < 1 || hours > FNB_CAFE_OT_MAX_HOURS) {
+    throw new Error(
+      `F&B Cafe OT hours must be between 1 and ${FNB_CAFE_OT_MAX_HOURS} (got ${input.requiredHours}).`,
+    );
+  }
+  return {
+    periodFrom,
+    periodTo,
+    workDate: periodTo,
+    claimedMinutes: Math.round(hours * 60),
+  };
+}
+
+/** Preview amount using the shared OT formula (same as Ops). */
+export function previewFnbCafeOtAmount(input: {
+  requiredHours: number;
+  rateMultiplier: number;
+  monthlyBasicQar?: number | null;
+  dailyRateQar?: number | null;
+  hoursPerDay?: number | null;
+  daysPerMonth?: number | null;
+}): number {
+  const minutes = Math.round(Math.max(0, Number(input.requiredHours) || 0) * 60);
+  const hourly = hourlyRateFromPay({
+    monthlyBasicQar: input.monthlyBasicQar,
+    dailyRateQar: input.dailyRateQar,
+    hoursPerDay:
+      input.hoursPerDay && input.hoursPerDay > 0 ? input.hoursPerDay : OT_DEFAULT_HOURS_PER_DAY,
+    daysPerMonth: input.daysPerMonth && input.daysPerMonth > 0 ? input.daysPerMonth : 30,
+  });
+  return computeOtAmountQar({
+    approvedMinutes: minutes,
+    rateMultiplier: input.rateMultiplier,
+    hourlyRateQar: hourly,
+  });
 }

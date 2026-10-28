@@ -147,6 +147,8 @@ export const CAPABILITIES = {
   ],
   "hr.ot.verify": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
   "hr.ot.approve": ["ceo", "coo", "hr"],
+  /** F&B Cafe OT submit — further gated to F&B Manager title in canActorPerform. */
+  "hr.ot.fnb": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
   "hr.warnings.manage": ["ceo", "coo", "hr"],
   "hr.warnings.decide": ["ceo", "coo", "hr"],
   "hr.probation.manage": ["ceo", "coo", "hr"],

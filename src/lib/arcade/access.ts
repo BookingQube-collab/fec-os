@@ -188,6 +188,12 @@ export function canActorPerform(
     return true;
   }
 
+  // F&B Cafe OT page / submit — F&B Manager title only (not Ops supervisors).
+  // Title gate matches missed-punch F&B ops seat; login role is often duty_manager.
+  if (capability === "hr.ot.fnb") {
+    return isFnbManager(jobTitle, department);
+  }
+
   return canUserDo([...roles], capability, grants);
 }
 

@@ -102,6 +102,19 @@ describe("arcade technical access", () => {
     expect(canActorPerform(["duty_manager"], "arcade.operate", { jobTitle: "F&B Manager" })).toBe(false);
   });
 
+  it("grants F&B Cafe OT only to F&B Manager titles", () => {
+    expect(
+      canActorPerform(["duty_manager"], "hr.ot.fnb", { jobTitle: "F&B Manager", department: "F&B" }),
+    ).toBe(true);
+    expect(
+      canActorPerform(["cashier_host"], "hr.ot.fnb", { jobTitle: "F&B Manager", department: "F&B" }),
+    ).toBe(true);
+    expect(
+      canActorPerform(["duty_manager"], "hr.ot.fnb", { jobTitle: "Venue Supervisor", department: "Operations" }),
+    ).toBe(false);
+    expect(canActorPerform(["hr"], "hr.ot.fnb", { jobTitle: "HR Manager" })).toBe(false);
+  });
+
   it("treats Head of Operations as super admin, including existing super-admin roles", () => {
     expect(hasSuperAdminAccess(["cashier_host"], "Head of Operations")).toBe(true);
     expect(hasSuperAdminAccess(["cashier_host"], "Head of Operations / FEC-IT")).toBe(true);

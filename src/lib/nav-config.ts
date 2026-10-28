@@ -413,6 +413,7 @@ const PICKER_SIDEBAR_ITEMS: NavItem[] = [
     { href: "/people/attendance", labelKey: "nav.attendance", icon: Clock, capability: "attendance.view", departmentId: "people" },
     { href: "/people/attendance/settings", labelKey: "nav.biometricDevices", icon: Clock, capability: "attendance.view", departmentId: "people" },
     { href: "/people/hr/ot", labelKey: "nav.timesheets", icon: Clock, capability: "hr.ot.verify", departmentId: "people" },
+    { href: "/people/hr/ot/fnb", labelKey: "nav.fnbCafeOt", icon: Clock, capability: "hr.ot.fnb", departmentId: "people" },
     { href: "/people/leave", labelKey: "nav.hrLeave", icon: Palmtree, capability: "hr.leave.manage", departmentId: "people" },
   ]),
   ...withPeopleSection(PEOPLE_SECTION.pay, [

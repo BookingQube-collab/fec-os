@@ -56,6 +56,12 @@ import {
   otSubmitterAutoCompletesSiteSeat,
   shouldHealOtSiteSelfApprove,
   OT_DEFAULT_HOURS_PER_DAY,
+  FNB_CAFE_OT_AUTO_APPROVED_STATUS,
+  fnbCafeOtFieldErrors,
+  isFnbCafeOtClaimSource,
+  isFnbCafeOtEntryReady,
+  planFnbCafeOtClaim,
+  previewFnbCafeOtAmount,
 } from "./hr-ot";
 import { HR_POLICY_DEFAULTS } from "./hr-policy";
 
@@ -1348,5 +1354,147 @@ describe("Supervisor OT team staff ids", () => {
         usesVenueLocationRoster: true,
       }),
     ).toEqual(["host", "phil"]);
+  });
+});
+
+describe("F&B Cafe OT (separate from Ops)", () => {
+  it("auto-approves to gm_approved so payroll final gate passes", () => {
+    expect(FNB_CAFE_OT_AUTO_APPROVED_STATUS).toBe("gm_approved");
+    expect(isOtFinalApprovedForPayroll(FNB_CAFE_OT_AUTO_APPROVED_STATUS)).toBe(true);
+    expect(canMarkPayrollPosted(FNB_CAFE_OT_AUTO_APPROVED_STATUS)).toBe(true);
+    expect(otWaitingSeatLabel(FNB_CAFE_OT_AUTO_APPROVED_STATUS)).toBeNull();
+  });
+
+  it("identifies fnb_cafe claim source and skips site-seat heal (Ops-only)", () => {
+    expect(isFnbCafeOtClaimSource("fnb_cafe")).toBe(true);
+    expect(isFnbCafeOtClaimSource("supervisor")).toBe(false);
+    expect(
+      shouldHealOtSiteSelfApprove({
+        status: "manager_verified",
+        claimSource: "fnb_cafe",
+        submittedBy: "ruben",
+        verifiedBy: "ruben",
+        submitterJobTitle: "F&B Manager",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not require 26/28 contract days", () => {
+    expect(isSupervisorOtContract(26)).toBe(true);
+    expect(isSupervisorOtContract(null)).toBe(false);
+    expect(
+      isFnbCafeOtEntryReady({
+        staffId: "barista-1",
+        periodFrom: "2026-10-01",
+        periodTo: "2026-10-31",
+        requiredHours: 12,
+        purpose: "Ramadan rush",
+      }),
+    ).toBe(true);
+    expect(
+      fnbCafeOtFieldErrors({
+        staffId: "barista-1",
+        periodFrom: "2026-10-01",
+        periodTo: "2026-10-31",
+        requiredHours: 12,
+        purpose: "Ramadan rush",
+      }),
+    ).toEqual([]);
+  });
+
+  it("plans one claim for the period total with work_date = period_to", () => {
+    const plan = planFnbCafeOtClaim({
+      periodFrom: "2026-10-01",
+      periodTo: "2026-10-31",
+      requiredHours: 10,
+    });
+    expect(plan).toEqual({
+      periodFrom: "2026-10-01",
+      periodTo: "2026-10-31",
+      workDate: "2026-10-31",
+      claimedMinutes: 600,
+    });
+  });
+
+  it("reuses the same OT amount formula as Ops", () => {
+    const hours = 8;
+    const rate = 1.25;
+    const basic = 3000;
+    const days = 30;
+    const hpd = 9;
+    const viaPreview = previewFnbCafeOtAmount({
+      requiredHours: hours,
+      rateMultiplier: rate,
+      monthlyBasicQar: basic,
+      hoursPerDay: hpd,
+      daysPerMonth: days,
+    });
+    const viaOps = computeOtAmountQar({
+      approvedMinutes: hours * 60,
+      rateMultiplier: rate,
+      hourlyRateQar: hourlyRateFromPay({
+        monthlyBasicQar: basic,
+        hoursPerDay: hpd,
+        daysPerMonth: days,
+      }),
+    });
+    expect(viaPreview).toBe(viaOps);
+    expect(viaPreview).toBeGreaterThan(0);
+  });
+
+  it("rejects invalid period / hours without touching Ops supervisor validators", () => {
+    expect(
+      fnbCafeOtFieldErrors({
+        staffId: "x",
+        periodFrom: "2026-10-31",
+        periodTo: "2026-10-01",
+        requiredHours: 5,
+        purpose: "ok purpose",
+      }),
+    ).toContain("period");
+    expect(
+      fnbCafeOtFieldErrors({
+        staffId: "x",
+        periodFrom: "2026-10-01",
+        periodTo: "2026-10-31",
+        requiredHours: 0.5,
+        purpose: "ok purpose",
+      }),
+    ).toContain("hours");
+    // Ops path still requires 26/28 for supervisor OT readiness.
+    expect(
+      isSupervisorOtStaffEntryReady({
+        supervisorContract: false,
+        days: [{ workDate: "2026-10-15", hours: 2 }],
+        purpose: "ops purpose",
+      }),
+    ).toBe(false);
+  });
+
+  it("groups fnb_cafe claims separately from supervisor batches", () => {
+    const groups = groupOtClaimsIntoRequests([
+      {
+        id: "c1",
+        staffId: "s1",
+        staffName: "Barista",
+        workDate: "2026-10-31",
+        eligibleMinutes: 120,
+        claimedMinutes: 120,
+        approvedMinutes: 120,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 10,
+        status: "gm_approved",
+        claimSource: "fnb_cafe",
+        periodFrom: "2026-10-01",
+        periodTo: "2026-10-31",
+        submittedBy: "ruben",
+        submittedAt: "2026-10-28T10:00:00.000Z",
+        createdAt: "2026-10-28T10:00:00.000Z",
+      },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.claimSource).toBe("fnb_cafe");
+    expect(groups[0]!.key.startsWith("fnb:") || groups[0]!.requestBatchId).toBeTruthy();
   });
 });

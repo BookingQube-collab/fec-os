@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Timer, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -34,6 +35,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
+import { isFnbManager } from "@/lib/arcade/access";
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
   actOnOtRequestBatch,
@@ -983,6 +985,7 @@ export default function HrOtPage() {
   const canHrApprove = otQueueFlags.canHrApprove;
   const canHooApprove = otQueueFlags.canOpsApprove;
   const canGmApprove = otQueueFlags.canGmApprove;
+  const showFnbCafeOtLink = isFnbManager(profile?.job_title, profile?.department);
   const deepLinkQ = (searchParams.get("q") ?? "").trim();
   const [status, setStatus] = useState<"queue" | "gm_approved" | "payroll_posted" | "all">("queue");
   const [search, setSearch] = useState(deepLinkQ);
@@ -1295,6 +1298,16 @@ export default function HrOtPage() {
 
           <SupervisorOtRequest onSubmitted={invalidateOtLists} />
 
+          {showFnbCafeOtLink ? (
+            <p className="text-xs text-muted-foreground hr-enter">
+              <Link href="/people/hr/ot/fnb" className="underline underline-offset-2">
+                {t("hr.ot.fnb.title")}
+              </Link>
+              {" — "}
+              {t("hr.ot.fnb.autoApprovedBadge")}
+            </p>
+          ) : null}
+
           <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-background/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 hr-enter">
             <div className="hr-filter-bar">
               {filters.map((f) => (
@@ -1512,9 +1525,14 @@ export default function HrOtPage() {
                                     <p>
                                       {group.claimSource === "supervisor"
                                         ? t("hr.ot.sourceSupervisor")
-                                        : t("hr.ot.attendancePath")}
+                                        : group.claimSource === "fnb_cafe"
+                                          ? t("hr.ot.sourceFnbCafe")
+                                          : t("hr.ot.attendancePath")}
                                       {group.claims[0]?.contractWorkingDays
                                         ? ` · ${group.claims[0].contractWorkingDays}d`
+                                        : ""}
+                                      {group.claims[0]?.periodFrom && group.claims[0]?.periodTo
+                                        ? ` · ${group.claims[0].periodFrom} → ${group.claims[0].periodTo}`
                                         : ""}
                                       {group.purpose ? ` · ${group.purpose}` : ""}
                                     </p>
