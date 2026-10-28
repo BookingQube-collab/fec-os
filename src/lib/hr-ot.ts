@@ -192,6 +192,24 @@ export function canEditOtBeforeHoo(status: HrOtStatus): boolean {
   );
 }
 
+/**
+ * Whether the actor may revise OT form fields (dates / hours / purpose / rate).
+ * - Submitter: while {@link canEditOtBeforeHoo}
+ * - Head of Operations: while `ops_approved` (after HOO approve, before HR or GM)
+ * - HR seat (`canHrApprove` from {@link resolveOtApprovalQueueFlags}): any status
+ */
+export function canReviseOtRequest(input: {
+  status: HrOtStatus;
+  isSubmitter: boolean;
+  canOpsApprove: boolean;
+  canHrApprove: boolean;
+}): boolean {
+  if (canEditOtBeforeHoo(input.status) && input.isSubmitter) return true;
+  if (input.status === "ops_approved" && input.canOpsApprove) return true;
+  if (input.canHrApprove) return true;
+  return false;
+}
+
 /** Approver may request changes at the same steps where reject is allowed. */
 export function canRequestOtChanges(status: HrOtStatus): boolean {
   return (

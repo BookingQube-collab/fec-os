@@ -10,6 +10,7 @@ import {
   assertMinClaimableMinutes,
   assertOtTransition,
   canEditOtBeforeHoo,
+  canReviseOtRequest,
   canRequestOtChanges,
   computeOtAmountQar,
   hourlyRateFromPay,
@@ -2606,8 +2607,9 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
 
 /**
  * Edit an existing supervisor OT request (per-day hours/dates/purpose/rate).
- * Allowed while `canEditOtBeforeHoo`; when status is `changes_requested`, also
- * resubmits to restart at site supervisor (`submitted`).
+ * Submitter: while `canEditOtBeforeHoo`. HOO: while `ops_approved` (before HR/GM).
+ * HR seat: any status. When status is `changes_requested`, also resubmits to
+ * restart at site supervisor (`submitted`).
  */
 export const reviseSupervisorOtRequest = createAuthenticatedAction(
   z
@@ -2624,8 +2626,8 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
       message: "requestBatchId or claimIds is required",
     }),
   async (data, context) => {
-    const canApprove = canOtApprove(context);
     const canOps = canOtOpsApprove(context);
+    const canHr = canOtHrStep(context);
     const teamScope = await otSiteSupervisorTeamStaffIds(context);
     const claimDb = teamScope || canOps ? supabaseAdmin : context.supabase;
 
@@ -2682,9 +2684,6 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
       throw new Error("OT request rows have mixed statuses; refresh and retry.");
     }
     const from = String(existingRows[0]!.status) as HrOtStatus;
-    if (!canEditOtBeforeHoo(from) && !canApprove) {
-      throw new ForbiddenError("OT request is locked after Head of Operations approval.");
-    }
 
     const staffIds = [...new Set(existingRows.map((row) => String(row.staff_id)))];
     if (staffIds.length !== 1) {
@@ -2692,7 +2691,17 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     }
     const staffId = staffIds[0]!;
     const isSubmitter = existingRows.some((row) => row.submitted_by === context.userId);
-    if (!isSubmitter && !canApprove) {
+    if (
+      !canReviseOtRequest({
+        status: from,
+        isSubmitter,
+        canOpsApprove: canOps,
+        canHrApprove: canHr,
+      })
+    ) {
+      if (!canEditOtBeforeHoo(from)) {
+        throw new ForbiddenError("OT request is locked after Head of Operations approval.");
+      }
       throw new ForbiddenError("Only the submitter can edit this OT request.");
     }
 

@@ -48,6 +48,7 @@ import {
 import {
   canEditOtBeforeHoo,
   canRequestOtChanges,
+  canReviseOtRequest,
   filterOtRequestGroups,
   groupOtClaimsIntoRequests,
   HR_OT_HIERARCHY_STEPS,
@@ -935,7 +936,12 @@ function OtRequestActions({
           {t("hr.ot.markPayroll")}
         </Button>
       ) : null}
-      {isSubmitter && canEditOtBeforeHoo(group.status) ? (
+      {canReviseOtRequest({
+        status: group.status,
+        isSubmitter,
+        canOpsApprove: canHooApprove,
+        canHrApprove,
+      }) ? (
         <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
           {group.status === "changes_requested" ? t("hr.ot.editAndResubmit") : t("hr.ot.editRequest")}
         </Button>
@@ -945,7 +951,14 @@ function OtRequestActions({
           {t("hr.ot.cancel")}
         </Button>
       ) : null}
-      {isSubmitter && !canEditOtBeforeHoo(group.status) ? (
+      {isSubmitter &&
+      !canEditOtBeforeHoo(group.status) &&
+      !canReviseOtRequest({
+        status: group.status,
+        isSubmitter,
+        canOpsApprove: canHooApprove,
+        canHrApprove,
+      }) ? (
         <span className="text-[10px] text-muted-foreground">{t("hr.ot.editLocked")}</span>
       ) : null}
     </div>

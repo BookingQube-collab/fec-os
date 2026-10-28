@@ -10,6 +10,7 @@ import {
   canEditOtBeforeHoo,
   canMarkPayrollPosted,
   canRequestOtChanges,
+  canReviseOtRequest,
   canTransitionOt,
   isOtClaimSubmittedForExport,
   isOtFinalApprovedForPayroll,
@@ -292,6 +293,57 @@ describe("OT claim transitions", () => {
     expect(canEditOtBeforeHoo("ops_approved")).toBe(false);
     expect(canEditOtBeforeHoo("gm_approved")).toBe(false);
     expect(canEditOtBeforeHoo("hr_approved")).toBe(false);
+  });
+
+  it("lets HOO revise while ops_approved, before HR or GM", () => {
+    expect(
+      canReviseOtRequest({
+        status: "ops_approved",
+        isSubmitter: false,
+        canOpsApprove: true,
+        canHrApprove: false,
+      }),
+    ).toBe(true);
+    expect(
+      canReviseOtRequest({
+        status: "hr_approved",
+        isSubmitter: false,
+        canOpsApprove: true,
+        canHrApprove: false,
+      }),
+    ).toBe(false);
+    expect(
+      canReviseOtRequest({
+        status: "gm_approved",
+        isSubmitter: false,
+        canOpsApprove: true,
+        canHrApprove: false,
+      }),
+    ).toBe(false);
+    expect(
+      canReviseOtRequest({
+        status: "ops_approved",
+        isSubmitter: true,
+        canOpsApprove: false,
+        canHrApprove: false,
+      }),
+    ).toBe(false);
+    expect(
+      canReviseOtRequest({
+        status: "submitted",
+        isSubmitter: true,
+        canOpsApprove: false,
+        canHrApprove: false,
+      }),
+    ).toBe(true);
+    expect(
+      canReviseOtRequest({
+        status: "ops_approved",
+        isSubmitter: false,
+        canOpsApprove: false,
+        canHrApprove: true,
+      }),
+    ).toBe(true);
   });
 
   it("lets approvers request changes, then submitter resubmit", () => {
