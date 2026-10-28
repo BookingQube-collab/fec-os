@@ -201,14 +201,23 @@ async function assertSite(context: AuthContext, locationId: string) {
   await assertLocationAccess(context, locationId);
 }
 
-export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
-  async (context) => {
+export const getAttendanceHrBootstrap = createAuthenticatedAction(
+  z.object({
+    /**
+     * When true, page every active staff row + work locations (mapper / mapping UI).
+     * Default false so reports/settings/import/device-logs stay light.
+     */
+    includeStaff: z.boolean().optional(),
+  }),
+  async (data, context) => {
+    const includeStaff = Boolean(data.includeStaff);
     const [{ data: companies }, { data: sites }, { data: rosterLocations }, { data: devices }, { data: shifts }, { data: rules }, staff] =
       await Promise.all([
         context.supabase.from("hr_companies").select("id, code, name, active").eq("active", true).order("name"),
         context.supabase
           .from("attendance_site_settings")
-          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours, locations(id, code, name, region, status)"),
+          // Locations come from the parallel roster query — skip nested embed (LATERAL/json_build_object tax).
+          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours"),
         context.supabase
           .from("locations")
           .select("id, code, name, region, status")
@@ -240,23 +249,37 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           .order("scope"),
         // PostgREST max_rows is ~1000, so .limit(2000) drops everyone after the first page.
         // Head Office names sort with the rest of the directory and were missing from the mapper.
-        collectPagedRows(async (from, to) => {
-          const { data, error } = await context.supabase
-            .from("staff")
-            .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
-            .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
-            .order("full_name", { ascending: true })
-            .order("id", { ascending: true })
-            .range(from, to);
-          if (error) throw error;
-          return data ?? [];
-        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+        includeStaff
+          ? collectPagedRows(async (from, to) => {
+              const { data: page, error } = await context.supabase
+                .from("staff")
+                .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
+                .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
+                .order("full_name", { ascending: true })
+                .order("id", { ascending: true })
+                .range(from, to);
+              if (error) throw error;
+              return page ?? [];
+            }, ATTENDANCE_DAILY_LIST_PAGE_SIZE)
+          : Promise.resolve([] as Array<{
+              id: string;
+              full_name: string | null;
+              employee_code: string | null;
+              qid: string | null;
+              department: string | null;
+              job_title: string | null;
+              location_id: string | null;
+              status: string | null;
+              is_roaming: boolean | null;
+            }>),
       ]);
     const staffRows = staff ?? [];
-    const workByStaff = await fetchWorkLocationsByStaffId(
-      context.supabase,
-      staffRows.map((row) => row.id),
-    );
+    const workByStaff = includeStaff
+      ? await fetchWorkLocationsByStaffId(
+          context.supabase,
+          staffRows.map((row) => row.id),
+        )
+      : new Map<string, Array<{ id: string }>>();
     const settingsByLocation = new Map((sites ?? []).map((s) => [s.location_id, s]));
     const roster = (rosterLocations ?? [])
       .filter((loc) => loc.status === "active")
@@ -278,7 +301,6 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
       companies: companies ?? [],
       sites: mergedSites.map((loc) => {
         const setting = settingsByLocation.get(loc.id);
-        const nested = setting ? (Array.isArray(setting.locations) ? setting.locations[0] : setting.locations) : null;
         return {
           location_id: loc.id,
           company_id: setting?.company_id ?? null,
@@ -290,7 +312,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           permanent_hours: setting?.permanent_hours ?? null,
           secondment_hours: setting?.secondment_hours ?? null,
           joker_hours: setting?.joker_hours ?? null,
-          location: nested ?? loc,
+          location: loc,
         };
       }),
       devices: devices ?? [],
@@ -904,7 +926,8 @@ export const getAttendanceHrPunches = createAuthenticatedAction(
       .gte("punch_at", `${data.dateFrom}T00:00:00.000Z`)
       .lte("punch_at", `${data.dateTo}T23:59:59.999Z`)
       .order("punch_at", { ascending: false })
-      .limit(3000);
+      // Cap for explorer/debug payloads — device-logs / daily listing use their own paginated paths.
+      .limit(1000);
     if (data.locationId) {
       const homeIds = await fetchHomeStaffIdsAtLocation(context.supabase, data.locationId);
       q = q.or(punchOrHomeStaffOrFilter(data.locationId, homeIds));

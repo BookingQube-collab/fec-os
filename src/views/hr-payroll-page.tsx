@@ -122,7 +122,7 @@ export default function HrPayrollPage() {
   const otPolicy = useQuery({
     queryKey: queryKeys.people.hrOtPolicy(),
     queryFn: () => getOtPolicy(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
 
   const otHint = otPolicy.data

@@ -71,6 +71,7 @@ import {
 import { venueTitle } from "@/lib/locations/normalize";
 import { createShift, listShifts, listStaff } from "@/lib/people.functions";
 import { STALE } from "@/lib/query-client";
+import { invalidateWorkforceCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
@@ -189,8 +190,7 @@ export default function HrWorkforcePage() {
   }
 
   function refresh() {
-    void qc.invalidateQueries({ queryKey: queryKeys.sites.all });
-    void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    invalidateWorkforceCaches(qc);
   }
 
   return (

@@ -28,6 +28,8 @@ export const STALE = {
   tasks: 60_000,
   notifications: 60_000,
   people: 60_000,
+  /** Departments, masters, OT/HR policy, site shift policy, device/site bootstrap catalogs. */
+  peopleCatalog: 10 * 60_000,
   peopleDashboard: 120_000,
   facility: 60_000,
   utilities: 60_000,

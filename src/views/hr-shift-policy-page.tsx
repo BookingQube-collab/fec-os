@@ -31,6 +31,7 @@ import {
   URBAN_ARENA_BREAK_MINUTES,
 } from "@/lib/attendance-hr/shift-policy";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import { invalidateSiteShiftPolicyCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -70,7 +71,7 @@ export default function HrShiftPolicyPage() {
   const q = useQuery({
     queryKey: queryKeys.people.hrSiteShiftPolicy(),
     queryFn: () => listAttendanceSiteShiftPolicies(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
 
   const selected = useMemo(
@@ -135,8 +136,7 @@ export default function HrShiftPolicyPage() {
     mutationFn: () => saveAttendanceSiteShiftPolicy(validateDraft()),
     onSuccess: () => {
       toast.success(t("hr.shiftPolicy.saved"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.hrSiteShiftPolicy() });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateSiteShiftPolicyCaches(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -156,8 +156,7 @@ export default function HrShiftPolicyPage() {
     },
     onSuccess: (result) => {
       toast.success(t("hr.shiftPolicy.appliedAll", { count: result.updated }));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.hrSiteShiftPolicy() });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateSiteShiftPolicyCaches(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });

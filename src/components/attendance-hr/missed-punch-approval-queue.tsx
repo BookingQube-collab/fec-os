@@ -43,6 +43,7 @@ import {
   punchTimeInputValue,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
+import { invalidateMissedPunchLists, isMissedPunchListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { userFacingActionError } from "@/lib/user-facing-action-error";
@@ -195,6 +196,13 @@ export function MissedPunchApprovalQueue({
   });
   const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
+  const listQueryKey = queryKeys.people.attendanceHr({
+    view: historyOnly
+      ? "missed-punch-approved"
+      : actionableOnly
+        ? "missed-punch-actionable"
+        : "missed-punch-waiting",
+  });
   const reviewMut = useMutation({
     mutationFn: (input: {
       id: string;
@@ -202,12 +210,27 @@ export function MissedPunchApprovalQueue({
       /** Display-only; server expands open legacy same-day siblings from this id. */
       reviewIds?: string[];
     }) => reviewAttendanceCorrection({ id: input.id, decision: input.decision }),
+    onMutate: async (input) => {
+      // Waiting queue: drop acted cards immediately. Approved history keeps rows.
+      if (historyOnly) return { previous: undefined as CorrectionListRow[] | undefined };
+      await qc.cancelQueries({ predicate: (query) => isMissedPunchListQuery(query.queryKey) });
+      const previous = qc.getQueryData<CorrectionListRow[]>(listQueryKey);
+      const removeIds = new Set([input.id, ...(input.reviewIds ?? [])]);
+      qc.setQueryData<CorrectionListRow[]>(listQueryKey, (old) =>
+        (old ?? []).filter((row) => !removeIds.has(row.id)),
+      );
+      return { previous };
+    },
     onSuccess: () => {
       toast.success(t("hr.leave.updated"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (e: Error) =>
-      toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(listQueryKey, ctx.previous);
+      toast.error(userFacingActionError(e, "Could not update the punch correction. Try again."));
+    },
+    onSettled: () => {
+      invalidateMissedPunchLists(qc);
+    },
   });
   const rows = q.data ?? [];
   const filteredRows = useMemo(
@@ -519,7 +542,7 @@ export function MyMissedPunchRequests() {
       setPunchInTime("");
       setPunchOutTime("");
       setReason("");
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateMissedPunchLists(qc);
     },
     onError: (e: Error) =>
       toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),
@@ -747,7 +770,7 @@ export function MissedPunchRequestButton({
       if (result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
       else toast.success(t("hr.me.sentToSupervisor"));
       resetForm();
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateMissedPunchLists(qc);
     },
     onError: (e: Error) =>
       toast.error(userFacingActionError(e, "Could not submit the punch correction. Try again.")),
@@ -764,7 +787,7 @@ export function MissedPunchRequestButton({
       else if (_result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
       else toast.success(t("hr.me.sentToSupervisor"));
       resetForm();
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateMissedPunchLists(qc);
     },
     onError: (e: Error) =>
       toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),

@@ -1496,6 +1496,7 @@
     "branch": "Branch",
     "allBranches": "All branches",
     "surgeMode": "Surge mode",
+    "shellFx": "Shell effects",
     "cancel": "Cancel",
     "save": "Save",
     "saving": "Saving…",
@@ -7045,7 +7046,8 @@
     "helpSearch": "Search pages (AMC, people, attendance) and press Enter to open.",
     "helpSearchShortcut": "Press / to focus search",
     "helpNotifications": "Bell opens notifications on this page. View all for the full inbox.",
-    "helpSurge": "Surge mode tightens the header and nav so exceptions stay in view."
+    "helpSurge": "Surge mode tightens the header and nav so exceptions stay in view.",
+    "helpShellFx": "Shell effects toggle Aurora and click sparks. They stay off on heavy People / attendance / chat pages."
   },
   "roles": {
     "ceo": "Chief Executive Officer",

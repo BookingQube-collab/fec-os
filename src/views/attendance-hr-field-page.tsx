@@ -24,6 +24,7 @@ import {
   saveStaffFaceEnrollment,
 } from "@/lib/attendance-hr-field.functions";
 import { listFieldCheckInQueue, removeFieldCheckIn } from "@/lib/attendance-hr/offline-queue";
+import { invalidateAttendanceFieldQueries } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
@@ -87,7 +88,7 @@ export default function AttendanceHrFieldPage() {
   const to = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    invalidateAttendanceFieldQueries(qc);
     void refreshQueue();
   };
 

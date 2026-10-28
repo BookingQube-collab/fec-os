@@ -26,7 +26,11 @@ export async function GET(request: Request) {
       const dateFrom = params.get("dateFrom") ?? new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("dateTo") ?? new Date().toISOString().slice(0, 10);
       const date = params.get("date") || undefined;
-      if (view === "bootstrap") return getAttendanceHrBootstrap();
+      if (view === "bootstrap") {
+        return getAttendanceHrBootstrap({
+          includeStaff: params.get("includeStaff") === "1" || params.get("includeStaff") === "true",
+        });
+      }
       if (view === "dashboard") {
         return getAttendanceHrDashboard({
           locationId,

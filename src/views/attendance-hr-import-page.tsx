@@ -34,6 +34,7 @@ import {
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
+import { invalidateAttendanceHrQueries } from "@/lib/people-query-invalidate";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -110,8 +111,8 @@ export default function AttendanceHrImportPage() {
 
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
-    staleTime: STALE.people,
+    queryFn: () => getAttendanceHrBootstrap({ includeStaff: false }),
+    staleTime: STALE.peopleCatalog,
   });
   const companies = bootstrap.data?.companies ?? [];
   const sites = bootstrap.data?.sites ?? [];
@@ -192,7 +193,7 @@ export default function AttendanceHrImportPage() {
       if (mode === "commit") {
         const from = String(data.dateFrom ?? data.summary?.dateFrom ?? "").slice(0, 10);
         const to = String(data.dateTo ?? data.summary?.dateTo ?? "").slice(0, 10);
-        void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "attendance-hr"] });
+        invalidateAttendanceHrQueries(qc);
         toast.success(
           from && to
             ? t("attendanceHr.import.reportReady", { from, to })

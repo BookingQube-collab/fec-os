@@ -7,7 +7,6 @@ import { usePathname } from "next/navigation";
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
 import { AuroraBackdrop } from "@/components/layout/aurora-backdrop";
 import { NotificationToastHost } from "@/components/layout/notification-toast-host";
-import ClickSpark from "@/components/react-bits/click-spark";
 import { AppSidebar } from "./app-sidebar";
 import { AppTopbar } from "./app-topbar";
 import { EmployeeMobileHeader } from "./employee-app-shell";
@@ -17,7 +16,9 @@ import { DashboardPanel } from "@/components/dashboard/dashboard-panel";
 import { SitesPrefetch } from "@/components/providers/data-providers";
 import { useNavigationPerf } from "@/hooks/use-navigation-perf";
 import { AppErrorBoundary } from "@/components/diagnostics/error-boundary";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { useUserRoles } from "@/hooks/use-auth";
+import { mayMountShellFx } from "@/lib/shell-fx";
 import { isEmployeeHomeAudience } from "@/lib/rbac";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,9 @@ const HrFieldSync = dynamic(
   () => import("@/components/attendance-hr/hr-field-sync").then((m) => m.HrFieldSync),
   { ssr: false },
 );
+
+/** Canvas click sparks — only load when shell FX are allowed on this route. */
+const ClickSpark = dynamic(() => import("@/components/react-bits/click-spark"), { ssr: false });
 
 /** Employee home and /hr/me use the employee phone header. Footer stays the shared bottom nav. */
 function isEmployeeHome(pathname: string) {
@@ -40,15 +44,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const employeeChrome = employeeRoute || (employeeAudience && pathname === "/");
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
   const surgeMode = useAppStore((s) => s.surgeMode);
+  const shellFxEnabled = useAppStore((s) => s.shellFxEnabled);
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const showShellFx = mayMountShellFx({
+    pathname,
+    shellFxEnabled,
+    prefersReducedMotion,
+  });
   const chatRoute = pathname === "/chat";
   const accountRoute = pathname === "/profile";
-  return (
-    <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
+
+  const body = (
     <div
       className="relative min-h-screen w-full max-w-full overflow-x-clip text-foreground"
       data-surge-mode={surgeMode ? "true" : "false"}
+      data-shell-fx={showShellFx ? "on" : "off"}
     >
-      <AuroraBackdrop className="fixed inset-x-0 top-0 z-0 h-[42vh]" />
+      {showShellFx ? <AuroraBackdrop className="fixed inset-x-0 top-0 z-0 h-[42vh]" /> : null}
       <SitesPrefetch />
       <HrFieldSync />
       <NotificationToastHost />
@@ -89,6 +101,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <MobileBottomNav />
     </div>
+  );
+
+  if (!showShellFx) return body;
+
+  return (
+    <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
+      {body}
     </ClickSpark>
   );
 }

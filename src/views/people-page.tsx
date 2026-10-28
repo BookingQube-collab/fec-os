@@ -2076,7 +2076,15 @@ function AttendanceTab() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceExceptions(locationId ?? null) });
+    void qc.invalidateQueries({
+      queryKey: queryKeys.people.attendanceSummary({
+        locationId: locationId ?? null,
+        dateFrom: today,
+        dateTo: today,
+      }),
+    });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, false) });
   };
 
   const genMut = useMutation({

@@ -55,6 +55,7 @@ import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
 import { getPayslipPrintPayload, listMyPayslips } from "@/lib/hr-payroll.functions";
 import { MyKraScorecards } from "@/components/people/my-kra-scorecard";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
+import { invalidateLeaveLists } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
@@ -319,8 +320,7 @@ export default function EmployeeMePage() {
       }
       setLeaveReason("");
       setLeaveConflicts([]);
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.hrLeaveBalances() });
+      invalidateLeaveLists(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -329,7 +329,7 @@ export default function EmployeeMePage() {
     mutationFn: (id: string) => reviewLeaveRequest({ id, status: "cancelled" }),
     onSuccess: () => {
       toast.success(t("hr.leave.updated"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateLeaveLists(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });

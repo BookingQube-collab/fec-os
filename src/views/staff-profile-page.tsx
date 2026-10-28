@@ -44,6 +44,7 @@ import { formatLocationLabel } from "@/lib/locations/normalize";
 import { expiryBand, qatarTodayYmd } from "@/lib/hr-expiry-bands";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { hrAlertSeverityLabel, staffHrAlerts, type HrAlertSeverity } from "@/lib/staff-hr-alerts";
+import { invalidateStaffDirectoryCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
@@ -507,10 +508,16 @@ function StaffProfilePageBody() {
     },
     onSuccess: () => {
       toast.success(t("attendanceHr.field.enrolled"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      void qc.invalidateQueries({
+        queryKey: queryKeys.people.attendanceHr({ view: "face", staffId: id }),
+      });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const refreshDirectoryCaches = () => {
+    invalidateStaffDirectoryCaches(qc, profile.data?.staff?.location_id ?? null);
+  };
 
   const workSitesMut = useMutation({
     mutationFn: async () => {
@@ -521,7 +528,7 @@ function StaffProfilePageBody() {
     onSuccess: () => {
       toast.success(t("people.staff.workLocationsSaved"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      refreshDirectoryCaches();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -537,7 +544,7 @@ function StaffProfilePageBody() {
     onSuccess: () => {
       toast.success(t("people.staff.updateSuccess"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      refreshDirectoryCaches();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -554,7 +561,7 @@ function StaffProfilePageBody() {
     onSuccess: () => {
       toast.success(t("people.staff.updateSuccess"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      refreshDirectoryCaches();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -564,7 +571,7 @@ function StaffProfilePageBody() {
     onSuccess: () => {
       toast.success(t("people.staff.flexibleHoursSaved"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      refreshDirectoryCaches();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -672,7 +679,7 @@ function StaffProfilePageBody() {
       toast.success(kind === "removed" ? t("people.staff.photoRemoved") : t("people.staff.photoSaved"));
       setPhotoDraft({ dataUrl: null, remove: false });
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      refreshDirectoryCaches();
     },
     onError: (e: Error) => toast.error(e.message),
   });

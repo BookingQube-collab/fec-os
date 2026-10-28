@@ -72,12 +72,13 @@ import { canUserDo } from "@/lib/rbac";
 import {
   getAttendanceHrBootstrap,
   getAttendanceHrDaily,
+  listAttendanceMappingEmployees,
   mapAttendanceBiometricUser,
   purgeAttendanceHrImportedData,
 } from "@/lib/attendance-hr.functions";
 import { getAttendanceListingSites } from "@/lib/reporting-manager-access.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
-import { e3AttendanceExportFilename } from "@/lib/attendance-hr/export-workbook";
+import { e3AttendanceExportFilename } from "@/lib/attendance-hr/export-filenames";
 import {
   defaultPayrollPeriod,
   formatPayrollRange,
@@ -188,7 +189,7 @@ export default function AttendanceHrReportsPage() {
   const teamSites = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "listing-sites" }),
     queryFn: () => getAttendanceListingSites(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
     enabled: listingEnabled && !companyWide,
   });
   const teamSiteIds = useMemo(() => {
@@ -229,10 +230,16 @@ export default function AttendanceHrReportsPage() {
 
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
-    staleTime: STALE.people,
-    // Bootstrap pages every active employee for the mapper. Let the month grid finish first.
+    queryFn: () => getAttendanceHrBootstrap({ includeStaff: false }),
+    staleTime: STALE.peopleCatalog,
+    // Sites/devices only — staff catalog loads separately when inline mapping is available.
     enabled: companyWide && q.isFetched,
+  });
+  const mappingStaff = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "bootstrap-staff" }),
+    queryFn: () => listAttendanceMappingEmployees(),
+    staleTime: STALE.people,
+    enabled: companyWide && canMapUsers && q.isFetched,
   });
 
   const listingBusy = q.isFetching && !q.isLoading;
@@ -327,8 +334,8 @@ export default function AttendanceHrReportsPage() {
   );
   const mapStaffOptions = useMemo((): AttendanceMapStaffOption[] => {
     if (!canMapUsers) return [];
-    return (bootstrap.data?.staff ?? []) as AttendanceMapStaffOption[];
-  }, [bootstrap.data?.staff, canMapUsers]);
+    return (mappingStaff.data ?? []) as AttendanceMapStaffOption[];
+  }, [mappingStaff.data, canMapUsers]);
   const mappingBusySet = useMemo(() => new Set(Object.keys(mappingBusyIds)), [mappingBusyIds]);
   const isTableDeferred = deferredRows !== rows;
   const showSearchBusy =
@@ -401,7 +408,15 @@ export default function AttendanceHrReportsPage() {
     void fileExport.download({ url, kind, filename, successMessage });
   };
 
-  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+  const invalidate = () => {
+    void qc.invalidateQueries({
+      predicate: (query) => {
+        if (query.queryKey[0] !== "people" || query.queryKey[1] !== "attendance-hr") return false;
+        const view = (query.queryKey[2] as { view?: string } | undefined)?.view;
+        return view === "daily" || view === "bootstrap" || view === "bootstrap-staff";
+      },
+    });
+  };
 
   const mapMut = useMutation({
     mutationFn: (p: { mappingId: string; staffId: string }) => mapAttendanceBiometricUser(p),

@@ -94,6 +94,7 @@ import {
   type RosterMatrixStaff,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { STALE } from "@/lib/query-client";
+import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { shouldVirtualizeMatrixStaff, virtualWindowRange } from "@/lib/staff-roster/virtual-window";
@@ -674,7 +675,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         toast.success(t("people.roster.registerSaved"));
         setEditingId(null);
         setDraft(null);
-        void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+        invalidateRosterCaches(qc);
       },
       onError: (e: Error) => toast.error(e.message),
     });
@@ -711,15 +712,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         setCreateWorkDate(null);
         setCreateStaffId("");
         setDraft(null);
-        void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+        invalidateRosterCaches(qc);
       },
       onError: (e: Error) => toast.error(e.message),
     });
 
     const invalidateRosterRegister = useCallback(() => {
-      // Prefer roster-register scope over people.all so delete clicks do not
+      // Prefer roster scope over people.all so delete clicks do not
       // synchronously wake every People query subscriber on the page.
-      void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "roster-register"] });
+      invalidateRosterCaches(qc);
     }, [qc]);
 
     const deleteMut = useMutation({

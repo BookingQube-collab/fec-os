@@ -79,8 +79,8 @@ export default function AttendanceHrDeviceLogsPage() {
 
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
-    staleTime: STALE.people,
+    queryFn: () => getAttendanceHrBootstrap({ includeStaff: false }),
+    staleTime: STALE.peopleCatalog,
   });
 
   const deviceUsers = useQuery({

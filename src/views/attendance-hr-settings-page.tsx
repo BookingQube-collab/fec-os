@@ -33,6 +33,7 @@ import {
   saveAttendanceShiftTemplate,
   type ResyncFetchSkipReason,
 } from "@/lib/attendance-hr.functions";
+import { invalidateAttendanceBootstrap } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import Link from "next/link";
@@ -94,9 +95,9 @@ export default function AttendanceHrSettingsPage() {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
-    staleTime: STALE.people,
-    // Bootstrap pages every active employee + devices. 15s was a Supabase storm;
+    queryFn: () => getAttendanceHrBootstrap({ includeStaff: false }),
+    staleTime: STALE.peopleCatalog,
+    // Bootstrap pages devices/sites. 15s was a Supabase storm;
     // device last_sync is fine at 1m, and focus refetch is enough after edits.
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
@@ -165,7 +166,7 @@ export default function AttendanceHrSettingsPage() {
       }),
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.deviceSaved"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -182,7 +183,7 @@ export default function AttendanceHrSettingsPage() {
       }),
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.snSaved"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -202,7 +203,7 @@ export default function AttendanceHrSettingsPage() {
     },
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.nameSaved"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -214,7 +215,7 @@ export default function AttendanceHrSettingsPage() {
           ? t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared })
           : t("attendanceHr.settings.clearStuckTestNone"),
       );
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -222,7 +223,7 @@ export default function AttendanceHrSettingsPage() {
     mutationFn: (device: DeviceRow) => requestAttendanceDeviceFetch({ deviceId: device.id, hours: 48 }),
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.fetchQueued"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -312,7 +313,7 @@ export default function AttendanceHrSettingsPage() {
       }
     },
     onSuccess: (result) => {
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
       const skipMsg = fetchSkipMessage(result.fetchSkippedReason);
       if (skipMsg) toast.warning(skipMsg);
       if (result.fetchQueued) {

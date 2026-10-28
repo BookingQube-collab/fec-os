@@ -15,6 +15,7 @@ import { formatPunchTime12h } from "@/lib/attendance-display";
 import { findCorrectionDay, listCorrectionSubjects, submitMissedPunchRequest } from "@/lib/attendance-hr.functions";
 import { canRequestAttendanceCorrection } from "@/lib/attendance-hr/missed-punch-approval";
 import { opsApprovalLaneForStaff, opsStepApproverLabel } from "@/lib/approval-ops-routing";
+import { invalidateMissedPunchLists } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { userFacingActionError } from "@/lib/user-facing-action-error";
@@ -126,7 +127,7 @@ export function PunchCorrectionRequest({
       setPunchIn("");
       setPunchOut("");
       setReason("");
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateMissedPunchLists(qc);
     },
     onError: (error: Error) =>
       toast.error(userFacingActionError(error, "Could not submit the punch correction. Try again.")),

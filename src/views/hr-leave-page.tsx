@@ -36,6 +36,7 @@ import {
   upsertLeaveBalance,
 } from "@/lib/hr-leave.functions";
 import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
+import { invalidateLeaveLists, isLeaveListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
@@ -95,8 +96,14 @@ export function HrLeaveWorkspace({
     setPrintOpen(true);
   };
 
+  const listQueryKey = queryKeys.people.attendanceHr({
+    view: "leave",
+    status,
+    staffId: lockedStaffId ?? null,
+  });
+
   const list = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "leave", status, staffId: lockedStaffId ?? null }),
+    queryKey: listQueryKey,
     queryFn: () =>
       listLeaveRequests({
         status: status === "all" ? null : status,
@@ -120,14 +127,26 @@ export function HrLeaveWorkspace({
   });
 
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
-    void qc.invalidateQueries({ queryKey: queryKeys.people.hrLeaveBalances() });
-    void qc.invalidateQueries({ queryKey: queryKeys.people.hrOverview() });
+    invalidateLeaveLists(qc);
     onChanged?.();
+  };
+
+  /** Pending queue: drop acted cards immediately (same pattern as missed-punch). */
+  const dropLeaveRowsOptimistic = async (ids: string[]) => {
+    if (status !== "pending" || !ids.length) return undefined as LeaveListRow[] | undefined;
+    await qc.cancelQueries({ predicate: (query) => isLeaveListQuery(query.queryKey) });
+    const previous = qc.getQueryData<LeaveListRow[]>(listQueryKey);
+    const remove = new Set(ids);
+    qc.setQueryData<LeaveListRow[]>(listQueryKey, (old) => (old ?? []).filter((row) => !remove.has(row.id)));
+    return previous;
   };
 
   const review = useMutation({
     mutationFn: reviewLeaveRequest,
+    onMutate: async (vars) => {
+      const previous = await dropLeaveRowsOptimistic([vars.id]);
+      return { previous };
+    },
     onSuccess: (res, vars: { id: string; status: "approved" | "rejected" | "cancelled"; reviewNote?: string | null; payrollImpact?: boolean }) => {
       if (vars.status === "approved" && (res.syncedDays ?? 0) > 0) {
         toast.success(t("hr.leave.synced", { days: res.syncedDays }));
@@ -135,13 +154,22 @@ export function HrLeaveWorkspace({
         toast.success(t("hr.leave.updated"));
       }
       setSelected([]);
-      invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(listQueryKey, ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => invalidate(),
   });
 
   const stepAct = useMutation({
     mutationFn: actOnLeaveApproval,
+    onMutate: async (vars) => {
+      // Intermediate approve keeps the row in the pending queue for the next step.
+      if (vars.action !== "rejected") return { previous: undefined as LeaveListRow[] | undefined };
+      const previous = await dropLeaveRowsOptimistic([vars.leaveId]);
+      return { previous };
+    },
     onSuccess: (res) => {
       if (res.final && (res.syncedDays ?? 0) > 0) {
         toast.success(t("hr.leave.synced", { days: res.syncedDays }));
@@ -150,9 +178,12 @@ export function HrLeaveWorkspace({
       } else {
         toast.success(t("hr.leave.stepAdvanced", { step: res.nextStep ?? "" }));
       }
-      invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(listQueryKey, ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => invalidate(),
   });
 
   const grantComp = useMutation({
@@ -166,13 +197,20 @@ export function HrLeaveWorkspace({
 
   const bulk = useMutation({
     mutationFn: bulkReviewLeaveRequests,
+    onMutate: async (vars) => {
+      const previous = await dropLeaveRowsOptimistic(vars.ids);
+      return { previous };
+    },
     onSuccess: (res) => {
       toast.success(t("hr.leave.bulkUpdated", { count: res.updated }));
       if (res.errors.length) toast.error(res.errors[0]);
       setSelected([]);
-      invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(listQueryKey, ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => invalidate(),
   });
 
   const saveBalance = useMutation({

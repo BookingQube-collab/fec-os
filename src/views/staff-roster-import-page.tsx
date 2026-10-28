@@ -24,7 +24,7 @@ import { applyStaffMapToPreviewRows } from "@/lib/attendance-hr/apply-roster-nam
 import { mapAttendanceRosterSheetName } from "@/lib/attendance-hr.functions";
 import type { MatchedRosterRow } from "@/lib/attendance-hr/roster-upload";
 import { isActiveRosterStaff } from "@/lib/staff-status";
-import { queryKeys } from "@/lib/query-keys";
+import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import {
   formatRosterFileSize,
   pickRosterImportFile,
@@ -238,7 +238,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
       }
       if (arg.mode === "commit") {
         setRegisterRefresh((current) => current + 1);
-        void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+        invalidateRosterCaches(qc);
       }
     },
     onError: (e: Error, arg) => {

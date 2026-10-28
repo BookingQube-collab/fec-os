@@ -88,12 +88,12 @@ export default function HrSettingsPage() {
   const policy = useQuery({
     queryKey: queryKeys.people.hrPolicySettings(),
     queryFn: () => listHrPolicySettings(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
   const otLegacy = useQuery({
     queryKey: queryKeys.people.hrOtPolicy(),
     queryFn: () => getOtPolicy(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
 
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});

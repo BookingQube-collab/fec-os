@@ -67,6 +67,10 @@ import {
   type OtRequestGroup,
   type SupervisorOtStaffFieldError,
 } from "@/lib/hr-ot";
+import {
+  invalidateOtLists as invalidateOtListQueries,
+  invalidateOtSummaryOnly as invalidateOtSummaryQueries,
+} from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { canUserDo } from "@/lib/rbac";
@@ -141,13 +145,6 @@ function claimMatchesOtBatchVars(
   }
   if (vars.claimIds?.length) return vars.claimIds.includes(row.id);
   return false;
-}
-
-/** Refresh OT list + monthly summary only — skip policy/staff-team refetch on every approve. */
-function isOtListOrSummaryQuery(queryKey: readonly unknown[]): boolean {
-  if (queryKey[0] !== "people" || queryKey[1] !== "attendance-hr") return false;
-  const filters = queryKey[2] as { view?: string } | undefined;
-  return filters?.view === "ot" || filters?.view === "ot-summary";
 }
 
 function fmtMins(m: number | null | undefined) {
@@ -1138,24 +1135,11 @@ export default function HrOtPage() {
   const policy = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "ot-policy" }),
     queryFn: () => getOtPolicySnapshot(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
 
-  const invalidateOtLists = () => {
-    void qc.invalidateQueries({
-      predicate: (query) => isOtListOrSummaryQuery(query.queryKey),
-    });
-  };
-
-  const invalidateOtSummaryOnly = () => {
-    void qc.invalidateQueries({
-      predicate: (query) => {
-        if (query.queryKey[0] !== "people" || query.queryKey[1] !== "attendance-hr") return false;
-        const filters = query.queryKey[2] as { view?: string } | undefined;
-        return filters?.view === "ot-summary";
-      },
-    });
-  };
+  const invalidateOtLists = () => invalidateOtListQueries(qc);
+  const invalidateOtSummaryOnly = () => invalidateOtSummaryQueries(qc);
 
   const actBatch = useMutation({
     mutationFn: (vars: OtBatchVars) => actOnOtRequestBatch(vars),

@@ -482,19 +482,22 @@ export async function touchAdmsDevice(
   };
 
   const { error } = await apply(update);
-  if (error && /last_adms_endpoint|last_adms_source_ip|last_adms_pushver/i.test(error.message)) {
+  if (!error) return;
+
+  // Older DBs may lack diagnostic columns — retry once without them. Never fall
+  // back to writing last_sync_at: that column means ATTLOG/USER sync only
+  // (patch.sync), and idle heartbeats must not look like punch syncs.
+  if (/last_adms_endpoint|last_adms_source_ip|last_adms_pushver/i.test(error.message)) {
     delete update.last_adms_endpoint;
     delete update.last_adms_source_ip;
     delete update.last_adms_pushver;
     const retry = await apply(update);
-    if (retry.error && /adms_|connection_mode/i.test(retry.error.message)) {
-      await sb.from("attendance_devices").update({ last_sync_at: new Date().toISOString() }).eq("id", deviceId);
+    if (retry.error) {
+      console.error("adms device touch failed:", retry.error.message);
     }
     return;
   }
-  if (error && /adms_|connection_mode/i.test(error.message)) {
-    await sb.from("attendance_devices").update({ last_sync_at: new Date().toISOString() }).eq("id", deviceId);
-  }
+  console.error("adms device touch failed:", error.message);
 }
 
 export async function ingestAdmsPayload(

@@ -10,7 +10,7 @@ export function useMasterDepartments(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.people.departments(),
     queryFn: () => apiGet<MasterDepartmentRow[]>("/api/people/departments"),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
     enabled: options?.enabled ?? true,
   });
 }
@@ -19,7 +19,7 @@ export function usePeopleMasters(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.people.masters(),
     queryFn: () => listPeopleMasters({}),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
     enabled: options?.enabled ?? true,
   });
 }

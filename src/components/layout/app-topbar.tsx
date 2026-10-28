@@ -7,6 +7,7 @@ import {
   Keyboard,
   LogOut,
   Search,
+  Sparkles,
   User,
   Zap,
 } from "lucide-react";
@@ -50,6 +51,8 @@ export function AppTopbar() {
   const setLanguage = useAppStore((s) => s.setLanguage);
   const surgeMode = useAppStore((s) => s.surgeMode);
   const setSurgeMode = useAppStore((s) => s.setSurgeMode);
+  const shellFxEnabled = useAppStore((s) => s.shellFxEnabled);
+  const setShellFxEnabled = useAppStore((s) => s.setShellFxEnabled);
   const currentLocationId = useAppStore((s) => s.currentLocationId);
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const { user, profile, roles, signOut } = useAuth();
@@ -179,6 +182,23 @@ export function AppTopbar() {
 
           <Button
             type="button"
+            variant={shellFxEnabled ? "default" : "outline"}
+            size="icon"
+            className={cn(
+              "hidden sm:inline-flex",
+              shellFxEnabled &&
+                "border-violet-600 bg-violet-600 text-white hover:bg-violet-500 hover:text-white",
+            )}
+            onClick={() => setShellFxEnabled(!shellFxEnabled)}
+            title={t("common.shellFx")}
+            aria-label={t("common.shellFx")}
+            aria-pressed={shellFxEnabled}
+          >
+            <Sparkles className="h-4 w-4" />
+          </Button>
+
+          <Button
+            type="button"
             variant={surgeMode ? "default" : "outline"}
             size="icon"
             className={cn(
@@ -239,6 +259,10 @@ export function AppTopbar() {
                 <li className="flex items-start gap-2.5">
                   <Zap className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <span>{t("layout.helpSurge")}</span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("layout.helpShellFx")}</span>
                 </li>
               </ul>
               <Link

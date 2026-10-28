@@ -12,6 +12,7 @@ import { useMyDirectReports } from "@/hooks/use-my-direct-reports";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { actOnLeaveApproval, listLeaveRequests } from "@/lib/hr-leave.functions";
 import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
+import { invalidateLeaveLists, isLeaveListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -60,21 +61,35 @@ export function MyDayLeaveApprovals({
   const hasDirectReports = (reports.data?.directReportStaffIds.length ?? 0) > 0;
   const show = mayReviewStaffLeaveOnMyDay({ roles, hasDirectReports, jobTitle, department });
   const qc = useQueryClient();
+  type LeaveListRow = Awaited<ReturnType<typeof listLeaveRequests>>[number];
+  const listQueryKey = queryKeys.people.attendanceHr({ view: "my-day-leave-approvals" });
   const list = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "my-day-leave-approvals" }),
+    queryKey: listQueryKey,
     queryFn: () => listLeaveRequests({ approvals: true }),
     enabled: show && !reports.isPending,
     staleTime: STALE.people,
   });
   const act = useMutation({
     mutationFn: (input: { leaveId: string; action: "approved" | "rejected" }) => actOnLeaveApproval(input),
+    onMutate: async (input) => {
+      // My Day only shows rows this actor can step; drop immediately after click.
+      await qc.cancelQueries({ predicate: (query) => isLeaveListQuery(query.queryKey) });
+      const previous = qc.getQueryData<LeaveListRow[]>(listQueryKey);
+      qc.setQueryData<LeaveListRow[]>(listQueryKey, (old) =>
+        (old ?? []).filter((row) => row.id !== input.leaveId),
+      );
+      return { previous };
+    },
     onSuccess: (res) => {
       if (res.final && (res.syncedDays ?? 0) > 0) toast.success(t("hr.leave.synced", { days: res.syncedDays }));
       else if (res.final) toast.success(t("hr.leave.updated"));
       else toast.success(t("hr.leave.stepAdvanced", { step: res.nextStep ?? "" }));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(listQueryKey, ctx.previous);
+      toast.error(error.message);
+    },
+    onSettled: () => invalidateLeaveLists(qc),
   });
 
   if (reports.isPending || !show) return null;

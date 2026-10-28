@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resetAllPayroll } from "@/lib/hr-payroll.functions";
 import { PAYROLL_RESET_CONFIRMATION } from "@/lib/hr-payroll";
-import { queryKeys } from "@/lib/query-keys";
+import { invalidatePayrollCaches } from "@/lib/people-query-invalidate";
 
 export function RemoveAllPayrollCard() {
   const { t } = useTranslation();
@@ -50,7 +50,7 @@ export function RemoveAllPayrollCard() {
       if (result.payslipFileWarning) toast.warning(result.payslipFileWarning);
       setOpen(false);
       setPhrase("");
-      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      invalidatePayrollCaches(qc);
     },
     onError: (e: Error) => toast.error(e.message || t("adminPayrollReset.failed")),
   });

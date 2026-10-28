@@ -12,6 +12,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useUserRoles } from "@/hooks/use-auth";
 import { approveRosterPunchFill, listRosterPunchFillStaff } from "@/lib/attendance-hr/roster-punch-fill.functions";
 import { mayFillRosterDevicePunches } from "@/lib/attendance-hr/roster-punch-fill";
+import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -44,7 +45,7 @@ export function RosterPunchFill({
     onSuccess: (filled) => {
       setResult(filled);
       toast.success(t("hr.me.rosterFillResult", { filled: filled.filledDays, skipped: filled.skippedDays }));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateRosterCaches(qc);
     },
     onError: (error: Error) => toast.error(error.message),
   });

@@ -761,7 +761,7 @@ function RulesPanel() {
   const policy = useQuery({
     queryKey: queryKeys.people.hrPolicySettings(),
     queryFn: () => listHrPolicySettings(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
   const noticeValues =
     policy.data?.sections.find((section) => section.section === "notice")?.values ?? HR_POLICY_DEFAULTS.notice;

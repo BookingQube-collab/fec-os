@@ -58,8 +58,8 @@ export function useActionInboxBadge(userId?: string | null, options?: { enabled?
     staleTime: STALE.notifications,
     enabled,
     refetchOnMount: false,
-    // Focus refetch so approval toasts appear when returning to the tab (poll is 60s).
-    refetchOnWindowFocus: true,
+    // Poll + toast host cover freshness; focus refetch doubled badge traffic on tab switches.
+    refetchOnWindowFocus: false,
     refetchInterval: enabled ? INBOX_BADGE_POLL_MS : false,
     refetchIntervalInBackground: false,
     retry: 2,

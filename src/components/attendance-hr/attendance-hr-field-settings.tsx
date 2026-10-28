@@ -21,6 +21,7 @@ import {
   saveAttendanceGeofence,
   saveHrFieldSettings,
 } from "@/lib/attendance-hr-field.functions";
+import { invalidateAttendanceFieldQueries } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -39,12 +40,12 @@ export function AttendanceHrFieldSettings() {
   const settingsQ = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "field-settings" }),
     queryFn: () => getHrFieldSettings(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
   const fencesQ = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "geofences" }),
     queryFn: () => listAttendanceGeofences(),
-    staleTime: STALE.people,
+    staleTime: STALE.peopleCatalog,
   });
 
   const [radius, setRadius] = useState("200");
@@ -102,7 +103,7 @@ export function AttendanceHrFieldSettings() {
       }),
     onSuccess: () => {
       toast.success(t("attendanceHr.hrConfig.saved"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceFieldQueries(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -123,7 +124,7 @@ export function AttendanceHrFieldSettings() {
     },
     onSuccess: () => {
       toast.success(t("attendanceHr.hrConfig.fenceSaved"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceFieldQueries(qc);
     },
     onError: (e: Error) => toast.error(e.message),
   });

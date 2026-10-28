@@ -32,6 +32,7 @@ import {
 import { downloadCsvFromApi } from "@/lib/staff-import";
 import { usePermission } from "@/hooks/use-permission";
 import { useUserRoles } from "@/hooks/use-auth";
+import { invalidateAttendanceHrQueries, invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
@@ -84,8 +85,8 @@ export default function AttendanceHrRosterPage() {
 
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
-    staleTime: STALE.people,
+    queryFn: () => getAttendanceHrBootstrap({ includeStaff: false }),
+    staleTime: STALE.peopleCatalog,
   });
   const sites = bootstrap.data?.sites ?? [];
 
@@ -136,7 +137,8 @@ export default function AttendanceHrRosterPage() {
     onSuccess: (data, mode) => {
       setPreview(data);
       if (mode === "commit") {
-        void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "attendance-hr"] });
+        invalidateAttendanceHrQueries(qc);
+        invalidateRosterCaches(qc);
         toast.success(
           t("attendanceHr.roster.savedToast", {
             count: data.imported ?? data.matched ?? 0,

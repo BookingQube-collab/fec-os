@@ -66,6 +66,7 @@ import {
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
+import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import type { PreviousMonthRosterDepartment } from "@/lib/staff-roster/previous-month-export";
 import { useAppStore } from "@/stores/app-store";
@@ -419,7 +420,7 @@ export default function StaffRosterRegisterPage() {
     setCopyReplaceOpen(false);
     setCopyReplaceMeta(null);
     setMonth(result.targetMonth);
-    void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    invalidateRosterCaches(qc);
   };
 
   const copyMut = useMutation({

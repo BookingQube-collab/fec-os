@@ -10,20 +10,25 @@ const Aurora = dynamic(() => import("@/components/react-bits/aurora"), { ssr: fa
 
 const FEC_STOPS = ["#efeaff", "#6d4aff", "#ddd4ff"];
 
-/** Official Aurora, held back when the user prefers reduced motion. */
+/**
+ * Official Aurora. Parent shell already gates preference + heavy routes;
+ * reduced motion is a final safety net (e.g. auth page).
+ */
 export function AuroraBackdrop({
   className,
   amplitude = 0.42,
   blend = 0.38,
   speed = 0.42,
+  enabled = true,
 }: {
   className?: string;
   amplitude?: number;
   blend?: number;
   speed?: number;
+  enabled?: boolean;
 }) {
   const reduced = usePrefersReducedMotion();
-  if (reduced) return null;
+  if (!enabled || reduced) return null;
 
   return (
     <div className={cn("pointer-events-none", className)} aria-hidden>

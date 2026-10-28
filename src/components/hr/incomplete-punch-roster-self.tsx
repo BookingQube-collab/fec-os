@@ -52,7 +52,13 @@ export function IncompletePunchRosterSelf() {
       saveMyIncompletePunchRoster(input),
     onSuccess: (_data, vars) => {
       toast.success(t("hr.me.incompletePunchRosterSaved", { date: formatWorkDateDdMmYyyy(vars.workDate) }));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      void qc.invalidateQueries({
+        predicate: (query) => {
+          if (query.queryKey[0] !== "people" || query.queryKey[1] !== "attendance-hr") return false;
+          const view = (query.queryKey[2] as { view?: string } | undefined)?.view;
+          return view === "my-incomplete-punch-roster";
+        },
+      });
     },
     onError: (error: Error) => toast.error(error.message),
   });

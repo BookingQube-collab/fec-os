@@ -7,10 +7,13 @@ export interface AppState {
   currentLocationId: string | null;
   language: SupportedLanguage;
   surgeMode: boolean;
+  /** Aurora WebGL + ClickSpark on light routes. Off = less GPU/JS on every page. */
+  shellFxEnabled: boolean;
   sidebarExpanded: boolean;
   setCurrentLocationId: (id: string | null) => void;
   setLanguage: (lang: SupportedLanguage) => void;
   setSurgeMode: (on: boolean) => void;
+  setShellFxEnabled: (on: boolean) => void;
   setSidebarExpanded: (on: boolean) => void;
 }
 
@@ -20,10 +23,12 @@ export const useAppStore = create<AppState>()(
       currentLocationId: null,
       language: "en",
       surgeMode: false,
+      shellFxEnabled: true,
       sidebarExpanded: false,
       setCurrentLocationId: (id) => set({ currentLocationId: id }),
       setLanguage: (language) => set({ language }),
       setSurgeMode: (surgeMode) => set({ surgeMode }),
+      setShellFxEnabled: (shellFxEnabled) => set({ shellFxEnabled }),
       setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
     }),
     {
@@ -32,6 +37,7 @@ export const useAppStore = create<AppState>()(
         currentLocationId: state.currentLocationId,
         language: state.language,
         surgeMode: state.surgeMode,
+        shellFxEnabled: state.shellFxEnabled,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setSidebarExpanded(false);
