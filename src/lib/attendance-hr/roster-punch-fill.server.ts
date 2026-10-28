@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { normalizeShiftHm, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
+  isRosterPunchFillSubjectRow,
+  mergeRosterPunchFillStaffIds,
   planRosterPunchFill,
   ROSTER_PUNCH_FILL_SOURCE,
   rosterFillAudience,
@@ -11,11 +13,12 @@ import {
   type RosterFillAssignment,
   type RosterFillExistingPunch,
 } from "@/lib/attendance-hr/roster-punch-fill";
-import { isAdminPeopleDirectoryRow } from "@/lib/people-directory-access";
 import {
+  loadActiveJokerStaffIdsAtLocations,
   loadDirectReportStaffIds,
   loadManagerTeamStaffIds,
   loadReportingTreeStaffIds,
+  loadViewerScopedTeamLocations,
 } from "@/lib/reporting-manager-access.server";
 import type { AuthContext } from "@/lib/server/auth";
 import { ForbiddenError } from "@/lib/server/authorize";
@@ -53,7 +56,25 @@ async function teamStaffIds(userId: string): Promise<Set<string>> {
     loadReportingTreeStaffIds(userId),
     loadManagerTeamStaffIds(userId),
   ]);
-  return new Set([...reports.directReportStaffIds, ...tree, ...managerTeam.teamStaffIds]);
+  const teamIds = [...reports.directReportStaffIds, ...tree, ...managerTeam.teamStaffIds];
+  // Active Jokers are not on the org chart. Union location-scoped jokers so HoO
+  // (and any filler) can pick the same people visible on the location roster.
+  try {
+    const sites = await loadViewerScopedTeamLocations(userId, teamIds);
+    const jokerIds = await loadActiveJokerStaffIdsAtLocations(sites.map((site) => site.id));
+    return new Set(
+      mergeRosterPunchFillStaffIds({
+        teamStaffIds: teamIds,
+        scopedJokerStaffIds: jokerIds,
+      }),
+    );
+  } catch (error) {
+    console.error(
+      "[roster-punch-fill] scoped joker union failed",
+      error instanceof Error ? error.message : error,
+    );
+    return new Set(teamIds);
+  }
 }
 
 async function staffNames(ids: readonly string[]): Promise<RosterPunchFillStaff[]> {
@@ -92,7 +113,12 @@ async function companyStaff(): Promise<RosterPunchFillStaff[]> {
     if (page.length < 1000) break;
   }
   return rows
-    .filter((row) => isAdminPeopleDirectoryRow({ status: row.status, employmentType: row.employment_type }))
+    .filter((row) =>
+      isRosterPunchFillSubjectRow({
+        status: row.status,
+        employment_type: row.employment_type,
+      }),
+    )
     .map((row) => ({
       staffId: String(row.id),
       fullName: String(row.full_name ?? "Staff"),
@@ -124,10 +150,10 @@ async function assertTargetStaff(context: AuthContext, staffId: string, audience
   if (error) throw new Error(error.message);
   if (
     !data ||
-    data.deleted_at ||
-    !isAdminPeopleDirectoryRow({
+    !isRosterPunchFillSubjectRow({
       status: data.status as string | null,
-      employmentType: data.employment_type as string | null,
+      employment_type: data.employment_type as string | null,
+      deleted_at: data.deleted_at as string | null,
     })
   ) {
     throw new ForbiddenError("Choose a current staff member.");

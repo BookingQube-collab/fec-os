@@ -1,6 +1,8 @@
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import { enumerateYmd } from "@/lib/attendance-hr/roster-period";
 import { normalizeShiftHm, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
+import { isAttendanceListingScopedJoker } from "@/lib/attendance-listing-access";
+import { isAdminPeopleDirectoryRow } from "@/lib/people-directory-access";
 
 /** Written on attendance_logs.source so a roster fill is distinct from a device punch. */
 export const ROSTER_PUNCH_FILL_SOURCE = "roster_fill";
@@ -38,6 +40,46 @@ export function rosterFillAudience(input: {
 }): "company" | "team" | null {
   if (!mayFillRosterDevicePunches(input)) return null;
   return "team";
+}
+
+/**
+ * Org-chart team ids plus Active / status=joker people at the viewer's scoped sites.
+ * Jokers stay off the reporting tree; Fill missed punches still needs them when the
+ * filler can act for that location (same idea as HoO / Venue location roster).
+ */
+export function mergeRosterPunchFillStaffIds(input: {
+  teamStaffIds: readonly string[];
+  scopedJokerStaffIds: readonly string[];
+}): string[] {
+  const ids = new Set(input.teamStaffIds.filter(Boolean));
+  for (const id of input.scopedJokerStaffIds) {
+    if (id) ids.add(id);
+  }
+  return [...ids].sort();
+}
+
+/** Company-wide fill subject: directory-active staff, or a roster-visible joker. */
+export function isRosterPunchFillSubjectRow(input: {
+  status: string | null | undefined;
+  employmentType?: string | null;
+  employment_type?: string | null;
+  deletedAt?: string | null;
+  deleted_at?: string | null;
+}): boolean {
+  if (input.deletedAt || input.deleted_at) return false;
+  if (
+    isAttendanceListingScopedJoker({
+      status: input.status,
+      employment_type: input.employment_type ?? input.employmentType,
+      deleted_at: input.deleted_at ?? input.deletedAt,
+    })
+  ) {
+    return true;
+  }
+  return isAdminPeopleDirectoryRow({
+    status: input.status,
+    employmentType: input.employmentType ?? input.employment_type,
+  });
 }
 
 export function isGeneralManagerTitle(jobTitle: string | null | undefined): boolean {

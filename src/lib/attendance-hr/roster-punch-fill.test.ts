@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
 import {
+  isRosterPunchFillSubjectRow,
   mayFillRosterDevicePunches,
+  mergeRosterPunchFillStaffIds,
   planRosterPunchFill,
   ROSTER_PUNCH_FILL_NOTE,
   ROSTER_PUNCH_FILL_SOURCE,
@@ -40,6 +42,37 @@ describe("who may fill missed device punches from the roster", () => {
     expect(mayFillRosterDevicePunches({ roles: ["duty_manager"], jobTitle: "Duty Manager" })).toBe(false);
     expect(rosterFillAudience({ roles: ["cashier_host"] })).toBeNull();
     expect(rosterFillAudience({ roles: ["ceo"] })).toBeNull();
+  });
+
+  it("unions location-scoped Active Jokers onto the reporting-team fill picker", () => {
+    expect(
+      mergeRosterPunchFillStaffIds({
+        teamStaffIds: ["crew-a", "mary"],
+        scopedJokerStaffIds: ["mohamed-joker", "crew-a"],
+      }),
+    ).toEqual(["crew-a", "mary", "mohamed-joker"]);
+
+    expect(
+      mergeRosterPunchFillStaffIds({
+        teamStaffIds: [],
+        scopedJokerStaffIds: ["mohamed-joker"],
+      }),
+    ).toEqual(["mohamed-joker"]);
+  });
+
+  it("keeps roster-visible jokers as fill subjects alongside directory-active staff", () => {
+    expect(isRosterPunchFillSubjectRow({ status: "joker", employment_type: "joker" })).toBe(true);
+    expect(isRosterPunchFillSubjectRow({ status: "active", employment_type: "joker" })).toBe(true);
+    expect(isRosterPunchFillSubjectRow({ status: "active", employment_type: "permanent" })).toBe(true);
+    expect(isRosterPunchFillSubjectRow({ status: "serving_notice" })).toBe(true);
+    expect(isRosterPunchFillSubjectRow({ status: "terminated", employment_type: "joker" })).toBe(false);
+    expect(
+      isRosterPunchFillSubjectRow({
+        status: "joker",
+        employment_type: "joker",
+        deleted_at: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toBe(false);
   });
 });
 
