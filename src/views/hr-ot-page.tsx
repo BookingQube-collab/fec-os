@@ -1598,6 +1598,7 @@ export default function HrOtPage() {
           <HrPanel delay={2}>
             <div className="space-y-3 p-4 sm:p-5">
               <h3 className="text-sm font-semibold">{t("hr.ot.summariesTitle")}</h3>
+              <p className="text-xs text-muted-foreground">{t("hr.ot.summariesHint")}</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0 space-y-1.5">
                   <Label>{t("hr.ot.month")}</Label>

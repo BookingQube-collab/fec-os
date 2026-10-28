@@ -9261,6 +9261,7 @@
       "claimed": "Claimed",
       "approved": "Approved",
       "summariesTitle": "Monthly OT summary",
+      "summariesHint": "Active OT days in the selected month by work date. A request with one September day and one October day counts as 1 day here for October (and 1 for September).",
       "summariesEmpty": "No OT claims in this month.",
       "month": "Month",
       "groupBy": "Group by",

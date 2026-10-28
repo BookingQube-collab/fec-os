@@ -615,7 +615,12 @@ export function groupOtClaimsIntoRequests(
     const workDates = [...new Set(sorted.map((c) => c.workDate))].sort();
     const totalClaimedMinutes = sorted.reduce((sum, c) => sum + Math.max(0, c.claimedMinutes), 0);
     const totalApprovedMinutes = sorted.reduce(
-      (sum, c) => sum + Math.max(0, c.approvedMinutes ?? c.claimedMinutes),
+      (sum, c) =>
+        sum +
+        otSummaryApprovedMinutes({
+          approvedMinutes: c.approvedMinutes,
+          claimedMinutes: c.claimedMinutes,
+        }),
       0,
     );
     const totalAmountQar =
@@ -1195,6 +1200,28 @@ export type OtSummaryBucket = {
   amountQar: number;
 };
 
+/**
+ * Minutes counted in monthly OT summary / request totals.
+ * Prefer stamped approved minutes; fall back to claimed when HOO revise
+ * clears `approved_minutes` while status stays `ops_approved`.
+ */
+export function otSummaryApprovedMinutes(input: {
+  approvedMinutes?: number | null;
+  claimedMinutes?: number | null;
+}): number {
+  if (input.approvedMinutes != null && Number.isFinite(Number(input.approvedMinutes))) {
+    return Math.max(0, Math.round(Number(input.approvedMinutes)));
+  }
+  const claimed = Number(input.claimedMinutes);
+  if (Number.isFinite(claimed)) return Math.max(0, Math.round(claimed));
+  return 0;
+}
+
+/** Day-rows that belong in Monthly OT summary (active, non-draft workflow). */
+export function isOtSummaryCountableStatus(status: string | null | undefined): boolean {
+  return status !== "rejected" && status !== "cancelled" && status !== "draft";
+}
+
 export function aggregateOtSummaries(
   rows: Array<{
     staffId: string;
@@ -1212,7 +1239,7 @@ export function aggregateOtSummaries(
 ): OtSummaryBucket[] {
   const map = new Map<string, OtSummaryBucket>();
   for (const row of rows) {
-    if (row.status === "rejected" || row.status === "cancelled" || row.status === "draft") continue;
+    if (!isOtSummaryCountableStatus(row.status)) continue;
     const key =
       groupBy === "employee"
         ? row.staffId

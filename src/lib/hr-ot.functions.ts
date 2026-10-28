@@ -16,6 +16,7 @@ import {
   hourlyRateFromPay,
   isOtActiveRequestDayStatus,
   otReviseApprovalAction,
+  otSummaryApprovedMinutes,
   planOtRequestDaySync,
   HR_OT_RATE_TYPES,
   HR_OT_STATUSES,
@@ -1084,18 +1085,25 @@ export const getOtMonthlySummaries = createAuthenticatedAction(
       (rows ?? []).map((r) => mapClaimRow(r as Record<string, unknown>)),
       policy,
     );
-    const mapped = refreshed.map((claim) => ({
-      staffId: claim.staffId,
-      staffName: claim.staffName,
-      department: claim.department,
-      employmentType: claim.employmentType,
-      locationId: claim.locationId,
-      locationName: claim.locationName,
-      eligibleMinutes: claim.eligibleMinutes,
-      approvedMinutes: claim.approvedMinutes ?? 0,
-      amountQar: claim.amountQar,
-      status: claim.status,
-    }));
+    const mapped = refreshed.map((claim) => {
+      const approvedMinutes = otSummaryApprovedMinutes({
+        approvedMinutes: claim.approvedMinutes,
+        claimedMinutes: claim.claimedMinutes,
+      });
+      return {
+        staffId: claim.staffId,
+        staffName: claim.staffName,
+        department: claim.department,
+        employmentType: claim.employmentType,
+        locationId: claim.locationId,
+        locationName: claim.locationName,
+        eligibleMinutes: claim.eligibleMinutes,
+        // Match Approval-queue request totals (approved ?? claimed).
+        approvedMinutes,
+        amountQar: claim.amountQar,
+        status: claim.status,
+      };
+    });
     return aggregateOtSummaries(mapped, data.groupBy);
   },
   { auth: { anyCapability: ["hr.ot.verify", "hr.ot.approve"] } },
@@ -2803,6 +2811,15 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
     const shouldResubmit = Boolean(data.resubmit) && from === "changes_requested";
     const nextStatus: HrOtStatus = shouldResubmit ? "submitted" : from;
     const reviseAction = otReviseApprovalAction(shouldResubmit);
+    // HOO/HR revise that keeps an approved status must keep approved minutes
+    // (otherwise monthly summary shows 0h while the queue still falls back to claimed).
+    const stampApprovedMinutes =
+      !shouldResubmit &&
+      (nextStatus === "manager_verified" ||
+        nextStatus === "ops_approved" ||
+        nextStatus === "hr_approved" ||
+        nextStatus === "gm_approved" ||
+        nextStatus === "payroll_posted");
     const now = new Date().toISOString();
 
     // Cancel day-rows removed from the request (before inserts — frees active unique key).
@@ -2865,7 +2882,7 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           notes: purpose,
           ...paySnapshot,
           status: nextStatus,
-          approved_minutes: null,
+          approved_minutes: stampApprovedMinutes ? meta.claimedMinutes : null,
           updated_at: now,
         };
         if (shouldResubmit) {
@@ -2905,7 +2922,7 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           work_date: day.workDate,
           eligible_minutes: meta.claimedMinutes,
           claimed_minutes: meta.claimedMinutes,
-          approved_minutes: null,
+          approved_minutes: stampApprovedMinutes ? meta.claimedMinutes : null,
           rate_type: rateType,
           rate_multiplier: rateMultiplier,
           amount_qar: meta.amountQar,

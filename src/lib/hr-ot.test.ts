@@ -4,6 +4,8 @@ import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
 
 import {
   aggregateOtSummaries,
+  isOtSummaryCountableStatus,
+  otSummaryApprovedMinutes,
   assertCanMarkPayrollPosted,
   assertMinClaimableMinutes,
   assertOtTransition,
@@ -1129,6 +1131,82 @@ describe("monthly OT summaries", () => {
     const byLoc = aggregateOtSummaries(rows, "location");
     expect(byLoc).toHaveLength(1);
     expect(byLoc[0].locationName).toBe("INF");
+  });
+
+  it("counts each active day-row (month query already scoped by work_date)", () => {
+    // October query would return only the Oct day of a Sep+Oct request.
+    const octoberRows = [
+      {
+        staffId: "cross",
+        staffName: "Flora",
+        department: "Ops",
+        employmentType: "secondment",
+        locationId: "l1",
+        locationName: "INF",
+        eligibleMinutes: 540,
+        approvedMinutes: otSummaryApprovedMinutes({
+          approvedMinutes: null,
+          claimedMinutes: 540,
+        }),
+        amountQar: 43.33,
+        status: "ops_approved",
+      },
+      {
+        staffId: "oct",
+        staffName: "Mary",
+        department: "Ops",
+        employmentType: "secondment",
+        locationId: "l1",
+        locationName: "INF",
+        eligibleMinutes: 540,
+        approvedMinutes: 540,
+        amountQar: 43.33,
+        status: "ops_approved",
+      },
+      {
+        staffId: "oct",
+        staffName: "Mary",
+        department: "Ops",
+        employmentType: "secondment",
+        locationId: "l1",
+        locationName: "INF",
+        eligibleMinutes: 540,
+        approvedMinutes: 540,
+        amountQar: 43.33,
+        status: "ops_approved",
+      },
+      {
+        staffId: "cross",
+        staffName: "Flora",
+        department: "Ops",
+        employmentType: "secondment",
+        locationId: "l1",
+        locationName: "INF",
+        eligibleMinutes: 540,
+        approvedMinutes: 540,
+        amountQar: 43.33,
+        status: "cancelled",
+      },
+    ];
+    const byEmp = aggregateOtSummaries(octoberRows, "employee");
+    expect(byEmp.find((r) => r.staffId === "cross")).toMatchObject({
+      claims: 1,
+      approvedMinutes: 540,
+      amountQar: 43.33,
+    });
+    expect(byEmp.find((r) => r.staffId === "oct")).toMatchObject({
+      claims: 2,
+      approvedMinutes: 1080,
+      amountQar: 86.66,
+    });
+  });
+
+  it("falls back to claimed minutes when approved is null after HOO revise", () => {
+    expect(otSummaryApprovedMinutes({ approvedMinutes: null, claimedMinutes: 540 })).toBe(540);
+    expect(otSummaryApprovedMinutes({ approvedMinutes: 480, claimedMinutes: 540 })).toBe(480);
+    expect(isOtSummaryCountableStatus("ops_approved")).toBe(true);
+    expect(isOtSummaryCountableStatus("cancelled")).toBe(false);
+    expect(isOtSummaryCountableStatus("draft")).toBe(false);
   });
 });
 
