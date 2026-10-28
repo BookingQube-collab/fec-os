@@ -24,10 +24,12 @@ import {
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
   nextStatusAfter,
+  computeDailyRateBasicFromHistory,
   resolveDailyRatePayroll,
   resolveEarnedBasicQar,
   resolvePaymentMethod,
   sumOtAmounts,
+  type SalaryRateHistoryRow,
   type HrPayrollPaymentMethod,
   type HrPayrollStatus,
   type PayrollExportRow,
@@ -36,7 +38,7 @@ import {
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 import {
   aggregatePayrollRows,
-  countListingWorkedDays,
+  listListingWorkedDates,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
@@ -280,9 +282,12 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
     .in("staff_id", staffIds);
   const { data: hist } = await supabaseAdmin
     .from("staff_salary_history")
-    .select("staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on")
+    .select(
+      "staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on, created_at",
+    )
     .in("staff_id", staffIds)
-    .order("effective_on", { ascending: false });
+    .order("effective_on", { ascending: false })
+    .order("created_at", { ascending: false });
   const { data: ext } = await supabaseAdmin
     .from("staff_profile_ext")
     .select(
@@ -292,12 +297,21 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
 
   const compBy = new Map((comps ?? []).map((c) => [c.staff_id as string, c]));
   const histBy = new Map<string, Record<string, unknown>>();
+  const histRowsBy = new Map<string, SalaryRateHistoryRow[]>();
   for (const h of hist ?? []) {
     const id = h.staff_id as string;
     if (!histBy.has(id)) histBy.set(id, h as Record<string, unknown>);
+    const list = histRowsBy.get(id) ?? [];
+    list.push({
+      effectiveOn: String(h.effective_on).slice(0, 10),
+      dailyRateQar: h.daily_rate_qar != null ? Number(h.daily_rate_qar) : null,
+      monthlyTotalQar: h.monthly_total_qar != null ? Number(h.monthly_total_qar) : null,
+      createdAt: h.created_at != null ? String(h.created_at) : null,
+    });
+    histRowsBy.set(id, list);
   }
   const extBy = new Map((ext ?? []).map((e) => [e.staff_id as string, e]));
-  return { compBy, histBy, extBy };
+  return { compBy, histBy, histRowsBy, extBy };
 }
 
 type PayrollAttendanceRow = {
@@ -390,7 +404,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     }
 
     const staffIds = staff.map((s) => s.id);
-    const { compBy, histBy, extBy } = await staffPayBundle(context, staffIds);
+    const { compBy, histBy, histRowsBy, extBy } = await staffPayBundle(context, staffIds);
 
     // Restore OT already posted to this period so regenerate does not drop OT amounts.
     await context.supabase
@@ -587,22 +601,38 @@ export const generatePayrollLines = createAuthenticatedAction(
         hireDate: s.hire_date,
         exitDate,
       });
-      const dailyRate = dailyPay
-        ? dayRateQar
-        : basic > 0
-          ? basic / activeWindow.periodDays
-          : null;
-      const workedDays = countListingWorkedDays(dayInputs, s.id, {
+      const workedDates = listListingWorkedDates(dayInputs, s.id, {
         from: activeWindow.activeFrom,
         to: activeWindow.activeTo,
       });
-      const basicForLine = resolveEarnedBasicQar({
-        dailyPay,
-        contractBasicQar: basic,
-        dailyRateQar: dayRateQar,
-        workedDays,
-        periodDays: activeWindow.periodDays,
-      });
+      const workedDays = workedDates.length;
+      const historyRates = histRowsBy.get(s.id) ?? [];
+      const historyPay =
+        dailyPay && historyRates.length > 0
+          ? computeDailyRateBasicFromHistory({
+              workedDates,
+              history: historyRates,
+              employmentType: s.employment_type,
+              employmentCategory,
+              fallbackDailyRateQar: dailyStored,
+              fallbackMonthlySalaryQar: monthlyStored,
+            })
+          : null;
+      const resolvedDayRateQar = historyPay?.primaryDayRateQar ?? dayRateQar;
+      const dailyRate = dailyPay
+        ? resolvedDayRateQar
+        : basic > 0
+          ? basic / activeWindow.periodDays
+          : null;
+      const basicForLine = historyPay
+        ? historyPay.basicQar
+        : resolveEarnedBasicQar({
+            dailyPay,
+            contractBasicQar: basic,
+            dailyRateQar: dayRateQar,
+            workedDays,
+            periodDays: activeWindow.periodDays,
+          });
       const allowanceRatio = dailyPay || !(basic > 0) ? 0 : basicForLine / basic;
       const allowancesForLine = Math.round((allowances * allowanceRatio + Number.EPSILON) * 100) / 100;
       const proration = {
@@ -634,7 +664,8 @@ export const generatePayrollLines = createAuthenticatedAction(
 
       const ready = readinessByStaff.get(s.id);
       const hasComp = dailyPay
-        ? dayRateQar != null && dayRateQar > 0
+        ? (resolvedDayRateQar != null && resolvedDayRateQar > 0) ||
+          (historyPay != null && historyPay.basicQar > 0)
         : (Number.isFinite(monthlyStored) && (monthlyStored as number) > 0) || basic > 0;
       if (!hasComp) missingCompensation += 1;
       if (ready && !ready.payrollReady) attendanceBlocked += 1;
@@ -653,7 +684,7 @@ export const generatePayrollLines = createAuthenticatedAction(
       );
       const earnedGross = Math.round((basicForLine + allowancesForLine + Number.EPSILON) * 100) / 100;
       const contractGross = dailyPay
-        ? Math.round(((Number(dayRateQar) || 0) * 30 + Number.EPSILON) * 100) / 100
+        ? Math.round(((Number(resolvedDayRateQar) || 0) * 30 + Number.EPSILON) * 100) / 100
         : Math.round((basic + allowances + Number.EPSILON) * 100) / 100;
       const payNet = computed.netQar;
 
@@ -668,7 +699,12 @@ export const generatePayrollLines = createAuthenticatedAction(
               ? {
                   ...e,
                   label: "Daily rate × worked days",
-                  meta: { dayRateQar: dailyRate, workedDays, dailyPay },
+                  meta: {
+                    dayRateQar: dailyRate,
+                    workedDays,
+                    dailyPay,
+                    distinctRates: historyPay?.distinctRates ?? 1,
+                  },
                 }
               : e,
           ),
@@ -705,7 +741,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           contractBasicQar: hasComp && !dailyPay ? basic : null,
           contractAllowancesQar: hasComp && !dailyPay ? allowances : 0,
           contractGrossQar: hasComp ? contractGross : null,
-          perDayRate: dailyPay ? dayRateQar : null,
+          perDayRate: dailyPay ? resolvedDayRateQar : null,
           basicSalary: !hasComp ? null : dailyPay ? 0 : basic,
           allowances: !hasComp || dailyPay ? 0 : allowances,
           earnedGross,

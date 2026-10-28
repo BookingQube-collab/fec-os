@@ -256,6 +256,92 @@ export function computeDailyRateBasicQar(dayRateQar: number, presentDays: number
   return round2(Math.max(0, Number(dayRateQar) || 0) * Math.max(0, Number(presentDays) || 0));
 }
 
+export type SalaryRateHistoryRow = {
+  effectiveOn: string;
+  dailyRateQar?: number | null;
+  monthlyTotalQar?: number | null;
+  createdAt?: string | null;
+};
+
+/**
+ * Pick the day rate in effect on a work date from salary history (latest effective_on ≤ date).
+ * Falls back to live compensation when no history row covers the date.
+ */
+export function resolveDayRateOnDate(input: {
+  workDate: string;
+  history: SalaryRateHistoryRow[];
+  employmentType?: string | null;
+  employmentCategory?: string | null;
+  fallbackDailyRateQar?: number | null;
+  fallbackMonthlySalaryQar?: number | null;
+}): number | null {
+  const ymd = String(input.workDate ?? "").slice(0, 10);
+  let best: SalaryRateHistoryRow | null = null;
+  for (const row of input.history ?? []) {
+    const on = String(row.effectiveOn ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(on) || on > ymd) continue;
+    if (!best) {
+      best = row;
+      continue;
+    }
+    const bestOn = String(best.effectiveOn).slice(0, 10);
+    if (on > bestOn) {
+      best = row;
+      continue;
+    }
+    if (on === bestOn) {
+      const a = String(row.createdAt ?? "");
+      const b = String(best.createdAt ?? "");
+      if (a > b) best = row;
+    }
+  }
+  return resolveDailyRatePayroll({
+    employmentType: input.employmentType,
+    employmentCategory: input.employmentCategory,
+    dailyRateQar: best?.dailyRateQar ?? input.fallbackDailyRateQar,
+    monthlySalaryQar: best?.monthlyTotalQar ?? input.fallbackMonthlySalaryQar,
+  }).dayRateQar;
+}
+
+/** Sum day-rate pay across worked dates, using the history rate in effect each day. */
+export function computeDailyRateBasicFromHistory(input: {
+  workedDates: string[];
+  history: SalaryRateHistoryRow[];
+  employmentType?: string | null;
+  employmentCategory?: string | null;
+  fallbackDailyRateQar?: number | null;
+  fallbackMonthlySalaryQar?: number | null;
+}): { basicQar: number; primaryDayRateQar: number | null; distinctRates: number } {
+  const rates = new Map<number, number>();
+  let basic = 0;
+  for (const workDate of input.workedDates) {
+    const rate = resolveDayRateOnDate({
+      workDate,
+      history: input.history,
+      employmentType: input.employmentType,
+      employmentCategory: input.employmentCategory,
+      fallbackDailyRateQar: input.fallbackDailyRateQar,
+      fallbackMonthlySalaryQar: input.fallbackMonthlySalaryQar,
+    });
+    if (rate == null || rate <= 0) continue;
+    basic += rate;
+    rates.set(rate, (rates.get(rate) ?? 0) + 1);
+  }
+  let primaryDayRateQar: number | null = null;
+  let primaryDays = -1;
+  for (const [rate, days] of rates) {
+    if (days > primaryDays) {
+      primaryDays = days;
+      primaryDayRateQar = rate;
+    }
+  }
+  return {
+    basicQar: round2(basic),
+    primaryDayRateQar,
+    distinctRates: rates.size,
+  };
+}
+
 /**
  * Earned basic from the attendance listing worked-day count.
  * Joker / day-rate: stored day rate × worked days (monthly_salary_qar is the legacy day rate).

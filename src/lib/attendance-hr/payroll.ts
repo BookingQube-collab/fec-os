@@ -125,19 +125,28 @@ export function countListingWorkedDays(
   staffId: string,
   bounds?: { from?: string | null; to?: string | null },
 ): number {
+  return listListingWorkedDates(days, staffId, bounds).length;
+}
+
+/** Present/Late work dates (YYYY-MM-DD) inside an optional hire/exit window. */
+export function listListingWorkedDates(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+): string[] {
   const from = bounds?.from?.slice(0, 10) ?? "";
   const to = bounds?.to?.slice(0, 10) ?? "";
-  if (from && to && from > to) return 0;
-  let count = 0;
+  if (from && to && from > to) return [];
+  const out: string[] = [];
   for (const day of collapsePayrollDayInputs(days)) {
     if (day.staff_id !== staffId) continue;
     const ymd = String(day.work_date ?? "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
     if (from && ymd < from) continue;
     if (to && ymd > to) continue;
-    if (isPayrollPresentDay(day)) count += 1;
+    if (isPayrollPresentDay(day)) out.push(ymd);
   }
-  return count;
+  return out;
 }
 
 export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "missedPunches">): boolean {

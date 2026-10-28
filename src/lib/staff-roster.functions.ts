@@ -14,6 +14,7 @@ import {
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
+import { addDaysYmd } from "@/lib/hr-overview";
 import {
   canManageSalaryCustomExtras,
   parseSalaryExtras,
@@ -354,8 +355,41 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       transportQar: z.number().min(0).max(1_000_000).nullable().optional(),
       /** When set, replaces custom extras (HR / HOO / Admin only). Omitted keeps existing. */
       extras: z.array(salaryExtraSchema).max(20).optional(),
+      /** Closed past joker day-rate window (does not replace live current price). */
+      previousDailyRateQar: z.number().min(0).max(100_000).optional(),
+      previousRateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      previousRateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((val, ctx) => {
+      const hasPrev =
+        val.previousDailyRateQar != null ||
+        val.previousRateFrom != null ||
+        val.previousRateTo != null;
+      if (!hasPrev) return;
+      if (val.previousDailyRateQar == null || !(val.previousDailyRateQar > 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Previous joker price is required when From/To dates are set.",
+          path: ["previousDailyRateQar"],
+        });
+      }
+      if (!val.previousRateFrom || !val.previousRateTo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Previous price needs both From and To dates.",
+          path: ["previousRateFrom"],
+        });
+        return;
+      }
+      if (val.previousRateFrom > val.previousRateTo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Previous price From date must be on or before To date.",
+          path: ["previousRateFrom"],
+        });
+      }
+    }),
   async (data, context) => {
     const access = context.access;
     const mayEdit =
@@ -417,10 +451,9 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
               extras: extrasForTotal ?? [],
             })
           : null;
-    await insertSalaryHistoryAndSync(context, {
+    const historyBase = {
       staffId: data.id,
       monthlyTotalQar: packageTotal,
-      dailyRateQar: daily,
       basicQar: isDaily ? null : hasSplit ? (basic ?? 0) : basic ?? packageTotal,
       housingQar: isDaily ? null : hasSplit ? (housing ?? 0) : undefined,
       transportQar: isDaily ? null : hasSplit ? (transport ?? 0) : undefined,
@@ -434,6 +467,45 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
               transportation: transport ?? 0,
             },
       locationId: existing.location_id,
+    } as const;
+
+    const previousFrom = data.previousRateFrom?.slice(0, 10);
+    const previousTo = data.previousRateTo?.slice(0, 10);
+    const previousRate =
+      data.previousDailyRateQar != null && data.previousDailyRateQar > 0
+        ? data.previousDailyRateQar
+        : null;
+    if (previousFrom && previousTo && previousRate != null) {
+      if (!isDaily || daily == null) {
+        throw new Error("Previous price windows require a current joker day rate.");
+      }
+      await insertSalaryHistoryAndSync(context, {
+        ...historyBase,
+        dailyRateQar: previousRate,
+        monthlyTotalQar: null,
+        basicQar: null,
+        housingQar: null,
+        transportQar: null,
+        replaceComponents: true,
+        allowances: undefined,
+        effectiveOn: previousFrom,
+        reason: "joker_previous_rate",
+        syncCompensation: false,
+      });
+      // Resume current price the day after the previous window ends.
+      await insertSalaryHistoryAndSync(context, {
+        ...historyBase,
+        dailyRateQar: daily,
+        effectiveOn: addDaysYmd(previousTo, 1),
+        reason: "joker_current_rate_resume",
+        syncCompensation: true,
+      });
+      return { ok: true as const };
+    }
+
+    await insertSalaryHistoryAndSync(context, {
+      ...historyBase,
+      dailyRateQar: daily,
       reason: "manual_update",
     });
     return { ok: true as const };

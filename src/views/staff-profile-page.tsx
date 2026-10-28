@@ -421,7 +421,7 @@ function StaffProfilePageBody() {
     mutationFn: async () => {
       const isJoker = employmentType === "joker" || profile.data?.staff?.employment_type === "joker";
       if (isJoker) {
-        const amount = parseMoneyField(salary, t("people.staff.dayRatePlaceholder"));
+        const amount = parseMoneyField(salary, t("people.staff.currentPricePlaceholder"));
         const result = await updateStaffSalary({ id, monthlySalaryQar: null, dailyRateQar: amount });
         if (!result.ok) throw new Error(result.error);
         return result.data;
@@ -1247,7 +1247,7 @@ function StaffProfilePageBody() {
                   <FactGrid
                     items={[
                       fact(
-                        t("people.staff.dayRate"),
+                        t("people.staff.currentPrice"),
                         profile.data?.compensation?.daily_rate_qar == null
                           ? null
                           : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}/day`,
@@ -1257,11 +1257,11 @@ function StaffProfilePageBody() {
                   {canSalary ? (
                     <div className="flex flex-wrap items-end gap-2">
                       <div className="space-y-1">
-                        <Label>{t("people.staff.dayRate")}</Label>
+                        <Label>{t("people.staff.currentPrice")}</Label>
                         <Input
                           value={salary}
                           onChange={(e) => setSalary(e.target.value)}
-                          placeholder={t("people.staff.dayRatePlaceholder")}
+                          placeholder={t("people.staff.currentPricePlaceholder")}
                         />
                       </div>
                       <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
@@ -1679,7 +1679,7 @@ function StaffProfilePageBody() {
               {(employmentType === "joker" || s.employment_type === "joker") &&
               profile.data.compensation?.daily_rate_qar != null ? (
                 <Row
-                  label={t("people.staff.dayRate")}
+                  label={t("people.staff.currentPrice")}
                   value={`${profile.data.compensation.daily_rate_qar} ${profile.data.compensation.currency ?? "QAR"}/day`}
                 />
               ) : (
@@ -2009,7 +2009,7 @@ function StaffProfilePageBody() {
                       : `${profile.data.compensation.monthly_salary_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,
                   ),
                   fact(
-                    t("people.staff.dayRate"),
+                    t("people.staff.currentPrice"),
                     profile.data.compensation?.daily_rate_qar == null
                       ? null
                       : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,

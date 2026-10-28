@@ -612,6 +612,9 @@ function StaffFormDialog({
     }
     return staff?.monthly_salary_qar != null ? String(staff.monthly_salary_qar) : "";
   });
+  const [previousPrice, setPreviousPrice] = useState("");
+  const [previousPriceFrom, setPreviousPriceFrom] = useState("");
+  const [previousPriceTo, setPreviousPriceTo] = useState("");
   const [editHomeLocationId, setEditHomeLocationId] = useState(staff?.location_id ?? "");
   const [workLocationIds, setWorkLocationIds] = useState<string[]>(
     staff?.work_location_ids?.length
@@ -731,10 +734,33 @@ function StaffFormDialog({
       }
       const nextMonthly = jokerDaily ? null : nextAmount;
       const nextDaily = jokerDaily ? nextAmount : null;
+      const prevPriceRaw = previousPrice.trim();
+      const prevFrom = previousPriceFrom.trim();
+      const prevTo = previousPriceTo.trim();
+      const prevAny = Boolean(prevPriceRaw || prevFrom || prevTo);
+      let previousDailyRateQar: number | undefined;
+      let previousRateFrom: string | undefined;
+      let previousRateTo: string | undefined;
+      if (canEditSalary && jokerDaily && payBasis === "daily" && prevAny) {
+        const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
+        if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
+          throw new Error(t("people.staff.previousPriceIncomplete"));
+        }
+        if (prevFrom > prevTo) {
+          throw new Error(t("people.staff.previousPriceRangeInvalid"));
+        }
+        if (nextDaily == null || !(nextDaily > 0)) {
+          throw new Error(t("people.staff.currentPricePlaceholder"));
+        }
+        previousDailyRateQar = prevAmount;
+        previousRateFrom = prevFrom;
+        previousRateTo = prevTo;
+      }
       const salaryChanged =
         canEditSalary &&
         (nextMonthly !== (staff?.monthly_salary_qar ?? null) ||
-          nextDaily !== (staff?.daily_rate_qar ?? null));
+          nextDaily !== (staff?.daily_rate_qar ?? null) ||
+          previousDailyRateQar != null);
 
       const saveIdentity = identityFieldsChanged(identity, staff);
       const documents = saveIdentity
@@ -797,6 +823,13 @@ function StaffFormDialog({
           id,
           monthlySalaryQar: nextMonthly,
           dailyRateQar: nextDaily,
+          ...(previousDailyRateQar != null && previousRateFrom && previousRateTo
+            ? {
+                previousDailyRateQar,
+                previousRateFrom,
+                previousRateTo,
+              }
+            : {}),
         }).then(assertSaved);
       };
       const savePhoto = (id: string) => {
@@ -930,6 +963,9 @@ function StaffFormDialog({
         codeChanged ? `${t("people.staff.updateSuccess")} · ${nextCode}` : isEdit ? t("people.staff.updateSuccess") : t("people.staff.createSuccess"),
       );
       setPhotoDraft({ dataUrl: null, remove: false });
+      setPreviousPrice("");
+      setPreviousPriceFrom("");
+      setPreviousPriceTo("");
       if (!isEdit) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.people.employeeCodes() });
       }
@@ -1247,6 +1283,9 @@ function StaffFormDialog({
                     } else {
                       setPayBasis("monthly");
                       setStatus((prev) => (prev === "joker" ? "active" : prev));
+                      setPreviousPrice("");
+                      setPreviousPriceFrom("");
+                      setPreviousPriceTo("");
                     }
                   }}>
                     <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
@@ -1280,24 +1319,58 @@ function StaffFormDialog({
                 </div>
               ) : null}
               {(canEditSalary || (isEdit && canViewSalary)) && (
-                <div>
-                  <Label>
-                    {employmentType === "joker" && payBasis === "daily"
-                      ? t("people.staff.dayRate")
-                      : t("people.staff.salary")}
-                  </Label>
-                  <Input
-                    value={salary}
-                    onChange={(e) => setSalary(e.target.value)}
-                    placeholder={
-                      employmentType === "joker" && payBasis === "daily"
-                        ? t("people.staff.dayRatePlaceholder")
-                        : t("people.staff.salaryPlaceholder")
-                    }
-                    inputMode="decimal"
-                    readOnly={!canEditSalary}
-                    className={canEditSalary ? undefined : "bg-muted/40"}
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <Label>
+                      {employmentType === "joker" && payBasis === "daily"
+                        ? t("people.staff.currentPrice")
+                        : t("people.staff.salary")}
+                    </Label>
+                    <Input
+                      value={salary}
+                      onChange={(e) => setSalary(e.target.value)}
+                      placeholder={
+                        employmentType === "joker" && payBasis === "daily"
+                          ? t("people.staff.currentPricePlaceholder")
+                          : t("people.staff.salaryPlaceholder")
+                      }
+                      inputMode="decimal"
+                      readOnly={!canEditSalary}
+                      className={canEditSalary ? undefined : "bg-muted/40"}
+                    />
+                  </div>
+                  {employmentType === "joker" && payBasis === "daily" && canEditSalary ? (
+                    <div className="space-y-2 rounded-md border border-border/70 p-3">
+                      <div>
+                        <Label>{t("people.staff.previousPrice")}</Label>
+                        <Input
+                          value={previousPrice}
+                          onChange={(e) => setPreviousPrice(e.target.value)}
+                          placeholder={t("people.staff.previousPricePlaceholder")}
+                          inputMode="decimal"
+                        />
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <Label>{t("people.staff.previousPriceFrom")}</Label>
+                          <Input
+                            type="date"
+                            value={previousPriceFrom}
+                            onChange={(e) => setPreviousPriceFrom(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label>{t("people.staff.previousPriceTo")}</Label>
+                          <Input
+                            type="date"
+                            value={previousPriceTo}
+                            onChange={(e) => setPreviousPriceTo(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{t("people.staff.previousPriceHelp")}</p>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </TabsContent>

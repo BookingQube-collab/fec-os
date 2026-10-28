@@ -61,9 +61,15 @@ export async function insertSalaryHistoryAndSync(
     effectiveOn?: string;
     reason?: string | null;
     locationId?: string | null;
+    /**
+     * When false, only appends history (for a closed past joker rate window).
+     * Live staff_compensation stays unchanged.
+     */
+    syncCompensation?: boolean;
   },
 ): Promise<{ historyId: string }> {
   const effectiveOn = input.effectiveOn ?? qatarToday();
+  const syncCompensation = input.syncCompensation !== false;
   const replace = Boolean(input.replaceComponents);
   let existingComp: {
     basic_qar?: number | null;
@@ -164,38 +170,40 @@ export async function insertSalaryHistoryAndSync(
     .single();
   if (histErr) throw histErr;
 
-  const extrasJson = serializeSalaryExtras(extras) as unknown as Json;
-  const { error: compErr } = await supabaseAdmin.from("staff_compensation").upsert({
-    staff_id: input.staffId,
-    monthly_salary_qar: input.monthlyTotalQar,
-    daily_rate_qar: input.dailyRateQar ?? null,
-    basic_qar: basic,
-    housing_qar: housing,
-    transport_qar: transport,
-    extras: extrasJson,
-    currency: "QAR",
-    updated_by: context.userId,
-  });
-  if (compErr) {
-    if (/extras/i.test(compErr.message)) {
-      if (extras.length > 0) {
-        throw new Error(
-          "Custom salary extras need the staff_compensation.extras column. Run the latest Supabase migrations (db push), then try again.",
-        );
+  if (syncCompensation) {
+    const extrasJson = serializeSalaryExtras(extras) as unknown as Json;
+    const { error: compErr } = await supabaseAdmin.from("staff_compensation").upsert({
+      staff_id: input.staffId,
+      monthly_salary_qar: input.monthlyTotalQar,
+      daily_rate_qar: input.dailyRateQar ?? null,
+      basic_qar: basic,
+      housing_qar: housing,
+      transport_qar: transport,
+      extras: extrasJson,
+      currency: "QAR",
+      updated_by: context.userId,
+    });
+    if (compErr) {
+      if (/extras/i.test(compErr.message)) {
+        if (extras.length > 0) {
+          throw new Error(
+            "Custom salary extras need the staff_compensation.extras column. Run the latest Supabase migrations (db push), then try again.",
+          );
+        }
+        const { error: legacyCompErr } = await supabaseAdmin.from("staff_compensation").upsert({
+          staff_id: input.staffId,
+          monthly_salary_qar: input.monthlyTotalQar,
+          daily_rate_qar: input.dailyRateQar ?? null,
+          basic_qar: basic,
+          housing_qar: housing,
+          transport_qar: transport,
+          currency: "QAR",
+          updated_by: context.userId,
+        });
+        if (legacyCompErr) throw legacyCompErr;
+      } else {
+        throw compErr;
       }
-      const { error: legacyCompErr } = await supabaseAdmin.from("staff_compensation").upsert({
-        staff_id: input.staffId,
-        monthly_salary_qar: input.monthlyTotalQar,
-        daily_rate_qar: input.dailyRateQar ?? null,
-        basic_qar: basic,
-        housing_qar: housing,
-        transport_qar: transport,
-        currency: "QAR",
-        updated_by: context.userId,
-      });
-      if (legacyCompErr) throw legacyCompErr;
-    } else {
-      throw compErr;
     }
   }
 
@@ -214,6 +222,7 @@ export async function insertSalaryHistoryAndSync(
         extras: serializeSalaryExtras(extras),
         daily_rate_qar: input.dailyRateQar ?? null,
         effective_on: effectiveOn,
+        sync_compensation: syncCompensation,
       },
       input.locationId,
     );
@@ -233,6 +242,7 @@ export async function insertSalaryHistoryAndSync(
         extras: serializeSalaryExtras(extras),
         daily_rate_qar: input.dailyRateQar ?? null,
         reason: input.reason ?? null,
+        sync_compensation: syncCompensation,
       },
       sourceTable: "staff_salary_history",
       sourceId: hist.id,

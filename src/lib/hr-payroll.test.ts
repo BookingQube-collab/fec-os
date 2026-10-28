@@ -16,9 +16,11 @@ import {
   filterConsumableOtClaims,
   isDailyRateCompensation,
   lockedLineResistsPolicyChange,
+  computeDailyRateBasicFromHistory,
   mergeUnpaidDaysForPayroll,
   partitionByPaymentMethod,
   resolveDailyRatePayroll,
+  resolveDayRateOnDate,
   resolvePaymentMethod,
   sumOtAmounts,
 } from "./hr-payroll";
@@ -59,6 +61,53 @@ describe("daily-rate joker pay", () => {
       }),
     ).toEqual({ dailyPay: false, dayRateQar: null });
     expect(computeDailyRateBasicQar(150, 12)).toBe(1800);
+  });
+
+  it("resolves joker day rate from salary history as-of work date", () => {
+    const history = [
+      { effectiveOn: "2026-03-16", dailyRateQar: 60, createdAt: "2026-03-16T10:00:00Z" },
+      { effectiveOn: "2026-01-01", dailyRateQar: 50, createdAt: "2026-01-01T10:00:00Z" },
+    ];
+    expect(
+      resolveDayRateOnDate({
+        workDate: "2026-02-10",
+        history,
+        employmentType: "joker",
+        fallbackDailyRateQar: 60,
+      }),
+    ).toBe(50);
+    expect(
+      resolveDayRateOnDate({
+        workDate: "2026-03-16",
+        history,
+        employmentType: "joker",
+        fallbackDailyRateQar: 60,
+      }),
+    ).toBe(60);
+    expect(
+      resolveDayRateOnDate({
+        workDate: "2025-12-20",
+        history,
+        employmentType: "joker",
+        fallbackDailyRateQar: 60,
+      }),
+    ).toBe(60);
+  });
+
+  it("sums joker basic across mixed rate windows", () => {
+    const history = [
+      { effectiveOn: "2026-03-16", dailyRateQar: 60 },
+      { effectiveOn: "2026-01-01", dailyRateQar: 50 },
+    ];
+    // 50+50+60+60 = 220; tied day counts keep the first rate seen (50).
+    expect(
+      computeDailyRateBasicFromHistory({
+        workedDates: ["2026-03-10", "2026-03-11", "2026-03-20", "2026-03-21"],
+        history,
+        employmentType: "joker",
+        fallbackDailyRateQar: 60,
+      }),
+    ).toEqual({ basicQar: 220, primaryDayRateQar: 50, distinctRates: 2 });
   });
 
   it("pays monthly staff from listing worked days, not the full basic", () => {
