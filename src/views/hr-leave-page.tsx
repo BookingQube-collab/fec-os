@@ -142,12 +142,17 @@ export function HrLeaveWorkspace({
   };
 
   const review = useMutation({
-    mutationFn: reviewLeaveRequest,
+    mutationFn: (vars: {
+      id: string;
+      status: "approved" | "rejected" | "cancelled";
+      reviewNote?: string | null;
+      payrollImpact?: boolean;
+    }) => reviewLeaveRequest(vars),
     onMutate: async (vars) => {
       const previous = await dropLeaveRowsOptimistic([vars.id]);
       return { previous };
     },
-    onSuccess: (res, vars: { id: string; status: "approved" | "rejected" | "cancelled"; reviewNote?: string | null; payrollImpact?: boolean }) => {
+    onSuccess: (res, vars) => {
       if (vars.status === "approved" && (res.syncedDays ?? 0) > 0) {
         toast.success(t("hr.leave.synced", { days: res.syncedDays }));
       } else {
@@ -163,7 +168,12 @@ export function HrLeaveWorkspace({
   });
 
   const stepAct = useMutation({
-    mutationFn: actOnLeaveApproval,
+    mutationFn: (vars: {
+      leaveId: string;
+      action: "approved" | "rejected";
+      comments?: string | null;
+      payrollImpact?: boolean;
+    }) => actOnLeaveApproval(vars),
     onMutate: async (vars) => {
       // Intermediate approve keeps the row in the pending queue for the next step.
       if (vars.action !== "rejected") return { previous: undefined as LeaveListRow[] | undefined };
@@ -196,7 +206,11 @@ export function HrLeaveWorkspace({
   });
 
   const bulk = useMutation({
-    mutationFn: bulkReviewLeaveRequests,
+    mutationFn: (vars: {
+      ids: string[];
+      status: "approved" | "rejected";
+      reviewNote?: string | null;
+    }) => bulkReviewLeaveRequests(vars),
     onMutate: async (vars) => {
       const previous = await dropLeaveRowsOptimistic(vars.ids);
       return { previous };
