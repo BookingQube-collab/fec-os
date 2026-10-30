@@ -21,9 +21,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { TASK_APPROVAL_STATUSES, TASK_ESCALATION_LEVELS, TASK_PRIORITIES, TASK_STATUSES } from "@/lib/events/constants";
+import { EventTaskAdvancedPanel } from "@/components/events/event-task-advanced-panel";
+import {
+  TASK_APPROVAL_STATUSES,
+  TASK_ESCALATION_LEVELS,
+  TASK_PRIORITIES,
+  TASK_RECURRENCE_FREQS,
+  TASK_STATUSES,
+} from "@/lib/events/constants";
 import { LIFECYCLE_PHASES } from "@/lib/events/lifecycle";
-import type { EventChecklistItem, EventTaskRow, EventWbsNode } from "@/lib/events/types";
+import type { EventChecklistItem, EventSprintRow, EventTaskRow, EventWbsNode } from "@/lib/events/types";
 
 type StaffOpt = { id: string; full_name: string };
 type DeptOpt = { id: string; name: string };
@@ -35,6 +42,7 @@ export type TaskDraft = {
   parent_task_id: string;
   owner_staff_id: string;
   assignee_staff_id: string;
+  assignee_ids: string[];
   department_id: string;
   priority: string;
   status: string;
@@ -58,6 +66,12 @@ export type TaskDraft = {
   evidence_url: string;
   is_snag: boolean;
   lifecycle_phase: string;
+  recurrence_freq: string;
+  recurrence_interval: string;
+  recurrence_until: string;
+  reminder_days_before: string;
+  story_points: string;
+  sprint_id: string;
 };
 
 const emptyDraft = (): TaskDraft => ({
@@ -67,6 +81,7 @@ const emptyDraft = (): TaskDraft => ({
   parent_task_id: "",
   owner_staff_id: "",
   assignee_staff_id: "",
+  assignee_ids: [],
   department_id: "",
   priority: "normal",
   status: "not_started",
@@ -90,6 +105,12 @@ const emptyDraft = (): TaskDraft => ({
   evidence_url: "",
   is_snag: false,
   lifecycle_phase: "",
+  recurrence_freq: "",
+  recurrence_interval: "1",
+  recurrence_until: "",
+  reminder_days_before: "3",
+  story_points: "",
+  sprint_id: "",
 });
 
 function fromTask(task: EventTaskRow): TaskDraft {
@@ -100,6 +121,7 @@ function fromTask(task: EventTaskRow): TaskDraft {
     parent_task_id: task.parent_task_id ?? "",
     owner_staff_id: task.owner_staff_id ?? "",
     assignee_staff_id: task.assignee_staff_id ?? "",
+    assignee_ids: task.assignee_ids ?? (task.assignee_staff_id ? [task.assignee_staff_id] : []),
     department_id: task.department_id ?? "",
     priority: task.priority,
     status: task.status,
@@ -123,6 +145,12 @@ function fromTask(task: EventTaskRow): TaskDraft {
     evidence_url: task.evidence_url ?? "",
     is_snag: task.is_snag ?? false,
     lifecycle_phase: task.lifecycle_phase ?? "",
+    recurrence_freq: task.recurrence_freq ?? "",
+    recurrence_interval: String(task.recurrence_interval ?? 1),
+    recurrence_until: task.recurrence_until ?? "",
+    reminder_days_before: String(task.reminder_days_before ?? 3),
+    story_points: task.story_points != null ? String(task.story_points) : "",
+    sprint_id: task.sprint_id ?? "",
   };
 }
 
@@ -133,7 +161,11 @@ export function EventTaskDialog({
   tasks,
   staff,
   departments,
+  sprints = [],
   pending,
+  seedParentTaskId,
+  eventId,
+  canEdit,
   onOpenChange,
   onSave,
   onComment,
@@ -144,7 +176,11 @@ export function EventTaskDialog({
   tasks: EventTaskRow[];
   staff: StaffOpt[];
   departments: DeptOpt[];
+  sprints?: EventSprintRow[];
   pending?: boolean;
+  seedParentTaskId?: string | null;
+  eventId?: string;
+  canEdit?: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (draft: TaskDraft) => void;
   onComment?: (body: string) => void;
@@ -157,12 +193,24 @@ export function EventTaskDialog({
   const [comment, setComment] = useState("");
 
   useEffect(() => {
-    setDraft(task ? fromTask(task) : emptyDraft());
+    if (task) {
+      setDraft(fromTask(task));
+    } else {
+      const base = emptyDraft();
+      const parent = seedParentTaskId ? tasks.find((row) => row.id === seedParentTaskId) : null;
+      setDraft({
+        ...base,
+        parent_task_id: seedParentTaskId ?? "",
+        wbs_id: parent?.wbs_id ?? "",
+        owner_staff_id: parent?.owner_staff_id ?? "",
+        department_id: parent?.department_id ?? "",
+      });
+    }
     setCheckTitle("");
     setDocTitle("");
     setDocUrl("");
     setComment("");
-  }, [task, open]);
+  }, [task, open, seedParentTaskId, tasks]);
 
   const set = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => setDraft((s) => ({ ...s, [key]: value }));
 
@@ -225,13 +273,49 @@ export function EventTaskDialog({
           </label>
           <label className="space-y-1 text-xs">
             <Label>{t("events.plan.assignee")}</Label>
-            <Select value={draft.assignee_staff_id || "none"} onValueChange={(v) => set("assignee_staff_id", v === "none" ? "" : v)}>
+            <Select
+              value={draft.assignee_staff_id || "none"}
+              onValueChange={(v) => {
+                const primary = v === "none" ? "" : v;
+                set("assignee_staff_id", primary);
+                set(
+                  "assignee_ids",
+                  primary
+                    ? [...new Set([primary, ...draft.assignee_ids.filter((id) => id !== primary)])]
+                    : draft.assignee_ids,
+                );
+              }}
+            >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">—</SelectItem>
                 {staff.map((s) => <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>)}
               </SelectContent>
             </Select>
+          </label>
+          <label className="space-y-1 text-xs md:col-span-2">
+            <Label>{t("events.plan.additionalAssignees")}</Label>
+            <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-md border border-border/40 p-2">
+              {staff.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={draft.assignee_ids.includes(s.id)}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                        ? [...draft.assignee_ids, s.id]
+                        : draft.assignee_ids.filter((id) => id !== s.id);
+                      set("assignee_ids", next);
+                      if (e.target.checked && !draft.assignee_staff_id) set("assignee_staff_id", s.id);
+                      if (!e.target.checked && draft.assignee_staff_id === s.id) {
+                        set("assignee_staff_id", next[0] ?? "");
+                      }
+                    }}
+                  />
+                  {s.full_name}
+                </label>
+              ))}
+            </div>
           </label>
           <label className="space-y-1 text-xs">
             <Label>{t("events.plan.lifecycle")}</Label>
@@ -288,6 +372,22 @@ export function EventTaskDialog({
           <label className="space-y-1 text-xs">
             <Label>{t("events.plan.progress")}</Label>
             <Input type="number" min={0} max={100} value={draft.percent_complete} onChange={(e) => set("percent_complete", Number(e.target.value || 0))} />
+          </label>
+          <label className="space-y-1 text-xs">
+            <Label>{t("events.plan.storyPoints")}</Label>
+            <Input type="number" min={0} step={0.5} value={draft.story_points} onChange={(e) => set("story_points", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-xs">
+            <Label>{t("events.plan.sprint")}</Label>
+            <Select value={draft.sprint_id || "none"} onValueChange={(v) => set("sprint_id", v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("events.plan.backlog")}</SelectItem>
+                {sprints.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <label className="space-y-1 text-xs">
             <Label>{t("events.plan.estHours")}</Label>
@@ -368,6 +468,30 @@ export function EventTaskDialog({
           <label className="flex items-center gap-2 text-xs">
             <input type="checkbox" checked={draft.is_snag} onChange={(e) => set("is_snag", e.target.checked)} />
             {t("events.overview.snag")}
+          </label>
+          <label className="space-y-1 text-xs">
+            <Label>{t("events.plan.recurrence")}</Label>
+            <Select value={draft.recurrence_freq || "none"} onValueChange={(v) => set("recurrence_freq", v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("events.plan.noRecurrence")}</SelectItem>
+                {TASK_RECURRENCE_FREQS.map((f) => (
+                  <SelectItem key={f} value={f}>{t(`events.recurrence.${f}`)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="space-y-1 text-xs">
+            <Label>{t("events.plan.recurrenceInterval")}</Label>
+            <Input type="number" min={1} value={draft.recurrence_interval} onChange={(e) => set("recurrence_interval", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-xs">
+            <Label>{t("events.plan.recurrenceUntil")}</Label>
+            <Input type="date" value={draft.recurrence_until} onChange={(e) => set("recurrence_until", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-xs">
+            <Label>{t("events.plan.reminderDays")}</Label>
+            <Input type="number" min={0} max={90} value={draft.reminder_days_before} onChange={(e) => set("reminder_days_before", e.target.value)} />
           </label>
         </div>
 
@@ -454,6 +578,10 @@ export function EventTaskDialog({
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {task && eventId ? (
+          <EventTaskAdvancedPanel eventId={eventId} taskId={task.id} canEdit={Boolean(canEdit)} />
         ) : null}
 
         <DialogFooter>

@@ -6,6 +6,7 @@ import {
   getEventOptions,
   getEventPlan,
   getEventReports,
+  getEventResources,
   getEventScope,
   getEventsDashboard,
   listEventCalendar,
@@ -77,6 +78,15 @@ export function useEventPlan(eventId?: string | null) {
   return useQuery({
     queryKey: queryKeys.events.plan(eventId),
     queryFn: () => getEventPlan({ eventId: eventId! }),
+    enabled: Boolean(eventId),
+    staleTime: STALE.events,
+  });
+}
+
+export function useEventResources(eventId?: string | null) {
+  return useQuery({
+    queryKey: queryKeys.events.resources(eventId),
+    queryFn: () => getEventResources({ eventId: eventId! }),
     enabled: Boolean(eventId),
     staleTime: STALE.events,
   });

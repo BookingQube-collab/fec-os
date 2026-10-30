@@ -18,13 +18,17 @@ export const DEP_TYPES = ["FS", "SS", "FF", "SF"] as const;
 export const WBS_NODE_TYPES = ["phase", "workstream", "task", "subtask"] as const;
 export const WBS_MAX_DEPTH = 3;
 export const CLOSED_TASK_STATUSES = new Set(["completed", "cancelled"]);
-export const BUDGET_STATUSES = ["draft", "approved", "locked"] as const;
+export const SPRINT_STATUSES = ["planned", "active", "completed", "cancelled"] as const;
+export const TIMESHEET_STATUSES = ["draft", "submitted", "approved", "rejected"] as const;
+export const MEETING_ACTION_STATUSES = ["open", "done", "cancelled"] as const;
+export const BUDGET_STATUSES = ["draft", "submitted", "approved", "locked", "rejected"] as const;
 export const RISK_SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const RISK_STATUSES = ["open", "mitigating", "closed"] as const;
 export const BASELINE_TYPES = ["schedule", "scope", "both", "budget"] as const;
 export const INVOICE_STATUSES = ["draft", "submitted", "partial", "paid", "overdue"] as const;
 export const TASK_APPROVAL_STATUSES = ["not_required", "pending", "approved", "rejected"] as const;
 export const TASK_ESCALATION_LEVELS = ["none", "team", "pm", "director", "exec"] as const;
+export const TASK_RECURRENCE_FREQS = ["daily", "weekly", "monthly"] as const;
 export const ISSUE_STATUSES = ["open", "in_progress", "blocked", "resolved", "closed"] as const;
 export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const DOCUMENT_TYPES = [
@@ -224,11 +228,30 @@ export const EVENT_DATE_FIELDS = [
   "final_closure_date",
 ] as const;
 
+/**
+ * Soft row caps for portfolio-scale Event PM fetches (Phase 9).
+ * Calendar/list/report endpoints already apply these; dashboard/report child
+ * queries use the higher child caps to avoid unbounded reads.
+ */
+export const EVENT_FETCH_CAPS = {
+  listEvents: 400,
+  reportsEvents: 400,
+  calendarTasksQuery: 800,
+  calendarMilestones: 300,
+  calendarTasksReturned: 500,
+  myTasks: 200,
+  dashboardChildRows: 5000,
+  reportsChildRows: 8000,
+} as const;
+
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 export type EventPriority = (typeof EVENT_PRIORITIES)[number];
 export type EventRag = (typeof EVENT_RAG)[number];
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+export type SprintStatus = (typeof SPRINT_STATUSES)[number];
+export type TimesheetStatus = (typeof TIMESHEET_STATUSES)[number];
+export type MeetingActionStatus = (typeof MEETING_ACTION_STATUSES)[number];
 export type DeliverableStatus = (typeof DELIVERABLE_STATUSES)[number];
 export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 export type DepType = (typeof DEP_TYPES)[number];

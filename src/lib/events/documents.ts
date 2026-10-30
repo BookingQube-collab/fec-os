@@ -169,6 +169,23 @@ export function sanitizeEventFileName(name: string): string {
   return (safe || "document").slice(0, 180);
 }
 
+/** Canonical storage key: `{event_id}/{document_id}/{stamp}-{safeName}`. */
+export function eventDocumentObjectPath(
+  eventId: string,
+  documentId: string,
+  fileName: string,
+  stamp = Date.now(),
+): string {
+  const safe = sanitizeEventFileName(fileName);
+  return `${eventId}/${documentId}/${stamp}-${safe}`;
+}
+
+export function eventDocumentPathEventId(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const first = path.split("/").filter(Boolean)[0];
+  return first && /^[0-9a-f-]{36}$/i.test(first) ? first : null;
+}
+
 export function hasDocumentFile(doc: Pick<EventDocumentRow, "file_path" | "url">): boolean {
   return Boolean(doc.file_path || doc.url);
 }

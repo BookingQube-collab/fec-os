@@ -136,6 +136,41 @@ export function portfolioLineFinance(lines: LineAmounts[], extraCommitted = 0) {
   };
 }
 
+/** Non-sensitive budget posture for users without events.finance. */
+export type FinanceHealthOnly = {
+  hasBudget: boolean;
+  hasInvoices: boolean;
+  health: BudgetHealth | null;
+};
+
+export function financeHealthOnly(input: {
+  hasBudget?: boolean;
+  hasInvoices?: boolean;
+  revised?: number | null;
+  committed?: number | null;
+  forecast?: number | null;
+}): FinanceHealthOnly {
+  const revised = money(input.revised);
+  const committed = money(input.committed);
+  const forecast = input.forecast == null ? undefined : money(input.forecast);
+  return {
+    hasBudget: Boolean(input.hasBudget),
+    hasInvoices: Boolean(input.hasInvoices),
+    health: budgetHealth({ revised, committed, forecast }),
+  };
+}
+
+/** Strip monetary fields; keep hasBudget / hasInvoices flags for UI chrome. */
+export function redactFinanceTotals<T extends Record<string, unknown>>(finance: T): T {
+  const out = { ...finance } as Record<string, unknown>;
+  for (const key of Object.keys(out)) {
+    if (key === "hasBudget" || key === "hasInvoices") continue;
+    const v = out[key];
+    if (typeof v === "number") out[key] = null;
+  }
+  return out as T;
+}
+
 export function finalRevenue(r: RevenueInputs) {
   return money(r.contractValue) + money(r.additionalRevenue) + money(r.changeOrders) - money(r.discounts) + money(r.taxes);
 }

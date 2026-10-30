@@ -409,7 +409,7 @@ const PICKER_SIDEBAR_ITEMS: NavItem[] = [
   ...withPeopleSection(PEOPLE_SECTION.workTime, [
     { href: "/people/hr/team", labelKey: "nav.teamOverview", icon: Users, capability: "people.view_roster", departmentId: "people" },
     { href: "/people/hr/workforce", labelKey: "nav.hrWorkforce", icon: Building2, capability: "people.view_roster", departmentId: "people" },
-    { href: "/events#event-staff", labelKey: "nav.eventStaff", icon: FolderKanban, capability: "events.view", departmentId: "people" },
+    { href: "/events?focus=staff#event-staff", labelKey: "nav.eventStaff", icon: FolderKanban, capability: "events.view", departmentId: "people" },
     { href: "/people/attendance", labelKey: "nav.attendance", icon: Clock, capability: "attendance.view", departmentId: "people" },
     { href: "/people/attendance/settings", labelKey: "nav.biometricDevices", icon: Clock, capability: "attendance.view", departmentId: "people" },
     { href: "/people/hr/ot", labelKey: "nav.timesheets", icon: Clock, capability: "hr.ot.verify", departmentId: "people" },

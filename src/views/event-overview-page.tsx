@@ -4,7 +4,7 @@ import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleDollarSign, ClipboardList, LayoutDashboard, MoreHorizontal } from "lucide-react";
@@ -24,6 +24,13 @@ import {
   EventIssuesPanel,
   EventPayablesPanel,
 } from "@/components/events/event-ops-panels";
+import { EventCollaborationPanel } from "@/components/events/event-collaboration-panel";
+import {
+  EventActivityPanel,
+  EventArchiveControls,
+  EventRisksPanel,
+  EventTeamPanel,
+} from "@/components/events/event-phase1-panels";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useEvent, useEventBudget, useEventPlan, useEventScope } from "@/hooks/queries/useEvents";
+import { useEvent, useEventBudget, useEventOptions, useEventPlan, useEventScope } from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
 import { fmtQar } from "@/lib/currency";
 import type { EventRag } from "@/lib/events/constants";
@@ -53,12 +60,14 @@ export default function EventOverviewPage() {
   const ar = i18n.language?.startsWith("ar");
   const params = useParams<{ id: string }>();
   const search = useSearchParams();
+  const router = useRouter();
   const id = params.id;
   const qc = useQueryClient();
   const eventQ = useEvent(id);
   const scopeQ = useEventScope(id);
   const planQ = useEventPlan(id);
   const budgetQ = useEventBudget(id);
+  const options = useEventOptions();
   const inBuilder = search.get("setup") === "1";
   const stepParam = (search.get("step") as EventSetupStepId | null) ?? undefined;
   const canEdit = usePermission("events.edit");
@@ -225,6 +234,23 @@ export default function EventOverviewPage() {
           <EventDepartmentStatus workstreams={d.workstreams} ar={Boolean(ar)} />
           <div className="grid gap-4 lg:grid-cols-2">
             <EventIssuesPanel eventId={id} issues={d.issues} overdueActions={d.overdueActions} canEdit={canEdit} onChanged={invalidate} />
+            <EventRisksPanel
+              eventId={id}
+              risks={d.risks}
+              canEdit={canEdit}
+              onChanged={invalidate}
+              staff={(options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }))}
+              escalations={d.escalations}
+            />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <EventTeamPanel
+              eventId={id}
+              team={d.team}
+              staff={(options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }))}
+              canEdit={canEdit}
+              onChanged={invalidate}
+            />
             <EventDocumentsPanel eventId={id} documents={d.documents} team={d.team} workstreams={d.workstreams} canEdit={canEdit} onChanged={invalidate} variant="compact" />
           </div>
         </TabsContent>
@@ -335,6 +361,14 @@ export default function EventOverviewPage() {
 
         <TabsContent value="more" className="space-y-4">
           <EventSourceBanner />
+          <section className="rounded-2xl border border-border/40 bg-card p-4">
+            <h2 className="mb-3 text-sm font-semibold">{t("events.collab.title")}</h2>
+            <EventCollaborationPanel
+              eventId={id}
+              staff={(options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }))}
+              canEdit={canEdit}
+            />
+          </section>
           <div className="flex flex-wrap gap-2">
             {canManage && ev.status === "active" ? (
               <>
@@ -366,6 +400,7 @@ export default function EventOverviewPage() {
                 <Link href={`/events/${id}/plan`}>{t("events.overview.openPlan")}</Link>
               </Button>
             </CapabilityGate>
+            <EventArchiveControls eventId={id} canManage={canManage} onArchived={() => router.push("/events/list")} />
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <EventAssetsPanel eventId={id} assets={d.assets} canEdit={canEdit} onChanged={invalidate} />
@@ -379,16 +414,7 @@ export default function EventOverviewPage() {
               ) : null}
             </section>
           </div>
-          <section className="rounded-2xl border border-border/40 bg-card p-4">
-            <h2 className="mb-3 text-sm font-semibold">{t("events.overview.audit")}</h2>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {d.audit.map((row) => (
-                <li key={row.id}>
-                  {row.created_at.slice(0, 16).replace("T", " ")} · {t(`events.audit.${row.action}`, { defaultValue: row.action })} · {row.entity_type}
-                </li>
-              ))}
-            </ul>
-          </section>
+          <EventActivityPanel eventId={id} />
         </TabsContent>
       </Tabs>
       </CollapsibleSection>

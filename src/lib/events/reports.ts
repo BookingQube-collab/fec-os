@@ -1,7 +1,9 @@
-import { LIFECYCLE_PHASES, phaseLabel } from "@/lib/events/lifecycle";
-import { STANDARD_WORKSTREAMS, overallTaskProgress } from "@/lib/events/workstreams";
+import { computeVelocity } from "@/lib/events/agile";
 import { CLOSED_TASK_STATUSES, OPEN_ISSUE_STATUSES, PENDING_PO_STATUSES, PENDING_PR_STATUSES } from "@/lib/events/constants";
+import { computeEvLite } from "@/lib/events/evm-lite";
+import { LIFECYCLE_PHASES, phaseLabel } from "@/lib/events/lifecycle";
 import type { EventBudgetTotals } from "@/lib/events/types";
+import { STANDARD_WORKSTREAMS, overallTaskProgress } from "@/lib/events/workstreams";
 
 export const EVENT_REPORT_IDS = [
   "project_status",
@@ -14,6 +16,11 @@ export const EVENT_REPORT_IDS = [
   "pending_procurement",
   "procurement_risks",
   "staffing_readiness",
+  "resource_utilization",
+  "est_vs_actual_hours",
+  "portfolio_timeline",
+  "agile_performance",
+  "earned_value_lite",
   "bump_in_progress",
   "open_snags",
   "critical_safety",
@@ -30,7 +37,30 @@ export const FINANCE_REPORT_IDS = new Set<EventReportId>([
   "budget_vs_actual",
   "budget_variance",
   "profitability",
+  "earned_value_lite",
 ]);
+
+/** Money columns must never appear in exports without events.finance. */
+export function redactReportBlockForExport(
+  block: EventReportBlock,
+  canFinance: boolean,
+): EventReportBlock {
+  if (canFinance) return block;
+  if (FINANCE_REPORT_IDS.has(block.id) || block.finance) {
+    return { ...block, rows: [], columns: block.columns.filter((c) => !c.money) };
+  }
+  return {
+    ...block,
+    columns: block.columns.filter((c) => !c.money),
+    rows: block.rows.map((row) => {
+      const next = { ...row };
+      for (const col of block.columns) {
+        if (col.money) delete next[col.key];
+      }
+      return next;
+    }),
+  };
+}
 
 export interface ReportColumn {
   key: string;
@@ -66,6 +96,8 @@ export interface ReportEventFact {
   pm_name: string | null;
   event_start: string | null;
   event_end: string | null;
+  setup_start?: string | null;
+  dismantle_date?: string | null;
   health_rag: string;
   readiness_pct: number;
   go_live_approved: boolean;
@@ -85,9 +117,26 @@ export interface ReportTaskFact {
   is_critical: boolean;
   is_snag: boolean;
   owner_name: string | null;
+  owner_staff_id?: string | null;
+  estimated_hours?: number | null;
+  actual_hours?: number | null;
+  estimated_cost?: number | null;
+  actual_cost?: number | null;
+  story_points?: number | null;
+  sprint_id?: string | null;
+  completed_at?: string | null;
   workstream_code: string | null;
   workstream_title: string | null;
   lifecycle_phase: string | null;
+}
+
+export interface ReportSprintFact {
+  id: string;
+  event_id: string;
+  name: string;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
 }
 
 export interface ReportReadyFact {
@@ -178,10 +227,12 @@ export function assembleEventReports(input: {
   pos: ReportPoFact[];
   payables: ReportPayableFact[];
   assets: ReportAssetFact[];
+  sprints?: ReportSprintFact[];
   canFinance: boolean;
   today: string;
 }): EventReportBlock[] {
   const { events, tasks, readiness, issues, risks, prs, pos, payables, assets, canFinance, today } = input;
+  const sprints = input.sprints ?? [];
   const openTasks = tasks.filter((t) => !CLOSED_TASK_STATUSES.has(t.status as never));
   const openIssues = issues.filter((i) => OPEN_ISSUE_STATUSES.has(i.status));
 
@@ -508,6 +559,199 @@ export function assembleEventReports(input: {
     rows: staffingRows.filter((r) => r.tasks > 0 || r.checklist != null),
   };
 
+  /** Phase 5 — task-hours utilization by owner (allocations live on Resources tab). */
+  const utilByOwner = new Map<
+    string,
+    { owner: string; estimated: number; actual: number; tasks: number }
+  >();
+  for (const task of tasks) {
+    if (task.status === "cancelled") continue;
+    const key = task.owner_staff_id || task.owner_name || "unassigned";
+    const row = utilByOwner.get(key) ?? {
+      owner: task.owner_name ?? "Unassigned",
+      estimated: 0,
+      actual: 0,
+      tasks: 0,
+    };
+    row.estimated += Number(task.estimated_hours) || 0;
+    row.actual += Number(task.actual_hours) || 0;
+    row.tasks += 1;
+    utilByOwner.set(key, row);
+  }
+
+  const resourceUtilization: EventReportBlock = {
+    id: "resource_utilization",
+    finance: false,
+    columns: [
+      { key: "owner", labelKey: "events.plan.owner" },
+      { key: "tasks", labelKey: "events.ops.tasks" },
+      { key: "estimated", labelKey: "events.resources.estHours" },
+      { key: "actual", labelKey: "events.resources.actHours" },
+      { key: "utilization", labelKey: "events.resources.utilization", pct: true },
+    ],
+    rows: [...utilByOwner.values()]
+      .filter((r) => r.estimated > 0 || r.actual > 0)
+      .map((r) => ({
+        owner: r.owner,
+        tasks: r.tasks,
+        estimated: Math.round(r.estimated * 100) / 100,
+        actual: Math.round(r.actual * 100) / 100,
+        utilization: r.estimated > 0 ? Math.round((r.actual / r.estimated) * 1000) / 10 : null,
+      })),
+  };
+
+  const estVsActualHours: EventReportBlock = {
+    id: "est_vs_actual_hours",
+    finance: false,
+    columns: [
+      { key: "event", labelKey: "events.reports.cols.event" },
+      { key: "item", labelKey: "events.reports.cols.item" },
+      { key: "owner", labelKey: "events.plan.owner" },
+      { key: "estimated", labelKey: "events.resources.estHours" },
+      { key: "actual", labelKey: "events.resources.actHours" },
+      { key: "variance", labelKey: "events.resources.variance" },
+    ],
+    rows: tasks
+      .filter((t) => t.status !== "cancelled" && ((Number(t.estimated_hours) || 0) > 0 || (Number(t.actual_hours) || 0) > 0))
+      .map((t) => {
+        const estimated = Number(t.estimated_hours) || 0;
+        const actual = Number(t.actual_hours) || 0;
+        return {
+          event: evName(events, t.event_id),
+          item: t.title,
+          owner: t.owner_name,
+          estimated: Math.round(estimated * 100) / 100,
+          actual: Math.round(actual * 100) / 100,
+          variance: Math.round((actual - estimated) * 100) / 100,
+        };
+      }),
+  };
+
+  /** Phase 8 — cross-event timeline rows (setup → dismantle). */
+  const portfolioTimeline: EventReportBlock = {
+    id: "portfolio_timeline",
+    finance: false,
+    columns: [
+      { key: "event", labelKey: "events.reports.cols.event" },
+      { key: "from", labelKey: "events.reports.cols.from" },
+      { key: "to", labelKey: "events.reports.cols.to" },
+      { key: "spanDays", labelKey: "events.reports.cols.spanDays" },
+      { key: "stage", labelKey: "events.fields.stage" },
+      { key: "health", labelKey: "events.fields.health" },
+      { key: "progress", labelKey: "events.fields.progress", pct: true },
+      { key: "pm", labelKey: "events.fields.pm" },
+    ],
+    rows: events
+      .map((e) => {
+        const from = e.setup_start ?? e.event_start;
+        const to = e.dismantle_date ?? e.event_end ?? e.event_start;
+        if (!from && !to) return null;
+        const a = from ?? to!;
+        const b = to ?? from!;
+        const spanDays =
+          Math.round(
+            (new Date(`${b}T12:00:00Z`).getTime() - new Date(`${a}T12:00:00Z`).getTime()) / 86_400_000,
+          ) + 1;
+        return {
+          event: `${e.event_number ?? ""} ${e.name}`.trim(),
+          from: a,
+          to: b,
+          spanDays,
+          stage: e.stage_label ?? phaseLabel(e.stage_code),
+          health: e.health_rag,
+          progress: e.overall_progress,
+          pm: e.pm_name,
+        };
+      })
+      .filter(Boolean) as Array<Record<string, string | number | null>>,
+  };
+
+  /** Phase 8 — sprint velocity / points summary (reuses Phase 4 agile helpers). */
+  const velocity = computeVelocity(
+    sprints.map((s) => ({
+      id: s.id,
+      name: s.name,
+      status: s.status,
+      start_date: s.start_date,
+      end_date: s.end_date,
+    })),
+    tasks.map((t) => ({
+      id: `${t.event_id}:${t.title}`,
+      status: t.status,
+      sprint_id: t.sprint_id ?? null,
+      story_points: t.story_points ?? null,
+      completed_at: t.completed_at ?? null,
+    })),
+  );
+  const agilePerformance: EventReportBlock = {
+    id: "agile_performance",
+    finance: false,
+    columns: [
+      { key: "event", labelKey: "events.reports.cols.event" },
+      { key: "sprint", labelKey: "events.plan.sprint" },
+      { key: "status", labelKey: "events.fields.status" },
+      { key: "committed", labelKey: "events.reports.cols.committedPts" },
+      { key: "completed", labelKey: "events.reports.cols.completedPts" },
+      { key: "velocity", labelKey: "events.plan.velocity" },
+      { key: "window", labelKey: "events.fields.dates" },
+    ],
+    rows: sprints.map((s) => {
+      const v = velocity.find((row) => row.sprintId === s.id);
+      return {
+        event: evName(events, s.event_id),
+        sprint: s.name,
+        status: s.status,
+        committed: v?.committed ?? 0,
+        completed: v?.completed ?? 0,
+        velocity: v?.completed ?? 0,
+        window: [s.start_date, s.end_date].filter(Boolean).join(" → ") || null,
+      };
+    }),
+  };
+
+  /** Phase 8 — SPI/CPI-lite (finance amounts redacted without events.finance). */
+  const earnedValueLite: EventReportBlock = {
+    id: "earned_value_lite",
+    finance: true,
+    columns: [
+      { key: "event", labelKey: "events.reports.cols.event" },
+      { key: "progress", labelKey: "events.fields.progress", pct: true },
+      { key: "planned", labelKey: "events.reports.cols.plannedPct", pct: true },
+      { key: "spi", labelKey: "events.reports.cols.spi" },
+      { key: "cpi", labelKey: "events.reports.cols.cpi" },
+      { key: "earned", labelKey: "events.reports.cols.earnedValue", money: true },
+      { key: "actual", labelKey: "events.budget.actual", money: true },
+      { key: "hoursUtil", labelKey: "events.resources.utilization", pct: true },
+    ],
+    rows: canFinance
+      ? events.map((e) => {
+          const evTasks = tasks.filter((t) => t.event_id === e.id && t.status !== "cancelled");
+          const estimatedHours = evTasks.reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0);
+          const actualHours = evTasks.reduce((s, t) => s + (Number(t.actual_hours) || 0), 0);
+          const lite = computeEvLite({
+            progressPct: e.overall_progress,
+            start: e.setup_start ?? e.event_start,
+            end: e.dismantle_date ?? e.event_end ?? e.event_start,
+            today,
+            budgetRevised: e.finance?.revised ?? null,
+            actualCost: e.finance?.actual ?? null,
+            estimatedHours,
+            actualHours,
+          });
+          return {
+            event: `${e.event_number ?? ""} ${e.name}`.trim(),
+            progress: lite.progressPct,
+            planned: lite.plannedPct,
+            spi: lite.spi,
+            cpi: lite.cpi,
+            earned: lite.earnedValue,
+            actual: lite.actualCost,
+            hoursUtil: lite.hoursUtilizationPct,
+          };
+        })
+      : [],
+  };
+
   const bumpRows = events.map((ev) => {
     const bumpTasks = tasks.filter((t) => t.event_id === ev.id && t.lifecycle_phase === "bump_in");
     const items = readiness.filter((r) => r.event_id === ev.id && r.phase_code === "bump_in");
@@ -731,6 +975,11 @@ export function assembleEventReports(input: {
     pendingProcurement,
     procRisks,
     staffingReadiness,
+    resourceUtilization,
+    estVsActualHours,
+    portfolioTimeline,
+    agilePerformance,
+    earnedValueLite,
     bumpInProgress,
     openSnags,
     criticalSafety,

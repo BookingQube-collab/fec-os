@@ -46,18 +46,38 @@ export function EventScheduleRegister({
   tasks,
   allTasks,
   canEdit,
+  selectedIds,
+  onSelectedIdsChange,
   onEdit,
   onDelete,
+  onAddChild,
 }: {
   tasks: EventTaskRow[];
   allTasks: EventTaskRow[];
   canEdit: boolean;
+  selectedIds?: Set<string>;
+  onSelectedIdsChange?: (next: Set<string>) => void;
   onEdit: (task: EventTaskRow) => void;
   onDelete: (taskId: string) => void;
+  onAddChild?: (parent: EventTaskRow) => void;
 }) {
   const { t } = useTranslation();
   const today = todayYmd();
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const selectable = Boolean(canEdit && selectedIds && onSelectedIdsChange);
+
+  const toggleSelected = (id: string, checked: boolean) => {
+    if (!selectedIds || !onSelectedIdsChange) return;
+    const next = new Set(selectedIds);
+    if (checked) next.add(id);
+    else next.delete(id);
+    onSelectedIdsChange(next);
+  };
+
+  const toggleAllVisible = (checked: boolean) => {
+    if (!onSelectedIdsChange) return;
+    onSelectedIdsChange(checked ? new Set(tasks.map((row) => row.id)) : new Set());
+  };
 
   const tree = useMemo(() => {
     const filteredIds = new Set(tasks.map((row) => row.id));
@@ -92,6 +112,16 @@ export function EventScheduleRegister({
     return (
       <Fragment key={row.id}>
         <TableRow className={cn(overdue && "bg-rag-red/5", row.status === "blocked" && "bg-rag-amber/10")}>
+          {selectable ? (
+            <TableCell className="w-10">
+              <input
+                type="checkbox"
+                checked={selectedIds?.has(row.id) ?? false}
+                onChange={(e) => toggleSelected(row.id, e.target.checked)}
+                aria-label={t("events.plan.selectTask")}
+              />
+            </TableCell>
+          ) : null}
           <TableCell className="font-mono text-xs">{row.task_number ?? "—"}</TableCell>
           <TableCell>
             <div className="flex min-w-0 items-center gap-1" style={{ paddingInlineStart: depth * 16 }}>
@@ -144,6 +174,11 @@ export function EventScheduleRegister({
           <TableCell className="text-end">
             {canEdit ? (
               <div className="flex justify-end gap-1">
+                {onAddChild && depth < 2 ? (
+                  <Button size="sm" variant="ghost" onClick={() => onAddChild(row)}>
+                    {t("events.plan.addSubtask")}
+                  </Button>
+                ) : null}
                 <Button size="sm" variant="ghost" onClick={() => onEdit(row)}>
                   {t("events.plan.editTask")}
                 </Button>
@@ -171,11 +206,21 @@ export function EventScheduleRegister({
         <Table>
           <TableHeader>
             <TableRow>
+              {selectable ? (
+                <TableHead className="w-10">
+                  <input
+                    type="checkbox"
+                    checked={tasks.length > 0 && tasks.every((row) => selectedIds?.has(row.id))}
+                    onChange={(e) => toggleAllVisible(e.target.checked)}
+                    aria-label={t("events.plan.selectAll")}
+                  />
+                </TableHead>
+              ) : null}
               <TableHead>{t("events.plan.taskId")}</TableHead>
               <TableHead>{t("events.plan.task")}</TableHead>
               <TableHead>{t("events.plan.start")}</TableHead>
               <TableHead>{t("events.plan.due")}</TableHead>
-              <TableHead>{t("events.plan.durationDays")}</TableHead>
+              <TableHead>{t("events.plan.duration")}</TableHead>
               <TableHead>{t("events.plan.owner")}</TableHead>
               <TableHead>{t("events.plan.status")}</TableHead>
               <TableHead />

@@ -317,6 +317,7 @@ export function MaintenanceRequestForm({
   mode = "create",
   requestId,
   initialValues,
+  eventId = null,
 }: {
   sites: SiteOption[];
   defaultLocationId: string;
@@ -331,6 +332,8 @@ export function MaintenanceRequestForm({
   /** Required when mode is edit */
   requestId?: string;
   initialValues?: MaintenanceRequestFormInitialValues;
+  /** When opened from Event PM ops deep-link */
+  eventId?: string | null;
 }) {
   const isEdit = mode === "edit";
   const { t } = useTranslation();
@@ -628,6 +631,7 @@ export function MaintenanceRequestForm({
             : form.requested_technician_name.trim() || null,
         reporter_name: form.reporter_name || null,
         reported_at: form.reported_at ? new Date(form.reported_at).toISOString() : undefined,
+        ...(isEdit || !eventId ? {} : { event_id: eventId }),
       };
 
       const result =

@@ -146,6 +146,8 @@ export function EventIssuesPanel({
   const [snag, setSnag] = useState(false);
   const [safety, setSafety] = useState(false);
   const [due, setDue] = useState("");
+  const [slaDue, setSlaDue] = useState("");
+  const [taskId, setTaskId] = useState("");
 
   return (
     <section className="rounded-2xl border border-border/40 bg-card p-4">
@@ -160,6 +162,14 @@ export function EventIssuesPanel({
                 {issue.title}
                 {issue.is_snag ? <Badge variant="outline" className="ms-1">{t("events.overview.snag")}</Badge> : null}
                 {issue.overdue ? <Badge variant="destructive" className="ms-1">{t("events.ops.overdue")}</Badge> : null}
+                {issue.task_title ? (
+                  <span className="ms-1 text-xs text-muted-foreground">· {issue.task_title}</span>
+                ) : null}
+                {issue.sla_due_date ? (
+                  <span className="ms-1 text-xs text-muted-foreground">
+                    · SLA {issue.sla_due_date}
+                  </span>
+                ) : null}
               </span>
               <span className="flex items-center gap-2">
                 <Badge variant={issue.severity === "critical" || issue.severity === "high" ? "destructive" : "outline"}>
@@ -219,6 +229,18 @@ export function EventIssuesPanel({
             </SelectContent>
           </Select>
           <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+          <Input
+            type="date"
+            value={slaDue}
+            onChange={(e) => setSlaDue(e.target.value)}
+            title={t("events.overview.slaDue")}
+            placeholder={t("events.overview.slaDue")}
+          />
+          <Input
+            value={taskId}
+            onChange={(e) => setTaskId(e.target.value)}
+            placeholder={t("events.overview.linkTaskId")}
+          />
           <div className="flex flex-wrap items-center gap-3 text-xs">
             <label className="flex items-center gap-1">
               <input type="checkbox" checked={snag} onChange={(e) => setSnag(e.target.checked)} />
@@ -239,11 +261,15 @@ export function EventIssuesPanel({
                     severity,
                     status: ISSUE_STATUSES[0],
                     due_date: due || null,
+                    sla_due_date: slaDue || null,
+                    task_id: taskId.trim() || null,
                     is_snag: snag,
                     is_safety: safety,
                   });
                   setTitle("");
                   setDue("");
+                  setSlaDue("");
+                  setTaskId("");
                   setSnag(false);
                   setSafety(false);
                   onChanged();

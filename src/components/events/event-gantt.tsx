@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { Button } from "@/components/ui/button";
 import { CLOSED_TASK_STATUSES } from "@/lib/events/constants";
+import { computeCriticalPath } from "@/lib/events/schedule-engine";
 import type {
   EventBaselineRow,
   EventDependencyRow,
+  EventDepViolation,
   EventMilestoneRow,
   EventTaskRow,
   EventWbsNode,
@@ -14,6 +17,8 @@ import type {
 import { canonicalWorkstreamCode, STANDARD_WORKSTREAMS } from "@/lib/events/workstreams";
 import { wbsAncestors } from "@/lib/events/wbs";
 import { cn } from "@/lib/utils";
+
+export type GanttZoom = "day" | "week" | "month" | "auto";
 
 function toDate(iso: string) {
   return new Date(`${iso}T00:00:00`);
@@ -37,14 +42,27 @@ function isOverdue(task: EventTaskRow, today: string) {
   return !CLOSED_TASK_STATUSES.has(task.status) && Boolean(task.due_date && task.due_date < today);
 }
 
+function zoomUnit(zoom: GanttZoom, spanDays: number): number {
+  if (zoom === "day") return 1;
+  if (zoom === "week") return 7;
+  if (zoom === "month") return 30;
+  return spanDays > 45 ? 7 : 1;
+}
+
 type GanttRow =
   | { kind: "workstream"; id: string; title: string; start: string | null; due: string | null }
   | { kind: "task"; id: string; title: string; task: EventTaskRow }
   | { kind: "milestone"; id: string; title: string; mile: EventMilestoneRow };
 
-function taskTone(task: EventTaskRow, today: string) {
+function taskTone(
+  task: EventTaskRow,
+  today: string,
+  opts: { critical: boolean; violated: boolean },
+) {
+  if (opts.violated) return "bg-rag-amber ring-2 ring-rag-amber/70";
   if (task.status === "completed") return "bg-rag-green";
   if (isOverdue(task, today) || task.status === "blocked") return "bg-rag-red";
+  if (opts.critical) return "bg-rag-red/80 ring-1 ring-rag-red";
   if (task.status === "in_progress" || task.status === "under_review" || task.status === "waiting") return "bg-primary";
   if ((task.variance.dueDays ?? 0) > 0 || task.is_critical) return "bg-rag-amber";
   return "bg-muted-foreground/45";
@@ -75,6 +93,10 @@ export function EventGantt({
   dependencies,
   wbs,
   baseline,
+  violations = [],
+  criticalIds,
+  zoom: zoomProp,
+  onZoomChange,
   onTaskSelect,
 }: {
   tasks: EventTaskRow[];
@@ -82,11 +104,60 @@ export function EventGantt({
   dependencies: EventDependencyRow[];
   wbs: EventWbsNode[];
   baseline: EventBaselineRow | null;
+  violations?: EventDepViolation[];
+  /** Override CPM result; when omitted, computed client-side. */
+  criticalIds?: Set<string> | string[];
+  zoom?: GanttZoom;
+  onZoomChange?: (zoom: GanttZoom) => void;
   onTaskSelect?: (task: EventTaskRow) => void;
 }) {
   const { t, i18n } = useTranslation();
   const ar = i18n.language?.startsWith("ar");
   const today = todayYmd();
+  const [localZoom, setLocalZoom] = useState<GanttZoom>("auto");
+  const zoom = zoomProp ?? localZoom;
+  const setZoom = (next: GanttZoom) => {
+    onZoomChange?.(next);
+    if (zoomProp == null) setLocalZoom(next);
+  };
+
+  const criticalSet = useMemo(() => {
+    if (criticalIds) return new Set(Array.isArray(criticalIds) ? criticalIds : [...criticalIds]);
+    const cpm = computeCriticalPath(
+      tasks.map((task) => ({
+        id: task.id,
+        start_date: task.start_date,
+        due_date: task.due_date,
+        duration_days: task.duration_days,
+        is_critical: task.is_critical,
+        is_milestone: task.is_milestone,
+      })),
+      dependencies.map((dep) => ({
+        predecessor_id: dep.predecessor_id,
+        successor_id: dep.successor_id,
+        dep_type: dep.dep_type,
+        lag_days: dep.lag_days,
+      })),
+    );
+    return new Set(cpm.criticalIds);
+  }, [criticalIds, dependencies, tasks]);
+
+  const violatedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const v of violations) {
+      ids.add(v.predecessor_id);
+      ids.add(v.successor_id);
+    }
+    return ids;
+  }, [violations]);
+
+  const violatedDepKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const v of violations) {
+      keys.add(`${v.predecessor_id}:${v.successor_id}:${v.dep_type}`);
+    }
+    return keys;
+  }, [violations]);
 
   const model = useMemo(() => {
     const used = new Set<string>();
@@ -186,15 +257,15 @@ export function EventGantt({
     const start = toDate(min);
     const end = toDate(max);
     const span = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
-    const useWeeks = span > 45;
-    const unit = useWeeks ? 7 : 1;
+    const unit = zoomUnit(zoom, span);
+    const useWeeks = unit >= 7 && unit < 30;
     const cols = Math.ceil(span / unit);
     const headers = Array.from({ length: cols }, (_, i) => iso(addDays(start, i * unit)));
     const pos = (from: string | null, to: string | null) => {
       const a = toDate(from ?? to ?? min);
       const b = toDate(to ?? from ?? max);
       const left = Math.max(0, (a.getTime() - start.getTime()) / 86_400_000 / unit);
-      const width = Math.max(0.6, (b.getTime() - a.getTime()) / 86_400_000 / unit + (useWeeks ? 0 : 1));
+      const width = Math.max(0.6, (b.getTime() - a.getTime()) / 86_400_000 / unit + (unit === 1 ? 1 : 0));
       return { left: (left / cols) * 100, width: (width / cols) * 100, mid: ((left + width / 2) / cols) * 100 };
     };
 
@@ -224,6 +295,7 @@ export function EventGantt({
           dep.dep_type === "FF" || dep.dep_type === "SF" ? succ.due_date ?? succ.start_date : succ.start_date,
           dep.dep_type === "FF" || dep.dep_type === "SF" ? succ.due_date ?? succ.start_date : succ.start_date,
         );
+        const violated = violatedDepKeys.has(`${dep.predecessor_id}:${dep.successor_id}:${dep.dep_type}`);
         return {
           id: dep.id,
           dep_type: dep.dep_type,
@@ -231,42 +303,62 @@ export function EventGantt({
           toIdx,
           x1: fromBar.left + fromBar.width,
           x2: toBar.left,
+          violated,
         };
       })
       .filter(Boolean);
 
-    return { headers, cols, pos, useWeeks, rows, links, rowH: 32, todayLeft };
-  }, [ar, dependencies, milestones, t, tasks, today, wbs]);
+    return { headers, cols, pos, useWeeks, unit, rows, links, rowH: 32, todayLeft };
+  }, [ar, dependencies, milestones, t, tasks, today, violatedDepKeys, wbs, zoom]);
 
   if (!model) {
     return <p className="text-sm text-muted-foreground">{t("events.plan.ganttEmpty")}</p>;
   }
 
   const chartH = model.rows.length * model.rowH;
+  const zoomOptions: GanttZoom[] = ["auto", "day", "week", "month"];
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-border/40 bg-card">
       <div className="min-w-[860px] p-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("events.plan.gantt")}</p>
             <p className="text-[11px] text-muted-foreground">{t("events.plan.ganttHint")}</p>
           </div>
-          <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-rag-green" /> {t("events.plan.legendDone")}</span>
-            <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-primary" /> {t("events.plan.legendProgress")}</span>
-            <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-rag-red" /> {t("events.plan.legendOverdue")}</span>
-            <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-muted-foreground/45" /> {t("events.plan.legendNotStarted")}</span>
-            {baseline ? (
-              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded border border-dashed border-muted-foreground/70" /> {t("events.plan.baseline")}</span>
-            ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-lg border border-border/50 p-0.5">
+              {zoomOptions.map((opt) => (
+                <Button
+                  key={opt}
+                  type="button"
+                  size="sm"
+                  variant={zoom === opt ? "secondary" : "ghost"}
+                  className="h-7 px-2 text-[10px] uppercase tracking-wide"
+                  onClick={() => setZoom(opt)}
+                >
+                  {t(`events.plan.zoom.${opt}`)}
+                </Button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-rag-green" /> {t("events.plan.legendDone")}</span>
+              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-primary" /> {t("events.plan.legendProgress")}</span>
+              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-rag-red" /> {t("events.plan.legendOverdue")}</span>
+              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-rag-red/80 ring-1 ring-rag-red" /> {t("events.plan.legendCritical")}</span>
+              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-rag-amber ring-1 ring-rag-amber" /> {t("events.plan.legendViolation")}</span>
+              <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded bg-muted-foreground/45" /> {t("events.plan.legendNotStarted")}</span>
+              {baseline ? (
+                <span className="inline-flex items-center gap-1"><i className="h-2 w-4 rounded border border-dashed border-muted-foreground/70" /> {t("events.plan.baseline")}</span>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="mb-2 grid text-[10px] uppercase tracking-wide text-muted-foreground" style={{ gridTemplateColumns: `220px repeat(${model.cols}, minmax(0,1fr))` }}>
           <span>{t("events.plan.ganttItem")}</span>
           {model.headers.map((h) => (
             <span key={h} className="truncate px-0.5">
-              {h.slice(5)}
+              {model.unit >= 30 ? h.slice(0, 7) : h.slice(5)}
             </span>
           ))}
         </div>
@@ -325,11 +417,16 @@ export function EventGantt({
               const ghost = task.baseline_start || task.baseline_due ? model.pos(task.baseline_start, task.baseline_due) : null;
               const actual = task.completed_at ? model.pos(task.start_date, task.completed_at.slice(0, 10)) : null;
               const delayed = isOverdue(task, today);
-              const tone = taskTone(task, today);
+              const critical = criticalSet.has(task.id);
+              const violated = violatedTaskIds.has(task.id);
+              const tone = taskTone(task, today, { critical, violated });
               const interactive = Boolean(onTaskSelect);
               return (
                 <div key={row.id} className="grid items-center" style={{ gridTemplateColumns: "220px 1fr", height: model.rowH }}>
-                  <p className="truncate pe-2 text-xs font-medium">{row.title}</p>
+                  <p className={cn("truncate pe-2 text-xs font-medium", critical && "text-rag-red")}>
+                    {critical ? "◆ " : ""}
+                    {row.title}
+                  </p>
                   <div className="group/bar relative h-5 rounded bg-muted/30">
                     {ghost ? (
                       <span
@@ -373,6 +470,8 @@ export function EventGantt({
                       <p className="text-muted-foreground">
                         {t("events.plan.tooltipProgress")}: {task.percent_complete}%
                         {delayed ? ` · ${t("events.plan.kpiOverdue")}` : ""}
+                        {critical ? ` · ${t("events.plan.criticalPath")}` : ""}
+                        {violated ? ` · ${t("events.plan.violation")}` : ""}
                       </p>
                     </HoverTip>
                   </div>
@@ -395,11 +494,18 @@ export function EventGantt({
                       d={`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`}
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="1.4"
-                      className="text-muted-foreground/70"
+                      strokeWidth={link.violated ? 2.2 : 1.4}
+                      strokeDasharray={link.violated ? "4 3" : undefined}
+                      className={link.violated ? "text-rag-amber" : "text-muted-foreground/70"}
                     />
-                    <polygon points={`${x2},${y2} ${x2 - 6},${y2 - 3} ${x2 - 6},${y2 + 3}`} className="fill-muted-foreground/70" />
-                    <title>{link.dep_type}</title>
+                    <polygon
+                      points={`${x2},${y2} ${x2 - 6},${y2 - 3} ${x2 - 6},${y2 + 3}`}
+                      className={link.violated ? "fill-rag-amber" : "fill-muted-foreground/70"}
+                    />
+                    <title>
+                      {link.dep_type}
+                      {link.violated ? ` · ${t("events.plan.violation")}` : ""}
+                    </title>
                   </g>
                 );
               })}

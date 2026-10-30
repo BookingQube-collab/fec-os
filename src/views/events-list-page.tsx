@@ -2,9 +2,12 @@
 
 import { FecPageHeader } from "@/components/fec";
 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { EventHealthBadge } from "@/components/events/event-health-badge";
@@ -27,16 +30,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useEventOptions, useEventsList } from "@/hooks/queries/useEvents";
+import { usePermission } from "@/hooks/use-permission";
 import { fmtQar } from "@/lib/currency";
+import { EVENT_STATUSES } from "@/lib/events/constants";
+import { restoreEvent } from "@/lib/events.functions";
+import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 
 export default function EventsListPage() {
   const { t, i18n } = useTranslation();
   const ar = i18n.language?.startsWith("ar");
+  const searchParams = useSearchParams();
   const locationId = useAppStore((s) => s.currentLocationId);
+  const canManage = usePermission("events.manage");
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [health, setHealth] = useState("all");
+  const [health, setHealth] = useState(searchParams.get("health") ?? "all");
   const [stageId, setStageId] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [showArchived, setShowArchived] = useState(false);
   const options = useEventOptions();
   const filters = useMemo(
     () => ({
@@ -44,10 +56,20 @@ export default function EventsListPage() {
       search: search.trim() || null,
       health: health === "all" ? null : (health as "green" | "amber" | "red" | "critical"),
       stageId: stageId === "all" ? null : stageId,
+      status: status === "all" ? null : (status as (typeof EVENT_STATUSES)[number]),
+      onlyDeleted: showArchived || undefined,
     }),
-    [locationId, search, health, stageId],
+    [locationId, search, health, stageId, status, showArchived],
   );
   const list = useEventsList(filters);
+  const restoreMut = useMutation({
+    mutationFn: (eventId: string) => restoreEvent({ eventId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.events.all });
+      toast.success(t("events.toasts.restored"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
 
   return (
     <div className="space-y-6">
@@ -83,6 +105,17 @@ export default function EventsListPage() {
             <SelectItem value="critical">{t("events.rag.critical")}</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder={t("events.list.status")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("events.filters.all")}</SelectItem>
+            {EVENT_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>{t(`events.status.${s}`)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={stageId} onValueChange={setStageId}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder={t("events.list.stage")} />
@@ -96,6 +129,12 @@ export default function EventsListPage() {
             ))}
           </SelectContent>
         </Select>
+        {canManage ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            {t("events.list.showArchived")}
+          </label>
+        ) : null}
       </div>
 
       <div className="surface-card">
@@ -112,12 +151,13 @@ export default function EventsListPage() {
               <TableHead>{t("events.list.prs")}</TableHead>
               <TableHead>{t("events.list.readiness")}</TableHead>
               <TableHead>{t("events.list.value")}</TableHead>
+              {showArchived ? <TableHead /> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
             {(list.data ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={showArchived ? 11 : 10} className="py-8 text-center text-muted-foreground">
                   {t("events.list.empty")}
                 </TableCell>
               </TableRow>
@@ -159,6 +199,13 @@ export default function EventsListPage() {
                   <TableCell className="tabular-nums">
                     {event.contracted_value != null ? fmtQar(event.contracted_value) : "—"}
                   </TableCell>
+                  {showArchived ? (
+                    <TableCell className="text-end">
+                      <Button size="sm" variant="outline" disabled={restoreMut.isPending} onClick={() => restoreMut.mutate(event.id)}>
+                        {t("events.list.restore")}
+                      </Button>
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))
             )}

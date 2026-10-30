@@ -8,14 +8,17 @@ import {
   CircleDollarSign,
   ClipboardList,
   FileX,
+  Gauge,
   GraduationCap,
   Hammer,
   ListChecks,
   ShieldAlert,
   ShoppingCart,
+  Timer,
   Truck,
   Users,
   Wallet,
+  Waypoints,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,7 +43,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEventReports } from "@/hooks/queries/useEvents";
 import { useReportExport } from "@/hooks/use-report-export";
-import { EVENT_REPORT_IDS, FINANCE_REPORT_IDS, type EventReportId } from "@/lib/events/reports";
+import {
+  EVENT_REPORT_IDS,
+  FINANCE_REPORT_IDS,
+  redactReportBlockForExport,
+  type EventReportId,
+} from "@/lib/events/reports";
 import { buildEventReportVisuals } from "@/lib/events/report-visuals";
 import { retryImport } from "@/lib/retry-import";
 import { downloadCsvContent } from "@/lib/staff-import";
@@ -57,6 +65,11 @@ const REPORT_ICONS: Record<EventReportId, LucideIcon> = {
   pending_procurement: ShoppingCart,
   procurement_risks: ShieldAlert,
   staffing_readiness: Users,
+  resource_utilization: Gauge,
+  est_vs_actual_hours: Timer,
+  portfolio_timeline: Waypoints,
+  agile_performance: ChartColumn,
+  earned_value_lite: CircleDollarSign,
   bump_in_progress: Hammer,
   open_snags: ClipboardList,
   critical_safety: ShieldAlert,
@@ -104,20 +117,25 @@ export default function EventsReportsPage() {
   const visibleIds = EVENT_REPORT_IDS.filter((id) => canFinance || !FINANCE_REPORT_IDS.has(id));
   const activeId = visibleIds.includes(reportId) ? reportId : "project_status";
   const report = q.data?.reports.find((r) => r.id === activeId) ?? null;
-  const rows = useMemo(() => report?.rows ?? [], [report?.rows]);
+  const safeReport = useMemo(
+    () => (report ? redactReportBlockForExport(report, canFinance) : null),
+    [report, canFinance],
+  );
+  const rows = useMemo(() => safeReport?.rows ?? [], [safeReport?.rows]);
   const visuals = useMemo(
-    () => buildEventReportVisuals(activeId, report?.rows ?? []),
-    [activeId, report],
+    () => buildEventReportVisuals(activeId, safeReport?.rows ?? []),
+    [activeId, safeReport],
   );
   const tabLabel = t(`events.reports.kinds.${activeId}`);
 
   const exportCsv = () => {
-    if (!report) return;
-    const headers = report.columns.map((c) => t(c.labelKey));
+    if (!safeReport) return;
+    if (!canFinance && FINANCE_REPORT_IDS.has(activeId)) return;
+    const headers = safeReport.columns.map((c) => t(c.labelKey));
     const lines = [
       headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(","),
-      ...report.rows.map((row) =>
-        report.columns
+      ...safeReport.rows.map((row) =>
+        safeReport.columns
           .map((c) => {
             const raw = formatReportCell(row[c.key] ?? null, c, activeId, t, i18n.language);
             return `"${String(raw).replace(/"/g, '""')}"`;
@@ -128,11 +146,35 @@ export default function EventsReportsPage() {
     downloadCsvContent(lines.join("\n"), `event-${activeId}.csv`);
   };
 
+  const exportAllCsv = () => {
+    const blocks = (q.data?.reports ?? [])
+      .filter((block) => canFinance || !FINANCE_REPORT_IDS.has(block.id))
+      .map((block) => redactReportBlockForExport(block, canFinance))
+      .filter((block) => block.rows.length > 0);
+    if (!blocks.length) return;
+    const chunks = blocks.map((block) => {
+      const title = t(`events.reports.kinds.${block.id}`);
+      const headers = block.columns.map((c) => t(c.labelKey));
+      const body = block.rows.map((row) =>
+        block.columns
+          .map((c) => {
+            const raw = formatReportCell(row[c.key] ?? null, c, block.id, t, i18n.language);
+            return `"${String(raw).replace(/"/g, '""')}"`;
+          })
+          .join(","),
+      );
+      return [`"${title.replace(/"/g, '""')}"`, headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(","), ...body].join(
+        "\n",
+      );
+    });
+    downloadCsvContent(chunks.join("\n\n"), "event-reports-pack.csv");
+  };
+
   const exportRows = useMemo(
     () =>
       rows.map((row) => {
         const out: Record<string, unknown> = {};
-        for (const col of report?.columns ?? []) {
+        for (const col of safeReport?.columns ?? []) {
           if (col.money || col.pct) {
             out[col.key] = row[col.key];
           } else {
@@ -141,7 +183,23 @@ export default function EventsReportsPage() {
         }
         return out;
       }),
-    [rows, report, activeId, t, i18n.language],
+    [rows, safeReport, activeId, t, i18n.language],
+  );
+
+  const exportKpis = useMemo(
+    () =>
+      visuals.kpis
+        .filter((k) => canFinance || k.format !== "money")
+        .map((k) => ({
+          label: t(k.labelKey),
+          value:
+            k.format === "money"
+              ? `QAR ${k.value}`
+              : k.format === "pct"
+                ? `${Math.round(k.value)}%`
+                : k.value,
+        })),
+    [visuals.kpis, canFinance, t],
   );
 
   const { exportPdf, exportExcel } = useReportExport({
@@ -154,16 +212,8 @@ export default function EventsReportsPage() {
       from: from || null,
       to: to || null,
     },
-    kpis: visuals.kpis.map((k) => ({
-      label: t(k.labelKey),
-      value:
-        k.format === "money"
-          ? `QAR ${k.value}`
-          : k.format === "pct"
-            ? `${Math.round(k.value)}%`
-            : k.value,
-    })),
-    columns: (report?.columns ?? []).map((c) => ({
+    kpis: exportKpis,
+    columns: (safeReport?.columns ?? []).map((c) => ({
       key: c.key,
       header: t(c.labelKey),
       format: c.money ? ("qar" as const) : c.pct ? ("pct" as const) : ("text" as const),
@@ -179,16 +229,25 @@ export default function EventsReportsPage() {
         title={t("events.reports.title")}
         subtitle={t("events.reports.subtitle")}
         actions={
-          <DownloadReportButton
-            onCsv={exportCsv}
-            onPdf={exportPdf}
-            onExcel={exportExcel}
-            disabled={!rows.length}
-            label={t("events.reports.exportNamed", { name: tabLabel })}
-            csvLabel={t("events.reports.exportCsv")}
-            pdfLabel={t("events.reports.exportPdf")}
-            excelLabel={t("events.reports.exportExcel")}
-          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center rounded-md border border-border/60 bg-background px-3 text-xs font-medium hover:bg-muted/50"
+              onClick={exportAllCsv}
+            >
+              {t("events.reports.exportPack")}
+            </button>
+            <DownloadReportButton
+              onCsv={exportCsv}
+              onPdf={exportPdf}
+              onExcel={exportExcel}
+              disabled={!rows.length || (!canFinance && FINANCE_REPORT_IDS.has(activeId))}
+              label={t("events.reports.exportNamed", { name: tabLabel })}
+              csvLabel={t("events.reports.exportCsv")}
+              pdfLabel={t("events.reports.exportPdf")}
+              excelLabel={t("events.reports.exportExcel")}
+            />
+          </div>
         }
       />
       <EventSourceBanner />
@@ -249,14 +308,16 @@ export default function EventsReportsPage() {
         key={`${activeId}-${eventId}-${pmStaffId}-${from}-${to}`}
         reportId={activeId}
         reportLabel={tabLabel}
-        columns={(report?.columns ?? []).map((c) => c.key)}
+        columns={(safeReport?.columns ?? []).map((c) => c.key)}
         rows={rows}
         visuals={visuals}
-        portfolio={(q.data?.reports ?? []).map((block) => ({
-          id: block.id,
-          label: t(`events.reports.kinds.${block.id}`),
-          row_count: block.rows.length,
-        }))}
+        portfolio={(q.data?.reports ?? [])
+          .filter((block) => canFinance || !FINANCE_REPORT_IDS.has(block.id))
+          .map((block) => ({
+            id: block.id,
+            label: t(`events.reports.kinds.${block.id}`),
+            row_count: block.rows.length,
+          }))}
         onBriefChange={setAiBrief}
       />
 

@@ -69,6 +69,23 @@ export function buildFallbackEventReportBrief(ctx: EventReportBriefContext): str
     bullets.push(`Table variance total: QAR ${Math.round(variance).toLocaleString("en-QA")}.`);
   }
 
+  if (ctx.report_id === "resource_utilization" || ctx.report_id === "est_vs_actual_hours") {
+    const estimated = sumKey(ctx.rows, "estimated");
+    const actual = sumKey(ctx.rows, "actual");
+    if (estimated != null || actual != null) {
+      bullets.push(
+        `Task hours in view: estimated ${Math.round(estimated ?? 0)}, actual ${Math.round(actual ?? 0)}.`,
+      );
+    }
+  }
+  if (ctx.report_id === "agile_performance") {
+    const completed = sumKey(ctx.rows, "completed") ?? sumKey(ctx.rows, "velocity");
+    if (completed != null) bullets.push(`Completed story points across listed sprints: ${completed}.`);
+  }
+  if (ctx.report_id === "earned_value_lite") {
+    bullets.push("SPI/CPI-lite values are proxies from progress, schedule window, and budget — not a full EVM suite.");
+  }
+
   if (ctx.mode === "executive" && ctx.portfolio?.length) {
     const nonempty = ctx.portfolio.filter((r) => r.row_count > 0).slice(0, 4);
     if (nonempty.length) {

@@ -4,21 +4,35 @@ import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { LayoutDashboard, ListChecks } from "lucide-react";
+import { LayoutDashboard, LayoutGrid, ListChecks, MessagesSquare, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
+import { EventKanbanBoard } from "@/components/events/event-kanban-board";
+import { EventCollaborationPanel } from "@/components/events/event-collaboration-panel";
+import { EventResourcesPanel } from "@/components/events/event-resources-panel";
 import { EventScheduleHints } from "@/components/events/event-schedule-hints";
 import { EventScheduleKpis } from "@/components/events/event-schedule-kpis";
+import { EventPlanTemplatesPanel } from "@/components/events/event-phase1-panels";
 import { EventScheduleRegister } from "@/components/events/event-schedule-register";
 import { EventSourceBanner } from "@/components/events/event-source-banner";
 import { EventTaskDialog, type TaskDraft } from "@/components/events/event-task-dialog";
 import { EventWbsTree } from "@/components/events/event-wbs-tree";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,21 +58,37 @@ import { useEvent, useEventOptions, useEventPlan } from "@/hooks/queries/useEven
 import { usePermission } from "@/hooks/use-permission";
 import {
   addEventTaskComment,
+  applyEventSchedulePatch,
+  bulkUpdateEventTasks,
   deleteDependency,
+  deleteEventSavedFilter,
+  deleteEventSprint,
   deleteEventTask,
   deleteMilestone,
   deleteWbsNode,
+  listEventSavedFilters,
+  moveEventTaskStatus,
   moveWbsNode,
   saveEventBaseline,
   upsertDependency,
+  upsertEventSavedFilter,
+  upsertEventSprint,
   upsertEventTask,
   upsertMilestone,
   upsertWbsNode,
 } from "@/lib/events.functions";
-import { CLOSED_TASK_STATUSES, DEP_TYPES, MILESTONE_STATUSES, PENDING_PR_STATUSES, TASK_PRIORITIES, TASK_STATUSES } from "@/lib/events/constants";
+import { CLOSED_TASK_STATUSES, DEP_TYPES, MILESTONE_STATUSES, PENDING_PR_STATUSES, TASK_PRIORITIES, TASK_STATUSES, type TaskStatus } from "@/lib/events/constants";
 import { missingDepartmentBoqs, missingRequiredByType, resolveDocumentStatus } from "@/lib/events/documents";
 import { LIFECYCLE_PHASES } from "@/lib/events/lifecycle";
-import type { EventTaskRow, EventWbsNode } from "@/lib/events/types";
+import { DEFAULT_PLAN_FILTERS, parseSavedFilters, type PlanTaskFilters } from "@/lib/events/phase2-tasks";
+import {
+  computeCriticalPath,
+  forwardSchedule,
+  backwardSchedule,
+  type ScheduledTaskDates,
+} from "@/lib/events/schedule-engine";
+import type { EventSavedFilterRow, EventTaskRow, EventWbsNode } from "@/lib/events/types";
+import { scheduleVariance } from "@/lib/events/wbs";
 import { STANDARD_WORKSTREAMS } from "@/lib/events/workstreams";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -80,20 +110,30 @@ function todayYmd() {
 export default function EventPlanPage() {
   const { t } = useTranslation();
   const params = useParams<{ id: string }>();
+  const search = useSearchParams();
   const id = params.id;
   const qc = useQueryClient();
   const canEdit = usePermission("events.edit");
+  const canManage = usePermission("events.manage");
   const eventQ = useEvent(id);
   const plan = useEventPlan(id);
   const options = useEventOptions();
-  const [filters, setFilters] = useState({
-    department: "all",
-    owner: "all",
-    phase: "all",
-    workstream: "all",
-    lifecycle: "all",
-    priority: "all",
-    status: "all",
+  const planTab = (() => {
+    const tab = search.get("tab");
+    return tab === "tasks" || tab === "board" || tab === "resources" || tab === "collab" || tab === "overview"
+      ? tab
+      : "overview";
+  })();
+  const [filters, setFilters] = useState<PlanTaskFilters>({ ...DEFAULT_PLAN_FILTERS });
+  const [savedFilters, setSavedFilters] = useState<EventSavedFilterRow[]>([]);
+  const [filterName, setFilterName] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState({
+    status: "",
+    priority: "",
+    assignee_staff_id: "",
+    start_date: "",
+    due_date: "",
   });
   const [dep, setDep] = useState({ predecessor_id: "", successor_id: "", dep_type: "FS", lag_days: "0" });
   const [mile, setMile] = useState({
@@ -108,6 +148,13 @@ export default function EventPlanPage() {
   });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTask, setActiveTask] = useState<EventTaskRow | null>(null);
+  const [seedParentTaskId, setSeedParentTaskId] = useState<string | null>(null);
+  const [baselineId, setBaselineId] = useState<string>("latest");
+  const [schedulePreview, setSchedulePreview] = useState<{
+    direction: "forward" | "backward";
+    tasks: ScheduledTaskDates[];
+    writeCritical: boolean;
+  } | null>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: queryKeys.events.plan(id) });
@@ -119,13 +166,93 @@ export default function EventPlanPage() {
   const departments = options.data?.departments ?? [];
   const wbs = plan.data?.wbs ?? [];
   const tasks = useMemo(() => plan.data?.tasks ?? [], [plan.data?.tasks]);
+  const sprints = useMemo(() => plan.data?.sprints ?? [], [plan.data?.sprints]);
   const milestones = plan.data?.milestones ?? [];
-  const latestBaseline = plan.data?.latestScheduleBaseline ?? plan.data?.baselines[0] ?? null;
+  const scheduleBaselines = useMemo(
+    () =>
+      (plan.data?.baselines ?? []).filter(
+        (b) => b.baseline_type === "schedule" || b.baseline_type === "both",
+      ),
+    [plan.data?.baselines],
+  );
+  const latestBaseline = plan.data?.latestScheduleBaseline ?? scheduleBaselines[0] ?? null;
+  const selectedBaseline = useMemo(() => {
+    if (baselineId === "latest") return latestBaseline;
+    return scheduleBaselines.find((b) => b.id === baselineId) ?? latestBaseline;
+  }, [baselineId, latestBaseline, scheduleBaselines]);
   const overview = eventQ.data;
   const today = todayYmd();
 
+  const cpm = useMemo(() => {
+    return computeCriticalPath(
+      tasks.map((task) => ({
+        id: task.id,
+        start_date: task.start_date,
+        due_date: task.due_date,
+        duration_days: task.duration_days,
+        is_critical: task.is_critical,
+        is_milestone: task.is_milestone,
+      })),
+      (plan.data?.dependencies ?? []).map((dep) => ({
+        predecessor_id: dep.predecessor_id,
+        successor_id: dep.successor_id,
+        dep_type: dep.dep_type,
+        lag_days: dep.lag_days,
+      })),
+    );
+  }, [plan.data?.dependencies, tasks]);
+
+  const tasksWithBaseline = useMemo(() => {
+    if (!selectedBaseline || selectedBaseline === latestBaseline) return tasks;
+    const snap = new Map((selectedBaseline.snapshot.tasks ?? []).map((t) => [t.id, t]));
+    return tasks.map((task) => {
+      const base = snap.get(task.id);
+      if (!base) {
+        return {
+          ...task,
+          baseline_start: null,
+          baseline_due: null,
+          baseline_percent: null,
+          variance: { startDays: null, dueDays: null, progressDelta: null },
+        };
+      }
+      return {
+        ...task,
+        baseline_start: base.start_date ?? null,
+        baseline_due: base.due_date ?? null,
+        baseline_percent: base.percent_complete ?? null,
+        variance: scheduleVariance(
+          task.start_date,
+          task.due_date,
+          task.percent_complete,
+          base.start_date,
+          base.due_date,
+          base.percent_complete,
+        ),
+      };
+    });
+  }, [latestBaseline, selectedBaseline, tasks]);
+
+  const milestonesWithBaseline = useMemo(() => {
+    if (!selectedBaseline || selectedBaseline === latestBaseline) return milestones;
+    const snap = new Map((selectedBaseline.snapshot.milestones ?? []).map((m) => [m.id, m]));
+    return milestones.map((mile) => {
+      const base = snap.get(mile.id);
+      if (!base) return { ...mile, baseline_due: null, variance_days: null };
+      const variance_days =
+        base.due_date && mile.due_date
+          ? Math.round(
+              (new Date(`${mile.due_date}T00:00:00`).getTime() -
+                new Date(`${base.due_date}T00:00:00`).getTime()) /
+                86_400_000,
+            )
+          : null;
+      return { ...mile, baseline_due: base.due_date ?? null, variance_days };
+    });
+  }, [latestBaseline, milestones, selectedBaseline]);
+
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
+    return tasksWithBaseline.filter((task) => {
       if (filters.department !== "all") {
         if (filters.department.startsWith("ws:")) {
           if (task.workstream_code !== filters.department.slice(3)) return false;
@@ -139,7 +266,7 @@ export default function EventPlanPage() {
       if (filters.status !== "all" && task.status !== filters.status) return false;
       return true;
     });
-  }, [tasks, filters]);
+  }, [tasksWithBaseline, filters]);
 
   const attention = useMemo(() => {
     const open = tasks.filter((task) => !CLOSED_TASK_STATUSES.has(task.status));
@@ -172,6 +299,20 @@ export default function EventPlanPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    void listEventSavedFilters({ eventId: id })
+      .then((rows) => {
+        if (!cancelled) setSavedFilters(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedFilters([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
   const saveTask = useMutation({
     mutationFn: (draft: TaskDraft) =>
       upsertEventTask({
@@ -183,6 +324,7 @@ export default function EventPlanPage() {
         parent_task_id: draft.parent_task_id || null,
         owner_staff_id: draft.owner_staff_id || null,
         assignee_staff_id: draft.assignee_staff_id || null,
+        assignee_ids: draft.assignee_ids,
         department_id: draft.department_id || null,
         priority: draft.priority as EventTaskRow["priority"],
         status: draft.status as EventTaskRow["status"],
@@ -206,12 +348,107 @@ export default function EventPlanPage() {
         evidence_url: draft.evidence_url || null,
         is_snag: draft.is_snag,
         lifecycle_phase: draft.lifecycle_phase || null,
+        recurrence_freq: (draft.recurrence_freq || null) as EventTaskRow["recurrence_freq"],
+        recurrence_interval: numOrNull(draft.recurrence_interval) ?? 1,
+        recurrence_until: draft.recurrence_until || null,
+        reminder_days_before: numOrNull(draft.reminder_days_before) ?? 3,
+        story_points: numOrNull(draft.story_points),
+        sprint_id: draft.sprint_id || null,
       }),
     onSuccess: () => {
       setDialogOpen(false);
       setActiveTask(null);
       invalidate();
       toast.success(t("events.toasts.taskSaved"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const moveStatus = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: TaskStatus }) =>
+      moveEventTaskStatus({ eventId: id, taskId, status }),
+    onSuccess: () => {
+      invalidate();
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const assignSprint = useMutation({
+    mutationFn: ({ taskIds, sprintId }: { taskIds: string[]; sprintId: string | null }) =>
+      bulkUpdateEventTasks({ eventId: id, taskIds, sprint_id: sprintId }),
+    onSuccess: (_res, vars) => {
+      invalidate();
+      toast.success(t("events.plan.sprintAssigned", { n: vars.taskIds.length }));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const saveSprint = useMutation({
+    mutationFn: (draft: {
+      id?: string;
+      name: string;
+      goal: string;
+      start_date: string;
+      end_date: string;
+      status: "planned" | "active" | "completed" | "cancelled";
+    }) =>
+      upsertEventSprint({
+        id: draft.id,
+        eventId: id,
+        name: draft.name,
+        goal: draft.goal || null,
+        start_date: draft.start_date || null,
+        end_date: draft.end_date || null,
+        status: draft.status,
+      }),
+    onSuccess: () => {
+      invalidate();
+      toast.success(t("events.plan.sprintSaved"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const removeSprint = useMutation({
+    mutationFn: (sprintId: string) => deleteEventSprint({ id: sprintId }),
+    onSuccess: () => {
+      invalidate();
+      toast.success(t("events.plan.sprintDeleted"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const bulkUpdate = useMutation({
+    mutationFn: () =>
+      bulkUpdateEventTasks({
+        eventId: id,
+        taskIds: [...selectedIds],
+        status: bulk.status ? (bulk.status as EventTaskRow["status"]) : undefined,
+        priority: bulk.priority ? (bulk.priority as EventTaskRow["priority"]) : undefined,
+        assignee_staff_id: bulk.assignee_staff_id || undefined,
+        start_date: bulk.start_date || undefined,
+        due_date: bulk.due_date || undefined,
+      }),
+    onSuccess: (res) => {
+      setSelectedIds(new Set());
+      setBulk({ status: "", priority: "", assignee_staff_id: "", start_date: "", due_date: "" });
+      invalidate();
+      toast.success(t("events.plan.bulkUpdated", { n: res.updated }));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const saveFilter = useMutation({
+    mutationFn: () =>
+      upsertEventSavedFilter({
+        eventId: id,
+        name: filterName.trim(),
+        filters: filters as unknown as Record<string, string>,
+      }),
+    onSuccess: async () => {
+      setFilterName("");
+      const rows = await listEventSavedFilters({ eventId: id });
+      setSavedFilters(rows);
+      toast.success(t("events.plan.filterSaved"));
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -280,6 +517,73 @@ export default function EventPlanPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const applySchedule = useMutation({
+    mutationFn: async () => {
+      if (!schedulePreview) throw new Error("No schedule preview");
+      const updates = schedulePreview.tasks
+        .map((row) => {
+          const current = tasks.find((t) => t.id === row.id);
+          const criticalChanged =
+            schedulePreview.writeCritical &&
+            Boolean(current?.is_critical) !== Boolean(row.is_critical);
+          if (!row.changed && !criticalChanged) return null;
+          return {
+            id: row.id,
+            start_date: row.changed ? row.start_date : undefined,
+            due_date: row.changed ? row.due_date : undefined,
+            duration_days: row.changed ? row.duration_days : undefined,
+            is_critical: criticalChanged ? row.is_critical : undefined,
+          };
+        })
+        .filter(Boolean) as Array<{
+        id: string;
+        start_date?: string | null;
+        due_date?: string | null;
+        duration_days?: number;
+        is_critical?: boolean;
+      }>;
+      if (!updates.length) return { updated: 0 };
+      return applyEventSchedulePatch({ eventId: id, updates });
+    },
+    onSuccess: (res) => {
+      setSchedulePreview(null);
+      invalidate();
+      toast.success(t("events.plan.scheduleApplied", { n: res.updated }));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const openAutoSchedule = (direction: "forward" | "backward") => {
+    const deps = (plan.data?.dependencies ?? []).map((dep) => ({
+      predecessor_id: dep.predecessor_id,
+      successor_id: dep.successor_id,
+      dep_type: dep.dep_type,
+      lag_days: dep.lag_days,
+    }));
+    const input = tasks.map((task) => ({
+      id: task.id,
+      start_date: task.start_date,
+      due_date: task.due_date,
+      duration_days: task.duration_days,
+      is_critical: task.is_critical,
+      is_milestone: task.is_milestone,
+    }));
+    const result = direction === "forward" ? forwardSchedule(input, deps) : backwardSchedule(input, deps);
+    if (result.warnings.includes("dependency_cycle")) {
+      toast.error(t("events.plan.scheduleCycle"));
+    }
+    if (result.warnings.includes("no_dated_tasks")) {
+      toast.error(t("events.plan.scheduleNoDates"));
+      return;
+    }
+    const changed = result.tasks.filter((row) => row.changed);
+    if (!changed.length) {
+      toast.message(t("events.plan.scheduleNoChanges"));
+      return;
+    }
+    setSchedulePreview({ direction, tasks: result.tasks, writeCritical: true });
+  };
+
   const patchWbs = (node: EventWbsNode, patch: Partial<EventWbsNode>) => {
     saveWbs.mutate({
       id: node.id,
@@ -300,7 +604,14 @@ export default function EventPlanPage() {
   const taskById = (taskId: string) => tasks.find((row) => row.id === taskId);
 
   const openTask = (task: EventTaskRow | null) => {
+    setSeedParentTaskId(null);
     setActiveTask(task);
+    setDialogOpen(true);
+  };
+
+  const openChildTask = (parent: EventTaskRow) => {
+    setActiveTask(null);
+    setSeedParentTaskId(parent.id);
     setDialogOpen(true);
   };
 
@@ -367,9 +678,17 @@ export default function EventPlanPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {canEdit ? (
-              <Button size="sm" variant="outline" onClick={() => baseline.mutate()} disabled={baseline.isPending}>
-                {t("events.plan.saveBaseline")}
-              </Button>
+              <>
+                <Button size="sm" variant="outline" onClick={() => openAutoSchedule("forward")}>
+                  {t("events.plan.autoScheduleForward")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => openAutoSchedule("backward")}>
+                  {t("events.plan.autoScheduleBackward")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => baseline.mutate()} disabled={baseline.isPending}>
+                  {t("events.plan.saveBaseline")}
+                </Button>
+              </>
             ) : null}
             <EventWorkspaceNav eventId={id} />
           </div>
@@ -416,19 +735,78 @@ export default function EventPlanPage() {
         ) : (
           <Badge variant="muted">{t("events.plan.noBaseline")}</Badge>
         )}
+        {cpm.criticalIds.length > 0 ? (
+          <Badge variant="outline" className="text-rag-red">
+            {t("events.plan.criticalPathN", { n: cpm.criticalIds.length })}
+          </Badge>
+        ) : null}
+        {cpm.hasCycle ? (
+          <Badge variant="destructive">{t("events.plan.scheduleCycle")}</Badge>
+        ) : null}
+        {scheduleBaselines.length > 1 ? (
+          <Select value={baselineId} onValueChange={setBaselineId}>
+            <SelectTrigger className="h-7 w-48 text-xs">
+              <SelectValue placeholder={t("events.plan.compareBaseline")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="latest">{t("events.plan.baselineLatest")}</SelectItem>
+              {scheduleBaselines.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.created_at.slice(0, 16).replace("T", " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
       </div>
 
       {(plan.data?.violations.length ?? 0) > 0 ? (
-        <div className="rounded-xl border border-rag-amber/40 bg-rag-amber/10 p-3 text-sm">
-          <p className="font-semibold">{t("events.plan.depWarnings")}</p>
-          <ul className="mt-1 list-disc ps-4 text-xs">
-            {plan.data?.violations.map((v, i) => (
-              <li key={`${v.predecessor_id}-${v.successor_id}-${i}`}>
-                {v.dep_type}: {taskById(v.predecessor_id)?.title ?? v.predecessor_id} → {taskById(v.successor_id)?.title ?? v.successor_id}
-                {" — "}
-                {t("events.plan.depNeeded", { date: v.needed_date })}
-              </li>
-            ))}
+        <div className="rounded-xl border border-rag-amber/50 bg-rag-amber/10 p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold">{t("events.plan.depWarnings")}</p>
+            <Badge variant="outline" className="text-rag-amber">
+              {t("events.plan.violationCount", { n: plan.data?.violations.length ?? 0 })}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{t("events.plan.depWarningsHint")}</p>
+          <ul className="mt-2 space-y-1.5 text-xs">
+            {plan.data?.violations.map((v, i) => {
+              const pred = taskById(v.predecessor_id);
+              const succ = taskById(v.successor_id);
+              return (
+                <li
+                  key={`${v.predecessor_id}-${v.successor_id}-${i}`}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-rag-amber/30 bg-card/60 px-2 py-1.5"
+                >
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {v.dep_type}
+                  </Badge>
+                  <button
+                    type="button"
+                    className="font-medium underline-offset-2 hover:underline"
+                    onClick={() => pred && openTask(pred)}
+                  >
+                    {pred?.task_number ?? pred?.title ?? v.predecessor_id}
+                  </button>
+                  <span aria-hidden>→</span>
+                  <button
+                    type="button"
+                    className="font-medium underline-offset-2 hover:underline"
+                    onClick={() => succ && openTask(succ)}
+                  >
+                    {succ?.task_number ?? succ?.title ?? v.successor_id}
+                  </button>
+                  <span className="text-muted-foreground">
+                    {t("events.plan.depNeeded", { date: v.needed_date })}
+                  </span>
+                  {canEdit ? (
+                    <Button size="sm" variant="ghost" className="ms-auto h-6 text-[10px]" onClick={() => openAutoSchedule("forward")}>
+                      {t("events.plan.fixWithSchedule")}
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -443,32 +821,164 @@ export default function EventPlanPage() {
           ) : null}
         </div>
         {filterBar}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Select
+            value="__pick__"
+            onValueChange={(v) => {
+              const row = savedFilters.find((f) => f.id === v);
+              if (row) setFilters(parseSavedFilters(row.filters));
+            }}
+          >
+            <SelectTrigger className="w-48"><SelectValue placeholder={t("events.plan.savedFilters")} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__pick__">{t("events.plan.savedFilters")}</SelectItem>
+              {savedFilters.map((row) => (
+                <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            className="w-40"
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+            placeholder={t("events.plan.filterName")}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!filterName.trim() || saveFilter.isPending}
+            onClick={() => saveFilter.mutate()}
+          >
+            {t("events.plan.saveFilter")}
+          </Button>
+          {savedFilters[0] ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                try {
+                  await deleteEventSavedFilter({ id: savedFilters[0].id });
+                  setSavedFilters(await listEventSavedFilters({ eventId: id }));
+                } catch (e) {
+                  toast.error((e as Error).message);
+                }
+              }}
+            >
+              {t("events.plan.deleteFilter")}
+            </Button>
+          ) : null}
+        </div>
       </section>
 
-      <Tabs defaultValue="overview">
+      <Tabs key={planTab} defaultValue={planTab}>
         <TabsList>
           <TabsTrigger value="overview"><LayoutDashboard aria-hidden />{t("events.plan.tabOverview")}</TabsTrigger>
           <TabsTrigger value="tasks"><ListChecks aria-hidden />{t("events.plan.tabTasks")}</TabsTrigger>
+          <TabsTrigger value="board"><LayoutGrid aria-hidden />{t("events.plan.tabBoard")}</TabsTrigger>
+          <TabsTrigger value="resources"><Users aria-hidden />{t("events.plan.tabResources")}</TabsTrigger>
+          <TabsTrigger value="collab"><MessagesSquare aria-hidden />{t("events.plan.tabCollab")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           <EventGantt
             tasks={filteredTasks}
-            milestones={milestones}
+            milestones={milestonesWithBaseline}
             dependencies={plan.data?.dependencies ?? []}
             wbs={wbs}
-            baseline={latestBaseline}
+            baseline={selectedBaseline}
+            violations={plan.data?.violations ?? []}
+            criticalIds={cpm.criticalIds}
             onTaskSelect={canEdit ? openTask : undefined}
           />
         </TabsContent>
 
+        <TabsContent value="board" className="space-y-4">
+          <EventKanbanBoard
+            eventId={id}
+            tasks={filteredTasks}
+            sprints={sprints}
+            staff={staff}
+            canEdit={canEdit}
+            busy={moveStatus.isPending || assignSprint.isPending || saveSprint.isPending || removeSprint.isPending}
+            onOpenTask={openTask}
+            onStatusChange={(taskId, status) => moveStatus.mutate({ taskId, status })}
+            onAssignSprint={(taskIds, sprintId) => assignSprint.mutate({ taskIds, sprintId })}
+            onSaveSprint={(draft) => saveSprint.mutate(draft)}
+            onDeleteSprint={(sprintId) => removeSprint.mutate(sprintId)}
+          />
+        </TabsContent>
+
+        <TabsContent value="resources" className="space-y-4">
+          <EventResourcesPanel
+            eventId={id}
+            locationId={eventQ.data?.event.location_id}
+            tasks={tasks}
+            staff={staff}
+            canEdit={canEdit}
+          />
+        </TabsContent>
+
+        <TabsContent value="collab" className="space-y-4">
+          <EventCollaborationPanel
+            eventId={id}
+            staff={staff.map((s) => ({ id: s.id, full_name: s.full_name }))}
+            canEdit={canEdit}
+          />
+        </TabsContent>
+
         <TabsContent value="tasks" className="space-y-4">
+          {canEdit && selectedIds.size > 0 ? (
+            <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border/40 bg-card p-3">
+              <p className="w-full text-xs text-muted-foreground">
+                {t("events.plan.bulkSelected", { n: selectedIds.size })}
+              </p>
+              <Select value={bulk.status || "none"} onValueChange={(v) => setBulk((s) => ({ ...s, status: v === "none" ? "" : v }))}>
+                <SelectTrigger className="w-36"><SelectValue placeholder={t("events.plan.status")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {TASK_STATUSES.map((s) => <SelectItem key={s} value={s}>{t(`events.taskStatus.${s}`)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={bulk.priority || "none"} onValueChange={(v) => setBulk((s) => ({ ...s, priority: v === "none" ? "" : v }))}>
+                <SelectTrigger className="w-36"><SelectValue placeholder={t("events.plan.priority")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {TASK_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{t(`events.priority.${p}`)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={bulk.assignee_staff_id || "none"} onValueChange={(v) => setBulk((s) => ({ ...s, assignee_staff_id: v === "none" ? "" : v }))}>
+                <SelectTrigger className="w-40"><SelectValue placeholder={t("events.plan.assignee")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {staff.map((s) => <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Input type="date" className="w-36" value={bulk.start_date} onChange={(e) => setBulk((s) => ({ ...s, start_date: e.target.value }))} />
+              <Input type="date" className="w-36" value={bulk.due_date} onChange={(e) => setBulk((s) => ({ ...s, due_date: e.target.value }))} />
+              <Button size="sm" disabled={bulkUpdate.isPending} onClick={() => bulkUpdate.mutate()}>
+                {t("events.plan.applyBulk")}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                {t("common.clear")}
+              </Button>
+            </div>
+          ) : null}
           <EventScheduleRegister
             tasks={filteredTasks}
             allTasks={tasks}
             canEdit={canEdit}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
             onEdit={openTask}
             onDelete={(taskId) => removeTask.mutate(taskId)}
+            onAddChild={openChildTask}
+          />
+
+          <EventPlanTemplatesPanel
+            eventId={id}
+            canManage={canManage}
+            canEdit={canEdit}
+            onChanged={invalidate}
           />
 
           <CollapsibleSection title={t("events.plan.wbs")} defaultOpen={false}>
@@ -488,9 +998,27 @@ export default function EventPlanPage() {
             />
           </CollapsibleSection>
 
-          {latestBaseline ? (
+          {selectedBaseline ? (
             <CollapsibleSection title={t("events.plan.varianceTitle")} defaultOpen={false}>
               <section className="rounded-2xl border border-border/40 bg-card p-4">
+                {scheduleBaselines.length > 1 ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <p className="text-xs text-muted-foreground">{t("events.plan.compareBaseline")}</p>
+                    <Select value={baselineId} onValueChange={setBaselineId}>
+                      <SelectTrigger className="h-8 w-52 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="latest">{t("events.plan.baselineLatest")}</SelectItem>
+                        {scheduleBaselines.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.created_at.slice(0, 16).replace("T", " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -503,7 +1031,7 @@ export default function EventPlanPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {tasks.filter((row) => row.baseline_start || row.baseline_due).map((row) => (
+                    {tasksWithBaseline.filter((row) => row.baseline_start || row.baseline_due).map((row) => (
                       <TableRow key={row.id}>
                         <TableCell>{row.task_number} {row.title}</TableCell>
                         <TableCell className="tabular-nums">{row.baseline_start ?? "—"}</TableCell>
@@ -672,11 +1200,75 @@ export default function EventPlanPage() {
         tasks={tasks}
         staff={staff}
         departments={departments}
+        sprints={sprints}
         pending={saveTask.isPending}
-        onOpenChange={setDialogOpen}
+        seedParentTaskId={seedParentTaskId}
+        eventId={id}
+        canEdit={canEdit}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setSeedParentTaskId(null);
+        }}
         onSave={(draft) => saveTask.mutate(draft)}
         onComment={activeTask ? (body) => commentTask.mutate(body) : undefined}
       />
+
+      <AlertDialog open={Boolean(schedulePreview)} onOpenChange={(open) => !open && setSchedulePreview(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {schedulePreview?.direction === "backward"
+                ? t("events.plan.autoScheduleBackward")
+                : t("events.plan.autoScheduleForward")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("events.plan.scheduleConfirm", {
+                n: schedulePreview?.tasks.filter((row) => row.changed).length ?? 0,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {schedulePreview ? (
+            <ul className="max-h-48 space-y-1 overflow-y-auto text-xs">
+              {schedulePreview.tasks
+                .filter((row) => row.changed)
+                .slice(0, 40)
+                .map((row) => {
+                  const task = taskById(row.id);
+                  return (
+                    <li key={row.id} className="flex justify-between gap-2 tabular-nums">
+                      <span className="truncate">{task?.task_number ?? task?.title ?? row.id}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {row.start_date ?? "—"} → {row.due_date ?? "—"}
+                      </span>
+                    </li>
+                  );
+                })}
+            </ul>
+          ) : null}
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={schedulePreview?.writeCritical ?? true}
+              onChange={(e) =>
+                setSchedulePreview((prev) => (prev ? { ...prev, writeCritical: e.target.checked } : prev))
+              }
+            />
+            {t("events.plan.writeCriticalFlags")}
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={applySchedule.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                applySchedule.mutate();
+              }}
+            >
+              {t("events.plan.applySchedule")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

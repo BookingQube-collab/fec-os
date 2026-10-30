@@ -19,8 +19,11 @@ import type {
   RiskStatus,
   TaskApprovalStatus,
   TaskEscalationLevel,
+  SprintStatus,
   TaskPriority,
   TaskStatus,
+  TimesheetStatus,
+  MeetingActionStatus,
   WbsNodeType,
   WorkstreamDeptStatus,
 } from "@/lib/events/constants";
@@ -226,6 +229,16 @@ export interface EventOverview {
   assets: EventAssetRow[];
   workstreams: EventWorkstreamStatus[];
   overdueActions: EventTaskRow[];
+  /** Phase 7 — overdue risks/tasks/gates/issues + escalated items. */
+  escalations?: Array<{
+    kind: "risk" | "task" | "gate" | "issue";
+    id: string;
+    title: string;
+    due_date: string | null;
+    severity?: string | null;
+    escalation_level?: string | null;
+    overdue: boolean;
+  }>;
 }
 
 export interface EventDocumentStub {
@@ -270,6 +283,9 @@ export interface EventTaskRow {
   owner_name: string | null;
   assignee_staff_id: string | null;
   assignee_name: string | null;
+  /** Additional assignees (includes primary). Primary stays on assignee_staff_id for inbox. */
+  assignee_ids: string[];
+  assignee_names: string[];
   department_id: string | null;
   department_name: string | null;
   percent_complete: number;
@@ -296,12 +312,162 @@ export interface EventTaskRow {
   workstream_title: string | null;
   workstream_code: string | null;
   lifecycle_phase: string | null;
+  recurrence_freq: "daily" | "weekly" | "monthly" | null;
+  recurrence_interval: number;
+  recurrence_until: string | null;
+  recurrence_count: number | null;
+  reminder_days_before: number;
+  story_points: number | null;
+  sprint_id: string | null;
   baseline_start: string | null;
   baseline_due: string | null;
   baseline_percent: number | null;
   variance: EventScheduleVariance;
   event_name?: string;
   event_number?: string | null;
+}
+
+export interface EventSprintRow {
+  id: string;
+  event_id: string;
+  name: string;
+  goal: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: SprintStatus;
+  sort_order: number;
+}
+
+export interface EventResourceAllocationRow {
+  id: string;
+  event_id: string;
+  staff_id: string;
+  staff_name: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  start_date: string;
+  end_date: string;
+  allocated_hours: number | null;
+  allocation_pct: number | null;
+  notes: string | null;
+}
+
+export interface EventStaffCapacityRow {
+  staff_id: string;
+  staff_name: string | null;
+  weekly_hours: number;
+  notes: string | null;
+}
+
+export interface EventTimesheetEntryRow {
+  id: string;
+  event_id: string;
+  staff_id: string;
+  staff_name: string | null;
+  task_id: string | null;
+  task_title: string | null;
+  work_date: string;
+  hours: number;
+  note: string | null;
+  status: TimesheetStatus;
+  approved_at: string | null;
+}
+
+export interface EventResourceConflictRow {
+  staff_id: string;
+  staff_name: string | null;
+  weekStart: string;
+  weekEnd: string;
+  allocatedHours: number;
+  capacityHours: number;
+  overBy: number;
+  allocationIds: string[];
+}
+
+export interface EventStaffWorkloadRow {
+  staff_id: string;
+  staff_name: string | null;
+  allocatedHours: number;
+  capacityHours: number;
+  utilizationPct: number;
+  overAllocated: boolean;
+  taskEstimatedHours: number;
+  taskActualHours: number;
+  timesheetHours: number;
+  approvedTimesheetHours: number;
+}
+
+export interface EventResourcesPayload {
+  allocations: EventResourceAllocationRow[];
+  timesheets: EventTimesheetEntryRow[];
+  capacities: EventStaffCapacityRow[];
+  workload: EventStaffWorkloadRow[];
+  conflicts: EventResourceConflictRow[];
+  overlaps: Array<{
+    staff_id: string;
+    staff_name: string | null;
+    aId: string;
+    bId: string;
+    start: string;
+    end: string;
+  }>;
+  estVsActual: Array<{
+    staff_id: string | null;
+    staff_name: string | null;
+    estimatedHours: number;
+    actualHours: number;
+    timesheetApprovedHours: number;
+    varianceHours: number;
+  }>;
+  kpis: {
+    allocatedHours: number;
+    capacityHours: number;
+    utilizationPct: number;
+    conflictCount: number;
+    estimatedHours: number;
+    actualHours: number;
+    pendingTimesheets: number;
+  };
+}
+
+export interface EventTaskAttachmentRow {
+  id: string;
+  event_id: string;
+  task_id: string;
+  title: string;
+  file_name: string;
+  file_path: string;
+  content_type: string | null;
+  file_size: number | null;
+  created_at: string;
+}
+
+export interface EventTaskHistoryRow {
+  id: string;
+  event_id: string;
+  task_id: string;
+  actor_id: string | null;
+  change_type: string;
+  field_name: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
+export interface EventTaskWatcherRow {
+  id: string;
+  event_id: string;
+  task_id: string | null;
+  staff_id: string;
+  staff_name: string | null;
+}
+
+export interface EventSavedFilterRow {
+  id: string;
+  event_id: string | null;
+  name: string;
+  filters: Record<string, string>;
+  updated_at: string;
 }
 
 export interface EventWbsNode {
@@ -498,6 +664,14 @@ export interface EventRiskRow {
   severity: RiskSeverity;
   status: RiskStatus;
   due_date: string | null;
+  owner_staff_id?: string | null;
+  owner_name?: string | null;
+  mitigation?: string | null;
+  likelihood?: RiskSeverity | null;
+  impact?: RiskSeverity | null;
+  matrix_band?: RiskSeverity | null;
+  escalation_level?: TaskEscalationLevel | null;
+  escalated_at?: string | null;
 }
 
 export interface EventReadinessRow {
@@ -587,6 +761,8 @@ export interface EventDashboard {
   upcoming: number;
   live: number;
   rag: { green: number; amber: number; red: number; critical: number };
+  /** Phase 0 — false redacts monetary KPIs on the client. */
+  canFinance: boolean;
   contractedValue: number;
   budgetRevised: number;
   budgetCommitted: number;
@@ -603,6 +779,16 @@ export interface EventDashboard {
   criticalSafety: number;
   missingAssets: number;
   goLivePending: number;
+  /** Phase 8 — stage distribution (code → count). */
+  stageMix: Array<{ code: string; label: string; count: number }>;
+  /** Phase 8 — readiness bands for trend strip. */
+  readinessBands: { high: number; mid: number; low: number; critical: number };
+  estimatedHours: number;
+  actualHours: number;
+  sprintCount: number;
+  avgVelocity: number;
+  avgSpi: number | null;
+  avgCpi: number | null;
   events: EventListRow[];
 }
 
@@ -630,6 +816,9 @@ export interface EventIssueRow {
   is_snag: boolean;
   is_safety: boolean;
   overdue: boolean;
+  task_id?: string | null;
+  task_title?: string | null;
+  sla_due_date?: string | null;
 }
 
 export interface EventDocumentRow {
@@ -691,4 +880,105 @@ export interface EventAssetRow {
   status: AssetMoveStatus;
   due_date: string | null;
   notes: string | null;
+}
+
+/** Phase 6 — Collaboration */
+
+export interface EventDiscussionRow {
+  id: string;
+  event_id: string;
+  title: string;
+  document_id: string | null;
+  document_title: string | null;
+  post_count: number;
+  last_post_at: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface EventDiscussionPostRow {
+  id: string;
+  event_id: string;
+  discussion_id: string;
+  parent_post_id: string | null;
+  body: string;
+  author_staff_id: string | null;
+  author_name: string | null;
+  mentioned_staff_ids: string[];
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface EventMeetingRow {
+  id: string;
+  event_id: string;
+  title: string;
+  scheduled_at: string;
+  agenda: string | null;
+  minutes: string | null;
+  attendee_staff_ids: string[];
+  attendee_names: string[];
+  phase_code: string | null;
+  document_id: string | null;
+  document_title: string | null;
+  open_action_count: number;
+  created_at: string;
+}
+
+export interface EventMeetingActionRow {
+  id: string;
+  event_id: string;
+  meeting_id: string;
+  meeting_title: string | null;
+  title: string;
+  assignee_staff_id: string | null;
+  assignee_name: string | null;
+  due_date: string | null;
+  status: MeetingActionStatus;
+  task_id: string | null;
+  task_title: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface EventDecisionRow {
+  id: string;
+  event_id: string;
+  title: string;
+  decision: string;
+  decided_at: string;
+  decided_by_staff_id: string | null;
+  decided_by_name: string | null;
+  context: string | null;
+  meeting_id: string | null;
+  meeting_title: string | null;
+  document_id: string | null;
+  document_title: string | null;
+  created_at: string;
+}
+
+export interface EventWikiPageRow {
+  id: string;
+  event_id: string;
+  slug: string;
+  title: string;
+  body_md: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export interface EventCollaborationPayload {
+  discussions: EventDiscussionRow[];
+  postsByDiscussion: Record<string, EventDiscussionPostRow[]>;
+  meetings: EventMeetingRow[];
+  actions: EventMeetingActionRow[];
+  decisions: EventDecisionRow[];
+  wiki: EventWikiPageRow | null;
+  documents: Array<{ id: string; title: string }>;
+  kpis: {
+    discussionCount: number;
+    openActions: number;
+    meetingCount: number;
+    decisionCount: number;
+  };
 }

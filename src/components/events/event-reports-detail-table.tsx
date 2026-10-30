@@ -17,7 +17,7 @@ import type { EventReportId, ReportColumn } from "@/lib/events/reports";
 
 export type ReportRow = Record<string, string | number | null>;
 
-const DATE_KEYS = new Set(["due", "opening", "dates"]);
+const DATE_KEYS = new Set(["due", "opening", "dates", "from", "to", "window"]);
 const SEVERITY_KEYS = new Set(["priority", "severity"]);
 const YESNO_KEYS = new Set(["required", "approved", "snag", "safety"]);
 

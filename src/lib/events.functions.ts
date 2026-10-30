@@ -14,6 +14,7 @@ import {
   DEP_TYPES,
   DOCUMENT_STATUSES,
   DOCUMENT_TYPES,
+  EVENT_FETCH_CAPS,
   EVENT_PRIORITIES,
   EVENT_STATUSES,
   ISSUE_SEVERITIES,
@@ -29,9 +30,13 @@ import {
   RISK_SEVERITIES,
   RISK_STATUSES,
   SIDE_STAGE_CODES,
+  SPRINT_STATUSES,
+  TIMESHEET_STATUSES,
+  MEETING_ACTION_STATUSES,
   TASK_APPROVAL_STATUSES,
   TASK_ESCALATION_LEVELS,
   TASK_PRIORITIES,
+  TASK_RECURRENCE_FREQS,
   TASK_STATUSES,
   WBS_NODE_TYPES,
   type EventRag,
@@ -46,6 +51,8 @@ import {
   workstreamTitle,
 } from "@/lib/events/workstreams";
 import { WORKSTREAM_MERGES, WORKSTREAM_RENAMES } from "@/lib/events/lifecycle";
+import { averageVelocity, computeVelocity } from "@/lib/events/agile";
+import { computeEvLite } from "@/lib/events/evm-lite";
 import { assembleEventReports, type EventReportsPayload, type ReportEventFact } from "@/lib/events/reports";
 import {
   blendScores,
@@ -66,6 +73,7 @@ import {
   portfolioLineFinance,
   prCommittedTotal,
   recognizedRevenue,
+  redactFinanceTotals,
   remainingBudget,
   revisedBudget,
   sumBudgetLines,
@@ -74,6 +82,10 @@ import {
   type LineAmounts,
   type RevenueInputs,
 } from "@/lib/events/finance";
+import {
+  assertIdsSameEvent,
+  assertOptionalRefsSameEvent,
+} from "@/lib/events/integrity";
 import type {
   EventAssetRow,
   EventAuditRow,
@@ -103,11 +115,53 @@ import type {
   EventRiskRow,
   EventScopeSection,
   EventScopeVersion,
+  EventCollaborationPayload,
+  EventDecisionRow,
+  EventDiscussionPostRow,
+  EventDiscussionRow,
+  EventMeetingActionRow,
+  EventMeetingRow,
+  EventResourceAllocationRow,
+  EventResourcesPayload,
+  EventSprintRow,
+  EventStaffCapacityRow,
   EventStage,
+  EventSavedFilterRow,
+  EventTaskAttachmentRow,
   EventTaskComment,
+  EventTaskHistoryRow,
   EventTaskRow,
+  EventTaskWatcherRow,
+  EventTimesheetEntryRow,
+  EventWikiPageRow,
   EventWbsNode,
 } from "@/lib/events/types";
+import {
+  DEFAULT_WEEKLY_CAPACITY_HOURS,
+  buildStaffWorkload,
+  detectCapacityConflicts,
+  detectOverlappingAllocations,
+  estimatedVsActual,
+  resolveAllocationTotalHours,
+} from "@/lib/events/resources";
+import {
+  DEFAULT_WIKI_SLUG,
+  meetingActionCanLinkTask,
+  meetingActionTaskTitle,
+  normalizeMeetingActionStatus,
+  resolveMentionStaffIds,
+  wikiSlugOrDefault,
+} from "@/lib/events/collaboration";
+import {
+  buildTaskHistoryDiffs,
+  classifyTaskReminder,
+  eventTaskAttachmentObjectPath,
+  nextRecurrenceDueDate,
+  normalizeAssigneeIds,
+  parseSavedFilters,
+  shouldSpawnRecurrence,
+  type PlanTaskFilters,
+} from "@/lib/events/phase2-tasks";
 import {
   applyNodeTypes,
   canIndent,
@@ -133,11 +187,24 @@ import {
   EVENT_DOCUMENT_MIMES,
   LEGACY_EVENT_BOQ_SEED,
   REQUIRED_EVENT_DOC_SEEDS,
+  eventDocumentObjectPath,
+  eventDocumentPathEventId,
   mimeFromFileName,
   resolveDocumentStatus,
   sanitizeEventFileName,
 } from "@/lib/events/documents";
 import { isMissingEventColumn, textMatchesEvent } from "@/lib/events/ops-link";
+import {
+  allowedBudgetActions,
+  assertBudgetTransition,
+  budgetIsApprovedLike,
+  budgetLinesEditable,
+  collectEventEscalations,
+  nextEscalationLevel,
+  riskMatrixBand,
+  type BudgetTransitionAction,
+} from "@/lib/events/governance";
+import { findUsersWithCapability, notifyUsers } from "@/lib/notifications/action-notify";
 import { validateBase64Size, validateUploadMimeList } from "@/lib/server/upload-validation";
 import { eventDisplayName, uniqueEventProjectNames } from "@/lib/procurement/event-link";
 import { formatLocationLabel } from "@/lib/locations/normalize";
@@ -176,6 +243,41 @@ async function writeEventAudit(
     after: (entry.after ?? null) as Json,
     metadata: (entry.metadata ?? {}) as Json,
   });
+}
+
+async function notifyEventAssignees(
+  context: AuthContext,
+  opts: {
+    staffIds: Array<string | null | undefined>;
+    locationId: string | null;
+    title: string;
+    body?: string | null;
+    actionUrl: string;
+    sourceType: string;
+    sourceId: string;
+  },
+) {
+  const ids = [...new Set(opts.staffIds.filter((id): id is string => Boolean(id)))];
+  if (!ids.length) return;
+  try {
+    const { data: staff } = await context.supabase.from("staff").select("id, user_id").in("id", ids).is("deleted_at", null);
+    const userIds = [...new Set((staff ?? []).map((s) => s.user_id as string | null).filter((id): id is string => Boolean(id)))];
+    if (!userIds.length) return;
+    await notifyUsers({
+      userIds,
+      excludeUserId: context.userId,
+      locationId: opts.locationId,
+      category: "events",
+      title: opts.title,
+      body: opts.body ?? null,
+      severity: "info",
+      actionUrl: opts.actionUrl,
+      sourceType: opts.sourceType,
+      sourceId: opts.sourceId,
+    });
+  } catch (error) {
+    console.warn("[notify] event notify failed", error instanceof Error ? error.message : error);
+  }
 }
 
 async function loadEventOrThrow(context: AuthContext, eventId: string) {
@@ -226,7 +328,7 @@ function asComments(value: unknown): EventTaskComment[] {
 }
 
 const TASK_COLUMNS =
-  "id, event_id, task_number, wbs_id, parent_task_id, title, description, status, priority, start_date, due_date, completed_at, duration_days, owner_staff_id, assignee_staff_id, department_id, percent_complete, is_critical, is_milestone, estimated_hours, actual_hours, estimated_cost, actual_cost, cost_impact, checklist, comments, documents, approval_status, delay_reason, escalation_level, evidence_url, is_snag, lifecycle_phase";
+  "id, event_id, task_number, wbs_id, parent_task_id, title, description, status, priority, start_date, due_date, completed_at, duration_days, owner_staff_id, assignee_staff_id, department_id, percent_complete, is_critical, is_milestone, estimated_hours, actual_hours, estimated_cost, actual_cost, cost_impact, checklist, comments, documents, approval_status, delay_reason, escalation_level, evidence_url, is_snag, lifecycle_phase, recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, recurrence_source_id, reminder_days_before, story_points, sprint_id";
 
 function bumpWindows(event: Record<string, unknown>) {
   return {
@@ -444,7 +546,7 @@ async function loadEventOps(
     context.supabase.from("event_wbs_nodes").select("id, parent_id, code, title").eq("event_id", eventId).is("deleted_at", null),
     context.supabase
       .from("event_issues")
-      .select("id, title, description, severity, status, owner_staff_id, due_date, is_snag, is_safety")
+      .select("id, title, description, severity, status, owner_staff_id, due_date, is_snag, is_safety, task_id, sla_due_date")
       .eq("event_id", eventId)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }),
@@ -505,6 +607,12 @@ async function loadEventOps(
     ? await context.supabase.from("staff").select("id, full_name, user_id").in("id", staffIds)
     : { data: [] };
   const issueStaffMap = new Map((issueStaff ?? []).map((s) => [s.id, s.full_name]));
+  const issueTaskIds = [...new Set((issues ?? []).map((i) => i.task_id).filter(Boolean))] as string[];
+  const taskTitleById = new Map(
+    taskRows
+      .filter((t) => issueTaskIds.includes(t.id as string))
+      .map((t) => [t.id as string, t.title as string]),
+  );
   const uploaderIds = [...new Set((documents ?? []).map((d) => d.uploaded_by).filter(Boolean))] as string[];
   const { data: uploaders } = uploaderIds.length
     ? await context.supabase.from("staff").select("user_id, full_name").in("user_id", uploaderIds)
@@ -528,19 +636,29 @@ async function loadEventOps(
     }
   }
 
-  const issueRows: EventIssueRow[] = (issues ?? []).map((i) => ({
-    id: i.id as string,
-    title: i.title as string,
-    description: (i.description as string | null) ?? null,
-    severity: i.severity as EventIssueRow["severity"],
-    status: i.status as EventIssueRow["status"],
-    owner_staff_id: (i.owner_staff_id as string | null) ?? null,
-    owner_name: i.owner_staff_id ? (issueStaffMap.get(i.owner_staff_id as string) ?? null) : null,
-    due_date: (i.due_date as string | null) ?? null,
-    is_snag: Boolean(i.is_snag),
-    is_safety: Boolean(i.is_safety),
-    overdue: Boolean(i.due_date && OPEN_ISSUE_STATUSES.has(i.status as string) && (i.due_date as string) < today),
-  }));
+  const issueRows: EventIssueRow[] = (issues ?? []).map((i) => {
+    const due = (i.due_date as string | null) ?? null;
+    const slaDue = (i.sla_due_date as string | null) ?? null;
+    const effectiveDue = slaDue ?? due;
+    return {
+      id: i.id as string,
+      title: i.title as string,
+      description: (i.description as string | null) ?? null,
+      severity: i.severity as EventIssueRow["severity"],
+      status: i.status as EventIssueRow["status"],
+      owner_staff_id: (i.owner_staff_id as string | null) ?? null,
+      owner_name: i.owner_staff_id ? (issueStaffMap.get(i.owner_staff_id as string) ?? null) : null,
+      due_date: due,
+      is_snag: Boolean(i.is_snag),
+      is_safety: Boolean(i.is_safety),
+      overdue: Boolean(
+        effectiveDue && OPEN_ISSUE_STATUSES.has(i.status as string) && effectiveDue < today,
+      ),
+      task_id: (i.task_id as string | null) ?? null,
+      task_title: i.task_id ? (taskTitleById.get(i.task_id as string) ?? null) : null,
+      sla_due_date: slaDue,
+    };
+  });
 
   const documentRows: EventDocumentRow[] = (documents ?? []).map((d) => {
     const filePath = (d.file_path as string | null) ?? null;
@@ -707,6 +825,8 @@ async function loadEventOps(
 
 function emptyTaskExtras() {
   return {
+    assignee_ids: [] as string[],
+    assignee_names: [] as string[],
     supporter_ids: [] as string[],
     supporter_names: [] as string[],
     approval_status: "not_required" as EventTaskRow["approval_status"],
@@ -717,7 +837,119 @@ function emptyTaskExtras() {
     is_snag: false,
     workstream_code: null as string | null,
     lifecycle_phase: null as string | null,
+    recurrence_freq: null as EventTaskRow["recurrence_freq"],
+    recurrence_interval: 1,
+    recurrence_until: null as string | null,
+    recurrence_count: null as number | null,
+    reminder_days_before: 3,
+    story_points: null as number | null,
+    sprint_id: null as string | null,
   };
+}
+
+async function appendTaskHistory(
+  context: AuthContext,
+  entry: {
+    eventId: string;
+    taskId: string;
+    changeType: string;
+    fieldName?: string | null;
+    oldValue?: string | null;
+    newValue?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  try {
+    await context.supabase.from("event_task_history").insert({
+      event_id: entry.eventId,
+      task_id: entry.taskId,
+      actor_id: context.userId,
+      change_type: entry.changeType,
+      field_name: entry.fieldName ?? null,
+      old_value: entry.oldValue ?? null,
+      new_value: entry.newValue ?? null,
+      metadata: (entry.metadata ?? {}) as Json,
+    });
+  } catch (error) {
+    console.warn("[events] task history insert failed", error instanceof Error ? error.message : error);
+  }
+}
+
+async function syncTaskAssignees(
+  context: AuthContext,
+  taskId: string,
+  primary: string | null,
+  allIds: string[],
+) {
+  await context.supabase.from("event_task_assignees").delete().eq("task_id", taskId);
+  if (!allIds.length) return;
+  const { error } = await context.supabase.from("event_task_assignees").insert(
+    allIds.map((staff_id) => ({
+      task_id: taskId,
+      staff_id,
+      is_primary: staff_id === primary,
+    })),
+  );
+  if (error) throw error;
+}
+
+async function loadWatcherStaffIds(
+  context: AuthContext,
+  eventId: string,
+  taskId: string,
+): Promise<string[]> {
+  const { data } = await context.supabase
+    .from("event_task_watchers")
+    .select("staff_id, task_id")
+    .eq("event_id", eventId)
+    .or(`task_id.eq.${taskId},task_id.is.null`);
+  return [...new Set((data ?? []).map((w) => w.staff_id as string))];
+}
+
+async function processEventTaskReminders(
+  context: AuthContext,
+  event: { id: string; location_id: string | null; name?: string | null; event_number?: string | null },
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    due_date: string | null;
+    assignee_staff_id: string | null;
+    owner_staff_id: string | null;
+    reminder_days_before?: number | null;
+  }>,
+) {
+  const today = todayIso();
+  let sent = 0;
+  for (const task of tasks) {
+    const kind = classifyTaskReminder({
+      status: task.status,
+      dueDate: task.due_date,
+      today,
+      reminderDaysBefore: task.reminder_days_before ?? 3,
+    });
+    if (!kind || !task.due_date) continue;
+    const { error: logErr } = await context.supabase.from("event_task_reminder_log").insert({
+      event_id: event.id,
+      task_id: task.id,
+      reminder_kind: kind,
+      due_date: task.due_date,
+      sent_on: today,
+    });
+    if (logErr) continue; // unique violation = already reminded today
+    const watchers = await loadWatcherStaffIds(context, event.id, task.id);
+    await notifyEventAssignees(context, {
+      staffIds: [task.assignee_staff_id, task.owner_staff_id, ...watchers],
+      locationId: event.location_id,
+      title: kind === "overdue" ? `Overdue task: ${task.title}` : `Due soon: ${task.title}`,
+      body: eventDisplayName(event) ?? null,
+      actionUrl: `/events/${event.id}/plan`,
+      sourceType: "event_task_reminder",
+      sourceId: task.id,
+    });
+    sent += 1;
+  }
+  return sent;
 }
 
 function emptyFinance(): EventBudgetTotals {
@@ -1060,7 +1292,7 @@ async function loadScoreInputs(context: AuthContext, eventId: string, eventFacts
   const [tasks, risks, readinessQ, deliverables, milestones, scopes, budget, lines, baselines, prs, invoices] = await Promise.all([
     context.supabase
       .from("event_tasks")
-      .select("id, task_number, title, status, priority, is_critical, is_snag, due_date, start_date, percent_complete, wbs_id, owner_staff_id, description, completed_at, duration_days, assignee_staff_id, department_id, is_milestone, estimated_hours, actual_hours, estimated_cost, actual_cost, lifecycle_phase")
+      .select("id, task_number, title, status, priority, is_critical, is_snag, due_date, start_date, percent_complete, wbs_id, owner_staff_id, description, completed_at, duration_days, assignee_staff_id, department_id, is_milestone, estimated_hours, actual_hours, estimated_cost, actual_cost, lifecycle_phase, escalation_level")
       .eq("event_id", eventId)
       .is("deleted_at", null),
     context.supabase.from("event_risks").select("id, severity, status").eq("event_id", eventId),
@@ -1128,7 +1360,7 @@ async function loadScoreInputs(context: AuthContext, eventId: string, eventFacts
   const mileRows = milestones.data ?? [];
   const scopeRows = scopes.data ?? [];
   const lineRows = (lines.data ?? []) as LineAmounts[];
-  const budgetApproved = budget.data?.status === "approved" || budget.data?.status === "locked";
+  const budgetApproved = budgetIsApprovedLike(budget.data?.status as string | null);
   const scopeBaselined = scopeRows.some((s) => s.is_baseline);
   const hasScheduleBaseline = (baselines.data ?? []).some((b) => b.baseline_type === "schedule" || b.baseline_type === "both");
 
@@ -1235,16 +1467,38 @@ async function persistScores(
     stageCode: stage?.code ?? null,
     readinessPct: inputs.readiness.pct,
   });
-  await context.supabase
-    .from("events")
-    .update({
-      health_rag: health.rag,
-      health_score: health.score,
-      readiness_pct: inputs.readiness.pct,
-      updated_by: context.userId,
-    })
-    .eq("id", event.id);
+  // View-only callers must not persist scores (RLS blocks UPDATE without edit+;
+  // missing finance rows would also understate overrun).
+  if (canUserDo(context.roles ?? [], "events.edit")) {
+    await context.supabase
+      .from("events")
+      .update({
+        health_rag: health.rag,
+        health_score: health.score,
+        readiness_pct: inputs.readiness.pct,
+        updated_by: context.userId,
+      })
+      .eq("id", event.id);
+  }
   return { ...inputs, health, stage };
+}
+
+async function loadRelatedEventId(
+  context: AuthContext,
+  table:
+    | "event_tasks"
+    | "event_wbs_nodes"
+    | "event_documents"
+    | "event_budgets"
+    | "event_sprints"
+    | "event_resource_allocations"
+    | "event_timesheet_entries"
+    | "event_meetings",
+  id: string | null | undefined,
+): Promise<string | null> {
+  if (!id) return null;
+  const { data } = await context.supabase.from(table).select("event_id").eq("id", id).maybeSingle();
+  return (data?.event_id as string | null) ?? null;
 }
 
 function mapListRow(
@@ -1308,7 +1562,7 @@ function gateFactsFromScores(
 ) {
   return {
     hasContractValue: num(event.contracted_value) > 0,
-    budgetApproved: scored.budgetStatus === "approved" || scored.budgetStatus === "locked",
+    budgetApproved: budgetIsApprovedLike(scored.budgetStatus),
     scopeBaselined: scored.scopeBaselined,
     deliverableCount: scored.deliverableCount,
     milestoneCount: scored.milestoneCount,
@@ -1375,6 +1629,8 @@ export const listEvents = createAuthenticatedAction(
       health: z.enum(["green", "amber", "red", "critical"]).nullable().optional(),
       search: z.string().max(120).optional().nullable(),
       pmStaffId: z.string().uuid().nullable().optional(),
+      includeDeleted: z.boolean().optional(),
+      onlyDeleted: z.boolean().optional(),
     })
     .default({}),
   async (data, context) => {
@@ -1382,11 +1638,12 @@ export const listEvents = createAuthenticatedAction(
     let q = context.supabase
       .from("events")
       .select(
-        "id, event_number, name, event_name, client_name, venue_name, location_id, event_type_id, classification_id, stage_id, status, priority, event_start, event_end, setup_start, dismantle_date, dismantle_end, pm_staff_id, contracted_value, health_rag, health_override_rag, health_score, readiness_pct, currency, go_live_approved",
+        "id, event_number, name, event_name, client_name, venue_name, location_id, event_type_id, classification_id, stage_id, status, priority, event_start, event_end, setup_start, dismantle_date, dismantle_end, pm_staff_id, contracted_value, health_rag, health_override_rag, health_score, readiness_pct, currency, go_live_approved, deleted_at",
       )
-      .is("deleted_at", null)
       .order("event_start", { ascending: true, nullsFirst: false })
-      .limit(400);
+      .limit(EVENT_FETCH_CAPS.listEvents);
+    if (data.onlyDeleted) q = q.not("deleted_at", "is", null);
+    else if (!data.includeDeleted) q = q.is("deleted_at", null);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.status) q = q.eq("status", data.status);
     if (data.stageId) q = q.eq("stage_id", data.stageId);
@@ -1424,10 +1681,12 @@ export const listEvents = createAuthenticatedAction(
         event_number: row.event_number,
       })),
     );
+    const canFinance = canUserDo(context.roles ?? [], "events.finance");
     const withPrs = mapped.map((row) => {
       const counts = prCounts.get(row.id);
       return {
         ...row,
+        contracted_value: canFinance ? row.contracted_value : null,
         linked_prs: counts?.linked ?? 0,
         pending_prs: counts?.pending ?? 0,
         overdue_prs: counts?.overdue ?? 0,
@@ -1463,43 +1722,77 @@ export const getEventsDashboard = createAuthenticatedAction(
     let missingAssets = 0;
     let budgetLines: Array<LineAmounts & { event_id: string }> = [];
     let linkedPrs: Array<{ id: string; event_id: string | null; status: string; total_amount: number }> = [];
+    let estimatedHours = 0;
+    let actualHours = 0;
+    let sprintCount = 0;
+    let avgVelocity = 0;
+    let avgSpi: number | null = null;
+    let avgCpi: number | null = null;
     if (eventIds.length) {
-      const [{ data: lines }, { data: tasks }, { data: wbs }, { data: prs }, { data: payables }, { data: issues }, { data: assets }, { data: pos }] =
-        await Promise.all([
+      const [
+        { data: lines },
+        { data: tasks },
+        { data: wbs },
+        { data: prs },
+        { data: payables },
+        { data: issues },
+        { data: assets },
+        { data: pos },
+        { data: sprints },
+      ] = await Promise.all([
           context.supabase
             .from("event_budget_lines")
             .select("event_id, original_amount, approved_changes, revised_amount, committed_amount, actual_amount, forecast_amount")
-            .in("event_id", eventIds),
+            .in("event_id", eventIds)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
           context.supabase
             .from("event_tasks")
-            .select("event_id, status, due_date, priority, is_critical, is_snag, wbs_id")
+            .select(
+              "event_id, status, due_date, priority, is_critical, is_snag, wbs_id, estimated_hours, actual_hours, story_points, sprint_id, percent_complete",
+            )
             .in("event_id", eventIds)
-            .is("deleted_at", null),
-          context.supabase.from("event_wbs_nodes").select("id, event_id, code").in("event_id", eventIds).is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
+          context.supabase
+            .from("event_wbs_nodes")
+            .select("id, event_id, code")
+            .in("event_id", eventIds)
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
           context.supabase
             .from("purchase_requisitions")
             .select("id, event_id, status, required_by, priority, po_id, total_amount")
-            .in("event_id", eventIds),
+            .in("event_id", eventIds)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
           context.supabase
             .from("event_payables")
             .select("event_id, kind, status, due_date")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
           context.supabase
             .from("event_issues")
             .select("event_id, status, severity, is_snag, is_safety")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
           context.supabase
             .from("event_asset_movements")
             .select("event_id, status")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
           context.supabase
             .from("purchase_orders")
             .select("id, event_id, status")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
+          context.supabase
+            .from("event_sprints")
+            .select("id, event_id, name, status, start_date, end_date")
+            .in("event_id", eventIds)
+            .limit(EVENT_FETCH_CAPS.dashboardChildRows),
         ]);
       budgetLines = (lines ?? []) as Array<LineAmounts & { event_id: string }>;
       linkedPrs = (prs ?? []).map((p) => ({
@@ -1545,6 +1838,73 @@ export const getEventsDashboard = createAuthenticatedAction(
         (issues ?? []).filter((i) => OPEN_ISSUE_STATUSES.has(i.status as string) && i.is_safety && (i.severity === "high" || i.severity === "critical")).length +
         openTasks.filter((t) => t.wbs_id && safetyIds.has(t.wbs_id as string) && (t.is_critical || t.priority === "high" || t.priority === "critical")).length;
       missingAssets = (assets ?? []).filter((a) => a.status === "missing").length;
+
+      estimatedHours = Math.round(
+        (tasks ?? []).reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0) * 100,
+      ) / 100;
+      actualHours = Math.round(
+        (tasks ?? []).reduce((s, t) => s + (Number(t.actual_hours) || 0), 0) * 100,
+      ) / 100;
+      sprintCount = (sprints ?? []).length;
+      const velocity = averageVelocity(
+        computeVelocity(
+          (sprints ?? []).map((s) => ({
+            id: s.id as string,
+            name: String(s.name ?? "Sprint"),
+            status: String(s.status ?? "planned"),
+            start_date: (s.start_date as string | null) ?? null,
+            end_date: (s.end_date as string | null) ?? null,
+          })),
+          (tasks ?? []).map((t, i) => ({
+            id: String(t.sprint_id ?? `t${i}`),
+            status: String(t.status),
+            sprint_id: (t.sprint_id as string | null) ?? null,
+            story_points: numOrNull(t.story_points),
+            completed_at: null,
+          })),
+        ),
+      );
+      avgVelocity = velocity;
+
+      const spiVals: number[] = [];
+      const cpiVals: number[] = [];
+      for (const event of events) {
+        const evLines = budgetLines.filter((l) => l.event_id === event.id);
+        const finance = portfolioLineFinance(evLines, 0);
+        const lite = computeEvLite({
+          progressPct: event.overall_progress ?? event.readiness_pct ?? 0,
+          start: event.setup_start ?? event.event_start,
+          end: event.dismantle_date ?? event.event_end ?? event.event_start,
+          today,
+          budgetRevised: finance.revised,
+          actualCost: finance.actual,
+        });
+        if (lite.spi != null) spiVals.push(lite.spi);
+        if (lite.cpi != null) cpiVals.push(lite.cpi);
+      }
+      avgSpi = spiVals.length
+        ? Math.round((spiVals.reduce((a, b) => a + b, 0) / spiVals.length) * 100) / 100
+        : null;
+      avgCpi = cpiVals.length
+        ? Math.round((cpiVals.reduce((a, b) => a + b, 0) / cpiVals.length) * 100) / 100
+        : null;
+    }
+    const canFinance = canUserDo(context.roles ?? [], "events.finance");
+    const stageCounts = new Map<string, { code: string; label: string; count: number }>();
+    for (const event of events) {
+      const code = event.stage_code ?? "unknown";
+      const label = event.stage_label_en ?? event.stage_code ?? "—";
+      const cur = stageCounts.get(code) ?? { code, label, count: 0 };
+      cur.count += 1;
+      stageCounts.set(code, cur);
+    }
+    const readinessBands = { high: 0, mid: 0, low: 0, critical: 0 };
+    for (const event of events) {
+      const pct = event.readiness_pct ?? 0;
+      if (pct >= 90) readinessBands.high += 1;
+      else if (pct >= 75) readinessBands.mid += 1;
+      else if (pct >= 50) readinessBands.low += 1;
+      else readinessBands.critical += 1;
     }
     const result: EventDashboard = {
       total: events.length,
@@ -1556,11 +1916,12 @@ export const getEventsDashboard = createAuthenticatedAction(
         red: events.filter((e) => e.health_rag === "red").length,
         critical: events.filter((e) => e.health_rag === "critical").length,
       },
-      contractedValue: events.reduce((s, e) => s + (e.contracted_value ?? 0), 0),
-      budgetRevised,
-      budgetActual,
-      budgetCommitted,
-      savedVsBudget: savedVsBudgetTotal,
+      canFinance,
+      contractedValue: canFinance ? events.reduce((s, e) => s + (e.contracted_value ?? 0), 0) : 0,
+      budgetRevised: canFinance ? budgetRevised : 0,
+      budgetActual: canFinance ? budgetActual : 0,
+      budgetCommitted: canFinance ? budgetCommitted : 0,
+      savedVsBudget: canFinance ? savedVsBudgetTotal : 0,
       overdueTasks,
       blockedTasks,
       avgReadiness: events.length ? Math.round(events.reduce((s, e) => s + e.readiness_pct, 0) / events.length) : 0,
@@ -1572,6 +1933,14 @@ export const getEventsDashboard = createAuthenticatedAction(
       criticalSafety,
       missingAssets,
       goLivePending: events.filter((e) => e.status === "active" && !e.go_live_approved).length,
+      stageMix: [...stageCounts.values()].sort((a, b) => b.count - a.count).slice(0, 8),
+      readinessBands,
+      estimatedHours,
+      actualHours,
+      sprintCount,
+      avgVelocity,
+      avgSpi,
+      avgCpi: canFinance ? avgCpi : null,
       events: events.slice(0, 12).map((event) => {
         const evLines = budgetLines.filter((l) => l.event_id === event.id);
         const extra = prCommittedTotal(
@@ -1582,10 +1951,11 @@ export const getEventsDashboard = createAuthenticatedAction(
         const finance = portfolioLineFinance(evLines, extra);
         return {
           ...event,
-          budget_revised: finance.revised,
-          budget_actual: finance.actual,
-          budget_committed: finance.committed,
-          saved_vs_budget: finance.savedVsBudget,
+          contracted_value: canFinance ? event.contracted_value : null,
+          budget_revised: canFinance ? finance.revised : undefined,
+          budget_actual: canFinance ? finance.actual : undefined,
+          budget_committed: canFinance ? finance.committed : undefined,
+          saved_vs_budget: canFinance ? finance.savedVsBudget : undefined,
         };
       }),
     };
@@ -1606,7 +1976,7 @@ export const listEventCalendar = createAuthenticatedAction(
     endDate.setDate(0);
     const end = endDate.toISOString().slice(0, 10);
     const events = await listEvents({ locationId: data.locationId });
-    return events.filter((e) => {
+    const monthEvents = events.filter((e) => {
       const from = e.setup_start ?? e.event_start;
       const to = e.dismantle_date ?? e.event_end ?? e.event_start;
       if (!from && !to) return false;
@@ -1614,6 +1984,82 @@ export const listEventCalendar = createAuthenticatedAction(
       const b = to ?? from!;
       return a <= end && b >= start;
     });
+
+    const eventIds = monthEvents.map((e) => e.id);
+    const eventNameById = new Map(monthEvents.map((e) => [e.id, e.name]));
+
+    let tasks: Array<{
+      id: string;
+      event_id: string;
+      event_name: string | null;
+      title: string;
+      start_date: string | null;
+      due_date: string | null;
+      is_milestone: boolean;
+      is_critical: boolean;
+      status: string;
+    }> = [];
+    let milestones: Array<{
+      id: string;
+      event_id: string;
+      event_name: string | null;
+      title: string;
+      due_date: string;
+      is_critical: boolean;
+      status: string;
+    }> = [];
+
+    if (eventIds.length) {
+      const [{ data: taskRows }, { data: mileRows }] = await Promise.all([
+        context.supabase
+          .from("event_tasks")
+          .select("id, event_id, title, start_date, due_date, is_milestone, is_critical, status")
+          .in("event_id", eventIds)
+          .is("deleted_at", null)
+          .neq("status", "cancelled")
+          .limit(EVENT_FETCH_CAPS.calendarTasksQuery),
+        context.supabase
+          .from("event_milestones")
+          .select("id, event_id, title, due_date, is_critical, status")
+          .in("event_id", eventIds)
+          .gte("due_date", start)
+          .lte("due_date", end)
+          .limit(EVENT_FETCH_CAPS.calendarMilestones),
+      ]);
+      const overlapsMonth = (from: string | null, to: string | null) => {
+        if (!from && !to) return false;
+        const a = from ?? to!;
+        const b = to ?? from!;
+        return a <= end && b >= start;
+      };
+      tasks = (taskRows ?? [])
+        .filter((t) =>
+          overlapsMonth((t.start_date as string | null) ?? null, (t.due_date as string | null) ?? null),
+        )
+        .slice(0, EVENT_FETCH_CAPS.calendarTasksReturned)
+        .map((t) => ({
+          id: t.id as string,
+          event_id: t.event_id as string,
+          event_name: eventNameById.get(t.event_id as string) ?? null,
+          title: t.title as string,
+          start_date: (t.start_date as string | null) ?? null,
+          due_date: (t.due_date as string | null) ?? null,
+          is_milestone: Boolean(t.is_milestone),
+          is_critical: Boolean(t.is_critical),
+          status: t.status as string,
+        }));
+      milestones = (mileRows ?? []).map((m) => ({
+        id: m.id as string,
+        event_id: m.event_id as string,
+        event_name: eventNameById.get(m.event_id as string) ?? null,
+        title: m.title as string,
+        due_date: m.due_date as string,
+        is_critical: Boolean(m.is_critical),
+        status: m.status as string,
+      }));
+    }
+
+    return { events: monthEvents, tasks, milestones };
   },
   { auth: { capability: "events.view" } },
 );
@@ -1636,7 +2082,7 @@ export const listMyEventTasks = createAuthenticatedAction(
       .is("deleted_at", null)
       .neq("status", "cancelled")
       .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(200);
+      .limit(EVENT_FETCH_CAPS.myTasks);
     if (me?.id) q = q.or(`owner_staff_id.eq.${me.id},assignee_staff_id.eq.${me.id}`);
     else q = q.eq("id", "00000000-0000-0000-0000-000000000000");
 
@@ -1676,6 +2122,8 @@ export const listMyEventTasks = createAuthenticatedAction(
           cost_impact: numOrNull((t as { cost_impact?: number | null }).cost_impact),
           evidence_url: ((t as { evidence_url?: string | null }).evidence_url) ?? null,
           is_snag: Boolean((t as { is_snag?: boolean }).is_snag),
+          story_points: numOrNull((t as { story_points?: number | null }).story_points),
+          sprint_id: ((t as { sprint_id?: string | null }).sprint_id) ?? null,
           phase_id: null,
           phase_title: null,
           workstream_id: null,
@@ -1739,7 +2187,9 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
       context.supabase.from("event_team_members").select("id, staff_id, role_label, is_pm").eq("event_id", event.id),
       context.supabase
         .from("event_risks")
-        .select("id, title, severity, status, due_date")
+        .select(
+          "id, title, severity, status, due_date, owner_staff_id, mitigation, likelihood, impact, escalation_level, escalated_at",
+        )
         .eq("event_id", event.id)
         .order("created_at", { ascending: false }),
       context.supabase.from("event_readiness_items").select("id, code, title, category, is_required, is_complete, weight, phase_code").eq("event_id", event.id),
@@ -1751,11 +2201,32 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
         .limit(30),
     ]);
 
-  const teamStaffIds = [...new Set((team ?? []).map((m) => m.staff_id))];
+  const riskOwnerIds = [...new Set((risks ?? []).map((r) => r.owner_staff_id).filter(Boolean))] as string[];
+  const teamStaffIds = [...new Set([...(team ?? []).map((m) => m.staff_id), ...riskOwnerIds])];
   const { data: teamStaff } = teamStaffIds.length
     ? await context.supabase.from("staff").select("id, full_name").in("id", teamStaffIds)
     : { data: [] };
   const staffMap = new Map((teamStaff ?? []).map((s) => [s.id, s.full_name]));
+  const riskRows: EventRiskRow[] = (risks ?? []).map((r) => {
+    const likelihood = (r.likelihood as EventRiskRow["likelihood"]) ?? null;
+    const impact = (r.impact as EventRiskRow["impact"]) ?? null;
+    const severity = r.severity as EventRiskRow["severity"];
+    return {
+      id: r.id as string,
+      title: r.title as string,
+      severity,
+      status: r.status as EventRiskRow["status"],
+      due_date: (r.due_date as string | null) ?? null,
+      owner_staff_id: (r.owner_staff_id as string | null) ?? null,
+      owner_name: r.owner_staff_id ? (staffMap.get(r.owner_staff_id as string) ?? null) : null,
+      mitigation: (r.mitigation as string | null) ?? null,
+      likelihood,
+      impact,
+      matrix_band: riskMatrixBand(likelihood, impact, severity),
+      escalation_level: ((r.escalation_level as EventRiskRow["escalation_level"]) ?? "none"),
+      escalated_at: (r.escalated_at as string | null) ?? null,
+    };
+  });
   const type = lookups.types.find((t) => t.id === event.event_type_id);
   const classification = lookups.classifications.find((c) => c.id === event.classification_id);
   const stage = lookups.stages.find((s) => s.id === event.stage_id) ?? null;
@@ -1817,9 +2288,27 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
     location_id: event.location_id as string | null,
   });
 
+  const canFinance = canUserDo(context.roles ?? [], "events.finance");
+  const financeStrip = canFinance ? scored.finance : redactFinanceTotals(scored.finance);
+  const payablesSafe = canFinance
+    ? ops.payables
+    : ops.payables.map((p) => ({ ...p, amount: 0, currency: p.currency }));
+  // Without events.finance, budget lines are invisible (RLS) — keep stored health rather than a budget-blind recompute.
+  const displayHealth = canFinance
+    ? scored.health
+    : {
+        ...scored.health,
+        rag: ((event.health_rag as EventRag | null) ?? scored.health.rag),
+        score: event.health_score != null ? num(event.health_score) : scored.health.score,
+      };
+
   const overview: EventOverview = {
     event: {
       ...listRow,
+      health_rag: effectiveHealth(displayHealth.rag, overrideRag),
+      health_computed: displayHealth.rag,
+      health_score: displayHealth.score,
+      contracted_value: canFinance ? listRow.contracted_value : null,
       description: (event.description as string | null) ?? null,
       notes: (event.notes as string | null) ?? null,
       lessons_learned: (event.lessons_learned as string | null) ?? null,
@@ -1859,11 +2348,11 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
     stages: lookups.stages,
     nextStage,
     gates,
-    health: scored.health,
+    health: displayHealth,
     readinessParts: scored.readiness.parts,
     readinessBand: readinessBand(scored.readiness.pct),
-    finance: scored.finance,
-    budgetStatus: scored.budgetStatus,
+    finance: financeStrip,
+    budgetStatus: canFinance ? scored.budgetStatus : null,
     tasks: scored.tasksSummary,
     ops: {
       tasksTotal: scored.tasksSummary.total,
@@ -1896,7 +2385,7 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
       staffingPct: ops.workstreams.find((w) => w.code === "hr_staffing")?.pct ?? scored.readiness.parts.manpower ?? null,
       procurementRisks: ops.procurementRisks,
     },
-    risks: (risks ?? []) as EventRiskRow[],
+    risks: riskRows,
     readinessItems: (ready ?? []) as EventReadinessRow[],
     team: (team ?? []).map((m) => ({
       id: m.id as string,
@@ -1911,10 +2400,24 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
     linkedMaintenance,
     documents: ops.documents,
     issues: ops.issues,
-    payables: ops.payables,
+    payables: payablesSafe,
     assets: ops.assets,
     workstreams: ops.workstreams,
     overdueActions: ops.overdueActions,
+    escalations: collectEventEscalations({
+      today,
+      risks: riskRows,
+      tasks: scored.taskRows.map((t) => ({
+        id: t.id as string,
+        title: t.title as string,
+        status: String(t.status ?? "not_started"),
+        due_date: (t.due_date as string | null) ?? null,
+        escalation_level: ((t as { escalation_level?: string }).escalation_level) ?? "none",
+        priority: (t.priority as string | null) ?? null,
+      })),
+      gates,
+      issues: ops.issues,
+    }),
   };
   return overview;
 }, { auth: { capability: "events.view" } });
@@ -2212,6 +2715,38 @@ export const changeEventStage = createAuthenticatedAction(
       );
       const missing = gates.filter((g) => g.blocking && !g.satisfied);
       if (missing.length) {
+        await writeEventAudit(context, {
+          action: "stage_gate_blocked",
+          entityType: "event",
+          entityId: event.id as string,
+          eventId: event.id as string,
+          locationId: event.location_id as string,
+          before: { stage: current?.code },
+          after: {
+            target: target.code,
+            blockers: missing.map((g) => g.code ?? g.labelEn),
+          },
+        });
+        try {
+          const approvers = await findUsersWithCapability(
+            "events.approve",
+            event.location_id as string | null,
+          );
+          await notifyUsers({
+            userIds: approvers,
+            excludeUserId: context.userId,
+            locationId: event.location_id as string | null,
+            category: "events",
+            title: "Stage gate blocked",
+            body: `${eventDisplayName(event as { name?: string | null; event_name?: string | null; event_number?: string | null })} cannot advance to ${target.label_en}: ${missing.map((g) => g.labelEn).join("; ")}`,
+            severity: "warning",
+            actionUrl: `/events/${event.id}`,
+            sourceType: "event_stage_gate",
+            sourceId: event.id as string,
+          });
+        } catch (err) {
+          console.warn("[notify] stage gate blocked failed", err instanceof Error ? err.message : err);
+        }
         throw new ForbiddenError(
           `Stage gate blocked: ${missing.map((g) => g.labelEn).join("; ")}`,
         );
@@ -2241,6 +2776,15 @@ export const changeEventStage = createAuthenticatedAction(
       locationId: event.location_id as string,
       before: { stage: current?.code, status: event.status },
       after: { stage: target.code, status: nextStatus },
+    });
+    await notifyEventAssignees(context, {
+      staffIds: [event.pm_staff_id as string | null, event.director_staff_id as string | null],
+      locationId: event.location_id as string | null,
+      title: "Event stage advanced",
+      body: `Moved to ${target.label_en}`,
+      actionUrl: `/events/${event.id}`,
+      sourceType: "event_stage",
+      sourceId: event.id as string,
     });
     return { stageId: target.id };
   },
@@ -2472,9 +3016,9 @@ async function loadEventWbsNodes(context: AuthContext, eventId: string) {
 }
 
 export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data, context) => {
-  await loadEventOrThrow(context, data.eventId);
+  const event = await loadEventOrThrow(context, data.eventId);
   await ensureStandardWorkstreams(context, data.eventId);
-  const [wbsRows, tasks, deps, miles, baselines] = await Promise.all([
+  const [wbsRows, tasks, deps, miles, baselines, sprintsRes] = await Promise.all([
     loadEventWbsNodes(context, data.eventId),
     context.supabase
       .from("event_tasks")
@@ -2499,10 +3043,17 @@ export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data
       .eq("event_id", data.eventId)
       .order("created_at", { ascending: false })
       .limit(12),
+    context.supabase
+      .from("event_sprints")
+      .select("id, event_id, name, goal, start_date, end_date, status, sort_order")
+      .eq("event_id", data.eventId)
+      .order("sort_order", { ascending: true })
+      .order("start_date", { ascending: true, nullsFirst: false }),
   ]);
   if (tasks.error) throw tasks.error;
   if (deps.error) throw deps.error;
   if (miles.error) throw miles.error;
+  if (sprintsRes.error) throw sprintsRes.error;
 
   const staffIds = [
     ...new Set(
@@ -2521,10 +3072,21 @@ export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data
   const staffMap = new Map((staff ?? []).map((s) => [s.id, s.full_name]));
   const deptMap = new Map((depts ?? []).map((d) => [d.id, d.name]));
   const taskIds = (tasks.data ?? []).map((t) => t.id as string);
-  const { data: supporterRows } = taskIds.length
-    ? await context.supabase.from("event_task_supporters").select("task_id, staff_id").in("task_id", taskIds)
-    : { data: [] };
-  const extraStaffIds = [...new Set((supporterRows ?? []).map((s) => s.staff_id).filter((id) => !staffMap.has(id)))];
+  const [{ data: supporterRows }, { data: assigneeRows }] = await Promise.all([
+    taskIds.length
+      ? context.supabase.from("event_task_supporters").select("task_id, staff_id").in("task_id", taskIds)
+      : Promise.resolve({ data: [] as Array<{ task_id: string; staff_id: string }> }),
+    taskIds.length
+      ? context.supabase.from("event_task_assignees").select("task_id, staff_id, is_primary").in("task_id", taskIds)
+      : Promise.resolve({ data: [] as Array<{ task_id: string; staff_id: string; is_primary: boolean }> }),
+  ]);
+  const extraStaffIds = [
+    ...new Set(
+      [...(supporterRows ?? []), ...(assigneeRows ?? [])]
+        .map((s) => s.staff_id as string)
+        .filter((id) => !staffMap.has(id)),
+    ),
+  ];
   if (extraStaffIds.length) {
     const { data: extraStaff } = await context.supabase.from("staff").select("id, full_name").in("id", extraStaffIds);
     for (const s of extraStaff ?? []) staffMap.set(s.id, s.full_name);
@@ -2534,6 +3096,12 @@ export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data
     const list = supportersByTask.get(row.task_id as string) ?? [];
     list.push(row.staff_id as string);
     supportersByTask.set(row.task_id as string, list);
+  }
+  const assigneesByTask = new Map<string, string[]>();
+  for (const row of assigneeRows ?? []) {
+    const list = assigneesByTask.get(row.task_id as string) ?? [];
+    list.push(row.staff_id as string);
+    assigneesByTask.set(row.task_id as string, list);
   }
 
   const baselineRows = (baselines.data ?? []) as EventBaselineRow[];
@@ -2615,6 +3183,17 @@ export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data
       owner_name: t.owner_staff_id ? (staffMap.get(t.owner_staff_id as string) ?? null) : null,
       assignee_staff_id: (t.assignee_staff_id as string | null) ?? null,
       assignee_name: t.assignee_staff_id ? (staffMap.get(t.assignee_staff_id as string) ?? null) : null,
+      assignee_ids: (() => {
+        const fromTable = assigneesByTask.get(t.id as string) ?? [];
+        const primary = (t.assignee_staff_id as string | null) ?? null;
+        return primary ? [...new Set([primary, ...fromTable])] : fromTable;
+      })(),
+      assignee_names: (() => {
+        const fromTable = assigneesByTask.get(t.id as string) ?? [];
+        const primary = (t.assignee_staff_id as string | null) ?? null;
+        const ids = primary ? [...new Set([primary, ...fromTable])] : fromTable;
+        return ids.map((id) => staffMap.get(id) ?? "—");
+      })(),
       department_id: (t.department_id as string | null) ?? null,
       department_name: t.department_id ? (deptMap.get(t.department_id as string) ?? null) : null,
       percent_complete: pct,
@@ -2641,12 +3220,30 @@ export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data
       workstream_title: workstream?.title ?? phase?.title ?? null,
       workstream_code: (workstream ?? phase)?.code ?? null,
       lifecycle_phase: ((t as { lifecycle_phase?: string | null }).lifecycle_phase) ?? null,
+      recurrence_freq: ((t as { recurrence_freq?: string | null }).recurrence_freq as EventTaskRow["recurrence_freq"]) ?? null,
+      recurrence_interval: num((t as { recurrence_interval?: number }).recurrence_interval) || 1,
+      recurrence_until: ((t as { recurrence_until?: string | null }).recurrence_until) ?? null,
+      recurrence_count: numOrNull((t as { recurrence_count?: number | null }).recurrence_count),
+      reminder_days_before: num((t as { reminder_days_before?: number }).reminder_days_before) || 3,
+      story_points: numOrNull((t as { story_points?: number | null }).story_points),
+      sprint_id: ((t as { sprint_id?: string | null }).sprint_id) ?? null,
       baseline_start: baseline?.start_date ?? null,
       baseline_due: baseline?.due_date ?? null,
       baseline_percent: baseline?.percent_complete ?? null,
       variance: scheduleVariance(start, due, pct, baseline?.start_date, baseline?.due_date, baseline?.percent_complete),
     };
   });
+
+  const sprintRows: EventSprintRow[] = (sprintsRes.data ?? []).map((s) => ({
+    id: s.id as string,
+    event_id: s.event_id as string,
+    name: s.name as string,
+    goal: (s.goal as string | null) ?? null,
+    start_date: (s.start_date as string | null) ?? null,
+    end_date: (s.end_date as string | null) ?? null,
+    status: s.status as EventSprintRow["status"],
+    sort_order: num(s.sort_order),
+  }));
 
   const depRows = (deps.data ?? []) as EventDependencyRow[];
   const mileRows: EventMilestoneRow[] = (miles.data ?? []).map((m) => {
@@ -2672,12 +3269,33 @@ export const getEventPlan = createAuthenticatedAction(EventIdSchema, async (data
     };
   });
 
+  // Phase 2: emit due-soon / overdue reminders once per day (no cron).
+  await processEventTaskReminders(
+    context,
+    {
+      id: event.id as string,
+      location_id: event.location_id as string | null,
+      name: event.name as string | null,
+      event_number: (event as { event_number?: string | null }).event_number ?? null,
+    },
+    taskRows.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      due_date: t.due_date,
+      assignee_staff_id: t.assignee_staff_id,
+      owner_staff_id: t.owner_staff_id,
+      reminder_days_before: t.reminder_days_before,
+    })),
+  );
+
   return {
     wbs: wbsMapped,
     tasks: taskRows,
     dependencies: depRows,
     milestones: mileRows,
     baselines: baselineRows,
+    sprints: sprintRows,
     latestScheduleBaseline: latestSchedule,
     violations: dependencyViolations(taskRows, depRows),
   };
@@ -2707,6 +3325,11 @@ export const upsertWbsNode = createAuthenticatedAction(
     const parentId = data.parent_id === undefined
       ? (data.id ? (existing.find((n) => n.id === data.id)?.parent_id as string | null) ?? null : null)
       : data.parent_id;
+    if (parentId) {
+      const parentEventId = (existing.find((n) => n.id === parentId)?.event_id as string | undefined)
+        ?? (await loadRelatedEventId(context, "event_wbs_nodes", parentId));
+      assertIdsSameEvent(data.eventId, parentEventId, "parent_id");
+    }
     if (data.id && wouldCycle(existing.map((n) => ({ id: n.id as string, parent_id: n.parent_id as string | null })), data.id, parentId)) {
       throw new Error("Cannot move a WBS node under itself");
     }
@@ -2884,6 +3507,7 @@ export const upsertEventTask = createAuthenticatedAction(
     due_date: z.string().optional().nullable(),
     owner_staff_id: z.string().uuid().optional().nullable(),
     assignee_staff_id: z.string().uuid().optional().nullable(),
+    assignee_ids: z.array(z.string().uuid()).optional(),
     department_id: z.string().uuid().optional().nullable(),
     percent_complete: z.number().int().min(0).max(100).optional(),
     duration_days: z.number().int().min(0).optional().nullable(),
@@ -2903,13 +3527,42 @@ export const upsertEventTask = createAuthenticatedAction(
     evidence_url: z.string().max(500).optional().nullable(),
     is_snag: z.boolean().optional(),
     lifecycle_phase: z.string().max(40).optional().nullable(),
+    recurrence_freq: z.enum(TASK_RECURRENCE_FREQS).nullable().optional(),
+    recurrence_interval: z.number().int().min(1).max(365).optional(),
+    recurrence_until: z.string().optional().nullable(),
+    recurrence_count: z.number().int().min(1).max(500).optional().nullable(),
+    reminder_days_before: z.number().int().min(0).max(90).optional(),
+    story_points: z.number().min(0).max(9999).optional().nullable(),
+    sprint_id: z.string().uuid().optional().nullable(),
   }),
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
     if (data.parent_task_id && data.parent_task_id === data.id) throw new Error("A task cannot be its own parent");
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "wbs_id", eventId: await loadRelatedEventId(context, "event_wbs_nodes", data.wbs_id) },
+      { field: "parent_task_id", eventId: await loadRelatedEventId(context, "event_tasks", data.parent_task_id) },
+      { field: "sprint_id", eventId: await loadRelatedEventId(context, "event_sprints", data.sprint_id) },
+    ]);
     const { data: existing } = data.id
-      ? await context.supabase.from("event_tasks").select("completed_at, comments").eq("id", data.id).maybeSingle()
+      ? await context.supabase
+          .from("event_tasks")
+          .select(
+            "completed_at, comments, owner_staff_id, assignee_staff_id, title, status, priority, percent_complete, start_date, due_date, recurrence_freq, recurrence_interval, recurrence_until, recurrence_count, reminder_days_before, wbs_id, parent_task_id, department_id, owner_staff_id",
+          )
+          .eq("id", data.id)
+          .maybeSingle()
       : { data: null };
+
+    const normalizedAssignees =
+      data.assignee_ids !== undefined || data.assignee_staff_id !== undefined
+        ? normalizeAssigneeIds(
+            data.assignee_staff_id !== undefined
+              ? data.assignee_staff_id
+              : ((existing?.assignee_staff_id as string | null) ?? null),
+            data.assignee_ids,
+          )
+        : null;
+
     const start = data.start_date !== undefined ? emptyDate(data.start_date) : undefined;
     const due = data.due_date !== undefined ? emptyDate(data.due_date) : undefined;
     const completedAt =
@@ -2932,7 +3585,8 @@ export const upsertEventTask = createAuthenticatedAction(
     if (data.duration_days !== undefined) payload.duration_days = data.duration_days ?? daysBetween(start ?? null, due ?? null);
     else if (start !== undefined || due !== undefined) payload.duration_days = daysBetween(start ?? null, due ?? null);
     if (data.owner_staff_id !== undefined) payload.owner_staff_id = data.owner_staff_id;
-    if (data.assignee_staff_id !== undefined) payload.assignee_staff_id = data.assignee_staff_id;
+    if (normalizedAssignees) payload.assignee_staff_id = normalizedAssignees.primary;
+    else if (data.assignee_staff_id !== undefined) payload.assignee_staff_id = data.assignee_staff_id;
     if (data.department_id !== undefined) payload.department_id = data.department_id;
     if (data.is_milestone !== undefined) payload.is_milestone = data.is_milestone;
     if (data.estimated_hours !== undefined) payload.estimated_hours = data.estimated_hours;
@@ -2948,6 +3602,14 @@ export const upsertEventTask = createAuthenticatedAction(
     if (data.evidence_url !== undefined) payload.evidence_url = emptyText(data.evidence_url);
     if (data.is_snag !== undefined) payload.is_snag = data.is_snag;
     if (data.lifecycle_phase !== undefined) payload.lifecycle_phase = emptyText(data.lifecycle_phase);
+    if (data.recurrence_freq !== undefined) payload.recurrence_freq = data.recurrence_freq;
+    if (data.recurrence_interval !== undefined) payload.recurrence_interval = data.recurrence_interval;
+    if (data.recurrence_until !== undefined) payload.recurrence_until = emptyDate(data.recurrence_until);
+    if (data.recurrence_count !== undefined) payload.recurrence_count = data.recurrence_count;
+    if (data.reminder_days_before !== undefined) payload.reminder_days_before = data.reminder_days_before;
+    if (data.story_points !== undefined) payload.story_points = data.story_points;
+    if (data.sprint_id !== undefined) payload.sprint_id = data.sprint_id;
+
     let id = data.id;
     if (id) {
       const { error } = await context.supabase.from("event_tasks").update(payload).eq("id", id);
@@ -2963,6 +3625,7 @@ export const upsertEventTask = createAuthenticatedAction(
       if (error) throw error;
       id = created.id;
     }
+
     if (id && data.supporter_ids) {
       await context.supabase.from("event_task_supporters").delete().eq("task_id", id);
       const unique = [...new Set(data.supporter_ids.filter((sid) => sid !== data.owner_staff_id))];
@@ -2973,6 +3636,222 @@ export const upsertEventTask = createAuthenticatedAction(
         if (supErr) throw supErr;
       }
     }
+
+    if (id && normalizedAssignees) {
+      await syncTaskAssignees(context, id, normalizedAssignees.primary, normalizedAssignees.all);
+    }
+
+    const prevOwner = (existing?.owner_staff_id as string | null) ?? null;
+    const prevAssignee = (existing?.assignee_staff_id as string | null) ?? null;
+    const nextOwner = data.owner_staff_id !== undefined ? data.owner_staff_id : prevOwner;
+    const nextAssignee = normalizedAssignees
+      ? normalizedAssignees.primary
+      : data.assignee_staff_id !== undefined
+        ? data.assignee_staff_id
+        : prevAssignee;
+
+    const historyDiffs = buildTaskHistoryDiffs(
+      existing
+        ? {
+            status: existing.status as string,
+            assignee_staff_id: prevAssignee,
+            percent_complete: num(existing.percent_complete),
+            priority: existing.priority as string,
+            start_date: (existing.start_date as string | null) ?? null,
+            due_date: (existing.due_date as string | null) ?? null,
+          }
+        : null,
+      {
+        status: data.status,
+        assignee_staff_id: nextAssignee,
+        percent_complete: data.status === "completed" ? 100 : (data.percent_complete ?? 0),
+        priority: data.priority,
+        start_date: start !== undefined ? start : ((existing?.start_date as string | null) ?? null),
+        due_date: due !== undefined ? due : ((existing?.due_date as string | null) ?? null),
+      },
+    );
+    if (id) {
+      for (const diff of historyDiffs) {
+        await appendTaskHistory(context, {
+          eventId: data.eventId,
+          taskId: id,
+          changeType: diff.change_type,
+          fieldName: diff.field_name,
+          oldValue: diff.old_value,
+          newValue: diff.new_value,
+        });
+      }
+    }
+
+    const notifyIds = [
+      nextOwner && nextOwner !== prevOwner ? nextOwner : null,
+      nextAssignee && nextAssignee !== prevAssignee ? nextAssignee : null,
+      !data.id && nextOwner ? nextOwner : null,
+      !data.id && nextAssignee && nextAssignee !== nextOwner ? nextAssignee : null,
+      ...(normalizedAssignees?.all.filter((sid) => sid !== prevAssignee) ?? []),
+    ];
+    if (id && notifyIds.some(Boolean)) {
+      await notifyEventAssignees(context, {
+        staffIds: notifyIds,
+        locationId: event.location_id as string,
+        title: `Task assigned: ${data.title}`,
+        body: eventDisplayName(event) ?? null,
+        actionUrl: `/events/${data.eventId}/plan`,
+        sourceType: "event_tasks",
+        sourceId: id,
+      });
+    }
+
+    // Watchers on meaningful field changes
+    if (id && data.id && historyDiffs.some((d) => d.change_type !== "created")) {
+      const watchers = await loadWatcherStaffIds(context, data.eventId, id);
+      if (watchers.length) {
+        await notifyEventAssignees(context, {
+          staffIds: watchers,
+          locationId: event.location_id as string,
+          title: `Watched task updated: ${data.title}`,
+          body: historyDiffs.map((d) => `${d.field_name}: ${d.new_value ?? "—"}`).join(", "),
+          actionUrl: `/events/${data.eventId}/plan`,
+          sourceType: "event_task_watchers",
+          sourceId: id,
+        });
+      }
+    }
+
+    // Reminder check on upsert for this task
+    if (id) {
+      await processEventTaskReminders(
+        context,
+        {
+          id: event.id as string,
+          location_id: event.location_id as string | null,
+          name: event.name as string | null,
+        },
+        [
+          {
+            id,
+            title: data.title,
+            status: data.status,
+            due_date: (due !== undefined ? due : ((existing?.due_date as string | null) ?? null)) as string | null,
+            assignee_staff_id: nextAssignee,
+            owner_staff_id: nextOwner,
+            reminder_days_before:
+              data.reminder_days_before ??
+              (num((existing as { reminder_days_before?: number } | null)?.reminder_days_before) || 3),
+          },
+        ],
+      );
+    }
+
+    // Spawn next recurrence on complete
+    const recurFreq =
+      data.recurrence_freq !== undefined
+        ? data.recurrence_freq
+        : ((existing?.recurrence_freq as string | null) ?? null);
+    const recurInterval =
+      data.recurrence_interval ??
+      (num((existing as { recurrence_interval?: number } | null)?.recurrence_interval) || 1);
+    const recurUntil =
+      data.recurrence_until !== undefined
+        ? emptyDate(data.recurrence_until)
+        : ((existing?.recurrence_until as string | null) ?? null);
+    const recurCount =
+      data.recurrence_count !== undefined
+        ? data.recurrence_count
+        : numOrNull((existing as { recurrence_count?: number | null } | null)?.recurrence_count);
+    const baseDue =
+      (due !== undefined ? due : ((existing?.due_date as string | null) ?? null)) ?? todayIso();
+    const nextDue = nextRecurrenceDueDate(
+      baseDue,
+      recurFreq as "daily" | "weekly" | "monthly" | null,
+      recurInterval,
+    );
+    if (
+      id &&
+      shouldSpawnRecurrence({
+        status: data.status,
+        prevStatus: (existing?.status as string | null) ?? null,
+        recurrenceFreq: recurFreq,
+        recurrenceUntil: recurUntil,
+        nextDue,
+        recurrenceCount: recurCount,
+        occurrenceIndex: 1,
+      })
+    ) {
+      const nextStart =
+        start !== undefined
+          ? start
+            ? nextRecurrenceDueDate(start, recurFreq as "daily" | "weekly" | "monthly", recurInterval)
+            : null
+          : existing?.start_date
+            ? nextRecurrenceDueDate(
+                existing.start_date as string,
+                recurFreq as "daily" | "weekly" | "monthly",
+                recurInterval,
+              )
+            : null;
+      const { data: number, error: numErr } = await context.supabase.rpc("next_tsk_number");
+      if (!numErr) {
+        const { data: spawned, error: spawnErr } = await context.supabase
+          .from("event_tasks")
+          .insert({
+            event_id: data.eventId,
+            task_number: number,
+            title: data.title,
+            description: data.description ?? null,
+            wbs_id: data.wbs_id !== undefined ? data.wbs_id : ((existing?.wbs_id as string | null) ?? null),
+            parent_task_id:
+              data.parent_task_id !== undefined
+                ? data.parent_task_id
+                : ((existing?.parent_task_id as string | null) ?? null),
+            status: "not_started",
+            priority: data.priority,
+            start_date: nextStart,
+            due_date: nextDue,
+            duration_days: daysBetween(nextStart, nextDue),
+            owner_staff_id: nextOwner,
+            assignee_staff_id: nextAssignee,
+            department_id:
+              data.department_id !== undefined
+                ? data.department_id
+                : ((existing?.department_id as string | null) ?? null),
+            percent_complete: 0,
+            recurrence_freq: recurFreq,
+            recurrence_interval: recurInterval,
+            recurrence_until: recurUntil,
+            recurrence_count: recurCount,
+            recurrence_source_id: id,
+            reminder_days_before:
+              data.reminder_days_before ??
+              (num((existing as { reminder_days_before?: number } | null)?.reminder_days_before) || 3),
+            created_by: context.userId,
+            updated_by: context.userId,
+          })
+          .select("id")
+          .single();
+        if (!spawnErr && spawned?.id) {
+          if (normalizedAssignees) {
+            await syncTaskAssignees(context, spawned.id as string, normalizedAssignees.primary, normalizedAssignees.all);
+          }
+          await appendTaskHistory(context, {
+            eventId: data.eventId,
+            taskId: id,
+            changeType: "recurrence",
+            fieldName: "spawned_task_id",
+            newValue: spawned.id as string,
+          });
+        }
+      }
+    }
+
+    await writeEventAudit(context, {
+      action: data.id ? "task_update" : "task_create",
+      entityType: "event_task",
+      entityId: id,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { title: data.title, status: data.status, owner_staff_id: nextOwner, assignee_staff_id: nextAssignee },
+    });
     const lookups = await loadLookups(context);
     await persistScores(
       context,
@@ -3034,6 +3913,10 @@ export const upsertDependency = createAuthenticatedAction(
   async (data, context) => {
     await loadEventOrThrow(context, data.eventId);
     if (data.predecessor_id === data.successor_id) throw new Error("A task cannot depend on itself");
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "predecessor_id", eventId: await loadRelatedEventId(context, "event_tasks", data.predecessor_id) },
+      { field: "successor_id", eventId: await loadRelatedEventId(context, "event_tasks", data.successor_id) },
+    ]);
     const { data: created, error } = await context.supabase
       .from("event_task_dependencies")
       .insert({
@@ -3079,6 +3962,10 @@ export const upsertMilestone = createAuthenticatedAction(
   }),
   async (data, context) => {
     await loadEventOrThrow(context, data.eventId);
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "wbs_id", eventId: await loadRelatedEventId(context, "event_wbs_nodes", data.wbs_id) },
+      { field: "task_id", eventId: await loadRelatedEventId(context, "event_tasks", data.task_id) },
+    ]);
     const payload = {
       event_id: data.eventId,
       title: data.title,
@@ -3298,13 +4185,16 @@ function mapBudgetLine(
 }
 
 export const getEventBudget = createAuthenticatedAction(EventIdSchema, async (data, context) => {
+  if (!canUserDo(context.roles ?? [], "events.finance")) {
+    throw new ForbiddenError("Budget details require events.finance.");
+  }
   const event = await loadEventOrThrow(context, data.eventId);
   const lookups = await loadLookups(context);
   const [{ data: header }, { data: lines }, { data: invoices }, { data: prs }, { data: baselines }] = await Promise.all([
     context.supabase
       .from("event_budgets")
       .select(
-        "id, event_id, currency, status, notes, contract_value, additional_revenue, approved_change_orders, discounts, taxes, line_alert_threshold_pct, contingency_usage_threshold_pct",
+        "id, event_id, currency, status, notes, contract_value, additional_revenue, approved_change_orders, discounts, taxes, line_alert_threshold_pct, contingency_usage_threshold_pct, submitted_at, submitted_by, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, locked_at, locked_by",
       )
       .eq("event_id", data.eventId)
       .maybeSingle(),
@@ -3418,12 +4308,13 @@ export const getEventBudget = createAuthenticatedAction(EventIdSchema, async (da
     { key: "actual", at: "actual", marginPct: finance.actualMarginPct, source: "derived" as const },
   ];
 
+  const budgetStatus = (header?.status as (typeof BUDGET_STATUSES)[number] | undefined) ?? "draft";
   return {
     header: header
       ? {
           id: header.id as string,
           currency: header.currency as string,
-          status: header.status as (typeof BUDGET_STATUSES)[number],
+          status: budgetStatus,
           notes: (header.notes as string | null) ?? null,
           contract_value: revenue.contractValue,
           additional_revenue: revenue.additionalRevenue,
@@ -3432,6 +4323,11 @@ export const getEventBudget = createAuthenticatedAction(EventIdSchema, async (da
           taxes: revenue.taxes,
           line_alert_threshold_pct: lineThreshold,
           contingency_usage_threshold_pct: contingencyCap,
+          submitted_at: (header.submitted_at as string | null) ?? null,
+          approved_at: (header.approved_at as string | null) ?? null,
+          rejected_at: (header.rejected_at as string | null) ?? null,
+          rejection_reason: (header.rejection_reason as string | null) ?? null,
+          locked_at: (header.locked_at as string | null) ?? null,
         }
       : null,
     lines: mapped,
@@ -3446,13 +4342,16 @@ export const getEventBudget = createAuthenticatedAction(EventIdSchema, async (da
     baselineCompare,
     marginTrend,
     eventContracted: event.contracted_value == null ? null : num(event.contracted_value),
+    editable: budgetLinesEditable(budgetStatus),
+    allowedActions: allowedBudgetActions(budgetStatus),
   };
-}, { auth: { capability: "events.view" } });
+}, { auth: { capability: "events.finance" } });
 
 export const upsertEventBudget = createAuthenticatedAction(
   z.object({
     eventId: z.string().uuid(),
-    status: z.enum(BUDGET_STATUSES).default("draft"),
+    /** @deprecated Phase 7 — status changes go through transitionEventBudget. Ignored when header exists. */
+    status: z.enum(BUDGET_STATUSES).optional(),
     notes: z.string().max(2000).optional().nullable(),
     contract_value: z.number().min(0).optional(),
     additional_revenue: z.number().min(0).optional(),
@@ -3506,8 +4405,20 @@ export const upsertEventBudget = createAuthenticatedAction(
       contingencyUsagePct: data.contingency_usage_threshold_pct ?? 80,
     });
 
+    let { data: header } = await context.supabase
+      .from("event_budgets")
+      .select("id, status")
+      .eq("event_id", data.eventId)
+      .maybeSingle();
+    const currentStatus = (header?.status as string | undefined) ?? "draft";
+    if (header && !budgetLinesEditable(currentStatus)) {
+      throw new ForbiddenError(
+        `Budget is ${currentStatus} and cannot be edited. Reopen or wait for rejection before changing lines.`,
+      );
+    }
+
     const headerPatch = {
-      status: data.status,
+      status: header ? currentStatus : "draft",
       notes: data.notes ?? null,
       contract_value: data.contract_value ?? num(event.contracted_value),
       additional_revenue: data.additional_revenue ?? 0,
@@ -3518,11 +4429,6 @@ export const upsertEventBudget = createAuthenticatedAction(
       contingency_usage_threshold_pct: data.contingency_usage_threshold_pct ?? 80,
       updated_by: context.userId,
     };
-    let { data: header } = await context.supabase
-      .from("event_budgets")
-      .select("id")
-      .eq("event_id", data.eventId)
-      .maybeSingle();
     if (!header) {
       const inserted = await context.supabase
         .from("event_budgets")
@@ -3532,7 +4438,7 @@ export const upsertEventBudget = createAuthenticatedAction(
           created_by: context.userId,
           ...headerPatch,
         })
-        .select("id")
+        .select("id, status")
         .single();
       if (inserted.error) throw inserted.error;
       header = inserted.data;
@@ -3553,6 +4459,9 @@ export const upsertEventBudget = createAuthenticatedAction(
         toDelete.map((r) => r.id),
       );
     }
+    const budgetEventId = await loadRelatedEventId(context, "event_budgets", header.id as string);
+    assertIdsSameEvent(data.eventId, budgetEventId ?? data.eventId, "budget_id");
+
     for (const line of computedLines) {
       const payload = {
         budget_id: header.id,
@@ -3591,7 +4500,7 @@ export const upsertEventBudget = createAuthenticatedAction(
       entityId: header.id,
       eventId: data.eventId,
       locationId: event.location_id as string,
-      after: { status: data.status, lines: computedLines.length, alerts: alerts.length },
+      after: { status: headerPatch.status, lines: computedLines.length, alerts: alerts.length },
     });
     await persistScores(
       context,
@@ -3604,9 +4513,142 @@ export const upsertEventBudget = createAuthenticatedAction(
       },
       lookups.stages,
     );
-    return { id: header.id, alerts };
+    return { id: header.id, alerts, status: headerPatch.status };
   },
   { auth: { capability: "events.finance" } },
+);
+
+export const transitionEventBudget = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    action: z.enum(["submit", "approve", "reject", "lock", "reopen"]),
+    reason: z.string().max(1000).optional().nullable(),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const { data: header } = await context.supabase
+      .from("event_budgets")
+      .select("id, status")
+      .eq("event_id", data.eventId)
+      .maybeSingle();
+    if (!header) throw new Error("Budget not found. Save draft lines before submitting.");
+
+    const caps: string[] = [];
+    if (canUserDo(context.roles ?? [], "events.finance")) caps.push("events.finance");
+    if (canUserDo(context.roles ?? [], "events.approve")) caps.push("events.approve");
+    if (canUserDo(context.roles ?? [], "events.manage")) caps.push("events.manage");
+
+    const fromStatus = (header.status as string) ?? "draft";
+    const rule = assertBudgetTransition({
+      from: fromStatus,
+      action: data.action as BudgetTransitionAction,
+      capabilities: caps,
+      reason: data.reason,
+    });
+
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      status: rule.to,
+      updated_by: context.userId,
+    };
+    if (data.action === "submit") {
+      patch.submitted_at = now;
+      patch.submitted_by = context.userId;
+      patch.rejected_at = null;
+      patch.rejected_by = null;
+      patch.rejection_reason = null;
+    } else if (data.action === "approve") {
+      patch.approved_at = now;
+      patch.approved_by = context.userId;
+      patch.rejection_reason = null;
+      patch.rejected_at = null;
+      patch.rejected_by = null;
+    } else if (data.action === "reject") {
+      patch.rejected_at = now;
+      patch.rejected_by = context.userId;
+      patch.rejection_reason = data.reason?.trim() ?? null;
+      patch.approved_at = null;
+      patch.approved_by = null;
+    } else if (data.action === "lock") {
+      patch.locked_at = now;
+      patch.locked_by = context.userId;
+    } else if (data.action === "reopen") {
+      patch.submitted_at = null;
+      patch.submitted_by = null;
+      patch.approved_at = null;
+      patch.approved_by = null;
+      patch.locked_at = null;
+      patch.locked_by = null;
+      patch.rejected_at = null;
+      patch.rejected_by = null;
+      patch.rejection_reason = data.reason?.trim() ?? null;
+    }
+
+    const { error } = await context.supabase.from("event_budgets").update(patch).eq("id", header.id);
+    if (error) throw error;
+
+    const auditAction = `budget_${data.action}` as const;
+    await writeEventAudit(context, {
+      action: auditAction,
+      entityType: "budget",
+      entityId: header.id as string,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      before: { status: fromStatus },
+      after: { status: rule.to, reason: data.reason ?? null },
+    });
+
+    if (data.action === "submit") {
+      try {
+        const approvers = await findUsersWithCapability(
+          "events.approve",
+          event.location_id as string | null,
+        );
+        await notifyUsers({
+          userIds: approvers,
+          excludeUserId: context.userId,
+          locationId: event.location_id as string | null,
+          category: "events",
+          title: "Budget approval requested",
+          body: `${eventDisplayName(event as { name?: string | null; event_name?: string | null; event_number?: string | null })} budget submitted for approval.`,
+          severity: "warning",
+          actionUrl: `/events/${data.eventId}/budget`,
+          sourceType: "event_budget",
+          sourceId: header.id as string,
+        });
+      } catch (err) {
+        console.warn("[notify] budget submit failed", err instanceof Error ? err.message : err);
+      }
+    } else if (data.action === "approve" || data.action === "reject") {
+      await notifyEventAssignees(context, {
+        staffIds: [event.pm_staff_id as string | null],
+        locationId: event.location_id as string | null,
+        title: data.action === "approve" ? "Budget approved" : "Budget rejected",
+        body:
+          data.action === "approve"
+            ? "Event budget was approved."
+            : `Event budget was rejected${data.reason ? `: ${data.reason}` : "."}`,
+        actionUrl: `/events/${data.eventId}/budget`,
+        sourceType: "event_budget",
+        sourceId: header.id as string,
+      });
+    }
+
+    const lookups = await loadLookups(context);
+    await persistScores(
+      context,
+      {
+        id: event.id as string,
+        event_start: event.event_start as string | null,
+        stage_id: event.stage_id as string | null,
+        contracted_value: event.contracted_value as number | null,
+        venue_name: event.venue_name as string | null,
+      },
+      lookups.stages,
+    );
+    return { id: header.id, status: rule.to, action: data.action };
+  },
+  { auth: { anyCapability: ["events.finance", "events.approve", "events.manage"] } },
 );
 
 export const upsertEventClientInvoice = createAuthenticatedAction(
@@ -3730,25 +4772,48 @@ export const upsertEventRisk = createAuthenticatedAction(
     severity: z.enum(RISK_SEVERITIES).default("medium"),
     status: z.enum(RISK_STATUSES).default("open"),
     due_date: z.string().optional().nullable(),
+    owner_staff_id: z.string().uuid().optional().nullable(),
+    mitigation: z.string().max(2000).optional().nullable(),
+    likelihood: z.enum(RISK_SEVERITIES).optional().nullable(),
+    impact: z.enum(RISK_SEVERITIES).optional().nullable(),
+    escalation_level: z.enum(TASK_ESCALATION_LEVELS).optional(),
   }),
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
-    const payload = {
+    const payload: Record<string, unknown> = {
       event_id: data.eventId,
       title: data.title,
       severity: data.severity,
       status: data.status,
       due_date: data.due_date ?? null,
+      owner_staff_id: data.owner_staff_id ?? null,
+      mitigation: emptyText(data.mitigation),
+      likelihood: data.likelihood ?? data.severity,
+      impact: data.impact ?? data.severity,
+      updated_by: context.userId,
     };
+    if (data.escalation_level !== undefined) payload.escalation_level = data.escalation_level;
+    let riskId = data.id ?? null;
     if (data.id) {
       const { error } = await context.supabase.from("event_risks").update(payload).eq("id", data.id);
       if (error) throw error;
     } else {
-      const { error } = await context.supabase
+      const { data: created, error } = await context.supabase
         .from("event_risks")
-        .insert({ ...payload, created_by: context.userId });
+        .insert({ ...payload, created_by: context.userId })
+        .select("id")
+        .single();
       if (error) throw error;
+      riskId = created.id as string;
     }
+    await writeEventAudit(context, {
+      action: data.id ? "risk_update" : "risk_create",
+      entityType: "event_risk",
+      entityId: riskId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: payload,
+    });
     const lookups = await loadLookups(context);
     await persistScores(
       context,
@@ -3761,10 +4826,118 @@ export const upsertEventRisk = createAuthenticatedAction(
       },
       lookups.stages,
     );
-    return { ok: true };
+    return { ok: true, id: riskId };
   },
   { auth: { capability: "events.edit" } },
 );
+
+export const escalateEventRisk = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid(),
+    note: z.string().max(500).optional().nullable(),
+  }),
+  async (data, context) => {
+    const { data: row } = await context.supabase
+      .from("event_risks")
+      .select("id, event_id, title, severity, status, escalation_level, owner_staff_id, due_date")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (!row) throw new Error("Risk not found");
+    const event = await loadEventOrThrow(context, row.event_id as string);
+    const next = nextEscalationLevel((row.escalation_level as string) ?? "none");
+    const now = new Date().toISOString();
+    const { error } = await context.supabase
+      .from("event_risks")
+      .update({
+        escalation_level: next,
+        escalated_at: now,
+        escalated_by: context.userId,
+        updated_by: context.userId,
+      })
+      .eq("id", data.id);
+    if (error) throw error;
+    await writeEventAudit(context, {
+      action: "risk_escalate",
+      entityType: "event_risk",
+      entityId: data.id,
+      eventId: event.id as string,
+      locationId: event.location_id as string,
+      before: { escalation_level: row.escalation_level },
+      after: { escalation_level: next, note: data.note ?? null },
+    });
+    const notifyIds = [
+      row.owner_staff_id as string | null,
+      event.pm_staff_id as string | null,
+      event.director_staff_id as string | null,
+    ];
+    await notifyEventAssignees(context, {
+      staffIds: notifyIds,
+      locationId: event.location_id as string | null,
+      title: `Risk escalated to ${next}`,
+      body: `${row.title as string}${data.note ? ` — ${data.note}` : ""}`,
+      actionUrl: `/events/${event.id}`,
+      sourceType: "event_risk",
+      sourceId: data.id,
+    });
+    try {
+      if (next === "director" || next === "exec") {
+        const caps = await findUsersWithCapability(
+          "events.approve",
+          event.location_id as string | null,
+        );
+        await notifyUsers({
+          userIds: caps,
+          excludeUserId: context.userId,
+          locationId: event.location_id as string | null,
+          category: "events",
+          title: `Risk escalated to ${next}`,
+          body: row.title as string,
+          severity: "warning",
+          actionUrl: `/events/${event.id}`,
+          sourceType: "event_risk",
+          sourceId: data.id,
+        });
+      }
+    } catch (err) {
+      console.warn("[notify] risk escalate failed", err instanceof Error ? err.message : err);
+    }
+    return { id: data.id, escalation_level: next };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventRisk = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_risks")
+    .select("id, event_id, title, severity, status")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Risk not found");
+  const event = await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_risks").delete().eq("id", data.id);
+  if (error) throw error;
+  await writeEventAudit(context, {
+    action: "risk_delete",
+    entityType: "event_risk",
+    entityId: data.id,
+    eventId: event.id as string,
+    locationId: event.location_id as string,
+    before: { title: row.title, severity: row.severity, status: row.status },
+  });
+  const lookups = await loadLookups(context);
+  await persistScores(
+    context,
+    {
+      id: event.id as string,
+      event_start: event.event_start as string | null,
+      stage_id: event.stage_id as string | null,
+      contracted_value: event.contracted_value as number | null,
+      venue_name: event.venue_name as string | null,
+    },
+    lookups.stages,
+  );
+  return { ok: true };
+}, { auth: { capability: "events.edit" } });
 
 export const setEventGoLive = createAuthenticatedAction(
   z.object({ eventId: z.string().uuid(), approved: z.boolean() }),
@@ -3796,6 +4969,39 @@ export const setEventGoLive = createAuthenticatedAction(
       locationId: event.location_id as string,
       after: { go_live_approved: data.approved },
     });
+    await notifyEventAssignees(context, {
+      staffIds: [event.pm_staff_id as string | null, event.director_staff_id as string | null],
+      locationId: event.location_id as string | null,
+      title: data.approved ? "Go-live approved" : "Go-live cleared",
+      body: eventDisplayName(
+        event as { name?: string | null; event_name?: string | null; event_number?: string | null },
+      ),
+      actionUrl: `/events/${data.eventId}`,
+      sourceType: "event_go_live",
+      sourceId: data.eventId,
+    });
+    if (!data.approved) {
+      try {
+        const approvers = await findUsersWithCapability(
+          "events.approve",
+          event.location_id as string | null,
+        );
+        await notifyUsers({
+          userIds: approvers,
+          excludeUserId: context.userId,
+          locationId: event.location_id as string | null,
+          category: "events",
+          title: "Go-live approval needed",
+          body: `${eventDisplayName(event as { name?: string | null; event_name?: string | null; event_number?: string | null })} is awaiting go-live sign-off.`,
+          severity: "warning",
+          actionUrl: `/events/${data.eventId}`,
+          sourceType: "event_go_live",
+          sourceId: data.eventId,
+        });
+      } catch (err) {
+        console.warn("[notify] go-live request failed", err instanceof Error ? err.message : err);
+      }
+    }
     const lookups = await loadLookups(context);
     await persistScores(
       context,
@@ -3825,9 +5031,18 @@ export const upsertEventIssue = createAuthenticatedAction(
     due_date: z.string().optional().nullable(),
     is_snag: z.boolean().optional(),
     is_safety: z.boolean().optional(),
+    task_id: z.string().uuid().optional().nullable(),
+    sla_due_date: z.string().optional().nullable(),
   }),
   async (data, context) => {
-    await loadEventOrThrow(context, data.eventId);
+    const event = await loadEventOrThrow(context, data.eventId);
+    if (data.task_id) {
+      assertIdsSameEvent(
+        data.eventId,
+        await loadRelatedEventId(context, "event_tasks", data.task_id),
+        "task_id",
+      );
+    }
     const payload = {
       event_id: data.eventId,
       title: data.title,
@@ -3838,20 +5053,37 @@ export const upsertEventIssue = createAuthenticatedAction(
       due_date: emptyDate(data.due_date),
       is_snag: data.is_snag ?? false,
       is_safety: data.is_safety ?? false,
+      task_id: data.task_id ?? null,
+      sla_due_date: emptyDate(data.sla_due_date),
       updated_by: context.userId,
     };
+    let issueId = data.id ?? null;
     if (data.id) {
       const { error } = await context.supabase.from("event_issues").update(payload).eq("id", data.id);
       if (error) throw error;
-      return { id: data.id };
+    } else {
+      const { data: created, error } = await context.supabase
+        .from("event_issues")
+        .insert({ ...payload, created_by: context.userId })
+        .select("id")
+        .single();
+      if (error) throw error;
+      issueId = created.id as string;
     }
-    const { data: created, error } = await context.supabase
-      .from("event_issues")
-      .insert({ ...payload, created_by: context.userId })
-      .select("id")
-      .single();
-    if (error) throw error;
-    return created;
+    await writeEventAudit(context, {
+      action: data.id ? "issue_update" : "issue_create",
+      entityType: "event_issue",
+      entityId: issueId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: {
+        title: payload.title,
+        status: payload.status,
+        task_id: payload.task_id,
+        sla_due_date: payload.sla_due_date,
+      },
+    });
+    return { id: issueId };
   },
   { auth: { capability: "events.edit" } },
 );
@@ -3885,6 +5117,13 @@ export const upsertEventDocument = createAuthenticatedAction(
   }),
   async (data, context) => {
     await loadEventOrThrow(context, data.eventId);
+    if (data.wbs_id) {
+      assertIdsSameEvent(
+        data.eventId,
+        await loadRelatedEventId(context, "event_wbs_nodes", data.wbs_id),
+        "wbs_id",
+      );
+    }
     const existing = data.id
       ? (await context.supabase
           .from("event_documents")
@@ -3957,8 +5196,10 @@ export const uploadEventDocumentFile = createAuthenticatedAction(
       await context.supabase.storage.from(EVENT_DOC_BUCKET).remove([row.file_path as string]);
     }
 
-    const safeName = sanitizeEventFileName(data.filename);
-    const path = `${row.event_id}/${row.id}/${Date.now()}-${safeName}`;
+    const path = eventDocumentObjectPath(row.event_id as string, row.id as string, data.filename);
+    if (eventDocumentPathEventId(path) !== row.event_id) {
+      throw new Error("Document storage path must be scoped to the event id");
+    }
     const buffer = Buffer.from(data.data_base64, "base64");
     const { error: upErr } = await context.supabase.storage
       .from(EVENT_DOC_BUCKET)
@@ -3996,6 +5237,10 @@ export const getEventDocumentUrl = createAuthenticatedAction(IdSchema, async (da
   await loadEventOrThrow(context, row.event_id as string);
   if (row.url) return { url: row.url as string };
   if (!row.file_path) return { url: null };
+  const pathEvent = eventDocumentPathEventId(row.file_path as string);
+  if (pathEvent && pathEvent !== row.event_id) {
+    throw new ForbiddenError("Document storage path does not match event");
+  }
   const { data: signed, error } = await context.supabase.storage
     .from(EVENT_DOC_BUCKET)
     .createSignedUrl(row.file_path as string, 600);
@@ -4827,11 +6072,13 @@ export const getEventReports = createAuthenticatedAction(
     let q = context.supabase
       .from("events")
       .select(
-        "id, event_number, name, event_name, client_name, venue_name, status, stage_id, pm_staff_id, event_start, event_end, setup_start, dismantle_date, health_rag, readiness_pct, go_live_approved, contracted_value, lessons_learned, location_id",
+        canFinance
+          ? "id, event_number, name, event_name, client_name, venue_name, status, stage_id, pm_staff_id, event_start, event_end, setup_start, dismantle_date, health_rag, readiness_pct, go_live_approved, contracted_value, lessons_learned, location_id"
+          : "id, event_number, name, event_name, client_name, venue_name, status, stage_id, pm_staff_id, event_start, event_end, setup_start, dismantle_date, health_rag, readiness_pct, go_live_approved, lessons_learned, location_id",
       )
       .is("deleted_at", null)
       .order("event_start", { ascending: true, nullsFirst: false })
-      .limit(400);
+      .limit(EVENT_FETCH_CAPS.reportsEvents);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.eventId) q = q.eq("id", data.eventId);
     if (data.pmStaffId) q = q.eq("pm_staff_id", data.pmStaffId);
@@ -4871,48 +6118,93 @@ export const getEventReports = createAuthenticatedAction(
       lines: [] as Array<Record<string, unknown>>,
       budgets: [] as Array<Record<string, unknown>>,
       invoices: [] as Array<Record<string, unknown>>,
+      sprints: [] as Array<Record<string, unknown>>,
     };
     const kids = eventIds.length
       ? await Promise.all([
           context.supabase
             .from("event_tasks")
-            .select("event_id, title, status, priority, due_date, percent_complete, is_critical, is_snag, owner_staff_id, wbs_id, lifecycle_phase")
+            .select(
+              "event_id, title, status, priority, due_date, percent_complete, is_critical, is_snag, owner_staff_id, wbs_id, lifecycle_phase, estimated_hours, actual_hours, estimated_cost, actual_cost, story_points, sprint_id, completed_at",
+            )
             .in("event_id", eventIds)
-            .is("deleted_at", null),
-          context.supabase.from("event_wbs_nodes").select("id, event_id, code, title").in("event_id", eventIds).is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
+          context.supabase
+            .from("event_wbs_nodes")
+            .select("id, event_id, code, title")
+            .in("event_id", eventIds)
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
           context.supabase
             .from("event_readiness_items")
             .select("event_id, code, title, phase_code, is_complete, is_required")
-            .in("event_id", eventIds),
+            .in("event_id", eventIds)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
           context.supabase
             .from("event_issues")
             .select("event_id, title, severity, status, is_snag, is_safety, due_date, owner_staff_id")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
-          context.supabase.from("event_risks").select("event_id, title, severity, status, due_date").in("event_id", eventIds),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
+          context.supabase
+            .from("event_risks")
+            .select("event_id, title, severity, status, due_date")
+            .in("event_id", eventIds)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
           context.supabase
             .from("purchase_requisitions")
             .select("event_id, pr_number, status, total_amount, required_by, priority")
-            .in("event_id", eventIds),
+            .in("event_id", eventIds)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
           context.supabase
             .from("purchase_orders")
             .select("event_id, po_number, vendor_name, amount, status")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
-          context.supabase
-            .from("event_payables")
-            .select("event_id, kind, title, reference, vendor_name, amount, status, due_date")
-            .in("event_id", eventIds)
-            .is("deleted_at", null),
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
+          canFinance
+            ? context.supabase
+                .from("event_payables")
+                .select("event_id, kind, title, reference, vendor_name, amount, status, due_date")
+                .in("event_id", eventIds)
+                .is("deleted_at", null)
+                .limit(EVENT_FETCH_CAPS.reportsChildRows)
+            : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
           context.supabase
             .from("event_asset_movements")
             .select("event_id, item_name, qty, status, due_date")
             .in("event_id", eventIds)
-            .is("deleted_at", null),
-          context.supabase.from("event_budget_lines").select("event_id, original_amount, approved_changes, revised_amount, committed_amount, actual_amount, forecast_amount").in("event_id", eventIds),
-          context.supabase.from("event_budgets").select("event_id, contract_value, additional_revenue, approved_change_orders, discounts, taxes").in("event_id", eventIds),
-          context.supabase.from("event_client_invoices").select("event_id, status, base_amount, paid_amount").in("event_id", eventIds),
-        ]).then(([tasks, wbs, ready, issues, risks, prs, pos, payables, assets, lines, budgets, invoices]) => ({
+            .is("deleted_at", null)
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
+          canFinance
+            ? context.supabase
+                .from("event_budget_lines")
+                .select("event_id, original_amount, approved_changes, revised_amount, committed_amount, actual_amount, forecast_amount")
+                .in("event_id", eventIds)
+                .limit(EVENT_FETCH_CAPS.reportsChildRows)
+            : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+          canFinance
+            ? context.supabase
+                .from("event_budgets")
+                .select("event_id, contract_value, additional_revenue, approved_change_orders, discounts, taxes")
+                .in("event_id", eventIds)
+                .limit(EVENT_FETCH_CAPS.reportsChildRows)
+            : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+          canFinance
+            ? context.supabase
+                .from("event_client_invoices")
+                .select("event_id, status, base_amount, paid_amount")
+                .in("event_id", eventIds)
+                .limit(EVENT_FETCH_CAPS.reportsChildRows)
+            : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+          context.supabase
+            .from("event_sprints")
+            .select("id, event_id, name, status, start_date, end_date")
+            .in("event_id", eventIds)
+            .order("start_date", { ascending: true, nullsFirst: false })
+            .limit(EVENT_FETCH_CAPS.reportsChildRows),
+        ]).then(([tasks, wbs, ready, issues, risks, prs, pos, payables, assets, lines, budgets, invoices, sprints]) => ({
           tasks: (tasks.data ?? []) as Array<Record<string, unknown>>,
           wbs: (wbs.data ?? []) as Array<Record<string, unknown>>,
           ready: (ready.data ?? []) as Array<Record<string, unknown>>,
@@ -4925,6 +6217,7 @@ export const getEventReports = createAuthenticatedAction(
           lines: (lines.data ?? []) as Array<Record<string, unknown>>,
           budgets: (budgets.data ?? []) as Array<Record<string, unknown>>,
           invoices: (invoices.data ?? []) as Array<Record<string, unknown>>,
+          sprints: (sprints.data ?? []) as Array<Record<string, unknown>>,
         }))
       : emptyKids;
 
@@ -4969,10 +6262,12 @@ export const getEventReports = createAuthenticatedAction(
         pm_name: row.pm_staff_id ? (staffMap.get(row.pm_staff_id as string) ?? null) : null,
         event_start: (row.event_start as string | null) ?? null,
         event_end: (row.event_end as string | null) ?? null,
+        setup_start: (row.setup_start as string | null) ?? null,
+        dismantle_date: (row.dismantle_date as string | null) ?? null,
         health_rag: (row.health_rag as string) ?? "amber",
         readiness_pct: num(row.readiness_pct),
         go_live_approved: Boolean(row.go_live_approved),
-        contracted_value: (row.contracted_value as number | null) ?? null,
+        contracted_value: canFinance ? ((row.contracted_value as number | null) ?? null) : null,
         lessons_learned: (row.lessons_learned as string | null) ?? null,
         overall_progress: overallTaskProgress(
           evTasks.map((t) => ({ status: String(t.status), percent_complete: num(t.percent_complete) })),
@@ -4995,11 +6290,27 @@ export const getEventReports = createAuthenticatedAction(
           is_critical: Boolean(t.is_critical),
           is_snag: Boolean(t.is_snag),
           owner_name: t.owner_staff_id ? (ownerMap.get(t.owner_staff_id as string) ?? null) : null,
+          owner_staff_id: (t.owner_staff_id as string | null) ?? null,
+          estimated_hours: numOrNull(t.estimated_hours),
+          actual_hours: numOrNull(t.actual_hours),
+          estimated_cost: numOrNull(t.estimated_cost),
+          actual_cost: numOrNull(t.actual_cost),
+          story_points: numOrNull(t.story_points),
+          sprint_id: (t.sprint_id as string | null) ?? null,
+          completed_at: (t.completed_at as string | null) ?? null,
           workstream_code: (node?.code as string | null) ?? null,
           workstream_title: (node?.title as string | null) ?? null,
           lifecycle_phase: (t.lifecycle_phase as string | null) ?? null,
         };
       }),
+      sprints: kids.sprints.map((s) => ({
+        id: s.id as string,
+        event_id: s.event_id as string,
+        name: String(s.name ?? "Sprint"),
+        status: String(s.status ?? "planned"),
+        start_date: (s.start_date as string | null) ?? null,
+        end_date: (s.end_date as string | null) ?? null,
+      })),
       readiness: kids.ready.map((r) => ({
         event_id: r.event_id as string,
         code: r.code as string,
@@ -5077,5 +6388,2515 @@ export const getEventReports = createAuthenticatedAction(
     };
   },
   { defaultInput: {}, auth: { capability: "events.view" } },
+);
+
+export const upsertEventTeamMember = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    staff_id: z.string().uuid(),
+    role_label: z.string().min(1).max(120).default("team"),
+    is_pm: z.boolean().optional(),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const payload = {
+      event_id: data.eventId,
+      staff_id: data.staff_id,
+      role_label: data.role_label.trim() || "team",
+      is_pm: Boolean(data.is_pm),
+    };
+    let memberId = data.id ?? null;
+    if (data.id) {
+      const { error } = await context.supabase.from("event_team_members").update(payload).eq("id", data.id);
+      if (error) throw error;
+    } else {
+      const { data: created, error } = await context.supabase
+        .from("event_team_members")
+        .upsert({ ...payload, created_by: context.userId }, { onConflict: "event_id,staff_id" })
+        .select("id")
+        .single();
+      if (error) throw error;
+      memberId = created.id as string;
+    }
+    if (payload.is_pm) {
+      await context.supabase.from("events").update({ pm_staff_id: data.staff_id, updated_by: context.userId }).eq("id", data.eventId);
+      await context.supabase
+        .from("event_team_members")
+        .update({ is_pm: false })
+        .eq("event_id", data.eventId)
+        .neq("staff_id", data.staff_id);
+    }
+    await writeEventAudit(context, {
+      action: data.id ? "team_update" : "team_add",
+      entityType: "event_team_member",
+      entityId: memberId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: payload,
+    });
+    await notifyEventAssignees(context, {
+      staffIds: [data.staff_id],
+      locationId: event.location_id as string,
+      title: `Added to event team (${payload.role_label})`,
+      body: eventDisplayName(event) ?? null,
+      actionUrl: `/events/${data.eventId}#event-staff`,
+      sourceType: "event_team_members",
+      sourceId: memberId ?? data.eventId,
+    });
+    return { id: memberId };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventTeamMember = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_team_members")
+    .select("id, event_id, staff_id, role_label, is_pm")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Team member not found");
+  const event = await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_team_members").delete().eq("id", data.id);
+  if (error) throw error;
+  if (row.is_pm && event.pm_staff_id === row.staff_id) {
+    await context.supabase.from("events").update({ pm_staff_id: null, updated_by: context.userId }).eq("id", event.id);
+  }
+  await writeEventAudit(context, {
+    action: "team_remove",
+    entityType: "event_team_member",
+    entityId: data.id,
+    eventId: event.id as string,
+    locationId: event.location_id as string,
+    before: { staff_id: row.staff_id, role_label: row.role_label, is_pm: row.is_pm },
+  });
+  return { ok: true };
+}, { auth: { capability: "events.edit" } });
+
+export const listEventAuditLogs = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    action: z.string().max(80).optional().nullable(),
+    entityType: z.string().max(80).optional().nullable(),
+    page: z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(10).max(100).default(30),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const from = (data.page - 1) * data.pageSize;
+    const to = from + data.pageSize - 1;
+    let q = context.supabase
+      .from("event_audit_logs")
+      .select("id, action, entity_type, entity_id, actor_id, created_at, metadata, before, after", { count: "exact" })
+      .eq("event_id", data.eventId)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+    if (data.action?.trim()) q = q.eq("action", data.action.trim());
+    if (data.entityType?.trim()) q = q.eq("entity_type", data.entityType.trim());
+    const { data: rows, error, count } = await q;
+    if (error) throw error;
+    return {
+      rows: (rows ?? []) as Array<{
+        id: string;
+        action: string;
+        entity_type: string;
+        entity_id: string | null;
+        actor_id: string | null;
+        created_at: string;
+        metadata: Record<string, unknown>;
+        before: unknown;
+        after: unknown;
+      }>,
+      total: count ?? 0,
+      page: data.page,
+      pageSize: data.pageSize,
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const softDeleteEvent = createAuthenticatedAction(
+  z.object({ eventId: z.string().uuid() }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const deletedAt = new Date().toISOString();
+    const { error } = await context.supabase
+      .from("events")
+      .update({ deleted_at: deletedAt, updated_by: context.userId })
+      .eq("id", data.eventId);
+    if (error) throw error;
+    await writeEventAudit(context, {
+      action: "archive",
+      entityType: "event",
+      entityId: data.eventId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { deleted_at: deletedAt },
+    });
+    return { ok: true };
+  },
+  { auth: { capability: "events.manage" } },
+);
+
+export const restoreEvent = createAuthenticatedAction(
+  z.object({ eventId: z.string().uuid() }),
+  async (data, context) => {
+    const { data: event, error: loadErr } = await context.supabase
+      .from("events")
+      .select("*")
+      .eq("id", data.eventId)
+      .not("deleted_at", "is", null)
+      .maybeSingle();
+    if (loadErr) throw loadErr;
+    if (!event) throw new Error("Archived event not found");
+    await assertLocationAccess(context, event.location_id as string);
+    const { error } = await context.supabase
+      .from("events")
+      .update({ deleted_at: null, updated_by: context.userId })
+      .eq("id", data.eventId);
+    if (error) throw error;
+    await writeEventAudit(context, {
+      action: "restore",
+      entityType: "event",
+      entityId: data.eventId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      before: { deleted_at: event.deleted_at },
+    });
+    return { ok: true };
+  },
+  { auth: { capability: "events.manage" } },
+);
+
+const PlanTemplateItemSchema = z.object({
+  item_kind: z.enum(["task", "wbs", "readiness"]),
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional().nullable(),
+  workstream_code: z.string().max(80).optional().nullable(),
+  parent_key: z.string().max(80).optional().nullable(),
+  item_key: z.string().max(80).optional().nullable(),
+  priority: z.enum(TASK_PRIORITIES).default("normal"),
+  is_critical: z.boolean().optional(),
+  lifecycle_phase: z.string().max(40).optional().nullable(),
+  readiness_code: z.string().max(80).optional().nullable(),
+  readiness_category: z.string().max(80).optional().nullable(),
+  readiness_weight: z.number().int().min(1).max(100).optional(),
+  sort_order: z.number().int().min(0).optional(),
+});
+
+export const listEventPlanTemplates = createAuthenticatedAction(
+  z.object({ locationId: z.string().uuid().nullable().optional(), includeInactive: z.boolean().optional() }).default({}),
+  async (data, context) => {
+    let q = context.supabase
+      .from("evt_plan_templates")
+      .select("id, name, description, event_type_id, location_id, is_active, created_at, updated_at")
+      .is("deleted_at", null)
+      .order("name")
+      .limit(200);
+    if (!data.includeInactive) q = q.eq("is_active", true);
+    if (data.locationId) q = q.or(`location_id.is.null,location_id.eq.${data.locationId}`);
+    const { data: rows, error } = await q;
+    if (error) throw error;
+    const ids = (rows ?? []).map((r) => r.id as string);
+    const { data: items } = ids.length
+      ? await context.supabase
+          .from("evt_plan_template_items")
+          .select("id, template_id, item_kind, title, workstream_code, priority, sort_order, readiness_code")
+          .in("template_id", ids)
+          .order("sort_order")
+      : { data: [] };
+    const counts = new Map<string, number>();
+    for (const item of items ?? []) {
+      counts.set(item.template_id as string, (counts.get(item.template_id as string) ?? 0) + 1);
+    }
+    return (rows ?? []).map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      description: (row.description as string | null) ?? null,
+      event_type_id: (row.event_type_id as string | null) ?? null,
+      location_id: (row.location_id as string | null) ?? null,
+      is_active: Boolean(row.is_active),
+      created_at: row.created_at as string,
+      updated_at: row.updated_at as string,
+      item_count: counts.get(row.id as string) ?? 0,
+    }));
+  },
+  { defaultInput: {}, auth: { capability: "events.view" } },
+);
+
+export const getEventPlanTemplate = createAuthenticatedAction(
+  IdSchema,
+  async (data, context) => {
+    const { data: row, error } = await context.supabase
+      .from("evt_plan_templates")
+      .select("*")
+      .eq("id", data.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error("Template not found");
+    if (row.location_id) await assertLocationAccess(context, row.location_id as string);
+    const { data: items, error: itemErr } = await context.supabase
+      .from("evt_plan_template_items")
+      .select("*")
+      .eq("template_id", data.id)
+      .order("sort_order");
+    if (itemErr) throw itemErr;
+    return { template: row, items: items ?? [] };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const upsertEventPlanTemplate = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(2).max(160),
+    description: z.string().max(2000).optional().nullable(),
+    event_type_id: z.string().uuid().optional().nullable(),
+    location_id: z.string().uuid().optional().nullable(),
+    is_active: z.boolean().optional(),
+    items: z.array(PlanTemplateItemSchema).max(200).optional(),
+  }),
+  async (data, context) => {
+    if (data.location_id) await assertLocationAccess(context, data.location_id);
+    const patch = {
+      name: data.name.trim(),
+      description: emptyText(data.description),
+      event_type_id: data.event_type_id ?? null,
+      location_id: data.location_id ?? null,
+      is_active: data.is_active ?? true,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    let templateId = data.id ?? null;
+    if (data.id) {
+      const { error } = await context.supabase.from("evt_plan_templates").update(patch).eq("id", data.id).is("deleted_at", null);
+      if (error) throw error;
+    } else {
+      const { data: created, error } = await context.supabase
+        .from("evt_plan_templates")
+        .insert({ ...patch, created_by: context.userId })
+        .select("id")
+        .single();
+      if (error) throw error;
+      templateId = created.id as string;
+    }
+    if (templateId && data.items) {
+      await context.supabase.from("evt_plan_template_items").delete().eq("template_id", templateId);
+      if (data.items.length) {
+        const { error: itemErr } = await context.supabase.from("evt_plan_template_items").insert(
+          data.items.map((item, idx) => ({
+            template_id: templateId,
+            item_kind: item.item_kind,
+            title: item.title,
+            description: emptyText(item.description),
+            workstream_code: emptyText(item.workstream_code),
+            parent_key: emptyText(item.parent_key),
+            item_key: emptyText(item.item_key) ?? `item_${idx + 1}`,
+            priority: item.priority,
+            is_critical: item.is_critical ?? item.priority === "critical",
+            lifecycle_phase: emptyText(item.lifecycle_phase),
+            readiness_code: emptyText(item.readiness_code),
+            readiness_category: emptyText(item.readiness_category),
+            readiness_weight: item.readiness_weight ?? 10,
+            sort_order: item.sort_order ?? idx,
+          })),
+        );
+        if (itemErr) throw itemErr;
+      }
+    }
+    return { id: templateId };
+  },
+  { auth: { capability: "events.manage" } },
+);
+
+export const deleteEventPlanTemplate = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("evt_plan_templates")
+    .select("id, location_id")
+    .eq("id", data.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) throw new Error("Template not found");
+  if (row.location_id) await assertLocationAccess(context, row.location_id as string);
+  const { error } = await context.supabase
+    .from("evt_plan_templates")
+    .update({ deleted_at: new Date().toISOString(), is_active: false, updated_by: context.userId })
+    .eq("id", data.id);
+  if (error) throw error;
+  return { ok: true };
+}, { auth: { capability: "events.manage" } });
+
+export const saveEventAsPlanTemplate = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    name: z.string().min(2).max(160),
+    description: z.string().max(2000).optional().nullable(),
+    includeTasks: z.boolean().default(true),
+    includeWbs: z.boolean().default(true),
+    includeReadiness: z.boolean().default(true),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const items: z.infer<typeof PlanTemplateItemSchema>[] = [];
+    if (data.includeWbs) {
+      const { data: wbs } = await context.supabase
+        .from("event_wbs_nodes")
+        .select("id, parent_id, code, title, sort_order")
+        .eq("event_id", data.eventId)
+        .is("deleted_at", null)
+        .order("sort_order");
+      const idToKey = new Map((wbs ?? []).map((n, i) => [n.id as string, (n.code as string | null) || `wbs_${i + 1}`]));
+      for (const [i, node] of (wbs ?? []).entries()) {
+        items.push({
+          item_kind: "wbs",
+          title: node.title as string,
+          workstream_code: (node.code as string | null) ?? null,
+          item_key: idToKey.get(node.id as string) ?? `wbs_${i + 1}`,
+          parent_key: node.parent_id ? (idToKey.get(node.parent_id as string) ?? null) : null,
+          priority: "normal",
+          sort_order: (node.sort_order as number) ?? i,
+        });
+      }
+    }
+    if (data.includeTasks) {
+      const { data: tasks } = await context.supabase
+        .from("event_tasks")
+        .select("title, description, priority, is_critical, lifecycle_phase, wbs_id")
+        .eq("event_id", data.eventId)
+        .is("deleted_at", null)
+        .order("created_at")
+        .limit(150);
+      const { data: wbsCodes } = await context.supabase
+        .from("event_wbs_nodes")
+        .select("id, code")
+        .eq("event_id", data.eventId)
+        .is("deleted_at", null);
+      const wbsMap = new Map((wbsCodes ?? []).map((n) => [n.id as string, n.code as string | null]));
+      for (const [i, task] of (tasks ?? []).entries()) {
+        items.push({
+          item_kind: "task",
+          title: task.title as string,
+          description: (task.description as string | null) ?? null,
+          workstream_code: task.wbs_id ? (wbsMap.get(task.wbs_id as string) ?? null) : null,
+          priority: ((task.priority as string) ?? "normal") as (typeof TASK_PRIORITIES)[number],
+          is_critical: Boolean(task.is_critical),
+          lifecycle_phase: (task.lifecycle_phase as string | null) ?? null,
+          sort_order: i,
+        });
+      }
+    }
+    if (data.includeReadiness) {
+      const { data: ready } = await context.supabase
+        .from("event_readiness_items")
+        .select("code, title, category, weight")
+        .eq("event_id", data.eventId);
+      for (const [i, item] of (ready ?? []).entries()) {
+        items.push({
+          item_kind: "readiness",
+          title: item.title as string,
+          readiness_code: item.code as string,
+          readiness_category: (item.category as string | null) ?? null,
+          readiness_weight: num(item.weight) || 10,
+          priority: "normal",
+          sort_order: i,
+        });
+      }
+    }
+    return upsertEventPlanTemplate({
+      name: data.name,
+      description: data.description ?? `Saved from ${eventDisplayName(event) ?? event.name}`,
+      event_type_id: (event.event_type_id as string | null) ?? null,
+      location_id: (event.location_id as string | null) ?? null,
+      is_active: true,
+      items,
+    });
+  },
+  { auth: { capability: "events.manage" } },
+);
+
+export const applyEventPlanTemplate = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    templateId: z.string().uuid(),
+    applyTasks: z.boolean().default(true),
+    applyWbs: z.boolean().default(false),
+    applyReadiness: z.boolean().default(true),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    await ensureStandardWorkstreams(context, data.eventId);
+    const detail = await getEventPlanTemplate({ id: data.templateId });
+    const items = detail.items as Array<Record<string, unknown>>;
+    const applied: string[] = [];
+
+    if (data.applyWbs) {
+      const wbsItems = items.filter((i) => i.item_kind === "wbs");
+      const keyToId = new Map<string, string>();
+      for (const item of wbsItems) {
+        const parentKey = (item.parent_key as string | null) ?? null;
+        const parentId = parentKey ? (keyToId.get(parentKey) ?? null) : null;
+        const { data: created, error } = await context.supabase
+          .from("event_wbs_nodes")
+          .insert({
+            event_id: data.eventId,
+            parent_id: parentId,
+            node_type: parentId ? "task" : "workstream",
+            code: (item.workstream_code as string | null) ?? (item.item_key as string | null),
+            title: item.title as string,
+            sort_order: num(item.sort_order),
+            created_by: context.userId,
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        if (item.item_key) keyToId.set(item.item_key as string, created.id as string);
+      }
+      if (wbsItems.length) applied.push("wbs");
+    }
+
+    if (data.applyTasks) {
+      const { data: wbsRows } = await context.supabase
+        .from("event_wbs_nodes")
+        .select("id, code")
+        .eq("event_id", data.eventId)
+        .is("deleted_at", null);
+      const wbsByCode = new Map((wbsRows ?? []).map((n) => [n.code as string, n.id as string]));
+      const { data: existingTasks } = await context.supabase
+        .from("event_tasks")
+        .select("title, wbs_id")
+        .eq("event_id", data.eventId)
+        .is("deleted_at", null);
+      const have = new Set((existingTasks ?? []).map((t) => `${t.wbs_id ?? ""}::${String(t.title).trim().toLowerCase()}`));
+      for (const item of items.filter((i) => i.item_kind === "task")) {
+        const wbsId = item.workstream_code ? (wbsByCode.get(item.workstream_code as string) ?? null) : null;
+        const key = `${wbsId ?? ""}::${String(item.title).trim().toLowerCase()}`;
+        if (have.has(key)) continue;
+        const { data: number, error: numErr } = await context.supabase.rpc("next_tsk_number");
+        if (numErr) throw numErr;
+        const { error } = await context.supabase.from("event_tasks").insert({
+          event_id: data.eventId,
+          task_number: number,
+          title: item.title as string,
+          description: (item.description as string | null) ?? null,
+          wbs_id: wbsId,
+          status: "not_started",
+          priority: (item.priority as string) ?? "normal",
+          is_critical: Boolean(item.is_critical),
+          lifecycle_phase: (item.lifecycle_phase as string | null) ?? null,
+          created_by: context.userId,
+          updated_by: context.userId,
+        });
+        if (error) throw error;
+        have.add(key);
+      }
+      applied.push("tasks");
+    }
+
+    if (data.applyReadiness) {
+      const { data: existingReady } = await context.supabase
+        .from("event_readiness_items")
+        .select("code")
+        .eq("event_id", data.eventId);
+      const have = new Set((existingReady ?? []).map((r) => r.code as string));
+      const inserts = items
+        .filter((i) => i.item_kind === "readiness" && i.readiness_code && !have.has(i.readiness_code as string))
+        .map((i) => ({
+          event_id: data.eventId,
+          code: i.readiness_code as string,
+          title: i.title as string,
+          category: (i.readiness_category as string | null) ?? "general",
+          is_required: true,
+          is_complete: false,
+          weight: num(i.readiness_weight) || 10,
+        }));
+      if (inserts.length) {
+        const { error } = await context.supabase.from("event_readiness_items").insert(inserts);
+        if (error) throw error;
+      }
+      applied.push("readiness");
+    }
+
+    await writeEventAudit(context, {
+      action: "template_apply",
+      entityType: "evt_plan_template",
+      entityId: data.templateId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { applied },
+    });
+    return { ok: true, applied };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+
+// ---------- Phase 2: advanced task management ----------
+
+export const getEventTaskDetail = createAuthenticatedAction(
+  z.object({ taskId: z.string().uuid() }),
+  async (data, context) => {
+    const { data: task } = await context.supabase
+      .from("event_tasks")
+      .select("id, event_id, title")
+      .eq("id", data.taskId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!task) throw new Error("Task not found");
+    await loadEventOrThrow(context, task.event_id as string);
+
+    const [{ data: history }, { data: attachments }, { data: watchers }, { data: me }] = await Promise.all([
+      context.supabase
+        .from("event_task_history")
+        .select("id, event_id, task_id, actor_id, change_type, field_name, old_value, new_value, created_at")
+        .eq("task_id", data.taskId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      context.supabase
+        .from("event_task_attachments")
+        .select("id, event_id, task_id, title, file_name, file_path, content_type, file_size, created_at")
+        .eq("task_id", data.taskId)
+        .order("created_at", { ascending: false }),
+      context.supabase
+        .from("event_task_watchers")
+        .select("id, event_id, task_id, staff_id")
+        .eq("event_id", task.event_id as string)
+        .or(`task_id.eq.${data.taskId},task_id.is.null`),
+      context.supabase
+        .from("staff")
+        .select("id")
+        .eq("user_id", context.userId)
+        .is("deleted_at", null)
+        .maybeSingle(),
+    ]);
+
+    const staffIds = [...new Set((watchers ?? []).map((w) => w.staff_id as string))];
+    const { data: staff } = staffIds.length
+      ? await context.supabase.from("staff").select("id, full_name").in("id", staffIds)
+      : { data: [] };
+    const staffMap = new Map((staff ?? []).map((s) => [s.id as string, s.full_name as string]));
+
+    const historyRows: EventTaskHistoryRow[] = (history ?? []).map((h) => ({
+      id: h.id as string,
+      event_id: h.event_id as string,
+      task_id: h.task_id as string,
+      actor_id: (h.actor_id as string | null) ?? null,
+      change_type: h.change_type as string,
+      field_name: (h.field_name as string | null) ?? null,
+      old_value: (h.old_value as string | null) ?? null,
+      new_value: (h.new_value as string | null) ?? null,
+      created_at: h.created_at as string,
+    }));
+    const attachmentRows: EventTaskAttachmentRow[] = (attachments ?? []).map((a) => ({
+      id: a.id as string,
+      event_id: a.event_id as string,
+      task_id: a.task_id as string,
+      title: a.title as string,
+      file_name: a.file_name as string,
+      file_path: a.file_path as string,
+      content_type: (a.content_type as string | null) ?? null,
+      file_size: numOrNull(a.file_size),
+      created_at: a.created_at as string,
+    }));
+    const watcherRows: EventTaskWatcherRow[] = (watchers ?? []).map((w) => ({
+      id: w.id as string,
+      event_id: w.event_id as string,
+      task_id: (w.task_id as string | null) ?? null,
+      staff_id: w.staff_id as string,
+      staff_name: staffMap.get(w.staff_id as string) ?? null,
+    }));
+
+    return {
+      taskId: data.taskId,
+      eventId: task.event_id as string,
+      history: historyRows,
+      attachments: attachmentRows,
+      watchers: watcherRows,
+      watching: Boolean(
+        me?.id &&
+          watcherRows.some((w) => w.staff_id === me.id && (w.task_id === data.taskId || w.task_id == null)),
+      ),
+      myStaffId: (me?.id as string | null) ?? null,
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const uploadEventTaskAttachment = createAuthenticatedAction(
+  z.object({
+    taskId: z.string().uuid(),
+    filename: z.string().min(1).max(200),
+    title: z.string().max(200).optional(),
+    data_base64: z.string().min(10).max(28_000_000),
+    content_type: z.string().max(100).optional().nullable(),
+  }),
+  async (data, context) => {
+    const mime = mimeFromFileName(data.filename, data.content_type);
+    validateUploadMimeList(mime, [...EVENT_DOCUMENT_MIMES]);
+    validateBase64Size(data.data_base64, 20 * 1024 * 1024);
+
+    const { data: task } = await context.supabase
+      .from("event_tasks")
+      .select("id, event_id, title")
+      .eq("id", data.taskId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!task) throw new Error("Task not found");
+    await loadEventOrThrow(context, task.event_id as string);
+
+    const attachmentId = crypto.randomUUID();
+    const path = eventTaskAttachmentObjectPath(
+      task.event_id as string,
+      data.taskId,
+      attachmentId,
+      data.filename,
+    );
+    if (eventDocumentPathEventId(path) !== task.event_id) {
+      throw new Error("Task attachment path must be scoped to the event id");
+    }
+    const buffer = Buffer.from(data.data_base64, "base64");
+    const { error: upErr } = await context.supabase.storage
+      .from(EVENT_DOC_BUCKET)
+      .upload(path, buffer, { contentType: mime, upsert: false });
+    if (upErr) throw upErr;
+
+    const title = emptyText(data.title) ?? sanitizeEventFileName(data.filename);
+    const { data: row, error } = await context.supabase
+      .from("event_task_attachments")
+      .insert({
+        id: attachmentId,
+        event_id: task.event_id,
+        task_id: data.taskId,
+        title,
+        file_name: data.filename,
+        file_path: path,
+        content_type: mime,
+        file_size: buffer.length,
+        uploaded_by: context.userId,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      await context.supabase.storage.from(EVENT_DOC_BUCKET).remove([path]);
+      throw error;
+    }
+    await appendTaskHistory(context, {
+      eventId: task.event_id as string,
+      taskId: data.taskId,
+      changeType: "attachment",
+      fieldName: "file",
+      newValue: title,
+    });
+    return { id: row.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventTaskAttachment = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_task_attachments")
+    .select("id, event_id, task_id, file_path, title")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Attachment not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  if (row.file_path) {
+    await context.supabase.storage.from(EVENT_DOC_BUCKET).remove([row.file_path as string]);
+  }
+  const { error } = await context.supabase.from("event_task_attachments").delete().eq("id", data.id);
+  if (error) throw error;
+  await appendTaskHistory(context, {
+    eventId: row.event_id as string,
+    taskId: row.task_id as string,
+    changeType: "attachment",
+    fieldName: "file",
+    oldValue: (row.title as string) ?? null,
+  });
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const getEventTaskAttachmentUrl = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_task_attachments")
+    .select("id, event_id, file_path")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row?.file_path) throw new Error("Attachment not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { data: signed, error } = await context.supabase.storage
+    .from(EVENT_DOC_BUCKET)
+    .createSignedUrl(row.file_path as string, 3600);
+  if (error) throw error;
+  return { url: signed.signedUrl };
+}, { auth: { capability: "events.view" } });
+
+export const setEventTaskWatching = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    taskId: z.string().uuid().nullable().optional(),
+    watching: z.boolean(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const { data: me } = await context.supabase
+      .from("staff")
+      .select("id")
+      .eq("user_id", context.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!me?.id) throw new Error("Staff profile required to watch tasks");
+
+    if (data.taskId) {
+      assertOptionalRefsSameEvent(data.eventId, [
+        { field: "taskId", eventId: await loadRelatedEventId(context, "event_tasks", data.taskId) },
+      ]);
+    }
+
+    if (!data.watching) {
+      let q = context.supabase
+        .from("event_task_watchers")
+        .delete()
+        .eq("event_id", data.eventId)
+        .eq("staff_id", me.id);
+      q = data.taskId ? q.eq("task_id", data.taskId) : q.is("task_id", null);
+      const { error } = await q;
+      if (error) throw error;
+      return { watching: false };
+    }
+
+    if (data.taskId) {
+      await context.supabase
+        .from("event_task_watchers")
+        .delete()
+        .eq("event_id", data.eventId)
+        .eq("staff_id", me.id)
+        .eq("task_id", data.taskId);
+    } else {
+      await context.supabase
+        .from("event_task_watchers")
+        .delete()
+        .eq("event_id", data.eventId)
+        .eq("staff_id", me.id)
+        .is("task_id", null);
+    }
+
+    const { error } = await context.supabase.from("event_task_watchers").insert({
+      event_id: data.eventId,
+      task_id: data.taskId ?? null,
+      staff_id: me.id,
+      created_by: context.userId,
+    });
+    if (error) throw error;
+    if (data.taskId) {
+      await appendTaskHistory(context, {
+        eventId: data.eventId,
+        taskId: data.taskId,
+        changeType: "watchers",
+        fieldName: "watching",
+        newValue: "true",
+      });
+    }
+    return { watching: true };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const bulkUpdateEventTasks = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    taskIds: z.array(z.string().uuid()).min(1).max(100),
+    status: z.enum(TASK_STATUSES).optional(),
+    priority: z.enum(TASK_PRIORITIES).optional(),
+    assignee_staff_id: z.string().uuid().nullable().optional(),
+    start_date: z.string().nullable().optional(),
+    due_date: z.string().nullable().optional(),
+    sprint_id: z.string().uuid().nullable().optional(),
+    story_points: z.number().min(0).max(9999).nullable().optional(),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    if (
+      data.status === undefined &&
+      data.priority === undefined &&
+      data.assignee_staff_id === undefined &&
+      data.start_date === undefined &&
+      data.due_date === undefined &&
+      data.sprint_id === undefined &&
+      data.story_points === undefined
+    ) {
+      throw new Error("Choose at least one field to update");
+    }
+    if (data.sprint_id) {
+      assertOptionalRefsSameEvent(data.eventId, [
+        { field: "sprint_id", eventId: await loadRelatedEventId(context, "event_sprints", data.sprint_id) },
+      ]);
+    }
+
+    const { data: rows } = await context.supabase
+      .from("event_tasks")
+      .select("id, event_id, title, status, priority, assignee_staff_id, start_date, due_date, percent_complete")
+      .eq("event_id", data.eventId)
+      .in("id", data.taskIds)
+      .is("deleted_at", null);
+    const list = rows ?? [];
+    if (!list.length) throw new Error("No matching tasks");
+
+    const patch: Record<string, unknown> = { updated_by: context.userId };
+    if (data.status !== undefined) {
+      patch.status = data.status;
+      if (data.status === "completed") {
+        patch.percent_complete = 100;
+        patch.completed_at = new Date().toISOString();
+      } else {
+        patch.completed_at = null;
+      }
+    }
+    if (data.priority !== undefined) {
+      patch.priority = data.priority;
+      patch.is_critical = data.priority === "critical";
+    }
+    if (data.assignee_staff_id !== undefined) patch.assignee_staff_id = data.assignee_staff_id;
+    if (data.start_date !== undefined) patch.start_date = emptyDate(data.start_date);
+    if (data.due_date !== undefined) patch.due_date = emptyDate(data.due_date);
+    if (data.sprint_id !== undefined) patch.sprint_id = data.sprint_id;
+    if (data.story_points !== undefined) patch.story_points = data.story_points;
+
+    const ids = list.map((r) => r.id as string);
+    const { error } = await context.supabase.from("event_tasks").update(patch).in("id", ids);
+    if (error) throw error;
+
+    if (data.assignee_staff_id !== undefined) {
+      for (const id of ids) {
+        await syncTaskAssignees(
+          context,
+          id,
+          data.assignee_staff_id,
+          data.assignee_staff_id ? [data.assignee_staff_id] : [],
+        );
+      }
+    }
+
+    for (const row of list) {
+      const diffs = buildTaskHistoryDiffs(
+        {
+          status: row.status as string,
+          assignee_staff_id: (row.assignee_staff_id as string | null) ?? null,
+          percent_complete: num(row.percent_complete),
+          priority: row.priority as string,
+          start_date: (row.start_date as string | null) ?? null,
+          due_date: (row.due_date as string | null) ?? null,
+        },
+        {
+          status: (patch.status as string | undefined) ?? (row.status as string),
+          assignee_staff_id:
+            data.assignee_staff_id !== undefined
+              ? data.assignee_staff_id
+              : ((row.assignee_staff_id as string | null) ?? null),
+          percent_complete: data.status === "completed" ? 100 : num(row.percent_complete),
+          priority: (patch.priority as string | undefined) ?? (row.priority as string),
+          start_date:
+            data.start_date !== undefined ? emptyDate(data.start_date) : ((row.start_date as string | null) ?? null),
+          due_date:
+            data.due_date !== undefined ? emptyDate(data.due_date) : ((row.due_date as string | null) ?? null),
+        },
+      );
+      for (const diff of diffs) {
+        await appendTaskHistory(context, {
+          eventId: data.eventId,
+          taskId: row.id as string,
+          changeType: diff.change_type === "created" ? "bulk" : diff.change_type,
+          fieldName: diff.field_name,
+          oldValue: diff.old_value,
+          newValue: diff.new_value,
+          metadata: { bulk: true },
+        });
+      }
+      if (data.assignee_staff_id && data.assignee_staff_id !== row.assignee_staff_id) {
+        await notifyEventAssignees(context, {
+          staffIds: [data.assignee_staff_id],
+          locationId: event.location_id as string,
+          title: `Task assigned: ${row.title}`,
+          body: eventDisplayName(event) ?? null,
+          actionUrl: `/events/${data.eventId}/plan`,
+          sourceType: "event_tasks",
+          sourceId: row.id as string,
+        });
+      }
+    }
+
+    await writeEventAudit(context, {
+      action: "task_bulk_update",
+      entityType: "event_task",
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { taskIds: ids, patch },
+    });
+    return { updated: ids.length };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+/** Per-task date / critical write-back after client-side auto-schedule or CPM. */
+export const applyEventSchedulePatch = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    updates: z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          start_date: z.string().nullable().optional(),
+          due_date: z.string().nullable().optional(),
+          duration_days: z.number().int().min(0).nullable().optional(),
+          is_critical: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(200),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const ids = data.updates.map((u) => u.id);
+    const { data: rows, error: loadErr } = await context.supabase
+      .from("event_tasks")
+      .select("id, title, start_date, due_date, duration_days, is_critical, status, priority, assignee_staff_id, percent_complete")
+      .eq("event_id", data.eventId)
+      .in("id", ids)
+      .is("deleted_at", null);
+    if (loadErr) throw loadErr;
+    const byId = new Map((rows ?? []).map((r) => [r.id as string, r]));
+    let updated = 0;
+
+    for (const patch of data.updates) {
+      const row = byId.get(patch.id);
+      if (!row) continue;
+      const next: Record<string, unknown> = { updated_by: context.userId };
+      if (patch.start_date !== undefined) next.start_date = emptyDate(patch.start_date);
+      if (patch.due_date !== undefined) next.due_date = emptyDate(patch.due_date);
+      if (patch.duration_days !== undefined) next.duration_days = patch.duration_days;
+      else if (patch.start_date !== undefined || patch.due_date !== undefined) {
+        const start =
+          patch.start_date !== undefined
+            ? emptyDate(patch.start_date)
+            : ((row.start_date as string | null) ?? null);
+        const due =
+          patch.due_date !== undefined ? emptyDate(patch.due_date) : ((row.due_date as string | null) ?? null);
+        next.duration_days = daysBetween(start, due);
+      }
+      if (patch.is_critical !== undefined) next.is_critical = patch.is_critical;
+
+      const { error } = await context.supabase.from("event_tasks").update(next).eq("id", patch.id);
+      if (error) throw error;
+      updated += 1;
+
+      const diffs = buildTaskHistoryDiffs(
+        {
+          status: row.status as string,
+          assignee_staff_id: (row.assignee_staff_id as string | null) ?? null,
+          percent_complete: num(row.percent_complete),
+          priority: row.priority as string,
+          start_date: (row.start_date as string | null) ?? null,
+          due_date: (row.due_date as string | null) ?? null,
+        },
+        {
+          status: row.status as string,
+          assignee_staff_id: (row.assignee_staff_id as string | null) ?? null,
+          percent_complete: num(row.percent_complete),
+          priority: row.priority as string,
+          start_date:
+            patch.start_date !== undefined ? emptyDate(patch.start_date) : ((row.start_date as string | null) ?? null),
+          due_date:
+            patch.due_date !== undefined ? emptyDate(patch.due_date) : ((row.due_date as string | null) ?? null),
+        },
+      );
+      for (const diff of diffs) {
+        await appendTaskHistory(context, {
+          eventId: data.eventId,
+          taskId: patch.id,
+          changeType: diff.change_type === "created" ? "other" : diff.change_type,
+          fieldName: diff.field_name,
+          oldValue: diff.old_value,
+          newValue: diff.new_value,
+          metadata: { schedule_patch: true },
+        });
+      }
+      if (patch.is_critical !== undefined && Boolean(row.is_critical) !== patch.is_critical) {
+        await appendTaskHistory(context, {
+          eventId: data.eventId,
+          taskId: patch.id,
+          changeType: "other",
+          fieldName: "is_critical",
+          oldValue: String(Boolean(row.is_critical)),
+          newValue: String(patch.is_critical),
+          metadata: { schedule_patch: true },
+        });
+      }
+    }
+
+    await writeEventAudit(context, {
+      action: "task_schedule_patch",
+      entityType: "event_task",
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { updated, count: data.updates.length },
+    });
+    return { updated };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const listEventSavedFilters = createAuthenticatedAction(
+  z.object({ eventId: z.string().uuid().nullable().optional() }).default({}),
+  async (data, context) => {
+    let q = context.supabase
+      .from("event_saved_filters")
+      .select("id, event_id, name, filters, updated_at")
+      .eq("user_id", context.userId)
+      .order("updated_at", { ascending: false });
+    if (data.eventId) q = q.or(`event_id.eq.${data.eventId},event_id.is.null`);
+    const { data: rows, error } = await q;
+    if (error) throw error;
+    return (rows ?? []).map(
+      (r): EventSavedFilterRow => ({
+        id: r.id as string,
+        event_id: (r.event_id as string | null) ?? null,
+        name: r.name as string,
+        filters: parseSavedFilters(r.filters) as unknown as Record<string, string>,
+        updated_at: r.updated_at as string,
+      }),
+    );
+  },
+  { defaultInput: {}, auth: { capability: "events.view" } },
+);
+
+export const upsertEventSavedFilter = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid().nullable().optional(),
+    name: z.string().min(1).max(80),
+    filters: z.record(z.string(), z.string()),
+  }),
+  async (data, context) => {
+    if (data.eventId) await loadEventOrThrow(context, data.eventId);
+    const filters = parseSavedFilters(data.filters) as PlanTaskFilters;
+    const payload = {
+      user_id: context.userId,
+      event_id: data.eventId ?? null,
+      name: data.name.trim(),
+      filters: filters as unknown as Json,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.id) {
+      const { error } = await context.supabase
+        .from("event_saved_filters")
+        .update(payload)
+        .eq("id", data.id)
+        .eq("user_id", context.userId);
+      if (error) throw error;
+      return { id: data.id };
+    }
+    const { data: created, error } = await context.supabase
+      .from("event_saved_filters")
+      .insert(payload)
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const deleteEventSavedFilter = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { error } = await context.supabase
+    .from("event_saved_filters")
+    .delete()
+    .eq("id", data.id)
+    .eq("user_id", context.userId);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.view" } });
+
+export const upsertEventSprint = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    name: z.string().min(2).max(120),
+    goal: z.string().max(500).optional().nullable(),
+    start_date: z.string().optional().nullable(),
+    end_date: z.string().optional().nullable(),
+    status: z.enum(SPRINT_STATUSES).optional(),
+    sort_order: z.number().int().optional(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const start = emptyDate(data.start_date);
+    const end = emptyDate(data.end_date);
+    if (start && end && end < start) throw new Error("Sprint end date must be on or after start");
+
+    const payload: Record<string, unknown> = {
+      event_id: data.eventId,
+      name: data.name.trim(),
+      goal: emptyText(data.goal),
+      start_date: start,
+      end_date: end,
+      status: data.status ?? "planned",
+      sort_order: data.sort_order ?? 0,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only one active sprint per event — demote others when activating.
+    if (data.status === "active") {
+      const { error: demoteErr } = await context.supabase
+        .from("event_sprints")
+        .update({ status: "planned", updated_by: context.userId, updated_at: new Date().toISOString() })
+        .eq("event_id", data.eventId)
+        .eq("status", "active")
+        .neq("id", data.id ?? "00000000-0000-0000-0000-000000000000");
+      if (demoteErr) throw demoteErr;
+    }
+
+    if (data.id) {
+      const { data: existing } = await context.supabase
+        .from("event_sprints")
+        .select("id, event_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Sprint not found");
+      const { error } = await context.supabase.from("event_sprints").update(payload).eq("id", data.id);
+      if (error) throw error;
+      return { id: data.id };
+    }
+
+    const { data: created, error } = await context.supabase
+      .from("event_sprints")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventSprint = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_sprints")
+    .select("id, event_id")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Sprint not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  // Clear assignments (ON DELETE SET NULL also covers this)
+  const { error: clearErr } = await context.supabase
+    .from("event_tasks")
+    .update({ sprint_id: null, updated_by: context.userId })
+    .eq("sprint_id", data.id)
+    .eq("event_id", row.event_id as string);
+  if (clearErr) throw clearErr;
+  const { error } = await context.supabase.from("event_sprints").delete().eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+/** Lightweight Kanban status move (reuses event_tasks — no parallel board table). */
+export const moveEventTaskStatus = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    taskId: z.string().uuid(),
+    status: z.enum(TASK_STATUSES),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const { data: row } = await context.supabase
+      .from("event_tasks")
+      .select("id, status, percent_complete, assignee_staff_id, priority, start_date, due_date, title")
+      .eq("event_id", data.eventId)
+      .eq("id", data.taskId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!row) throw new Error("Task not found");
+
+    const patch: Record<string, unknown> = {
+      status: data.status,
+      updated_by: context.userId,
+    };
+    if (data.status === "completed") {
+      patch.percent_complete = 100;
+      patch.completed_at = new Date().toISOString();
+    } else {
+      patch.completed_at = null;
+    }
+
+    const { error } = await context.supabase.from("event_tasks").update(patch).eq("id", data.taskId);
+    if (error) throw error;
+
+    const diffs = buildTaskHistoryDiffs(
+      {
+        status: row.status as string,
+        assignee_staff_id: (row.assignee_staff_id as string | null) ?? null,
+        percent_complete: num(row.percent_complete),
+        priority: row.priority as string,
+        start_date: (row.start_date as string | null) ?? null,
+        due_date: (row.due_date as string | null) ?? null,
+      },
+      {
+        status: data.status,
+        assignee_staff_id: (row.assignee_staff_id as string | null) ?? null,
+        percent_complete: data.status === "completed" ? 100 : num(row.percent_complete),
+        priority: row.priority as string,
+        start_date: (row.start_date as string | null) ?? null,
+        due_date: (row.due_date as string | null) ?? null,
+      },
+    );
+    for (const diff of diffs) {
+      await appendTaskHistory(context, {
+        eventId: data.eventId,
+        taskId: data.taskId,
+        changeType: diff.change_type,
+        fieldName: diff.field_name,
+        oldValue: diff.old_value,
+        newValue: diff.new_value,
+      });
+    }
+
+    return { id: data.taskId, updated: 1 };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Resource & workforce planning
+// ---------------------------------------------------------------------------
+
+export const getEventResources = createAuthenticatedAction(
+  EventIdSchema,
+  async (data, context): Promise<EventResourcesPayload> => {
+    await loadEventOrThrow(context, data.eventId);
+
+    const [allocRes, tsRes, teamRes, tasksRes] = await Promise.all([
+      context.supabase
+        .from("event_resource_allocations")
+        .select("id, event_id, staff_id, task_id, start_date, end_date, allocated_hours, allocation_pct, notes")
+        .eq("event_id", data.eventId)
+        .order("start_date", { ascending: true }),
+      context.supabase
+        .from("event_timesheet_entries")
+        .select("id, event_id, staff_id, task_id, work_date, hours, note, status, approved_at")
+        .eq("event_id", data.eventId)
+        .order("work_date", { ascending: false })
+        .limit(500),
+      context.supabase.from("event_team_members").select("staff_id").eq("event_id", data.eventId),
+      context.supabase
+        .from("event_tasks")
+        .select("id, title, owner_staff_id, assignee_staff_id, estimated_hours, actual_hours")
+        .eq("event_id", data.eventId)
+        .is("deleted_at", null),
+    ]);
+    if (allocRes.error) throw allocRes.error;
+    if (tsRes.error) throw tsRes.error;
+    if (teamRes.error) throw teamRes.error;
+    if (tasksRes.error) throw tasksRes.error;
+
+    const allocRows = allocRes.data ?? [];
+    const tsRows = tsRes.data ?? [];
+    const taskRows = tasksRes.data ?? [];
+
+    const staffIds = [
+      ...new Set(
+        [
+          ...(teamRes.data ?? []).map((m) => m.staff_id as string),
+          ...allocRows.map((a) => a.staff_id as string),
+          ...tsRows.map((t) => t.staff_id as string),
+          ...taskRows.flatMap((t) => [t.owner_staff_id, t.assignee_staff_id] as Array<string | null>),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    const taskIds = [
+      ...new Set(
+        [...allocRows, ...tsRows]
+          .map((r) => r.task_id as string | null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    const [{ data: staff }, { data: capRows }, taskTitleMap] = await Promise.all([
+      staffIds.length
+        ? context.supabase.from("staff").select("id, full_name").in("id", staffIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; full_name: string }> }),
+      staffIds.length
+        ? context.supabase
+            .from("event_staff_capacity")
+            .select("staff_id, weekly_hours, notes")
+            .in("staff_id", staffIds)
+        : Promise.resolve({ data: [] as Array<{ staff_id: string; weekly_hours: number; notes: string | null }> }),
+      (async () => {
+        const map = new Map<string, string>();
+        for (const t of taskRows) map.set(t.id as string, t.title as string);
+        const missing = taskIds.filter((id) => !map.has(id));
+        if (missing.length) {
+          const { data: extra } = await context.supabase
+            .from("event_tasks")
+            .select("id, title")
+            .in("id", missing);
+          for (const t of extra ?? []) map.set(t.id as string, t.title as string);
+        }
+        return map;
+      })(),
+    ]);
+
+    const staffMap = new Map((staff ?? []).map((s) => [s.id as string, s.full_name as string]));
+    const capacities: EventStaffCapacityRow[] = staffIds.map((id) => {
+      const row = (capRows ?? []).find((c) => c.staff_id === id);
+      return {
+        staff_id: id,
+        staff_name: staffMap.get(id) ?? null,
+        weekly_hours: row ? num(row.weekly_hours) : DEFAULT_WEEKLY_CAPACITY_HOURS,
+        notes: (row?.notes as string | null) ?? null,
+      };
+    });
+
+    const allocations: EventResourceAllocationRow[] = allocRows.map((a) => ({
+      id: a.id as string,
+      event_id: a.event_id as string,
+      staff_id: a.staff_id as string,
+      staff_name: staffMap.get(a.staff_id as string) ?? null,
+      task_id: (a.task_id as string | null) ?? null,
+      task_title: a.task_id ? (taskTitleMap.get(a.task_id as string) ?? null) : null,
+      start_date: a.start_date as string,
+      end_date: a.end_date as string,
+      allocated_hours: numOrNull(a.allocated_hours),
+      allocation_pct: numOrNull(a.allocation_pct),
+      notes: (a.notes as string | null) ?? null,
+    }));
+
+    const timesheets: EventTimesheetEntryRow[] = tsRows.map((t) => ({
+      id: t.id as string,
+      event_id: t.event_id as string,
+      staff_id: t.staff_id as string,
+      staff_name: staffMap.get(t.staff_id as string) ?? null,
+      task_id: (t.task_id as string | null) ?? null,
+      task_title: t.task_id ? (taskTitleMap.get(t.task_id as string) ?? null) : null,
+      work_date: t.work_date as string,
+      hours: num(t.hours),
+      note: (t.note as string | null) ?? null,
+      status: t.status as EventTimesheetEntryRow["status"],
+      approved_at: (t.approved_at as string | null) ?? null,
+    }));
+
+    const allocLike = allocations.map((a) => ({
+      id: a.id,
+      staff_id: a.staff_id,
+      event_id: a.event_id,
+      task_id: a.task_id,
+      start_date: a.start_date,
+      end_date: a.end_date,
+      allocated_hours: a.allocated_hours,
+      allocation_pct: a.allocation_pct,
+    }));
+    const capLike = capacities.map((c) => ({ staff_id: c.staff_id, weekly_hours: c.weekly_hours }));
+    const taskLike = taskRows.map((t) => ({
+      id: t.id as string,
+      owner_staff_id: (t.owner_staff_id as string | null) ?? null,
+      assignee_staff_id: (t.assignee_staff_id as string | null) ?? null,
+      estimated_hours: numOrNull(t.estimated_hours),
+      actual_hours: numOrNull(t.actual_hours),
+      title: t.title as string,
+    }));
+    const tsLike = timesheets.map((t) => ({
+      id: t.id,
+      staff_id: t.staff_id,
+      task_id: t.task_id,
+      work_date: t.work_date,
+      hours: t.hours,
+      status: t.status,
+    }));
+
+    const workload = buildStaffWorkload(staffIds, allocLike, capLike, taskLike, tsLike).map((row) => ({
+      ...row,
+      staff_name: staffMap.get(row.staff_id) ?? null,
+    }));
+    const conflicts = detectCapacityConflicts(allocLike, capLike).map((c) => ({
+      ...c,
+      staff_name: staffMap.get(c.staff_id) ?? null,
+    }));
+    const overlaps = detectOverlappingAllocations(allocLike).map((o) => ({
+      ...o,
+      staff_name: staffMap.get(o.staff_id) ?? null,
+    }));
+    const estVsActual = estimatedVsActual(taskLike, tsLike).map((row) => ({
+      ...row,
+      staff_name: row.staff_id ? (staffMap.get(row.staff_id) ?? null) : null,
+    }));
+
+    const allocatedHours =
+      Math.round(allocations.reduce((s, a) => s + resolveAllocationTotalHours(a, DEFAULT_WEEKLY_CAPACITY_HOURS), 0) * 100) /
+      100;
+    const capacityHours =
+      Math.round(workload.reduce((s, w) => s + w.capacityHours, 0) * 100) / 100;
+    const estimatedHours =
+      Math.round(taskLike.reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0) * 100) / 100;
+    const actualHours =
+      Math.round(taskLike.reduce((s, t) => s + (Number(t.actual_hours) || 0), 0) * 100) / 100;
+
+    return {
+      allocations,
+      timesheets,
+      capacities,
+      workload,
+      conflicts,
+      overlaps,
+      estVsActual,
+      kpis: {
+        allocatedHours,
+        capacityHours,
+        utilizationPct: capacityHours > 0 ? Math.round((allocatedHours / capacityHours) * 1000) / 10 : 0,
+        conflictCount: conflicts.length,
+        estimatedHours,
+        actualHours,
+        pendingTimesheets: timesheets.filter((t) => t.status === "draft" || t.status === "submitted").length,
+      },
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const upsertEventResourceAllocation = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    staff_id: z.string().uuid(),
+    task_id: z.string().uuid().optional().nullable(),
+    start_date: z.string().min(8),
+    end_date: z.string().min(8),
+    allocated_hours: z.number().min(0).optional().nullable(),
+    allocation_pct: z.number().min(0).max(100).optional().nullable(),
+    notes: z.string().max(500).optional().nullable(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const start = emptyDate(data.start_date);
+    const end = emptyDate(data.end_date);
+    if (!start || !end) throw new Error("Start and end dates are required");
+    if (end < start) throw new Error("End date must be on or after start");
+    const hours = data.allocated_hours ?? null;
+    const pct = data.allocation_pct ?? null;
+    if (hours == null && pct == null) throw new Error("Provide allocated hours or allocation %");
+
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "task_id", eventId: await loadRelatedEventId(context, "event_tasks", data.task_id) },
+    ]);
+
+    const payload: Record<string, unknown> = {
+      event_id: data.eventId,
+      staff_id: data.staff_id,
+      task_id: data.task_id || null,
+      start_date: start,
+      end_date: end,
+      allocated_hours: hours,
+      allocation_pct: pct,
+      notes: emptyText(data.notes),
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (data.id) {
+      const { data: existing } = await context.supabase
+        .from("event_resource_allocations")
+        .select("id, event_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Allocation not found");
+      const { error } = await context.supabase.from("event_resource_allocations").update(payload).eq("id", data.id);
+      if (error) throw error;
+      return { id: data.id };
+    }
+
+    const { data: created, error } = await context.supabase
+      .from("event_resource_allocations")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventResourceAllocation = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_resource_allocations")
+    .select("id, event_id")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Allocation not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_resource_allocations").delete().eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const upsertEventStaffCapacity = createAuthenticatedAction(
+  z.object({
+    staff_id: z.string().uuid(),
+    weekly_hours: z.number().min(1).max(168),
+    notes: z.string().max(500).optional().nullable(),
+    eventId: z.string().uuid().optional(),
+  }),
+  async (data, context) => {
+    if (data.eventId) await loadEventOrThrow(context, data.eventId);
+    const payload = {
+      staff_id: data.staff_id,
+      weekly_hours: data.weekly_hours,
+      notes: emptyText(data.notes),
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await context.supabase.from("event_staff_capacity").upsert(payload, { onConflict: "staff_id" });
+    if (error) throw error;
+    return { staff_id: data.staff_id };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const upsertEventTimesheetEntry = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    staff_id: z.string().uuid(),
+    task_id: z.string().uuid().optional().nullable(),
+    work_date: z.string().min(8),
+    hours: z.number().gt(0).max(24),
+    note: z.string().max(500).optional().nullable(),
+    status: z.enum(TIMESHEET_STATUSES).optional(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const workDate = emptyDate(data.work_date);
+    if (!workDate) throw new Error("Work date is required");
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "task_id", eventId: await loadRelatedEventId(context, "event_tasks", data.task_id) },
+    ]);
+
+    const status = data.status ?? "draft";
+    if (status === "approved") throw new Error("Use approveEventTimesheetEntry to approve");
+
+    const payload: Record<string, unknown> = {
+      event_id: data.eventId,
+      staff_id: data.staff_id,
+      task_id: data.task_id || null,
+      work_date: workDate,
+      hours: data.hours,
+      note: emptyText(data.note),
+      status,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (data.id) {
+      const { data: existing } = await context.supabase
+        .from("event_timesheet_entries")
+        .select("id, event_id, status")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Timesheet entry not found");
+      if (existing.status === "approved") throw new Error("Approved timesheets cannot be edited");
+      const { error } = await context.supabase.from("event_timesheet_entries").update(payload).eq("id", data.id);
+      if (error) throw error;
+      return { id: data.id };
+    }
+
+    const { data: created, error } = await context.supabase
+      .from("event_timesheet_entries")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventTimesheetEntry = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_timesheet_entries")
+    .select("id, event_id, status")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Timesheet entry not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  if (row.status === "approved" || row.status === "submitted") {
+    throw new Error("Only draft or rejected timesheets can be deleted");
+  }
+  const { error } = await context.supabase.from("event_timesheet_entries").delete().eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const submitEventTimesheetEntry = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_timesheet_entries")
+    .select("id, event_id, status")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Timesheet entry not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  if (row.status !== "draft" && row.status !== "rejected") {
+    throw new Error("Only draft or rejected entries can be submitted");
+  }
+  const { error } = await context.supabase
+    .from("event_timesheet_entries")
+    .update({
+      status: "submitted",
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id, status: "submitted" as const };
+}, { auth: { capability: "events.edit" } });
+
+export const approveEventTimesheetEntry = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_timesheet_entries")
+    .select("id, event_id, task_id, hours, status, staff_id")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Timesheet entry not found");
+  const event = await loadEventOrThrow(context, row.event_id as string);
+  if (row.status === "approved") return { id: data.id, status: "approved" as const, rolled: 0 };
+  if (row.status !== "submitted" && row.status !== "draft") {
+    throw new Error("Only submitted (or draft) entries can be approved");
+  }
+
+  const { error } = await context.supabase
+    .from("event_timesheet_entries")
+    .update({
+      status: "approved",
+      approved_by: context.userId,
+      approved_at: new Date().toISOString(),
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.id);
+  if (error) throw error;
+
+  let rolled = 0;
+  if (row.task_id) {
+    const { data: task } = await context.supabase
+      .from("event_tasks")
+      .select("id, actual_hours, event_id")
+      .eq("id", row.task_id as string)
+      .eq("event_id", row.event_id as string)
+      .maybeSingle();
+    if (task) {
+      const next = Math.round((num(task.actual_hours) + num(row.hours)) * 100) / 100;
+      const { error: taskErr } = await context.supabase
+        .from("event_tasks")
+        .update({ actual_hours: next, updated_by: context.userId })
+        .eq("id", task.id as string);
+      if (taskErr) throw taskErr;
+      rolled = num(row.hours);
+    }
+  }
+
+  await writeEventAudit(context, {
+    action: "timesheet_approve",
+    entityType: "event_timesheet_entry",
+    entityId: data.id,
+    eventId: row.event_id as string,
+    locationId: event.location_id as string,
+    after: { hours: row.hours, task_id: row.task_id, rolled },
+  });
+
+  return { id: data.id, status: "approved" as const, rolled };
+}, { auth: { capability: "events.edit" } });
+
+export const rejectEventTimesheetEntry = createAuthenticatedAction(
+  z.object({ id: z.string().uuid(), note: z.string().max(500).optional().nullable() }),
+  async (data, context) => {
+    const { data: row } = await context.supabase
+      .from("event_timesheet_entries")
+      .select("id, event_id, status, note")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (!row) throw new Error("Timesheet entry not found");
+    await loadEventOrThrow(context, row.event_id as string);
+    if (row.status === "approved") throw new Error("Approved timesheets cannot be rejected");
+    const note = emptyText(data.note) ?? (row.note as string | null);
+    const { error } = await context.supabase
+      .from("event_timesheet_entries")
+      .update({
+        status: "rejected",
+        note,
+        approved_by: null,
+        approved_at: null,
+        updated_by: context.userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    if (error) throw error;
+    return { id: data.id, status: "rejected" as const };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Collaboration & meetings
+// ---------------------------------------------------------------------------
+
+async function resolveCallerStaffId(context: AuthContext): Promise<string | null> {
+  const { data } = await context.supabase
+    .from("staff")
+    .select("id")
+    .eq("user_id", context.userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  return (data?.id as string | null) ?? null;
+}
+
+async function loadStaffNameMap(context: AuthContext, staffIds: string[]) {
+  const ids = [...new Set(staffIds.filter(Boolean))];
+  if (!ids.length) return new Map<string, string>();
+  const { data } = await context.supabase.from("staff").select("id, full_name").in("id", ids);
+  return new Map((data ?? []).map((s) => [s.id as string, s.full_name as string]));
+}
+
+async function loadDocTitleMap(context: AuthContext, docIds: string[]) {
+  const ids = [...new Set(docIds.filter(Boolean))];
+  if (!ids.length) return new Map<string, string>();
+  const { data } = await context.supabase.from("event_documents").select("id, title").in("id", ids);
+  return new Map((data ?? []).map((d) => [d.id as string, (d.title as string) || "Document"]));
+}
+
+export const getEventCollaboration = createAuthenticatedAction(
+  EventIdSchema,
+  async (data, context): Promise<EventCollaborationPayload> => {
+    await loadEventOrThrow(context, data.eventId);
+
+    const [discRes, postRes, meetRes, actRes, decRes, wikiRes, docRes] = await Promise.all([
+      context.supabase
+        .from("event_discussions")
+        .select("id, event_id, title, document_id, created_at, created_by, updated_at")
+        .eq("event_id", data.eventId)
+        .order("updated_at", { ascending: false }),
+      context.supabase
+        .from("event_discussion_posts")
+        .select(
+          "id, event_id, discussion_id, parent_post_id, body, author_staff_id, mentioned_staff_ids, created_at, created_by",
+        )
+        .eq("event_id", data.eventId)
+        .order("created_at", { ascending: true })
+        .limit(2000),
+      context.supabase
+        .from("event_meetings")
+        .select(
+          "id, event_id, title, scheduled_at, agenda, minutes, attendee_staff_ids, phase_code, document_id, created_at",
+        )
+        .eq("event_id", data.eventId)
+        .order("scheduled_at", { ascending: false }),
+      context.supabase
+        .from("event_meeting_actions")
+        .select(
+          "id, event_id, meeting_id, title, assignee_staff_id, due_date, status, task_id, notes, created_at",
+        )
+        .eq("event_id", data.eventId)
+        .order("created_at", { ascending: false }),
+      context.supabase
+        .from("event_decisions")
+        .select(
+          "id, event_id, title, decision, decided_at, decided_by_staff_id, context, meeting_id, document_id, created_at",
+        )
+        .eq("event_id", data.eventId)
+        .order("decided_at", { ascending: false }),
+      context.supabase
+        .from("event_wiki_pages")
+        .select("id, event_id, slug, title, body_md, updated_at, updated_by")
+        .eq("event_id", data.eventId)
+        .eq("slug", DEFAULT_WIKI_SLUG)
+        .maybeSingle(),
+      context.supabase
+        .from("event_documents")
+        .select("id, title")
+        .eq("event_id", data.eventId)
+        .order("title", { ascending: true })
+        .limit(200),
+    ]);
+    if (discRes.error) throw discRes.error;
+    if (postRes.error) throw postRes.error;
+    if (meetRes.error) throw meetRes.error;
+    if (actRes.error) throw actRes.error;
+    if (decRes.error) throw decRes.error;
+    if (wikiRes.error) throw wikiRes.error;
+    if (docRes.error) throw docRes.error;
+
+    const discussionsRaw = discRes.data ?? [];
+    const postsRaw = postRes.data ?? [];
+    const meetingsRaw = meetRes.data ?? [];
+    const actionsRaw = actRes.data ?? [];
+    const decisionsRaw = decRes.data ?? [];
+
+    const staffIds = [
+      ...new Set(
+        [
+          ...postsRaw.map((p) => p.author_staff_id as string | null),
+          ...postsRaw.flatMap((p) => (p.mentioned_staff_ids as string[] | null) ?? []),
+          ...meetingsRaw.flatMap((m) => (m.attendee_staff_ids as string[] | null) ?? []),
+          ...actionsRaw.map((a) => a.assignee_staff_id as string | null),
+          ...decisionsRaw.map((d) => d.decided_by_staff_id as string | null),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const docIds = [
+      ...new Set(
+        [
+          ...discussionsRaw.map((d) => d.document_id as string | null),
+          ...meetingsRaw.map((m) => m.document_id as string | null),
+          ...decisionsRaw.map((d) => d.document_id as string | null),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const taskIds = [
+      ...new Set(actionsRaw.map((a) => a.task_id as string | null).filter((id): id is string => Boolean(id))),
+    ];
+
+    const [staffMap, docMap, taskTitleRes] = await Promise.all([
+      loadStaffNameMap(context, staffIds),
+      loadDocTitleMap(context, docIds),
+      taskIds.length
+        ? context.supabase.from("event_tasks").select("id, title").in("id", taskIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; title: string }> }),
+    ]);
+    const taskMap = new Map((taskTitleRes.data ?? []).map((t) => [t.id as string, t.title as string]));
+    const meetingTitleMap = new Map(meetingsRaw.map((m) => [m.id as string, m.title as string]));
+
+    const postsByDiscussion: Record<string, EventDiscussionPostRow[]> = {};
+    for (const p of postsRaw) {
+      const row: EventDiscussionPostRow = {
+        id: p.id as string,
+        event_id: p.event_id as string,
+        discussion_id: p.discussion_id as string,
+        parent_post_id: (p.parent_post_id as string | null) ?? null,
+        body: p.body as string,
+        author_staff_id: (p.author_staff_id as string | null) ?? null,
+        author_name: p.author_staff_id ? (staffMap.get(p.author_staff_id as string) ?? null) : null,
+        mentioned_staff_ids: (p.mentioned_staff_ids as string[] | null) ?? [],
+        created_at: p.created_at as string,
+        created_by: (p.created_by as string | null) ?? null,
+      };
+      const list = postsByDiscussion[row.discussion_id] ?? (postsByDiscussion[row.discussion_id] = []);
+      list.push(row);
+    }
+
+    const discussions: EventDiscussionRow[] = discussionsRaw.map((d) => {
+      const posts = postsByDiscussion[d.id as string] ?? [];
+      const last = posts.length ? posts[posts.length - 1] : null;
+      return {
+        id: d.id as string,
+        event_id: d.event_id as string,
+        title: d.title as string,
+        document_id: (d.document_id as string | null) ?? null,
+        document_title: d.document_id ? (docMap.get(d.document_id as string) ?? null) : null,
+        post_count: posts.length,
+        last_post_at: last?.created_at ?? (d.created_at as string),
+        created_at: d.created_at as string,
+        created_by: (d.created_by as string | null) ?? null,
+      };
+    });
+
+    const openByMeeting = new Map<string, number>();
+    for (const a of actionsRaw) {
+      if (normalizeMeetingActionStatus(a.status as string) === "open") {
+        openByMeeting.set(a.meeting_id as string, (openByMeeting.get(a.meeting_id as string) ?? 0) + 1);
+      }
+    }
+
+    const meetings: EventMeetingRow[] = meetingsRaw.map((m) => {
+      const attendees = (m.attendee_staff_ids as string[] | null) ?? [];
+      return {
+        id: m.id as string,
+        event_id: m.event_id as string,
+        title: m.title as string,
+        scheduled_at: m.scheduled_at as string,
+        agenda: (m.agenda as string | null) ?? null,
+        minutes: (m.minutes as string | null) ?? null,
+        attendee_staff_ids: attendees,
+        attendee_names: attendees.map((id) => staffMap.get(id) ?? id.slice(0, 8)),
+        phase_code: (m.phase_code as string | null) ?? null,
+        document_id: (m.document_id as string | null) ?? null,
+        document_title: m.document_id ? (docMap.get(m.document_id as string) ?? null) : null,
+        open_action_count: openByMeeting.get(m.id as string) ?? 0,
+        created_at: m.created_at as string,
+      };
+    });
+
+    const actions: EventMeetingActionRow[] = actionsRaw.map((a) => ({
+      id: a.id as string,
+      event_id: a.event_id as string,
+      meeting_id: a.meeting_id as string,
+      meeting_title: meetingTitleMap.get(a.meeting_id as string) ?? null,
+      title: a.title as string,
+      assignee_staff_id: (a.assignee_staff_id as string | null) ?? null,
+      assignee_name: a.assignee_staff_id ? (staffMap.get(a.assignee_staff_id as string) ?? null) : null,
+      due_date: (a.due_date as string | null) ?? null,
+      status: normalizeMeetingActionStatus(a.status as string),
+      task_id: (a.task_id as string | null) ?? null,
+      task_title: a.task_id ? (taskMap.get(a.task_id as string) ?? null) : null,
+      notes: (a.notes as string | null) ?? null,
+      created_at: a.created_at as string,
+    }));
+
+    const decisions: EventDecisionRow[] = decisionsRaw.map((d) => ({
+      id: d.id as string,
+      event_id: d.event_id as string,
+      title: d.title as string,
+      decision: d.decision as string,
+      decided_at: d.decided_at as string,
+      decided_by_staff_id: (d.decided_by_staff_id as string | null) ?? null,
+      decided_by_name: d.decided_by_staff_id ? (staffMap.get(d.decided_by_staff_id as string) ?? null) : null,
+      context: (d.context as string | null) ?? null,
+      meeting_id: (d.meeting_id as string | null) ?? null,
+      meeting_title: d.meeting_id ? (meetingTitleMap.get(d.meeting_id as string) ?? null) : null,
+      document_id: (d.document_id as string | null) ?? null,
+      document_title: d.document_id ? (docMap.get(d.document_id as string) ?? null) : null,
+      created_at: d.created_at as string,
+    }));
+
+    const wikiRow = wikiRes.data;
+    const wiki: EventWikiPageRow | null = wikiRow
+      ? {
+          id: wikiRow.id as string,
+          event_id: wikiRow.event_id as string,
+          slug: wikiRow.slug as string,
+          title: wikiRow.title as string,
+          body_md: (wikiRow.body_md as string) ?? "",
+          updated_at: wikiRow.updated_at as string,
+          updated_by: (wikiRow.updated_by as string | null) ?? null,
+        }
+      : null;
+
+    return {
+      discussions,
+      postsByDiscussion,
+      meetings,
+      actions,
+      decisions,
+      wiki,
+      documents: (docRes.data ?? []).map((d) => ({
+        id: d.id as string,
+        title: (d.title as string) || "Document",
+      })),
+      kpis: {
+        discussionCount: discussions.length,
+        openActions: actions.filter((a) => a.status === "open").length,
+        meetingCount: meetings.length,
+        decisionCount: decisions.length,
+      },
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const upsertEventDiscussion = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    title: z.string().min(2).max(200),
+    document_id: z.string().uuid().optional().nullable(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "document_id", eventId: await loadRelatedEventId(context, "event_documents", data.document_id) },
+    ]);
+    const payload = {
+      event_id: data.eventId,
+      title: data.title.trim(),
+      document_id: data.document_id || null,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.id) {
+      const { data: existing } = await context.supabase
+        .from("event_discussions")
+        .select("id, event_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Discussion not found");
+      const { error } = await context.supabase.from("event_discussions").update(payload).eq("id", data.id);
+      if (error) throw error;
+      return { id: data.id };
+    }
+    const { data: created, error } = await context.supabase
+      .from("event_discussions")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    await writeEventAudit(context, {
+      action: "discussion_create",
+      entityType: "event_discussion",
+      entityId: created.id as string,
+      eventId: data.eventId,
+      after: payload,
+    });
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventDiscussion = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_discussions")
+    .select("id, event_id, title")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Discussion not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_discussions").delete().eq("id", data.id);
+  if (error) throw error;
+  await writeEventAudit(context, {
+    action: "discussion_delete",
+    entityType: "event_discussion",
+    entityId: data.id,
+    eventId: row.event_id as string,
+    before: { title: row.title },
+  });
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const addEventDiscussionPost = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    discussionId: z.string().uuid(),
+    body: z.string().min(1).max(8000),
+    parent_post_id: z.string().uuid().optional().nullable(),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const { data: discussion } = await context.supabase
+      .from("event_discussions")
+      .select("id, event_id, title")
+      .eq("id", data.discussionId)
+      .maybeSingle();
+    if (!discussion || discussion.event_id !== data.eventId) throw new Error("Discussion not found");
+
+    if (data.parent_post_id) {
+      const { data: parent } = await context.supabase
+        .from("event_discussion_posts")
+        .select("id, event_id, discussion_id")
+        .eq("id", data.parent_post_id)
+        .maybeSingle();
+      if (!parent || parent.event_id !== data.eventId || parent.discussion_id !== data.discussionId) {
+        throw new Error("Parent post not found in this discussion");
+      }
+    }
+
+    const { data: team } = await context.supabase
+      .from("event_team_members")
+      .select("staff_id")
+      .eq("event_id", data.eventId);
+    const teamIds = (team ?? []).map((m) => m.staff_id as string);
+    const { data: staffRows } = teamIds.length
+      ? await context.supabase.from("staff").select("id, full_name").in("id", teamIds).is("deleted_at", null)
+      : { data: [] as Array<{ id: string; full_name: string }> };
+
+    const body = data.body.trim();
+    const mentioned = resolveMentionStaffIds(
+      body,
+      (staffRows ?? []).map((s) => ({ id: s.id as string, full_name: s.full_name as string })),
+    );
+    const authorStaffId = await resolveCallerStaffId(context);
+
+    const { data: created, error } = await context.supabase
+      .from("event_discussion_posts")
+      .insert({
+        event_id: data.eventId,
+        discussion_id: data.discussionId,
+        parent_post_id: data.parent_post_id || null,
+        body,
+        author_staff_id: authorStaffId,
+        mentioned_staff_ids: mentioned,
+        created_by: context.userId,
+        updated_by: context.userId,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+
+    await context.supabase
+      .from("event_discussions")
+      .update({ updated_at: new Date().toISOString(), updated_by: context.userId })
+      .eq("id", data.discussionId);
+
+    const actionUrl = `/events/${data.eventId}/plan?tab=collab`;
+    const notifyIds = [
+      ...mentioned,
+      // Best-effort: notify discussion participants who authored prior posts
+    ];
+    if (data.parent_post_id) {
+      const { data: parentPost } = await context.supabase
+        .from("event_discussion_posts")
+        .select("author_staff_id")
+        .eq("id", data.parent_post_id)
+        .maybeSingle();
+      if (parentPost?.author_staff_id) notifyIds.push(parentPost.author_staff_id as string);
+    }
+
+    await notifyEventAssignees(context, {
+      staffIds: notifyIds,
+      locationId: (event.location_id as string | null) ?? null,
+      title: mentioned.length
+        ? `Mentioned in ${discussion.title as string}`
+        : `Reply in ${discussion.title as string}`,
+      body: body.slice(0, 240),
+      actionUrl,
+      sourceType: "event_discussion_post",
+      sourceId: created.id as string,
+    });
+
+    return { id: created.id as string, mentioned_staff_ids: mentioned };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventDiscussionPost = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_discussion_posts")
+    .select("id, event_id")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Post not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_discussion_posts").delete().eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const upsertEventMeeting = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    title: z.string().min(2).max(200),
+    scheduled_at: z.string().min(8),
+    agenda: z.string().max(20000).optional().nullable(),
+    minutes: z.string().max(50000).optional().nullable(),
+    attendee_staff_ids: z.array(z.string().uuid()).max(100).optional(),
+    phase_code: z.string().max(40).optional().nullable(),
+    document_id: z.string().uuid().optional().nullable(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "document_id", eventId: await loadRelatedEventId(context, "event_documents", data.document_id) },
+    ]);
+    const scheduled = new Date(data.scheduled_at);
+    if (Number.isNaN(scheduled.getTime())) throw new Error("Invalid scheduled_at");
+    const payload = {
+      event_id: data.eventId,
+      title: data.title.trim(),
+      scheduled_at: scheduled.toISOString(),
+      agenda: emptyText(data.agenda),
+      minutes: emptyText(data.minutes),
+      attendee_staff_ids: data.attendee_staff_ids ?? [],
+      phase_code: emptyText(data.phase_code),
+      document_id: data.document_id || null,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.id) {
+      const { data: existing } = await context.supabase
+        .from("event_meetings")
+        .select("id, event_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Meeting not found");
+      const { error } = await context.supabase.from("event_meetings").update(payload).eq("id", data.id);
+      if (error) throw error;
+      return { id: data.id };
+    }
+    const { data: created, error } = await context.supabase
+      .from("event_meetings")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    await writeEventAudit(context, {
+      action: "meeting_create",
+      entityType: "event_meeting",
+      entityId: created.id as string,
+      eventId: data.eventId,
+      after: { title: payload.title, scheduled_at: payload.scheduled_at },
+    });
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventMeeting = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_meetings")
+    .select("id, event_id, title")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Meeting not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_meetings").delete().eq("id", data.id);
+  if (error) throw error;
+  await writeEventAudit(context, {
+    action: "meeting_delete",
+    entityType: "event_meeting",
+    entityId: data.id,
+    eventId: row.event_id as string,
+    before: { title: row.title },
+  });
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const upsertEventMeetingAction = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    meetingId: z.string().uuid(),
+    title: z.string().min(2).max(200),
+    assignee_staff_id: z.string().uuid().optional().nullable(),
+    due_date: z.string().optional().nullable(),
+    status: z.enum(MEETING_ACTION_STATUSES).optional(),
+    notes: z.string().max(2000).optional().nullable(),
+    task_id: z.string().uuid().optional().nullable(),
+    createTask: z.boolean().optional(),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const { data: meeting } = await context.supabase
+      .from("event_meetings")
+      .select("id, event_id, title")
+      .eq("id", data.meetingId)
+      .maybeSingle();
+    if (!meeting || meeting.event_id !== data.eventId) throw new Error("Meeting not found");
+
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "task_id", eventId: await loadRelatedEventId(context, "event_tasks", data.task_id) },
+    ]);
+
+    let id = data.id;
+    let prevAssignee: string | null = null;
+    let existingTaskId: string | null = null;
+    let existingStatus = "open";
+    const isCreate = !id;
+    if (id) {
+      const { data: existing } = await context.supabase
+        .from("event_meeting_actions")
+        .select("id, event_id, assignee_staff_id, task_id, status")
+        .eq("id", id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Action not found");
+      prevAssignee = (existing.assignee_staff_id as string | null) ?? null;
+      existingTaskId = (existing.task_id as string | null) ?? null;
+      existingStatus = (existing.status as string) ?? "open";
+    }
+
+    let taskId = data.task_id || existingTaskId || null;
+    if (
+      data.createTask &&
+      meetingActionCanLinkTask({ status: existingStatus, task_id: taskId })
+    ) {
+      const taskTitle = meetingActionTaskTitle(meeting.title as string, data.title);
+      const { data: task, error: taskErr } = await context.supabase
+        .from("event_tasks")
+        .insert({
+          event_id: data.eventId,
+          title: taskTitle,
+          status: "not_started",
+          priority: "normal",
+          percent_complete: 0,
+          assignee_staff_id: data.assignee_staff_id || null,
+          owner_staff_id: data.assignee_staff_id || null,
+          due_date: emptyDate(data.due_date),
+          description: emptyText(data.notes),
+          created_by: context.userId,
+          updated_by: context.userId,
+        })
+        .select("id")
+        .single();
+      if (taskErr) throw taskErr;
+      taskId = task.id as string;
+    }
+
+    const status = normalizeMeetingActionStatus(data.status);
+    const payload = {
+      event_id: data.eventId,
+      meeting_id: data.meetingId,
+      title: data.title.trim(),
+      assignee_staff_id: data.assignee_staff_id || null,
+      due_date: emptyDate(data.due_date),
+      status,
+      notes: emptyText(data.notes),
+      task_id: taskId,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (id) {
+      const { error } = await context.supabase.from("event_meeting_actions").update(payload).eq("id", id);
+      if (error) throw error;
+    } else {
+      const { data: created, error } = await context.supabase
+        .from("event_meeting_actions")
+        .insert({ ...payload, created_by: context.userId })
+        .select("id")
+        .single();
+      if (error) throw error;
+      id = created.id as string;
+    }
+
+    if (data.assignee_staff_id && (isCreate || data.assignee_staff_id !== prevAssignee)) {
+      await notifyEventAssignees(context, {
+        staffIds: [data.assignee_staff_id],
+        locationId: (event.location_id as string | null) ?? null,
+        title: `Meeting action: ${data.title.trim()}`,
+        body: `From meeting “${meeting.title as string}”`,
+        actionUrl: `/events/${data.eventId}/plan?tab=collab`,
+        sourceType: "event_meeting_action",
+        sourceId: id!,
+      });
+    }
+
+    return { id: id!, task_id: taskId };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventMeetingAction = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_meeting_actions")
+    .select("id, event_id")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Action not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_meeting_actions").delete().eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const upsertEventDecision = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    eventId: z.string().uuid(),
+    title: z.string().min(2).max(200),
+    decision: z.string().min(1).max(8000),
+    decided_at: z.string().optional().nullable(),
+    decided_by_staff_id: z.string().uuid().optional().nullable(),
+    context: z.string().max(8000).optional().nullable(),
+    meeting_id: z.string().uuid().optional().nullable(),
+    document_id: z.string().uuid().optional().nullable(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    assertOptionalRefsSameEvent(data.eventId, [
+      { field: "meeting_id", eventId: await loadRelatedEventId(context, "event_meetings", data.meeting_id) },
+      { field: "document_id", eventId: await loadRelatedEventId(context, "event_documents", data.document_id) },
+    ]);
+    let decidedAt = new Date().toISOString();
+    if (data.decided_at) {
+      const d = new Date(data.decided_at);
+      if (Number.isNaN(d.getTime())) throw new Error("Invalid decided_at");
+      decidedAt = d.toISOString();
+    }
+    const decidedBy = data.decided_by_staff_id || (await resolveCallerStaffId(context));
+    const payload = {
+      event_id: data.eventId,
+      title: data.title.trim(),
+      decision: data.decision.trim(),
+      decided_at: decidedAt,
+      decided_by_staff_id: decidedBy,
+      context: emptyText(data.context),
+      meeting_id: data.meeting_id || null,
+      document_id: data.document_id || null,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.id) {
+      const { data: existing } = await context.supabase
+        .from("event_decisions")
+        .select("id, event_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (!existing || existing.event_id !== data.eventId) throw new Error("Decision not found");
+      const { error } = await context.supabase.from("event_decisions").update(payload).eq("id", data.id);
+      if (error) throw error;
+      return { id: data.id };
+    }
+    const { data: created, error } = await context.supabase
+      .from("event_decisions")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    await writeEventAudit(context, {
+      action: "decision_create",
+      entityType: "event_decision",
+      entityId: created.id as string,
+      eventId: data.eventId,
+      after: { title: payload.title },
+    });
+    return { id: created.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventDecision = createAuthenticatedAction(IdSchema, async (data, context) => {
+  const { data: row } = await context.supabase
+    .from("event_decisions")
+    .select("id, event_id, title")
+    .eq("id", data.id)
+    .maybeSingle();
+  if (!row) throw new Error("Decision not found");
+  await loadEventOrThrow(context, row.event_id as string);
+  const { error } = await context.supabase.from("event_decisions").delete().eq("id", data.id);
+  if (error) throw error;
+  return { id: data.id };
+}, { auth: { capability: "events.edit" } });
+
+export const upsertEventWikiPage = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    slug: z.string().max(63).optional(),
+    title: z.string().min(1).max(200).optional(),
+    body_md: z.string().max(200000),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const slug = wikiSlugOrDefault(data.slug);
+    const title = (data.title?.trim() || (slug === DEFAULT_WIKI_SLUG ? "Notes" : slug)).slice(0, 200);
+    const payload = {
+      event_id: data.eventId,
+      slug,
+      title,
+      body_md: data.body_md,
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: existing } = await context.supabase
+      .from("event_wiki_pages")
+      .select("id")
+      .eq("event_id", data.eventId)
+      .eq("slug", slug)
+      .maybeSingle();
+    if (existing) {
+      const { error } = await context.supabase.from("event_wiki_pages").update(payload).eq("id", existing.id);
+      if (error) throw error;
+      return { id: existing.id as string, slug };
+    }
+    const { data: created, error } = await context.supabase
+      .from("event_wiki_pages")
+      .insert({ ...payload, created_by: context.userId })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: created.id as string, slug };
+  },
+  { auth: { capability: "events.edit" } },
 );
 

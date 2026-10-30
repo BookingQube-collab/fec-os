@@ -90,13 +90,21 @@ function MaintenanceRequestsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<RequestsTab>("list");
 
+  const [linkedEventId, setLinkedEventId] = useState<string | null>(null);
+
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("id");
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    const eventId = params.get("eventId");
+    const tab = params.get("tab");
+    if (eventId) setLinkedEventId(eventId);
     if (id) {
       setSelectedId(id);
       setActiveTab("detail");
+      return;
     }
-  }, []);
+    if (tab === "new" && canSubmit) setActiveTab("new");
+  }, [canSubmit]);
 
   const openRequest = (id: string) => {
     setSelectedId(id);
@@ -206,8 +214,24 @@ function MaintenanceRequestsPage() {
         </TabsList>
 
         <TabsContent value="list" className="mt-4">
+          {linkedEventId ? (
+            <p className="mb-3 rounded-xl border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {t("maintenanceRequests.eventFilterHint", {
+                defaultValue: "Filtered by linked event where possible. Clear eventId from the URL to see all requests.",
+              })}
+            </p>
+          ) : null}
           <RequestsList
-            data={data}
+            data={
+              linkedEventId && Array.isArray(data)
+                ? data.filter(
+                    (row: { event_id?: string | null; remarks?: string | null; description?: string | null }) =>
+                      row.event_id === linkedEventId ||
+                      (row.remarks ?? "").includes(linkedEventId) ||
+                      (row.description ?? "").includes(linkedEventId),
+                  )
+                : data
+            }
             isLoading={isLoading}
             canManage={canManage}
             canExecute={canExecute}
@@ -218,10 +242,19 @@ function MaintenanceRequestsPage() {
 
         {canSubmit && (
           <TabsContent value="new" className="mt-4">
+            {linkedEventId ? (
+              <p className="mb-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+                {t("maintenanceRequests.eventCreateHint", {
+                  defaultValue: "Creating against event {{id}}",
+                  id: linkedEventId.slice(0, 8),
+                })}
+              </p>
+            ) : null}
             <MaintenanceRequestForm
               sites={sites ?? []}
               defaultLocationId={locationId ?? ""}
               labels={formLabels}
+              eventId={linkedEventId}
             />
           </TabsContent>
         )}

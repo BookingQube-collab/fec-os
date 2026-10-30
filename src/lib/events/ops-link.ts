@@ -44,5 +44,8 @@ export function eventOpsUrls(eventId: string, locationId?: string | null) {
     logistics: `/maintenance/logistics?eventId=${eventId}${loc}`,
     snags: `/snags?eventId=${eventId}${loc}`,
     newSnag: `/snags?eventId=${eventId}${loc}&new=1`,
+    /** Soft HR links — do not rebuild attendance / OT here (Phase 5). */
+    attendance: `/people/attendance?eventId=${eventId}${loc}`,
+    overtime: `/people/hr/ot?eventId=${eventId}${loc}`,
   };
 }

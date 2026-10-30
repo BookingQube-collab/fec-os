@@ -10,6 +10,7 @@ import { CalendarDays, CheckCircle2, Clock3, Sparkles, Wallet } from "lucide-rea
 
 import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
 import { EventAiAssist } from "@/components/events/event-ai-assist";
+import { EventRisksPanel } from "@/components/events/event-phase1-panels";
 import { EventProcurementPanel } from "@/components/events/event-procurement-panel";
 import { EventStageTracker } from "@/components/events/event-stage-tracker";
 import { EventWorkstreamsPanel } from "@/components/events/event-workstreams-panel";
@@ -372,7 +373,8 @@ export function EventPlanHome({
         onSelect={setStage}
         gateTone={(s) =>
           stageGateTone(s.code, {
-            budgetApproved: overview.budgetStatus === "approved" || overview.budgetStatus === "locked",
+            budgetApproved:
+              overview.budgetStatus === "approved" || overview.budgetStatus === "locked",
             hasBudget: Boolean(overview.finance.hasBudget || overview.finance.revised),
             pendingPrs: overview.ops.pendingPrs,
             linkedPrs: prs.length || overview.linkedPrCount,
@@ -533,23 +535,16 @@ export function EventPlanHome({
         </section>
       </div>
 
-      <section className="min-w-0 rounded-2xl border border-border/40 bg-card p-4">
-        <h2 className="mb-3 text-sm font-semibold">{t("events.home.risks")}</h2>
-        {overview.risks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("events.overview.noRisks")}</p>
-        ) : (
-          <ul className="grid min-w-0 gap-2 text-sm sm:grid-cols-2">
-            {overview.risks.slice(0, 6).map((risk) => (
-              <li key={risk.id} className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-border/40 px-3 py-2">
-                <span className="min-w-0 truncate">{risk.title}</span>
-                <Badge variant={risk.severity === "critical" || risk.severity === "high" ? "destructive" : "outline"}>
-                  {t(`events.risk.${risk.severity}`)}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <EventRisksPanel
+        eventId={ev.id}
+        risks={overview.risks}
+        canEdit={Boolean(canEdit)}
+        escalations={overview.escalations}
+        onChanged={() => {
+          void qc.invalidateQueries({ queryKey: queryKeys.events.detail(ev.id) });
+          void qc.invalidateQueries({ queryKey: queryKeys.events.all });
+        }}
+      />
 
       <EventWorkstreamsPanel
         overview={overview}

@@ -56,9 +56,11 @@ import {
 import {
   deleteEventClientInvoice,
   saveEventBaseline,
+  transitionEventBudget,
   upsertEventBudget,
   upsertEventClientInvoice,
 } from "@/lib/events.functions";
+import type { BudgetTransitionAction } from "@/lib/events/governance";
 import type { EventBudgetTotals } from "@/lib/events/types";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -163,12 +165,15 @@ export default function EventBudgetPage() {
   const id = params.id;
   const qc = useQueryClient();
   const canFinance = usePermission("events.finance");
+  const canApprove = usePermission("events.approve");
+  const canManage = usePermission("events.manage");
   const eventQ = useEvent(id);
   const budgetQ = useEventBudget(id);
   const [status, setStatus] = useState("draft");
   const [notes, setNotes] = useState("");
   const [threshold, setThreshold] = useState(0);
   const [contingencyCap, setContingencyCap] = useState(80);
+  const [rejectionReason, setRejectionReason] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [revenue, setRevenue] = useState<RevenueDraft>({
     contract_value: 0,
@@ -185,6 +190,7 @@ export default function EventBudgetPage() {
     const d = budgetQ.data;
     setStatus(d.header?.status ?? "draft");
     setNotes(d.header?.notes ?? "");
+    setRejectionReason(d.header?.rejection_reason ?? "");
     setThreshold(d.header?.line_alert_threshold_pct ?? 0);
     setContingencyCap(d.header?.contingency_usage_threshold_pct ?? 80);
     setRevenue({
@@ -213,8 +219,23 @@ export default function EventBudgetPage() {
 
   const categories = useMemo(() => budgetQ.data?.categories ?? [], [budgetQ.data?.categories]);
   const subcategories = useMemo(() => budgetQ.data?.subcategories ?? [], [budgetQ.data?.subcategories]);
-  const locked = status === "locked";
-  const editable = canFinance && !locked;
+  const editable = Boolean(
+    canFinance && (budgetQ.data?.editable ?? (status === "draft" || status === "rejected")),
+  );
+  const allowedActions = budgetQ.data?.allowedActions ?? [];
+  const canRun = (action: BudgetTransitionAction) => {
+    if (!allowedActions.includes(action)) return false;
+    if (action === "submit" || (action === "reopen" && status === "rejected")) return Boolean(canFinance);
+    return Boolean(canApprove || canManage);
+  };
+  const statusVariant =
+    status === "approved" || status === "locked"
+      ? "success"
+      : status === "submitted"
+        ? "warning"
+        : status === "rejected"
+          ? "destructive"
+          : "outline";
   const linkedPrs = useMemo(() => budgetQ.data?.linkedPrs ?? [], [budgetQ.data?.linkedPrs]);
   const documents = eventQ.data?.documents ?? [];
   const missingBoqN =
@@ -371,7 +392,6 @@ export default function EventBudgetPage() {
     mutationFn: () =>
       upsertEventBudget({
         eventId: id,
-        status: status as "draft" | "approved" | "locked",
         notes: notes || null,
         contract_value: revenue.contract_value,
         additional_revenue: revenue.additional_revenue,
@@ -398,6 +418,21 @@ export default function EventBudgetPage() {
       invalidate();
       if (res.alerts.length) toast.error(t("events.budget.alertSave"));
       else toast.success(t("events.toasts.budgetSaved"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const transition = useMutation({
+    mutationFn: (action: BudgetTransitionAction) =>
+      transitionEventBudget({
+        eventId: id,
+        action,
+        reason: rejectionReason || null,
+      }),
+    onSuccess: (res) => {
+      invalidate();
+      setStatus(res.status);
+      toast.success(t(`events.budget.workflow.${res.action}Ok`, { defaultValue: t("events.toasts.budgetSaved") }));
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -499,7 +534,12 @@ export default function EventBudgetPage() {
         {health && healthVariant ? (
           <Badge variant={healthVariant}>{t(`events.budget.health${health === "under" ? "Under" : health === "on" ? "On" : "Over"}`)}</Badge>
         ) : null}
-        <Badge variant="outline">{t(`events.budgetStatus.${status}`)}</Badge>
+        <Badge variant={statusVariant}>{t(`events.budgetStatus.${status}`)}</Badge>
+        {budgetQ.data?.header?.rejection_reason ? (
+          <Badge variant="destructive" className="max-w-xs truncate" title={budgetQ.data.header.rejection_reason}>
+            {budgetQ.data.header.rejection_reason}
+          </Badge>
+        ) : null}
         {overLines.length > 0 ? (
           <Badge variant="destructive">{t("events.budget.overLinesN", { n: overLines.length })}</Badge>
         ) : null}
@@ -550,15 +590,56 @@ export default function EventBudgetPage() {
         <EventSpendChart rows={spendRows} />
       </section>
 
+      <section className="space-y-3 rounded-2xl border border-border/40 bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">{t("events.budget.workflow.title")}</h2>
+            <p className="text-xs text-muted-foreground">{t("events.budget.workflow.hint")}</p>
+          </div>
+          <Badge variant={statusVariant}>{t(`events.budgetStatus.${status}`)}</Badge>
+        </div>
+        {(status === "submitted" || status === "approved" || status === "locked" || status === "rejected") && (
+          <Input
+            className="max-w-md"
+            placeholder={t("events.budget.workflow.reason")}
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            disabled={transition.isPending}
+          />
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canRun("submit") ? (
+            <Button size="sm" onClick={() => transition.mutate("submit")} disabled={transition.isPending || computedLines.length === 0}>
+              {t("events.budget.workflow.submit")}
+            </Button>
+          ) : null}
+          {canRun("approve") ? (
+            <Button size="sm" onClick={() => transition.mutate("approve")} disabled={transition.isPending}>
+              {t("events.budget.workflow.approve")}
+            </Button>
+          ) : null}
+          {canRun("reject") ? (
+            <Button size="sm" variant="destructive" onClick={() => transition.mutate("reject")} disabled={transition.isPending}>
+              {t("events.budget.workflow.reject")}
+            </Button>
+          ) : null}
+          {canRun("lock") ? (
+            <Button size="sm" variant="outline" onClick={() => transition.mutate("lock")} disabled={transition.isPending}>
+              {t("events.budget.workflow.lock")}
+            </Button>
+          ) : null}
+          {canRun("reopen") ? (
+            <Button size="sm" variant="ghost" onClick={() => transition.mutate("reopen")} disabled={transition.isPending}>
+              {t("events.budget.workflow.reopen")}
+            </Button>
+          ) : null}
+          {!editable ? (
+            <span className="text-xs text-muted-foreground">{t("events.budget.workflow.lockedHint")}</span>
+          ) : null}
+        </div>
+      </section>
+
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={status} onValueChange={setStatus} disabled={!editable}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {["draft", "approved", "locked"].map((s) => (
-              <SelectItem key={s} value={s}>{t(`events.budgetStatus.${s}`)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           {t("events.budget.lineThreshold")}
           <Input className="h-8 w-20" type="number" min={0} disabled={!editable} value={threshold} onChange={(e) => setThreshold(Number(e.target.value) || 0)} />
@@ -574,7 +655,7 @@ export default function EventBudgetPage() {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
-        {canFinance ? (
+        {canFinance && editable ? (
           <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
             {save.isPending ? t("common.saving") : t("common.save")}
           </Button>

@@ -333,6 +333,61 @@ export function buildEventReportVisuals(id: EventReportId, rows: ReportRow[]): E
       pushBar(bar("progressByEvent", progressBars.length ? progressBars : avgBy(rows, "event", "checklist"), "pct"));
       break;
     }
+    case "resource_utilization": {
+      const util = avg(rows, "utilization");
+      kpis.push(
+        kpi("owners", rows.length, "slate"),
+        kpi("estimated", sum(rows, "estimated"), "sky"),
+        kpi("actual", sum(rows, "actual"), "amber"),
+      );
+      if (util != null) kpis.push(kpi("avgUtilization", Math.round(util), util > 110 ? "orange" : "green", "pct"));
+      pushBar(bar("utilizationByOwner", avgBy(rows, "owner", "utilization"), "pct"));
+      pushBar(bar("hoursByOwner", sumBy(rows, "owner", "actual")));
+      break;
+    }
+    case "est_vs_actual_hours": {
+      const variance = sum(rows, "variance");
+      kpis.push(
+        kpi("rows", rows.length, "slate"),
+        kpi("estimated", sum(rows, "estimated"), "sky"),
+        kpi("actual", sum(rows, "actual"), "amber"),
+        kpi("hoursVariance", variance, variance > 0 ? "orange" : "green"),
+      );
+      pushBar(bar("varianceByEvent", sumBy(rows, "event", "variance"), "number", "horizontal", true));
+      break;
+    }
+    case "portfolio_timeline": {
+      const span = avg(rows, "spanDays");
+      kpis.push(kpi("events", rows.length, "slate"));
+      if (span != null) kpis.push(kpi("avgSpanDays", Math.round(span), "sky"));
+      pushDonut(donut("healthMix", "health", countBy(rows, "health")));
+      pushBar(bar("spanByEvent", sumBy(rows, "event", "spanDays")));
+      break;
+    }
+    case "agile_performance": {
+      const committed = sum(rows, "committed");
+      const completed = sum(rows, "completed");
+      kpis.push(
+        kpi("sprints", rows.length, "slate"),
+        kpi("committedPts", committed, "sky"),
+        kpi("completedPts", completed, "green"),
+        kpi("avgVelocity", rows.length ? Math.round((completed / rows.length) * 10) / 10 : 0, "amber"),
+      );
+      pushBar(bar("velocityBySprint", sumBy(rows, "sprint", "completed")));
+      pushDonut(donut("statusMix", "status", countBy(rows, "status")));
+      break;
+    }
+    case "earned_value_lite": {
+      const spi = avg(rows, "spi");
+      const cpi = avg(rows, "cpi");
+      kpis.push(kpi("events", rows.length, "slate"));
+      if (spi != null) kpis.push(kpi("avgSpi", Math.round(spi * 100) / 100, spi < 1 ? "orange" : "green"));
+      if (cpi != null) kpis.push(kpi("avgCpi", Math.round(cpi * 100) / 100, cpi < 1 ? "orange" : "green"));
+      kpis.push(kpi("earned", sum(rows, "earned"), "sky", "money"), kpi("actual", sum(rows, "actual"), "amber", "money"));
+      pushBar(bar("spiByEvent", avgBy(rows, "event", "spi"), "number"));
+      pushGrouped(groupedMoney("earnedVsActual", rows, ["earned", "actual"]));
+      break;
+    }
     case "open_snags":
     case "critical_safety": {
       const critical = rows.filter((r) => {

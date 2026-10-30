@@ -440,6 +440,9 @@ export const queryKeys = {
     detail: (id?: string | null) => [...queryKeys.events.all, "detail", id ?? null] as const,
     scope: (id?: string | null) => [...queryKeys.events.all, "scope", id ?? null] as const,
     plan: (id?: string | null) => [...queryKeys.events.all, "plan", id ?? null] as const,
+    resources: (id?: string | null) => [...queryKeys.events.all, "resources", id ?? null] as const,
+    collaboration: (id?: string | null) =>
+      [...queryKeys.events.all, "collaboration", id ?? null] as const,
     budget: (id?: string | null) => [...queryKeys.events.all, "budget", id ?? null] as const,
     reports: (filters?: object) => [...queryKeys.events.all, "reports", filters ?? {}] as const,
   },

@@ -37,18 +37,24 @@ export const listMaintenanceRequests = createAuthenticatedAction(
     })
     .default({}),
   async (data, context) => {
-    let q = context.supabase
-      .from("maintenance_requests")
-      .select(
-        "id, request_number, location_id, area, category, issue_type, priority, description, assigned_technician_id, reporter_name, reported_at, status, work_order_id, remarks, progress_notes, created_at, accepted_at, completed_at",
-      )
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(200);
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    if (data.status) q = q.eq("status", data.status);
-    if (data.mine) q = q.eq("created_by", context.userId);
-    const { data: rows, error } = await q;
+    const baseCols =
+      "id, request_number, location_id, area, category, issue_type, priority, description, assigned_technician_id, reporter_name, reported_at, status, work_order_id, remarks, progress_notes, created_at, accepted_at, completed_at";
+    const run = async (cols: string) => {
+      let q = context.supabase
+        .from("maintenance_requests")
+        .select(cols)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (data.locationId) q = q.eq("location_id", data.locationId);
+      if (data.status) q = q.eq("status", data.status);
+      if (data.mine) q = q.eq("created_by", context.userId);
+      return q;
+    };
+    let { data: rows, error } = await run(`${baseCols}, event_id`);
+    if (error && (error.code === "42703" || error.code === "PGRST204" || /event_id/i.test(error.message ?? ""))) {
+      ({ data: rows, error } = await run(baseCols));
+    }
     if (error) throw error;
     return rows ?? [];
   },
@@ -130,6 +136,7 @@ export const createMaintenanceRequest = createAuthenticatedAction(
     remarks: z.string().max(4000).nullable().optional(),
     reporter_name: z.string().max(200).nullable().optional(),
     reported_at: z.string().datetime().optional(),
+    event_id: z.string().uuid().optional().nullable(),
   }),
   async (data, context) => {
     await assertLocationAccess(context, data.location_id);
@@ -173,26 +180,40 @@ export const createMaintenanceRequest = createAuthenticatedAction(
       remarks = remarks ? `${tag}\n${remarks}` : tag;
     }
 
-    const { data: row, error } = await context.supabase
+    const insertPayload: Record<string, unknown> = {
+      request_number: requestNumber as string,
+      location_id: data.location_id,
+      area,
+      category,
+      issue_type: issueType,
+      priority: data.priority,
+      description: data.description,
+      assigned_technician_id: assignedTechnicianId,
+      reporter_name: data.reporter_name ?? null,
+      reported_at: data.reported_at ?? new Date().toISOString(),
+      remarks,
+      status: "submitted",
+      created_by: context.userId,
+    };
+    if (data.event_id) insertPayload.event_id = data.event_id;
+
+    let { data: row, error } = await context.supabase
       .from("maintenance_requests")
-      .insert({
-        request_number: requestNumber as string,
-        location_id: data.location_id,
-        area,
-        category,
-        issue_type: issueType,
-        priority: data.priority,
-        description: data.description,
-        assigned_technician_id: assignedTechnicianId,
-        reporter_name: data.reporter_name ?? null,
-        reported_at: data.reported_at ?? new Date().toISOString(),
-        remarks,
-        status: "submitted",
-        created_by: context.userId,
-      })
+      .insert(insertPayload)
       .select("id, request_number, location_id")
       .single();
+    if (error && data.event_id && (error.code === "42703" || error.code === "PGRST204" || /event_id/i.test(error.message ?? ""))) {
+      delete insertPayload.event_id;
+      const retry = await context.supabase
+        .from("maintenance_requests")
+        .insert(insertPayload)
+        .select("id, request_number, location_id")
+        .single();
+      row = retry.data;
+      error = retry.error;
+    }
     if (error) throw error;
+    if (!row) throw new Error("Failed to create maintenance request");
 
     const { data: loc } = await context.supabase
       .from("locations")
