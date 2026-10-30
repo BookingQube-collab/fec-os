@@ -118,8 +118,8 @@ export const gradePracticalAssessment = createSafeAuthenticatedAction(gradeInput
     _lesson_id: data.lessonId,
     _items: data.items,
     _result: data.result,
-    _notes: data.notes,
-    _confirmation_name: data.confirmationName,
+    _notes: data.notes ?? "",
+    _confirmation_name: data.confirmationName ?? "",
     _confirmed: data.confirmed,
   });
   throwIf(error);

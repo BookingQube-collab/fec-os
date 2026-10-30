@@ -133,9 +133,10 @@ export function ArcadeDashboard() {
   const canManage = usePermission("arcade.manage");
   const data = dashboard.data;
   const kpis = data?.kpis;
-  const nameFor = (id: string) => venueTitle(sites.data?.find((site) => site.id === id), t("common.site"));
+  const nameFor = (id: string | null | undefined) =>
+    venueTitle(sites.data?.find((site) => site.id === id), t("common.site"));
   const staffLocationId = context.data?.staff?.location_id ?? null;
-  const siteRows = uniqueByKey(data?.sites ?? [], (site) => site.location_id);
+  const siteRows = uniqueByKey(data?.sites ?? [], (site) => site.location_id ?? "");
   const siteLine = staffLocationId
     ? t("arcadeFlow.yourSite", { name: nameFor(staffLocationId) })
     : siteRows.length > 0

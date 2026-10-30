@@ -122,7 +122,7 @@ export const createTrainingSession = createSafeAuthenticatedAction(
       _version_id: data.versionId,
       _trainer_staff_id: data.trainerStaffId,
       _location_id: data.locationId,
-      _room: data.room,
+      _room: data.room ?? "",
       _starts_at: data.startsAt,
       _ends_at: data.endsAt,
       _capacity: data.capacity,
@@ -141,10 +141,10 @@ export const listTrainingCalendar = createSafeAuthenticatedAction(
     const { data: payload, error } = await context.supabase.rpc("training_session_calendar", {
       _from: data.from,
       _to: data.to,
-      _location_id: data.locationId,
-      _trainer_staff_id: data.trainerStaffId,
-      _course_id: data.courseId,
-      _department_id: data.departmentId,
+      _location_id: data.locationId ?? "",
+      _trainer_staff_id: data.trainerStaffId ?? "",
+      _course_id: data.courseId ?? "",
+      _department_id: data.departmentId ?? "",
     });
     throwIf(error);
     const record = asRecord(payload);

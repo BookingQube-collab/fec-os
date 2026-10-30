@@ -185,23 +185,23 @@ export const getArcadeDashboard = createAuthenticatedAction(
     const hides = await readArcadeListHides(context.supabase);
     const listedSites = visibleArcadeList(
       (siteRes.data ?? []).map((row) => ({
-        locationId: row.location_id,
-        games: row.active_machines,
-        working: row.working,
-        down: row.down,
-        inRepair: row.under_repair,
+        locationId: row.location_id ?? "",
+        games: row.active_machines ?? 0,
+        working: row.working ?? 0,
+        down: row.down ?? 0,
+        inRepair: row.under_repair ?? 0,
       })),
       [],
       hides,
     );
     const listedIds = new Set(listedSites.sites.map((site) => site.locationId));
     const rows = siteRes.data ?? [];
-    const cardRows = rows.filter((row) => listedIds.has(row.location_id));
-    const active = rows.reduce((sum, row) => sum + row.active_machines, 0);
-    const working = rows.reduce((sum, row) => sum + row.working, 0);
-    const down = rows.reduce((sum, row) => sum + row.down, 0);
+    const cardRows = rows.filter((row) => row.location_id != null && listedIds.has(row.location_id));
+    const active = rows.reduce((sum, row) => sum + (row.active_machines ?? 0), 0);
+    const working = rows.reduce((sum, row) => sum + (row.working ?? 0), 0);
+    const down = rows.reduce((sum, row) => sum + (row.down ?? 0), 0);
     const kpis = faultRes.data?.[0];
-    const pmOverdue = rows.reduce((sum, row) => sum + row.pm_overdue, 0);
+    const pmOverdue = rows.reduce((sum, row) => sum + (row.pm_overdue ?? 0), 0);
     const pmCompleted = pmCompletedRes.count ?? 0;
     const pmCompliance = pmCompleted + pmOverdue > 0 ? Math.round((pmCompleted / (pmCompleted + pmOverdue)) * 1000) / 10 : null;
 
@@ -210,12 +210,12 @@ export const getArcadeDashboard = createAuthenticatedAction(
         total: active,
         working,
         down,
-        underRepair: rows.reduce((sum, row) => sum + row.under_repair, 0),
-        underObservation: rows.reduce((sum, row) => sum + row.under_observation, 0),
-        waitingPart: rows.reduce((sum, row) => sum + row.waiting_part, 0),
-        waitingSupplier: rows.reduce((sum, row) => sum + row.waiting_supplier, 0),
-        outOfService: rows.reduce((sum, row) => sum + row.out_of_service, 0),
-        pmDue: rows.reduce((sum, row) => sum + row.pm_due, 0),
+        underRepair: rows.reduce((sum, row) => sum + (row.under_repair ?? 0), 0),
+        underObservation: rows.reduce((sum, row) => sum + (row.under_observation ?? 0), 0),
+        waitingPart: rows.reduce((sum, row) => sum + (row.waiting_part ?? 0), 0),
+        waitingSupplier: rows.reduce((sum, row) => sum + (row.waiting_supplier ?? 0), 0),
+        outOfService: rows.reduce((sum, row) => sum + (row.out_of_service ?? 0), 0),
+        pmDue: rows.reduce((sum, row) => sum + (row.pm_due ?? 0), 0),
         pmOverdue,
         openFaults: kpis?.open_faults ?? 0,
         repeatFaults: kpis?.repeat_faults ?? 0,
@@ -224,7 +224,7 @@ export const getArcadeDashboard = createAuthenticatedAction(
       },
       sites: cardRows.map((row) => ({
         ...row,
-        availability: siteAvailability({ working: row.working, active: row.active_machines }),
+        availability: siteAvailability({ working: row.working ?? 0, active: row.active_machines ?? 0 }),
       })),
       critical: criticalRes.data ?? [],
       aged: agedRes.data ?? [],
@@ -260,7 +260,7 @@ export const getArcadeSiteBoard = createAuthenticatedAction(
     return {
       sites: (healthRes.data ?? []).map((row) => ({
         ...row,
-        availability: siteAvailability({ working: row.working, active: row.active_machines }),
+        availability: siteAvailability({ working: row.working ?? 0, active: row.active_machines ?? 0 }),
       })),
       covers: coverRes.error ? {} : firstCoverByLocation(coverRes.data ?? []),
     };

@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
@@ -191,7 +192,7 @@ export const reviewWeeklyReport = createAuthenticatedAction(
       flag_missing: "under_review",
     } as const;
 
-    const updates: Record<string, unknown> = {
+    const updates: TablesUpdate<"weekly_reports"> = {
       status: statusMap[data.action],
       reviewed_by: context.userId,
       reviewed_at: new Date().toISOString(),

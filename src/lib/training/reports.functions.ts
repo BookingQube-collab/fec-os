@@ -33,11 +33,11 @@ export const listTrainingMatrix = createSafeAuthenticatedAction(
   async (data, context) => {
     const pageSize = 25;
     const { data: payload, error } = await context.supabase.rpc("training_matrix", {
-      _location_id: data.locationId,
-      _department_id: data.departmentId,
-      _role_code: data.roleCode,
-      _course_id: data.courseId,
-      _status: data.status,
+      _location_id: data.locationId ?? "",
+      _department_id: data.departmentId ?? "",
+      _role_code: data.roleCode ?? "",
+      _course_id: data.courseId ?? "",
+      _status: data.status ?? "",
       _limit: pageSize,
       _offset: (data.page - 1) * pageSize,
     });
@@ -80,8 +80,8 @@ export const readTrainingDashboard = createSafeAuthenticatedAction(
   z.object({ locationId: optionalUuid, departmentId: optionalUuid }).strict(),
   async (data, context) => {
     const { data: payload, error } = await context.supabase.rpc("training_dashboard", {
-      _location_id: data.locationId,
-      _department_id: data.departmentId,
+      _location_id: data.locationId ?? "",
+      _department_id: data.departmentId ?? "",
     });
     throwIf(error);
     const record = asRecord(payload);

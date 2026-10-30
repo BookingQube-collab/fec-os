@@ -223,10 +223,10 @@ export const recordTrainingPlayerEvent = createSafeAuthenticatedAction(
       _enrollment_id: enrollment.id,
       _lesson_id: lesson.id,
       _event: data.event,
-      _delta_seconds: data.deltaSeconds,
-      _position_seconds: data.positionSeconds,
-      _item_id: data.itemId,
-      _item_checked: data.itemChecked,
+      _delta_seconds: data.deltaSeconds ?? 0,
+      _position_seconds: data.positionSeconds ?? 0,
+      _item_id: data.itemId ?? "",
+      _item_checked: data.itemChecked ?? false,
     });
     throwIf(eventError);
     const payload = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
