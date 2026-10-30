@@ -2,7 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { listMaintenanceRequests } from "@/lib/maintenance-requests.functions";
+import {
+  listMaintenanceRequests,
+  type MaintenanceRequestListRow,
+} from "@/lib/maintenance-requests.functions";
 import { queryKeys } from "@/lib/query-keys";
 
 export function useMaintenanceRequests(filters?: {
@@ -10,7 +13,7 @@ export function useMaintenanceRequests(filters?: {
   status?: string | null;
   mine?: boolean;
 }) {
-  return useQuery({
+  return useQuery<MaintenanceRequestListRow[]>({
     queryKey: queryKeys.maintenance.requests(filters),
     queryFn: () =>
       listMaintenanceRequests({

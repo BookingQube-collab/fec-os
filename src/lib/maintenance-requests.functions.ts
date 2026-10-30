@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { callMaintenanceRequestAiDraft, extractAssigneeNameHint, inferAssigneeFromNotes, matchLocationByCodeOrName, matchLocationFromNotes, matchTechnicianByName } from "@/lib/maintenance/ai-request-draft";
 import {
   isRequestedTechnicianValue,
@@ -28,6 +29,61 @@ import { validateBase64Size, validateUploadMimeList } from "@/lib/server/upload-
 const PriorityEnum = z.enum(["normal", "medium", "urgent"]);
 const RequestStatusEnum = z.enum(["submitted", "accepted", "in_progress", "completed", "cancelled"]);
 
+/** List row for maintenance requests (typed — avoids GenericStringError from dynamic `.select(string)`). */
+export type MaintenanceRequestListRow = Pick<
+  Tables<"maintenance_requests">,
+  | "id"
+  | "request_number"
+  | "location_id"
+  | "area"
+  | "category"
+  | "issue_type"
+  | "priority"
+  | "description"
+  | "assigned_technician_id"
+  | "reporter_name"
+  | "reported_at"
+  | "status"
+  | "work_order_id"
+  | "remarks"
+  | "progress_notes"
+  | "created_at"
+  | "accepted_at"
+  | "completed_at"
+  | "event_id"
+>;
+
+const MAINTENANCE_REQUEST_LIST_SELECT =
+  "id, request_number, location_id, area, category, issue_type, priority, description, assigned_technician_id, reporter_name, reported_at, status, work_order_id, remarks, progress_notes, created_at, accepted_at, completed_at, event_id";
+const MAINTENANCE_REQUEST_LIST_SELECT_LEGACY =
+  "id, request_number, location_id, area, category, issue_type, priority, description, assigned_technician_id, reporter_name, reported_at, status, work_order_id, remarks, progress_notes, created_at, accepted_at, completed_at";
+
+function normalizeMaintenanceRequestListRows(
+  rows: Array<Record<string, unknown>> | null | undefined,
+): MaintenanceRequestListRow[] {
+  return (rows ?? []).map((row) => ({
+    id: row.id as string,
+    request_number: row.request_number as string,
+    location_id: row.location_id as string,
+    area: (row.area as string | null | undefined) ?? null,
+    category: row.category as string,
+    issue_type: (row.issue_type as string | null | undefined) ?? null,
+    priority: row.priority as MaintenanceRequestListRow["priority"],
+    description: row.description as string,
+    assigned_technician_id: (row.assigned_technician_id as string | null | undefined) ?? null,
+    reporter_name: (row.reporter_name as string | null | undefined) ?? null,
+    reported_at: row.reported_at as string,
+    status: row.status as MaintenanceRequestListRow["status"],
+    work_order_id: (row.work_order_id as string | null | undefined) ?? null,
+    remarks: (row.remarks as string | null | undefined) ?? null,
+    progress_notes: (row.progress_notes as string | null | undefined) ?? null,
+    created_at: row.created_at as string,
+    accepted_at: (row.accepted_at as string | null | undefined) ?? null,
+    completed_at: (row.completed_at as string | null | undefined) ?? null,
+    event_id: (row.event_id as string | null | undefined) ?? null,
+  }));
+}
+
 export const listMaintenanceRequests = createAuthenticatedAction(
   z
     .object({
@@ -36,9 +92,9 @@ export const listMaintenanceRequests = createAuthenticatedAction(
       mine: z.boolean().optional(),
     })
     .default({}),
-  async (data, context) => {
-    const baseCols =
-      "id, request_number, location_id, area, category, issue_type, priority, description, assigned_technician_id, reporter_name, reported_at, status, work_order_id, remarks, progress_notes, created_at, accepted_at, completed_at";
+  async (data, context): Promise<MaintenanceRequestListRow[]> => {
+    // `cols` stays a runtime string so the event_id fallback can retry; PostgREST then
+    // types the result as GenericStringError — normalize to MaintenanceRequestListRow.
     const run = async (cols: string) => {
       let q = context.supabase
         .from("maintenance_requests")
@@ -51,12 +107,12 @@ export const listMaintenanceRequests = createAuthenticatedAction(
       if (data.mine) q = q.eq("created_by", context.userId);
       return q;
     };
-    let { data: rows, error } = await run(`${baseCols}, event_id`);
+    let { data: rows, error } = await run(MAINTENANCE_REQUEST_LIST_SELECT);
     if (error && (error.code === "42703" || error.code === "PGRST204" || /event_id/i.test(error.message ?? ""))) {
-      ({ data: rows, error } = await run(baseCols));
+      ({ data: rows, error } = await run(MAINTENANCE_REQUEST_LIST_SELECT_LEGACY));
     }
     if (error) throw error;
-    return rows ?? [];
+    return normalizeMaintenanceRequestListRows(rows as unknown as Array<Record<string, unknown>> | null);
   },
   { defaultInput: {}, auth: { capability: "maintenance.view" } },
 );
@@ -180,7 +236,7 @@ export const createMaintenanceRequest = createAuthenticatedAction(
       remarks = remarks ? `${tag}\n${remarks}` : tag;
     }
 
-    const insertPayload: Record<string, unknown> = {
+    const insertPayload: TablesInsert<"maintenance_requests"> = {
       request_number: requestNumber as string,
       location_id: data.location_id,
       area,
@@ -194,8 +250,8 @@ export const createMaintenanceRequest = createAuthenticatedAction(
       remarks,
       status: "submitted",
       created_by: context.userId,
+      ...(data.event_id ? { event_id: data.event_id } : {}),
     };
-    if (data.event_id) insertPayload.event_id = data.event_id;
 
     let { data: row, error } = await context.supabase
       .from("maintenance_requests")
@@ -203,10 +259,11 @@ export const createMaintenanceRequest = createAuthenticatedAction(
       .select("id, request_number, location_id")
       .single();
     if (error && data.event_id && (error.code === "42703" || error.code === "PGRST204" || /event_id/i.test(error.message ?? ""))) {
-      delete insertPayload.event_id;
+      const { event_id: _omitEventId, ...legacyPayload } = insertPayload;
+      void _omitEventId;
       const retry = await context.supabase
         .from("maintenance_requests")
-        .insert(insertPayload)
+        .insert(legacyPayload)
         .select("id, request_number, location_id")
         .single();
       row = retry.data;

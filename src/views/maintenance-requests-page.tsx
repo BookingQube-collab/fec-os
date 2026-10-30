@@ -25,6 +25,7 @@ import {
   getMaintenanceRequest,
   updateMaintenanceRequestProgress,
   uploadMaintenanceAttachment,
+  type MaintenanceRequestListRow,
 } from "@/lib/maintenance-requests.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
@@ -225,7 +226,7 @@ function MaintenanceRequestsPage() {
             data={
               linkedEventId && Array.isArray(data)
                 ? data.filter(
-                    (row: { event_id?: string | null; remarks?: string | null; description?: string | null }) =>
+                    (row) =>
                       row.event_id === linkedEventId ||
                       (row.remarks ?? "").includes(linkedEventId) ||
                       (row.description ?? "").includes(linkedEventId),
@@ -295,7 +296,7 @@ function RequestsList({
   onOpen,
   onEdit,
 }: {
-  data: ReturnType<typeof useMaintenanceRequests>["data"];
+  data: MaintenanceRequestListRow[] | undefined;
   isLoading: boolean;
   canManage: boolean;
   canExecute: boolean;
