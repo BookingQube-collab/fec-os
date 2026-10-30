@@ -299,6 +299,7 @@ function PeoplePageBody() {
   const tab = teamDirectory ? "staff" : resolvePeopleTab(tabParam);
   const visibleTabs = teamDirectory ? (["staff"] as const) : PEOPLE_MAIN_TABS;
   const hiddenTab = !(visibleTabs as readonly string[]).includes(tab);
+  const eventIdParam = searchParams.get("eventId");
 
   const setTab = (next: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -344,6 +345,20 @@ function PeoplePageBody() {
           </div>
         }
       />
+      {eventIdParam ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <p className="font-medium">{t("people.eventDeepLinkTitle", { defaultValue: "Opened from an event" })}</p>
+          <p className="text-xs text-muted-foreground">
+            {t("people.eventDeepLinkHint", {
+              defaultValue: "Manage event staffing on the event workspace. Event id: {{id}}",
+              id: eventIdParam,
+            })}
+          </p>
+          <Link href={`/events/${eventIdParam}#event-staff`} className="mt-1 inline-block text-xs font-medium underline-offset-2 hover:underline">
+            {t("people.openEventStaff", { defaultValue: "Open event staff panel" })}
+          </Link>
+        </div>
+      ) : null}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           {visibleTabs.map((value) => {

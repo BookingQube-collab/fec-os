@@ -25,6 +25,7 @@ import {
   getAttendanceDeviceConnectionTest,
   startAttendanceDeviceConnectionTest,
 } from "@/lib/attendance-hr.functions";
+import { invalidateAttendanceBootstrap } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
@@ -126,7 +127,7 @@ export function ZktecoConnectionTestDialog({
           ? t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared })
           : t("attendanceHr.settings.clearStuckTestNone"),
       );
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      invalidateAttendanceBootstrap(qc);
       if (device) start.mutate(device.id);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -163,7 +164,7 @@ export function ZktecoConnectionTestDialog({
 
   useEffect(() => {
     if (!view || view.status === "queued" || view.status === "running") return;
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    invalidateAttendanceBootstrap(qc);
   }, [view, qc]);
 
   const diagnosisCode = view?.diagnosis?.code;
