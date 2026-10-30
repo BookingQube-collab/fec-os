@@ -218,3 +218,170 @@ export function assertCanMarkAirTicketPaid(status: HrAirTicketIssueStatus): void
     );
   }
 }
+
+/** Whole days from `from` to `to` (YYYY-MM-DD), Qatar calendar dates. */
+export function airTicketDaysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from.slice(0, 10)}T12:00:00Z`);
+  const b = Date.parse(`${to.slice(0, 10)}T12:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.round((b - a) / 86_400_000);
+}
+
+export const AIR_TICKET_SUGGESTION_KINDS = ["due", "approaching"] as const;
+export type AirTicketSuggestionKind = (typeof AIR_TICKET_SUGGESTION_KINDS)[number];
+
+export type AirTicketSuggestionStaff = {
+  id: string;
+  fullName: string;
+  employeeCode: string | null;
+  hireDate: string;
+  employmentType: string | null;
+};
+
+export type AirTicketExistingCycle = {
+  staffId: string;
+  eligibilityOn: string;
+  cycleStart: string;
+  status: string;
+};
+
+export type AirTicketSuggestion = {
+  staffId: string;
+  staffName: string;
+  employeeCode: string | null;
+  hireDate: string;
+  cycleIndex: number;
+  cycleStart: string;
+  cycleEnd: string;
+  eligibilityOn: string;
+  status: Extract<HrAirTicketEntitlementStatus, "open" | "eligible">;
+  kind: AirTicketSuggestionKind;
+  daysUntilEligibility: number;
+  yearsOfService: number;
+  reason: string;
+};
+
+const BLOCKING_ENTITLEMENT_STATUSES = new Set([
+  "open",
+  "eligible",
+  "issued",
+  "carried_forward",
+]);
+
+function hasOpenCycleEntitlement(
+  existing: AirTicketExistingCycle[],
+  staffId: string,
+  eligibilityOn: string,
+  cycleStart: string,
+): boolean {
+  return existing.some(
+    (row) =>
+      row.staffId === staffId &&
+      BLOCKING_ENTITLEMENT_STATUSES.has(row.status) &&
+      (row.eligibilityOn.slice(0, 10) === eligibilityOn ||
+        row.cycleStart.slice(0, 10) === cycleStart),
+  );
+}
+
+/**
+ * Permanent staff whose hire-date cycle is due or within the upcoming horizon,
+ * and who do not already have an open/issued entitlement for that cycle.
+ */
+export function buildAirTicketSuggestions(input: {
+  staff: AirTicketSuggestionStaff[];
+  existing: AirTicketExistingCycle[];
+  policy: AirTicketPolicy;
+  asOfDate: string;
+}): AirTicketSuggestion[] {
+  const asOf = input.asOfDate.slice(0, 10);
+  const out: AirTicketSuggestion[] = [];
+
+  for (const person of input.staff) {
+    if ((person.employmentType ?? "").toLowerCase() !== "permanent") continue;
+    const hire = person.hireDate?.slice(0, 10);
+    if (!hire || asOf < hire) continue;
+
+    const computed = computeEntitlementDatesFromPolicy({
+      hireDate: hire,
+      asOfDate: asOf,
+      policy: input.policy,
+    });
+    if (!computed) continue;
+
+    if (
+      hasOpenCycleEntitlement(
+        input.existing,
+        person.id,
+        computed.eligibilityOn,
+        computed.cycleStart,
+      )
+    ) {
+      continue;
+    }
+
+    const daysUntil = airTicketDaysBetween(asOf, computed.eligibilityOn);
+    let kind: AirTicketSuggestionKind | null = null;
+    if (daysUntil <= 0) {
+      kind = "due";
+    } else if (daysUntil <= input.policy.upcomingHorizonDays) {
+      kind = "approaching";
+    }
+    if (!kind) continue;
+
+    const yearsOfService = Math.max(
+      0,
+      Math.floor(airTicketDaysBetween(hire, asOf) / 365),
+    );
+    const reason =
+      kind === "due"
+        ? daysUntil === 0
+          ? `Hire-date anniversary today — cycle ${computed.cycleIndex} ticket is due.`
+          : `Finished service year ${computed.cycleIndex} on ${computed.eligibilityOn} (${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? "" : "s"} ago).`
+        : `Hire anniversary in ${daysUntil} day${daysUntil === 1 ? "" : "s"} (${computed.eligibilityOn}).`;
+
+    out.push({
+      staffId: person.id,
+      staffName: person.fullName,
+      employeeCode: person.employeeCode,
+      hireDate: hire,
+      cycleIndex: computed.cycleIndex,
+      cycleStart: computed.cycleStart,
+      cycleEnd: computed.cycleEnd,
+      eligibilityOn: computed.eligibilityOn,
+      status: computed.status,
+      kind,
+      daysUntilEligibility: daysUntil,
+      yearsOfService,
+      reason,
+    });
+  }
+
+  return out.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "due" ? -1 : 1;
+    if (a.eligibilityOn !== b.eligibilityOn) {
+      return a.eligibilityOn < b.eligibilityOn ? -1 : 1;
+    }
+    return a.staffName.localeCompare(b.staffName);
+  });
+}
+
+/** Deterministic panel blurb when AI is offline. */
+export function buildFallbackAirTicketAssistSummary(suggestions: AirTicketSuggestion[]): string {
+  const due = suggestions.filter((s) => s.kind === "due").length;
+  const approaching = suggestions.filter((s) => s.kind === "approaching").length;
+  if (!due && !approaching) {
+    return "No permanent staff are due or approaching an air-ticket anniversary under current policy.";
+  }
+  const parts: string[] = [];
+  if (due) {
+    parts.push(
+      `${due} permanent staff member${due === 1 ? " has" : "s have"} finished a service year and should apply for an air ticket`,
+    );
+  }
+  if (approaching) {
+    parts.push(
+      `${approaching} more anniversary${approaching === 1 ? " is" : "ies are"} within the upcoming eligibility window`,
+    );
+  }
+  return `${parts.join("; ")}. Create entitlements from the suggestions below, then issue tickets when booked.`;
+}

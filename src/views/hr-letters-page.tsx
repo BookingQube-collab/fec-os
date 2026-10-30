@@ -1,29 +1,29 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Mail } from "lucide-react";
+import { Mail, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { FecLoader } from "@/components/fec";
+import { HrGenerateLetterDialog } from "@/components/hr/hr-generate-letter-dialog";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { StaffDocumentLightbox } from "@/components/people/staff-document-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { HR_DOC_TYPES } from "@/lib/hr-advanced";
+import { HR_LETTER_DOC_TYPES, type HrLetterDocType } from "@/lib/hr/hr-letter-types";
 import { listEmployeeDocuments } from "@/lib/hr-documents.functions";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
-const LETTER_TYPES = HR_DOC_TYPES.filter((type) => type.endsWith("_letter"));
-
 export default function HrLettersPage() {
   const { t } = useTranslation();
-  const [kind, setKind] = useState<(typeof LETTER_TYPES)[number] | "all">("all");
+  const [kind, setKind] = useState<HrLetterDocType | "all">("all");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
 
   const documents = useQuery({
     queryKey: queryKeys.people.hrDocs({ scope: "letters" }),
@@ -48,12 +48,18 @@ export default function HrLettersPage() {
           kicker={t("hrWorkspace.letters.kicker")}
           title={t("hrWorkspace.letters.title")}
           subtitle={t("hrWorkspace.letters.subtitle")}
+          actions={
+            <Button type="button" size="sm" onClick={() => setGenerateOpen(true)}>
+              <Sparkles className="size-4" aria-hidden />
+              {t("hrWorkspace.letters.generate")}
+            </Button>
+          }
         >
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant={kind === "all" ? "default" : "outline"} onClick={() => setKind("all")}>
               {t("hrWorkspace.letters.all")}
             </Button>
-            {LETTER_TYPES.map((type) => (
+            {HR_LETTER_DOC_TYPES.map((type) => (
               <Button
                 key={type}
                 type="button"
@@ -71,7 +77,11 @@ export default function HrLettersPage() {
           ) : documents.isError ? (
             <HrEmptyState message={t("hrWorkspace.loadFailed")} />
           ) : letters.length === 0 ? (
-            <HrEmptyState message={t("hrWorkspace.letters.empty")} icon={Mail} />
+            <HrEmptyState
+              message={t("hrWorkspace.letters.empty")}
+              hint={t("hrWorkspace.letters.emptyHint")}
+              icon={Mail}
+            />
           ) : (
             <ul className="space-y-2">
               {letters.map((doc) => (
@@ -110,6 +120,12 @@ export default function HrLettersPage() {
             onOpenChange={(open) => {
               if (!open) setOpenId(null);
             }}
+          />
+
+          <HrGenerateLetterDialog
+            open={generateOpen}
+            onOpenChange={setGenerateOpen}
+            initialLetterType={kind}
           />
         </HrSection>
       </HrShell>

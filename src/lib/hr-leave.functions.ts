@@ -1300,6 +1300,9 @@ export const listStaffForLeaveBalances = createAuthenticatedActionNoInput(async 
       "hr.termination.initiate",
       "hr.termination.approve",
       "recruitment.request",
+      "payroll.view",
+      "payroll.generate",
+      "payroll.finance",
     ],
   },
 });

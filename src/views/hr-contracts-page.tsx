@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,33 +14,36 @@ import { HrShell } from "@/components/hr/hr-shell";
 import { StaffDocumentLightbox } from "@/components/people/staff-document-preview";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { listEmployeeDocuments } from "@/lib/hr-documents.functions";
+import { listContractRegister } from "@/lib/hr-documents.functions";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
+import { useAppStore } from "@/stores/app-store";
 
 export default function HrContractsPage() {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const locationId = useAppStore((s) => s.currentLocationId);
 
-  const documents = useQuery({
-    queryKey: queryKeys.people.hrDocs({ scope: "contract-register" }),
-    queryFn: () => listEmployeeDocuments({}),
+  const register = useQuery({
+    queryKey: queryKeys.people.hrContracts(),
+    queryFn: () => listContractRegister(),
     staleTime: STALE.people,
   });
 
   const contracts = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return (documents.data ?? [])
-      .filter((doc) => doc.docType === "contract" && !doc.deletedAt)
-      .filter((doc) => {
+    return (register.data ?? [])
+      .filter((row) => !locationId || row.locationId === locationId)
+      .filter((row) => {
         if (!needle) return true;
-        return `${doc.staffName ?? ""} ${doc.employeeCode ?? ""} ${doc.title ?? ""}`.toLowerCase().includes(needle);
-      })
-      .sort((a, b) => (a.expiryDate ?? "9999").localeCompare(b.expiryDate ?? "9999"));
-  }, [documents.data, query]);
+        return `${row.staffName ?? ""} ${row.employeeCode ?? ""} ${row.title ?? ""} ${row.fileName ?? ""}`
+          .toLowerCase()
+          .includes(needle);
+      });
+  }, [register.data, query, locationId]);
 
-  const openDoc = contracts.find((doc) => doc.id === openId) ?? null;
+  const openRow = contracts.find((row) => row.documentId === openId) ?? null;
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
 
   return (
@@ -58,9 +62,9 @@ export default function HrContractsPage() {
             aria-label={t("hrWorkspace.contracts.search")}
             className="max-w-sm"
           />
-          {documents.isLoading ? (
+          {register.isLoading ? (
             <FecLoader density="page" label={t("common.loading")} />
-          ) : documents.isError ? (
+          ) : register.isError ? (
             <HrEmptyState message={t("hrWorkspace.loadFailed")} />
           ) : contracts.length === 0 ? (
             <HrEmptyState message={t("hrWorkspace.contracts.empty")} icon={ScrollText} />
@@ -76,22 +80,47 @@ export default function HrContractsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {contracts.map((doc) => {
-                    const ended = Boolean(doc.expiryDate && doc.expiryDate < today);
+                  {contracts.map((row) => {
+                    const ended = Boolean(row.expiryDate && row.expiryDate < today);
                     return (
-                      <tr key={doc.id} className="border-t border-border">
+                      <tr key={row.staffId} className="border-t border-border">
                         <td className="px-3 py-2">
-                          <button type="button" className="text-start font-medium hover:underline" onClick={() => setOpenId(doc.id)}>
-                            {doc.staffName ?? "—"}
-                          </button>
-                          <p className="text-xs text-muted-foreground">{doc.employeeCode}</p>
+                          {row.hasFile && row.documentId ? (
+                            <button
+                              type="button"
+                              className="text-start font-medium hover:underline"
+                              onClick={() => setOpenId(row.documentId)}
+                            >
+                              {row.staffName ?? "—"}
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/people/staff/${row.staffId}?tab=documents`}
+                              className="font-medium hover:underline"
+                            >
+                              {row.staffName ?? "—"}
+                            </Link>
+                          )}
+                          <p className="text-xs text-muted-foreground">{row.employeeCode}</p>
                         </td>
-                        <td className="px-3 py-2">{doc.title || doc.fileName || t("hrWorkspace.history.contractFile")}</td>
-                        <td className="px-3 py-2 tabular-nums">{doc.expiryDate ?? "—"}</td>
                         <td className="px-3 py-2">
-                          <Badge variant={ended ? "destructive" : "outline"}>
-                            {ended ? t("hrWorkspace.contracts.ended") : t(`hr.docs.verification.${doc.verificationStatus}`, { defaultValue: doc.verificationStatus })}
-                          </Badge>
+                          {row.hasFile
+                            ? row.title || row.fileName || t("hrWorkspace.history.contractFile")
+                            : t("hrWorkspace.contracts.missingFile")}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{row.expiryDate ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          {ended ? (
+                            <Badge variant="destructive">{t("hrWorkspace.contracts.ended")}</Badge>
+                          ) : !row.hasFile ? (
+                            <Badge variant="outline">{t("hrWorkspace.contracts.missingFileStatus")}</Badge>
+                          ) : (
+                            <Badge variant="outline">
+                              {t(`hr.docs.verification.${row.verificationStatus}`, {
+                                defaultValue: row.verificationStatus ?? "unverified",
+                              })}
+                            </Badge>
+                          )}
                         </td>
                       </tr>
                     );
@@ -102,17 +131,17 @@ export default function HrContractsPage() {
           )}
           <StaffDocumentLightbox
             doc={
-              openDoc
+              openRow?.documentId
                 ? {
-                    id: openDoc.id,
-                    staffName: openDoc.staffName,
-                    docType: openDoc.docType,
-                    fileName: openDoc.fileName,
-                    fileMime: openDoc.fileMime,
+                    id: openRow.documentId,
+                    staffName: openRow.staffName,
+                    docType: "contract",
+                    fileName: openRow.fileName,
+                    fileMime: openRow.fileMime,
                   }
                 : null
             }
-            open={Boolean(openDoc)}
+            open={Boolean(openRow?.documentId)}
             onOpenChange={(open) => {
               if (!open) setOpenId(null);
             }}

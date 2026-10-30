@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { helpdeskStorageMissing, parseHelpdeskPayload } from "@/lib/hr-helpdesk.shared";
+import { canUserDo } from "@/lib/rbac";
+import { ForbiddenError } from "@/lib/server/authorize";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 
 function tableMissing(message: string | undefined): boolean {
@@ -16,6 +18,17 @@ function staffBits(row: Record<string, unknown>) {
   return {
     staffName: person?.full_name ?? null,
     employeeCode: person?.employee_code ?? null,
+  };
+}
+
+function periodBits(row: Record<string, unknown>) {
+  const period = Array.isArray(row.hr_payroll_periods)
+    ? row.hr_payroll_periods[0]
+    : row.hr_payroll_periods;
+  const p = period as { month?: string; status?: string } | null;
+  return {
+    periodMonth: p?.month ? String(p.month) : null,
+    periodStatus: p?.status ? String(p.status) : null,
   };
 }
 
@@ -143,35 +156,154 @@ export const logPrivacyRequest = createAuthenticatedAction(
 );
 
 const EXPENSE_TYPES = ["extra", "other_add"] as const;
+const EXPENSE_STATUSES = ["pending", "approved", "rejected", "posted"] as const;
 
 export const listExpenseAdjustments = createAuthenticatedAction(
-  z.object({}).default({}),
-  async (_data, context) => {
-    const { data, error } = await context.supabase
+  z
+    .object({
+      status: z.enum([...EXPENSE_STATUSES, "all"]).optional().nullable(),
+      adjType: z.enum([...EXPENSE_TYPES, "all"]).optional().nullable(),
+      staffId: z.string().uuid().optional().nullable(),
+      periodId: z.string().uuid().optional().nullable(),
+      q: z.string().trim().max(120).optional().nullable(),
+      dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+      dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    })
+    .default({}),
+  async (data, context) => {
+    let q = context.supabase
       .from("hr_payroll_adjustments")
       .select(
-        "id, adj_type, amount_qar, reason, document_ref, status, created_at, staff(full_name, employee_code)",
+        "id, period_id, staff_id, adj_type, amount_qar, reason, document_ref, status, created_at, staff(full_name, employee_code), hr_payroll_periods(month, status)",
       )
-      .in("adj_type", [...EXPENSE_TYPES])
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(300);
+
+    if (data.adjType && data.adjType !== "all") {
+      q = q.eq("adj_type", data.adjType);
+    } else {
+      q = q.in("adj_type", [...EXPENSE_TYPES]);
+    }
+    if (data.status && data.status !== "all") q = q.eq("status", data.status);
+    if (data.staffId) q = q.eq("staff_id", data.staffId);
+    if (data.periodId) q = q.eq("period_id", data.periodId);
+    if (data.dateFrom) q = q.gte("created_at", `${data.dateFrom}T00:00:00.000Z`);
+    if (data.dateTo) q = q.lte("created_at", `${data.dateTo}T23:59:59.999Z`);
+
+    const { data: rows, error } = await q;
     if (error) {
       if (tableMissing(error.message)) return [];
       throw error;
     }
-    return (data ?? []).map((row) => {
-      const record = row as Record<string, unknown>;
-      return {
-        id: String(record.id),
-        ...staffBits(record),
-        adjType: String(record.adj_type),
-        amountQar: Number(record.amount_qar ?? 0),
-        reason: (record.reason as string | null) ?? null,
-        documentRef: (record.document_ref as string | null) ?? null,
-        status: String(record.status ?? ""),
-        createdAt: String(record.created_at),
-      };
-    });
+
+    const needle = data.q?.trim().toLowerCase() ?? "";
+    return (rows ?? [])
+      .map((row) => {
+        const record = row as Record<string, unknown>;
+        return {
+          id: String(record.id),
+          periodId: String(record.period_id),
+          staffId: String(record.staff_id),
+          ...staffBits(record),
+          ...periodBits(record),
+          adjType: String(record.adj_type) as (typeof EXPENSE_TYPES)[number],
+          amountQar: Number(record.amount_qar ?? 0),
+          reason: (record.reason as string | null) ?? null,
+          documentRef: (record.document_ref as string | null) ?? null,
+          status: String(record.status ?? ""),
+          createdAt: String(record.created_at),
+        };
+      })
+      .filter((row) => {
+        if (!needle) return true;
+        const hay = [row.staffName, row.employeeCode, row.reason, row.documentRef, row.periodMonth]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(needle);
+      });
   },
   { defaultInput: {}, auth: { capability: "payroll.view" } },
+);
+
+/** File an extra-pay / other-addition expense for a payroll period (HR or finance). */
+export const createExpenseAdjustment = createAuthenticatedAction(
+  z.object({
+    periodId: z.string().uuid(),
+    staffId: z.string().uuid(),
+    adjType: z.enum(EXPENSE_TYPES),
+    amountQar: z.number().positive().max(1_000_000),
+    reason: z.string().trim().min(2).max(2000),
+    documentRef: z.string().trim().max(260).optional().nullable(),
+  }),
+  async (data, context) => {
+    const canFile =
+      canUserDo(context.roles ?? [], "payroll.generate") ||
+      canUserDo(context.roles ?? [], "payroll.finance");
+    if (!canFile) throw new ForbiddenError("Missing payroll.generate or payroll.finance.");
+
+    const { data: period, error: periodError } = await context.supabase
+      .from("hr_payroll_periods")
+      .select("id, status")
+      .eq("id", data.periodId)
+      .maybeSingle();
+    if (periodError && !tableMissing(periodError.message)) throw periodError;
+    if (!period) throw new Error("Payroll period not found.");
+    if (String(period.status) === "locked") {
+      throw new Error("Locked period — reopen required before filing expenses.");
+    }
+
+    const { data: staff, error: staffError } = await context.supabase
+      .from("staff")
+      .select("id")
+      .eq("id", data.staffId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (staffError) throw staffError;
+    if (!staff) throw new Error("Staff member not found.");
+
+    const { data: row, error } = await context.supabase
+      .from("hr_payroll_adjustments")
+      .insert({
+        period_id: data.periodId,
+        staff_id: data.staffId,
+        adj_type: data.adjType,
+        amount_qar: Math.round(data.amountQar * 100) / 100,
+        reason: data.reason,
+        document_ref: data.documentRef?.trim() || null,
+        status: "pending",
+        created_by: context.userId,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      if (tableMissing(error.message)) {
+        throw new Error("Adjustments table missing — apply migration 20260924180000.");
+      }
+      throw error;
+    }
+
+    try {
+      const { buildHrAuditRpcArgs } = await import("@/lib/hr-audit");
+      await context.supabase.rpc(
+        "log_audit",
+        buildHrAuditRpcArgs({
+          action: "hr.payroll.expense.create",
+          tableName: "hr_payroll_adjustments",
+          rowId: row.id,
+          after: {
+            adjType: data.adjType,
+            amountQar: data.amountQar,
+            periodId: data.periodId,
+            staffId: data.staffId,
+          },
+        }) as never,
+      );
+    } catch {
+      /* non-blocking */
+    }
+
+    return { id: row.id as string };
+  },
+  { auth: { anyCapability: ["payroll.generate", "payroll.finance"] } },
 );

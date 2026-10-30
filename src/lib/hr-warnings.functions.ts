@@ -3,6 +3,11 @@
 import { z } from "zod";
 
 import type { Json } from "@/integrations/supabase/types";
+import { callAiWarningDescription } from "@/lib/hr/ai-warning-description";
+import {
+  generateAndFileWarningLetter,
+  loadStaffForWarningLetter,
+} from "@/lib/hr/file-warning-letter";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { isOnProbation } from "@/lib/hr-probation";
 import { readPolicySection } from "@/lib/hr-policy-read";
@@ -230,38 +235,82 @@ export const getWarningEscalationForStaff = createAuthenticatedAction(
   { auth: { anyCapability: ["hr.warnings.manage", "hr.profile.view_sensitive", "hr.employee_app"] } },
 );
 
+/** AI (or fallback) draft for the warning description field. */
+export const aiDraftWarningDescription = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    category: z.enum(HR_WARNING_CATEGORIES),
+    warningLevel: z.enum(HR_WARNING_LEVELS),
+    incidentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    notes: z.string().max(2000).optional().nullable(),
+    locale: z.enum(["en", "ar"]).optional().nullable(),
+  }),
+  async (data, context) => {
+    if (!canUserDo(context.roles ?? [], "hr.warnings.manage")) {
+      throw new ForbiddenError("Missing hr.warnings.manage.");
+    }
+    const staff = await loadStaffForWarningLetter(context, data.staffId);
+    const { description, aiGenerated } = await callAiWarningDescription(
+      {
+        category: data.category,
+        warningLevel: data.warningLevel,
+        incidentOn: data.incidentOn,
+        notes: data.notes,
+        locale: data.locale === "ar" ? "ar" : "en",
+      },
+      staff,
+    );
+    return { description, aiGenerated };
+  },
+  { auth: { capability: "hr.warnings.manage" } },
+);
+
 export const issueWarning = createAuthenticatedAction(
   z.object({
     staffId: z.string().uuid(),
     incidentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     category: z.enum(HR_WARNING_CATEGORIES).default("conduct"),
-    description: z.string().min(1).max(4000),
+    description: z.string().trim().min(3).max(4000),
     location: z.string().max(200).optional().nullable(),
     witnesses: z.string().max(1000).optional().nullable(),
     evidence: z.string().max(2000).optional().nullable(),
     warningLevel: z.enum(HR_WARNING_LEVELS).default("written"),
     issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     validUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-    letterDocumentId: z.string().uuid(),
+    /** Optional signed/scanned letter. When omitted, a letterhead PDF is generated. */
+    letterDocumentId: z.string().uuid().optional().nullable(),
+    locale: z.enum(["en", "ar"]).optional().nullable(),
   }),
   async (data, context) => {
     if (!canUserDo(context.roles ?? [], "hr.warnings.manage")) {
       throw new ForbiddenError("Missing hr.warnings.manage.");
     }
-    const letterId = assertWarningLetterRequired(data.letterDocumentId);
 
-    const { data: letter, error: letterErr } = await context.supabase
-      .from("hr_employee_documents")
-      .select("id, staff_id, doc_type, deleted_at")
-      .eq("id", letterId)
-      .maybeSingle();
-    if (letterErr) throw letterErr;
-    if (!letter || letter.deleted_at) throw new Error("Warning letter document not found.");
-    if (letter.staff_id !== data.staffId) {
-      throw new Error("Warning letter must belong to the same staff member.");
-    }
-    if (String(letter.doc_type) !== "warning_letter") {
-      throw new Error("Document must be type warning_letter.");
+    let letterId: string;
+    if (data.letterDocumentId?.trim()) {
+      letterId = assertWarningLetterRequired(data.letterDocumentId);
+      const { data: letter, error: letterErr } = await context.supabase
+        .from("hr_employee_documents")
+        .select("id, staff_id, doc_type, deleted_at")
+        .eq("id", letterId)
+        .maybeSingle();
+      if (letterErr) throw letterErr;
+      if (!letter || letter.deleted_at) throw new Error("Warning letter document not found.");
+      if (letter.staff_id !== data.staffId) {
+        throw new Error("Warning letter must belong to the same staff member.");
+      }
+      if (String(letter.doc_type) !== "warning_letter") {
+        throw new Error("Document must be type warning_letter.");
+      }
+    } else {
+      const filed = await generateAndFileWarningLetter(context, {
+        staffId: data.staffId,
+        incidentOn: data.incidentOn,
+        description: data.description,
+        warningLevel: data.warningLevel,
+        locale: data.locale === "ar" ? "ar" : "en",
+      });
+      letterId = filed.id;
     }
 
     const { data: staff, error: staffErr } = await context.supabase

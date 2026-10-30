@@ -9,6 +9,8 @@ import { z } from "zod";
 import {
   airTicketPolicyFromSection,
   assertCanMarkAirTicketPaid,
+  buildAirTicketSuggestions,
+  buildFallbackAirTicketAssistSummary,
   computeEntitlementDatesFromPolicy,
   HR_AIR_TICKET_ENTITLEMENT_STATUSES,
   isAirTicketOverdue,
@@ -17,6 +19,7 @@ import {
   type HrAirTicketIssueStatus,
   type HrAirTicketPayrollStatus,
 } from "@/lib/hr-air-ticket";
+import { callAiAirTicketAssistSummary } from "@/lib/hr/ai-air-ticket-suggestions";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
@@ -25,6 +28,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
   createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
   type AuthContext,
 } from "@/lib/server/create-action";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
@@ -482,6 +486,128 @@ export const previewAirTicketEligibility = createAuthenticatedAction(
       policy,
       cycleIndex: data.cycleIndex ?? undefined,
     });
+  },
+  { auth: { capability: "hr.air_ticket.manage" } },
+);
+
+/** Staff picker for air tickets — active roster with hire date for policy preview. */
+export const listStaffForAirTickets = createAuthenticatedActionNoInput(
+  async (context) => {
+    if (!canManage(context.roles)) throw new ForbiddenError("Missing hr.air_ticket.manage.");
+    const { data, error } = await context.supabase
+      .from("staff")
+      .select("id, full_name, employee_code, hire_date, employment_type")
+      .in("status", ["active", "on_leave", "serving_notice"])
+      .is("deleted_at", null)
+      .order("full_name")
+      .limit(800);
+    if (error) throw error;
+    return (data ?? []).map((s) => ({
+      id: s.id as string,
+      name: s.full_name as string,
+      employeeCode: (s.employee_code as string | null) ?? null,
+      hireDate: s.hire_date ? String(s.hire_date).slice(0, 10) : null,
+      employmentType: (s.employment_type as string | null) ?? null,
+    }));
+  },
+  { auth: { anyCapability: ["hr.air_ticket.manage", "hr.manage"] } },
+);
+
+/**
+ * Suggest permanent staff who finished / are approaching a hire-date entitlement cycle
+ * and do not yet have an open entitlement for that cycle. AI writes the panel summary when available.
+ */
+export const suggestAirTicketApplications = createAuthenticatedAction(
+  z.object({
+    locale: z.enum(["en", "ar"]).optional().nullable(),
+    withAiSummary: z.boolean().optional(),
+  }),
+  async (data, context) => {
+    if (!canManage(context.roles)) throw new ForbiddenError("Missing hr.air_ticket.manage.");
+
+    const policy = await loadAirPolicy(context);
+    const asOf = qatarToday();
+
+    const { data: staffRows, error: staffErr } = await context.supabase
+      .from("staff")
+      .select("id, full_name, employee_code, hire_date, employment_type")
+      .eq("employment_type", "permanent")
+      .in("status", ["active", "on_leave", "serving_notice"])
+      .is("deleted_at", null)
+      .not("hire_date", "is", null)
+      .order("full_name")
+      .limit(800);
+    if (staffErr) throw staffErr;
+
+    const { data: entRows, error: entErr } = await context.supabase
+      .from("hr_air_ticket_entitlements")
+      .select("staff_id, eligibility_on, cycle_start, status")
+      .in("status", ["open", "eligible", "issued", "carried_forward"])
+      .limit(2000);
+    if (entErr) {
+      if (tableMissing(entErr.message)) {
+        return {
+          asOf,
+          policy: {
+            cycleMonths: policy.cycleMonths,
+            upcomingHorizonDays: policy.upcomingHorizonDays,
+            fromHireDate: policy.fromHireDate,
+          },
+          suggestions: [],
+          summary: "Air-ticket entitlement tables are not available yet.",
+          aiGenerated: false,
+          counts: { due: 0, approaching: 0, total: 0 },
+        };
+      }
+      throw entErr;
+    }
+
+    const suggestions = buildAirTicketSuggestions({
+      staff: (staffRows ?? []).map((s) => ({
+        id: String(s.id),
+        fullName: String(s.full_name ?? ""),
+        employeeCode: (s.employee_code as string | null) ?? null,
+        hireDate: String(s.hire_date).slice(0, 10),
+        employmentType: (s.employment_type as string | null) ?? null,
+      })),
+      existing: (entRows ?? []).map((r) => ({
+        staffId: String(r.staff_id),
+        eligibilityOn: String(r.eligibility_on).slice(0, 10),
+        cycleStart: String(r.cycle_start).slice(0, 10),
+        status: String(r.status),
+      })),
+      policy,
+      asOfDate: asOf,
+    });
+
+    const due = suggestions.filter((s) => s.kind === "due").length;
+    const approaching = suggestions.filter((s) => s.kind === "approaching").length;
+
+    let summary: string;
+    let aiGenerated = false;
+    if (data.withAiSummary !== false) {
+      const ai = await callAiAirTicketAssistSummary(
+        suggestions,
+        data.locale === "ar" ? "ar" : "en",
+      );
+      summary = ai.summary;
+      aiGenerated = ai.aiGenerated;
+    } else {
+      summary = buildFallbackAirTicketAssistSummary(suggestions);
+    }
+
+    return {
+      asOf,
+      policy: {
+        cycleMonths: policy.cycleMonths,
+        upcomingHorizonDays: policy.upcomingHorizonDays,
+        fromHireDate: policy.fromHireDate,
+      },
+      suggestions,
+      summary,
+      aiGenerated,
+      counts: { due, approaching, total: suggestions.length },
+    };
   },
   { auth: { capability: "hr.air_ticket.manage" } },
 );

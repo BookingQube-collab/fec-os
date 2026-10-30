@@ -137,6 +137,7 @@ export function HrDocumentsWorkspace({
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: queryKeys.people.hrDocs() });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.hrContracts() });
     onChanged?.();
   };
 

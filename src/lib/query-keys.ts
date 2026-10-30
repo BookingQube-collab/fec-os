@@ -211,6 +211,7 @@ export const queryKeys = {
     teamToday: (locationId?: string | null) =>
       [...queryKeys.people.all, "team-today", locationId ?? null] as const,
     hrDocs: (filters?: object) => [...queryKeys.people.all, "hr-docs", filters ?? {}] as const,
+    hrContracts: () => [...queryKeys.people.all, "hr-contracts"] as const,
     hrDocPreview: (id: string) => [...queryKeys.people.all, "hr-doc-preview", id] as const,
     hrChecklists: (filters?: object) => [...queryKeys.people.all, "hr-checklists", filters ?? {}] as const,
     hrAnnouncements: (filters?: object) => [...queryKeys.people.all, "hr-announcements", filters ?? {}] as const,
@@ -229,7 +230,7 @@ export const queryKeys = {
     hrHelpdeskRules: () => [...queryKeys.people.all, "hr-helpdesk-rules"] as const,
     hrPrivacy: () => [...queryKeys.people.all, "hr-privacy"] as const,
     hrLeaveQueue: () => [...queryKeys.people.all, "hr-leave-queue"] as const,
-    hrExpenses: () => [...queryKeys.people.all, "hr-expenses"] as const,
+    hrExpenses: (filters?: object) => [...queryKeys.people.all, "hr-expenses", filters ?? {}] as const,
     hrWarnings: (filters?: object) => [...queryKeys.people.all, "hr-warnings", filters ?? {}] as const,
     kraScorecards: () => [...queryKeys.people.all, "kra-scorecards"] as const,
     kraStaff: () => [...queryKeys.people.all, "kra-staff"] as const,

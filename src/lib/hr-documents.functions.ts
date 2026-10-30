@@ -8,7 +8,7 @@ import {
 } from "@/lib/hr-advanced";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
+import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { extractIdentityDocumentFromBytes } from "@/lib/hr/extract-identity-document";
@@ -17,6 +17,7 @@ import { isIdentityDocType } from "@/lib/hr/identity-document-parse";
 import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import { ACTIVE_ROSTER_STAFF_STATUS_OR } from "@/lib/staff-status";
 
 const DOC_BUCKET = "hr-employee-documents";
 
@@ -148,6 +149,7 @@ export const listEmployeeDocuments = createAuthenticatedAction(
     staffId: z.string().uuid().optional(),
     mineOnly: z.boolean().optional(),
     includeDeleted: z.boolean().optional(),
+    docType: z.enum(HR_DOC_TYPES).optional(),
   }),
   async (data, context) => {
     const manage = canManageDocs(context.roles);
@@ -160,8 +162,9 @@ export const listEmployeeDocuments = createAuthenticatedAction(
       .from("hr_employee_documents")
       .select(DOC_SELECT)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(data.docType ? 1000 : 200);
     if (staffId) q = q.eq("staff_id", staffId);
+    if (data.docType) q = q.eq("doc_type", data.docType);
     if (!data.includeDeleted) q = q.is("deleted_at", null);
     const { data: rows, error } = await q;
     if (error) {
@@ -180,6 +183,81 @@ export const listEmployeeDocuments = createAuthenticatedAction(
       });
   },
   { auth: { anyCapability: ["hr.docs.manage", "hr.manage", "hr.employee_app"] } },
+);
+
+/**
+ * Active-roster staff with profile contract dates and the latest uploaded contract file (if any).
+ * HR Contracts is a staff register — not “files only” — so people without a PDF still appear.
+ */
+export const listContractRegister = createAuthenticatedActionNoInput(
+  async (context) => {
+    if (!canManageDocs(context.roles)) {
+      throw new ForbiddenError("Contract register requires document management access.");
+    }
+
+    const [{ data: staffRows, error: staffErr }, { data: docRows, error: docErr }] = await Promise.all([
+      supabaseAdmin
+        .from("staff")
+        .select(
+          "id, full_name, employee_code, status, location_id, staff_profile_ext!staff_profile_ext_staff_id_fkey(contract_start, contract_end)",
+        )
+        .is("deleted_at", null)
+        .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
+        .order("full_name")
+        .limit(500),
+      supabaseAdmin
+        .from("hr_employee_documents")
+        .select(DOC_SELECT)
+        .eq("doc_type", "contract")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(2000),
+    ]);
+    if (staffErr) throw staffErr;
+    if (docErr) {
+      if (tableMissing(docErr.message)) {
+        /* table may be missing in a fresh env — still return staff rows */
+      } else {
+        throw docErr;
+      }
+    }
+
+    const latestDocByStaff = new Map<string, ReturnType<typeof mapDoc>>();
+    for (const row of docRows ?? []) {
+      const doc = mapDoc(row as Record<string, unknown>);
+      if (latestDocByStaff.has(doc.staffId)) continue;
+      latestDocByStaff.set(doc.staffId, doc);
+    }
+
+    const rows = (staffRows ?? []).map((staff) => {
+      const extRaw = staff.staff_profile_ext;
+      const ext = Array.isArray(extRaw) ? extRaw[0] : extRaw;
+      const profileEnd = ext?.contract_end ? String(ext.contract_end).slice(0, 10) : null;
+      const profileStart = ext?.contract_start ? String(ext.contract_start).slice(0, 10) : null;
+      const doc = latestDocByStaff.get(String(staff.id)) ?? null;
+      const expiryDate = doc?.expiryDate ?? profileEnd;
+      return {
+        staffId: String(staff.id),
+        staffName: (staff.full_name as string | null) ?? null,
+        employeeCode: (staff.employee_code as string | null) ?? null,
+        status: (staff.status as string | null) ?? null,
+        locationId: (staff.location_id as string | null) ?? null,
+        contractStart: profileStart,
+        contractEnd: profileEnd,
+        expiryDate,
+        documentId: doc?.id ?? null,
+        title: doc?.title ?? null,
+        fileName: doc?.fileName ?? null,
+        fileMime: doc?.fileMime ?? null,
+        verificationStatus: doc?.verificationStatus ?? null,
+        hasFile: Boolean(doc),
+      };
+    });
+
+    rows.sort((a, b) => (a.expiryDate ?? "9999").localeCompare(b.expiryDate ?? "9999"));
+    return rows;
+  },
+  { auth: { anyCapability: ["hr.docs.manage", "hr.manage"] } },
 );
 
 async function uploadBytes(
