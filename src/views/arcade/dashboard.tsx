@@ -146,20 +146,20 @@ export function ArcadeDashboard() {
   const shown = kpis
     ? selectedSite
       ? {
-          total: selectedSite.active_machines,
-          working: selectedSite.working,
-          underRepair: selectedSite.under_repair,
-          outOfService: selectedSite.out_of_service,
-          pmDue: selectedSite.pm_due,
+          total: selectedSite.active_machines ?? 0,
+          working: selectedSite.working ?? 0,
+          underRepair: selectedSite.under_repair ?? 0,
+          outOfService: selectedSite.out_of_service ?? 0,
+          pmDue: selectedSite.pm_due ?? 0,
           operationalPercent: selectedSite.availability,
           pmCompliance: null as number | null,
         }
       : {
-          total: kpis.total,
-          working: kpis.working,
-          underRepair: kpis.underRepair,
-          outOfService: kpis.outOfService,
-          pmDue: kpis.pmDue,
+          total: kpis.total ?? 0,
+          working: kpis.working ?? 0,
+          underRepair: kpis.underRepair ?? 0,
+          outOfService: kpis.outOfService ?? 0,
+          pmDue: kpis.pmDue ?? 0,
           operationalPercent: kpis.operationalPercent,
           pmCompliance: kpis.pmCompliance,
         }
@@ -273,8 +273,8 @@ export function ArcadeDashboard() {
             aria-pressed={siteId === site.location_id}
             onClick={() => setSiteId(site.location_id)}
           >
-            {nameFor(site.location_id)}
-            <span className="arcade-chip__count">{site.active_machines}</span>
+            {nameFor(site.location_id ?? "")}
+            <span className="arcade-chip__count">{site.active_machines ?? 0}</span>
           </button>
         ))}
       </div>

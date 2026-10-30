@@ -135,14 +135,14 @@ export function ArcadeSite({ locationId }: { locationId: string }) {
   if (omitted) return null;
   const counts = site
     ? [
-        { status: "", label: t("arcadeScreens.machines"), value: site.active_machines },
-        { status: "WORKING", label: t("arcadeOps.working"), value: site.working },
-        { status: "DOWN", label: t("arcadeOps.down"), value: site.down },
-        { status: "UNDER_REPAIR", label: t("arcadeOps.underRepair"), value: site.under_repair },
-        { status: "UNDER_OBSERVATION", label: t("arcadeScreens.observation"), value: site.under_observation },
-        { status: "WAITING_PART", label: t("arcadeOps.waitingParts"), value: site.waiting_part },
-        { status: null, label: t("arcadeOps.pmDue"), value: site.pm_due + site.pm_overdue },
-        { status: "WAITING_SUPPLIER", label: t("arcadeOps.waitingSupplier"), value: site.waiting_supplier },
+        { status: "", label: t("arcadeScreens.machines"), value: site.active_machines ?? 0 },
+        { status: "WORKING", label: t("arcadeOps.working"), value: site.working ?? 0 },
+        { status: "DOWN", label: t("arcadeOps.down"), value: site.down ?? 0 },
+        { status: "UNDER_REPAIR", label: t("arcadeOps.underRepair"), value: site.under_repair ?? 0 },
+        { status: "UNDER_OBSERVATION", label: t("arcadeScreens.observation"), value: site.under_observation ?? 0 },
+        { status: "WAITING_PART", label: t("arcadeOps.waitingParts"), value: site.waiting_part ?? 0 },
+        { status: null, label: t("arcadeOps.pmDue"), value: (site.pm_due ?? 0) + (site.pm_overdue ?? 0) },
+        { status: "WAITING_SUPPLIER", label: t("arcadeOps.waitingSupplier"), value: site.waiting_supplier ?? 0 },
       ]
     : [];
   return (
