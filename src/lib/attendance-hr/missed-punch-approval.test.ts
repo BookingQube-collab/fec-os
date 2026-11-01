@@ -92,6 +92,7 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
       [INF, [MARY]],
       [KDS, [ASHFAQ]],
     ]),
+    srSiteSupervisorUserIds: [MARY],
     headOfOperationsUserIds: [RAJAN],
     fnbManagerUserIds: [RUBEN],
     fnbStaffIds: new Set(),
@@ -263,11 +264,14 @@ describe("missed punch approval chain", () => {
     ).toBe("Head of Operations approved · Rajan Pathak");
   });
 
-  it("derives the line manager from the site when nobody is named as reporting manager", () => {
+  it("derives the line manager from Sr. Site Supervisors (not Venue / branch GM fallbacks)", () => {
     const dir = directory();
-    expect(lineManagerUserIds(dir, INF, STAFF).sort()).toEqual([MARY, MARY_TEST].sort());
-    expect(lineManagerUserIds(dir, KDS, STAFF).sort()).toEqual(["ashfaq-test-login", ASHFAQ].sort());
+    expect(lineManagerUserIds(dir, INF, STAFF)).toEqual([MARY]);
+    // KDS has Venue Supervisor Ashfaq only — fall back to estate Sr. Site (Mary).
+    expect(lineManagerUserIds(dir, KDS, STAFF)).toEqual([MARY]);
+    expect(lineManagerUserIds(dir, KDS, STAFF)).not.toContain(ASHFAQ);
     expect(lineManagerUserIds(dir, INF, STAFF)).not.toContain(OMAR);
+    expect(lineManagerUserIds(dir, INF, STAFF)).not.toContain(MARY_TEST);
   });
 
   it("uses a linked reporting manager instead of every site supervisor", () => {
@@ -275,6 +279,33 @@ describe("missed punch approval chain", () => {
       reportingManagerUserIdByStaffId: new Map([[STAFF, MARY]]),
     });
     expect(lineManagerUserIds(dir, INF, STAFF)).toEqual([MARY]);
+  });
+
+  it("ignores a named Venue Supervisor / HoO boss and keeps the manager seat on Sr. Site", () => {
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[STAFF, ASHFAQ]]),
+    });
+    expect(lineManagerUserIds(dir, INF, STAFF)).toEqual([MARY]);
+    expect(
+      requesterLineManagerUserIds(dir, {
+        locationId: KDS,
+        staffId: STAFF,
+        requestedBy: "employee-1",
+        requesterStaffId: STAFF,
+      }),
+    ).toEqual([MARY]);
+    const whenBossIsHoo = directory({
+      reportingManagerUserIdByStaffId: new Map([[STAFF, RAJAN]]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      requesterLineManagerUserIds(whenBossIsHoo, {
+        locationId: KDS,
+        staffId: STAFF,
+        requestedBy: "employee-1",
+        requesterStaffId: STAFF,
+      }),
+    ).toEqual([MARY]);
   });
 
   it("routes the operations step only to Head of Operations for Operations staff", () => {
@@ -306,7 +337,8 @@ describe("missed punch approval chain", () => {
     const dir = directory();
     const fresh = row();
     expect(canUserActOnCorrection(dir, MARY, fresh)).toBe(true);
-    expect(canUserActOnCorrection(dir, MARY_TEST, fresh)).toBe(true);
+    // branch_gm without Sr. Site title is not the manager seat.
+    expect(canUserActOnCorrection(dir, MARY_TEST, fresh)).toBe(false);
     expect(canUserActOnCorrection(dir, RAJAN, fresh)).toBe(false);
     expect(canUserActOnCorrection(dir, HR, fresh)).toBe(false);
     expect(canUserActOnCorrection(dir, OMAR, fresh)).toBe(false);
@@ -772,16 +804,18 @@ describe("missed punch approval chain", () => {
     expect(punchCorrectionRequestSide({ missedPunch: false, status: "weekly_off", hasIn: false, hasOut: false })).toBeNull();
   });
 
-  it("sends a manager's correction to their line manager, not the CEO", () => {
+  it("sends a manager's correction to their Sr. Site Supervisor, not HoO or the CEO", () => {
     const supervisor = "supervisor-user";
     const supervisorStaff = "supervisor-staff";
-    const lineManager = "line-manager-user";
+    const lineManager = MARY;
     const teamMember = "team-member";
     const dir = directory({
       reportingManagerUserIdByStaffId: new Map([
         [teamMember, supervisor],
         [supervisorStaff, lineManager],
       ]),
+      siteSupervisorManagerUserIdByStaffId: new Map([[supervisorStaff, MARY]]),
+      srSiteSupervisorUserIds: [MARY],
       headOfOperationsUserIds: [RAJAN],
     });
     const request = row({
@@ -810,6 +844,59 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, lineManager, ownPunch)).toBe(true);
     expect(canUserActOnCorrection(dir, supervisor, ownPunch)).toBe(false);
     expect(canUserActOnCorrection(dir, RAJAN, ownPunch)).toBe(false);
+  });
+
+  it("routes a Venue Supervisor team submit to Sr. Site (notify + queue), then HoO after approve", () => {
+    const ashfaqStaff = "ashfaq-staff";
+    const crew = "uzzal-staff";
+    const dir = directory({
+      // Broken chart: Ashfaq wrongly listed as reporting to HoO — must still not notify HoO first.
+      reportingManagerUserIdByStaffId: new Map([
+        [ashfaqStaff, RAJAN],
+        [crew, ASHFAQ],
+      ]),
+      siteSupervisorManagerUserIdByStaffId: new Map(),
+      srSiteSupervisorUserIds: [MARY],
+      siteSupervisorUserIdsByLocationId: new Map([
+        [KDS, [ASHFAQ]],
+        [INF, [MARY]],
+      ]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: ashfaqStaff,
+        targetStaffId: crew,
+        teamStaffIds: [crew],
+      }),
+    ).toBe("ops");
+    expect(
+      teamCorrectionRoute(dir, crew, ASHFAQ, {
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      }),
+    ).toBe("line_manager");
+    expect(correctionWaitingStep("line_manager")).toBe("manager");
+    expect(
+      requesterLineManagerUserIds(dir, {
+        locationId: KDS,
+        staffId: crew,
+        requestedBy: ASHFAQ,
+        requesterStaffId: ashfaqStaff,
+      }),
+    ).toEqual([MARY]);
+    const waitingOnMary = row({
+      staffId: crew,
+      requestedBy: ASHFAQ,
+      requesterStaffId: ashfaqStaff,
+      locationId: KDS,
+      currentStepRole: "manager",
+    });
+    expect(canUserActOnCorrection(dir, MARY, waitingOnMary)).toBe(true);
+    expect(canUserActOnCorrection(dir, RAJAN, waitingOnMary)).toBe(false);
+    expect(canUserActOnCorrection(dir, ASHFAQ, waitingOnMary)).toBe(false);
+    expect(nextMissedPunchStep("manager")).toBe("ops");
+    expect(canUserActOnCorrection(dir, RAJAN, row({ ...waitingOnMary, currentStepRole: "ops" }))).toBe(true);
   });
 
   it("keeps the employee home to corrections this person must approve", () => {
@@ -858,6 +945,7 @@ describe("missed punch approval chain", () => {
         [managerStaff, lineManager],
         [crew, managerUser],
       ]),
+      srSiteSupervisorUserIds: [lineManager],
     });
     const route = punchCorrectionRoute({
       requesterStaffId: managerStaff,
@@ -885,6 +973,7 @@ describe("missed punch approval chain", () => {
     const theirManager = "their-manager";
     const dir = directory({
       reportingManagerUserIdByStaffId: new Map([[supervisorStaff, theirManager]]),
+      srSiteSupervisorUserIds: [theirManager],
     });
     expect(
       punchCorrectionRoute({
@@ -1490,7 +1579,7 @@ describe("unmappedLogIdsToClaimForCorrection", () => {
 });
 
 describe("site attendance approvers", () => {
-  it("lets a duty manager and tech supervisor approve the manager step at their sites", () => {
+  it("lets a duty manager and tech supervisor approve the manager step only when no Sr. Site list exists", () => {
     const duty = "duty-user";
     const supervisor = "tech-user";
     const map = siteApproverLocationMap([
@@ -1501,10 +1590,24 @@ describe("site attendance approvers", () => {
     ]);
     expect(map.get(INF)).toEqual([duty, supervisor]);
     expect(map.has("")).toBe(false);
-    const dir = directory({ branchGmUserIdsByLocationId: map, siteSupervisorUserIdsByLocationId: new Map() });
-    expect(canUserActOnCorrection(dir, duty, row())).toBe(true);
-    expect(canUserActOnCorrection(dir, supervisor, row())).toBe(true);
-    expect(canUserActOnCorrection(dir, duty, row({ locationId: KDS }))).toBe(false);
-    expect(canUserActOnCorrection(dir, duty, row({ requestedBy: duty }))).toBe(false);
+    // Legacy site roles: only when Sr. Site Supervisors are not configured.
+    const legacy = directory({
+      branchGmUserIdsByLocationId: map,
+      siteSupervisorUserIdsByLocationId: new Map(),
+      srSiteSupervisorUserIds: [],
+    });
+    expect(canUserActOnCorrection(legacy, duty, row())).toBe(true);
+    expect(canUserActOnCorrection(legacy, supervisor, row())).toBe(true);
+    expect(canUserActOnCorrection(legacy, duty, row({ locationId: KDS }))).toBe(false);
+    expect(canUserActOnCorrection(legacy, duty, row({ requestedBy: duty }))).toBe(false);
+    // With Mary configured, manager seat stays on Sr. Site — not duty/tech roles.
+    const withSrSite = directory({
+      branchGmUserIdsByLocationId: map,
+      siteSupervisorUserIdsByLocationId: new Map(),
+      srSiteSupervisorUserIds: [MARY],
+    });
+    expect(canUserActOnCorrection(withSrSite, duty, row())).toBe(false);
+    expect(canUserActOnCorrection(withSrSite, supervisor, row())).toBe(false);
+    expect(canUserActOnCorrection(withSrSite, MARY, row())).toBe(true);
   });
 });

@@ -27,6 +27,7 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
     siteSupervisorManagerUserIdByStaffId: new Map(),
     branchGmUserIdsByLocationId: new Map([[SITE, [GM]]]),
     siteSupervisorUserIdsByLocationId: new Map(),
+    srSiteSupervisorUserIds: [LINE],
     headOfOperationsUserIds: [HOO],
     fnbManagerUserIds: [],
     fnbStaffIds: new Set(),
@@ -100,16 +101,17 @@ describe("who may approve from My Day", () => {
       ).toBe(true);
     }
     expect(canApproveCorrectionOnMyDay(directory(), GM, correction())).toBe(false);
+    // Without a Sr. Site list, branch_gm remains the site manager-step fallback.
     expect(
       canApproveCorrectionOnMyDay(
-        directory({ reportingManagerUserIdByStaffId: new Map() }),
+        directory({ reportingManagerUserIdByStaffId: new Map(), srSiteSupervisorUserIds: [] }),
         GM,
         correction(),
       ),
     ).toBe(true);
     expect(
       canApproveCorrectionOnMyDay(
-        directory({ reportingManagerUserIdByStaffId: new Map() }),
+        directory({ reportingManagerUserIdByStaffId: new Map(), srSiteSupervisorUserIds: [] }),
         GM,
         correction({ currentStepRole: "ops" }),
       ),
@@ -140,7 +142,10 @@ describe("who may approve from My Day", () => {
     expect(canApproveCorrectionOnMyDay(directory(), CEO, correction({ currentStepRole: "ops" }))).toBe(false);
     expect(
       canApproveCorrectionOnMyDay(
-        directory({ reportingManagerUserIdByStaffId: new Map([[STAFF, CEO]]) }),
+        directory({
+          reportingManagerUserIdByStaffId: new Map([[STAFF, CEO]]),
+          srSiteSupervisorUserIds: [CEO],
+        }),
         CEO,
         correction(),
       ),

@@ -66,6 +66,7 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { notifyUsers } from "@/lib/notifications/action-notify";
+import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
   loadAttendanceListingReportingTreeStaffIds,
@@ -290,6 +291,7 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
   }
 
   const siteSupervisorUserIdsByLocationId = new Map<string, string[]>();
+  const srSiteSupervisorUserIds = new Set<string>();
   const supervisorLocationByStaffId = new Map<string, string>();
   for (const staff of supervisorsRes.data ?? []) {
     const staffId = staff.id as string;
@@ -297,6 +299,7 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     const title = staff.job_title as string | null;
     const staffRole = staff.staff_role as string | null;
     if (userId && isHeadOfOperationsTitle(title)) head.add(userId);
+    if (userId && isSrSiteSupervisorTitle(title)) srSiteSupervisorUserIds.add(userId);
     if (!isSiteSupervisorTitle(title, staffRole)) continue;
     const locationId = staff.location_id as string | null;
     if (!locationId) continue;
@@ -379,6 +382,7 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     siteSupervisorManagerUserIdByStaffId,
     branchGmUserIdsByLocationId,
     siteSupervisorUserIdsByLocationId,
+    srSiteSupervisorUserIds: [...srSiteSupervisorUserIds],
     headOfOperationsUserIds: [...head],
     fnbManagerUserIds: [...fnbManagers],
     fnbStaffIds,

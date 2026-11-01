@@ -81,6 +81,12 @@ export type ApprovalDirectory = {
   siteSupervisorManagerUserIdByStaffId: ReadonlyMap<string, string>;
   branchGmUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   siteSupervisorUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Every active Sr. Site Supervisor login (estate-wide).
+   * Manager-step notify/approve falls back here when the chart walk misses —
+   * Mary often sits on one home location while supervising many venues.
+   */
+  srSiteSupervisorUserIds: readonly string[];
   headOfOperationsUserIds: readonly string[];
   /** Logins with an F&B Manager title. Ops step for F&B staff. */
   fnbManagerUserIds: readonly string[];
@@ -429,9 +435,16 @@ export function ownCorrectionRouteAfterLineManagerCheck(
     requesterStaffId?: string | null;
   },
 ): "line_manager" | "ops_first" {
+  const opsIds = new Set(approverUserIdsForStep(directory, "ops", args.locationId, args.staffId));
+  const lookupId = args.requesterStaffId ?? args.staffId;
+  // Mary (Sr. Site) reporting to HoO: named boss is ops, so skip the manager seat.
+  // Do this before Sr-Site-only manager resolution, which intentionally excludes HoO.
+  if (lookupId) {
+    const named = directory.reportingManagerUserIdByStaffId.get(lookupId);
+    if (named && named !== args.requestedBy && opsIds.has(named)) return "ops_first";
+  }
   const managers = requesterLineManagerUserIds(directory, args);
   if (!managers.length) return "line_manager";
-  const opsIds = new Set(approverUserIdsForStep(directory, "ops", args.locationId, args.staffId));
   if (managers.every((id) => opsIds.has(id))) return "ops_first";
   return "line_manager";
 }
@@ -655,15 +668,36 @@ export function isHeadOfOperationsTitle(jobTitle: string | null | undefined): bo
   return /head of operations/i.test(jobTitle ?? "");
 }
 
+/** Ops-seat holders must not receive the manager (Sr. Site) step notify/queue. */
+function opsSeatUserIds(directory: ApprovalDirectory): Set<string> {
+  return new Set([...directory.headOfOperationsUserIds, ...directory.fnbManagerUserIds]);
+}
+
+/**
+ * Manager-step candidates for a location / staff id.
+ * Prefers a named boss only when they hold Sr. Site Supervisor; otherwise uses
+ * Sr. Site logins at the location, then estate-wide Sr. Site (Mary spans venues).
+ * Does not fall through to Venue Supervisors, branch GMs, or HoO.
+ */
 export function lineManagerUserIds(
   directory: ApprovalDirectory,
   locationId: string,
   staffId: string | null,
 ): string[] {
+  const srSite = directory.srSiteSupervisorUserIds ?? [];
+  const srSiteSet = new Set(srSite);
   if (staffId) {
     const named = directory.reportingManagerUserIdByStaffId.get(staffId);
-    if (named) return [named];
+    if (named && (!srSiteSet.size || srSiteSet.has(named))) return [named];
   }
+  if (srSiteSet.size) {
+    const atLocation = (directory.siteSupervisorUserIdsByLocationId.get(locationId) ?? []).filter((id) =>
+      srSiteSet.has(id),
+    );
+    if (atLocation.length) return [...new Set(atLocation)];
+    return [...srSite];
+  }
+  // Legacy directories without a Sr. Site list (older tests / callers).
   const branch = directory.branchGmUserIdsByLocationId.get(locationId) ?? [];
   const titled = directory.siteSupervisorUserIdsByLocationId.get(locationId) ?? [];
   return [...new Set([...branch, ...titled])];
@@ -701,8 +735,9 @@ export function nearestSiteSupervisorUserId(input: {
 
 /**
  * First approver is the nearest Sr. Site Supervisor up the requester's reporting
- * chain (Mary for crew under Ashfaq / Ma luz / Marissa / Wahaj). Falls back to the
- * named direct manager, then other site supervisors at the location.
+ * chain (Mary for crew under Ashfaq / Ma luz / Marissa / Wahaj). Falls back to a
+ * named boss only when they are Sr. Site, then Sr. Site at the location / estate.
+ * Never notifies HoO / F&B Manager / Venue Supervisors on this seat.
  * The requester is never the approver, and this step does not fall through to the CEO.
  */
 export function requesterLineManagerUserIds(
@@ -715,13 +750,16 @@ export function requesterLineManagerUserIds(
   },
 ): string[] {
   const lookupId = args.requesterStaffId ?? args.staffId;
+  const opsIds = opsSeatUserIds(directory);
+  const accept = (id: string) => id !== args.requestedBy && !opsIds.has(id);
   if (lookupId) {
     const siteSupervisor = directory.siteSupervisorManagerUserIdByStaffId.get(lookupId);
-    if (siteSupervisor && siteSupervisor !== args.requestedBy) return [siteSupervisor];
+    if (siteSupervisor && accept(siteSupervisor)) return [siteSupervisor];
     const named = directory.reportingManagerUserIdByStaffId.get(lookupId);
-    if (named && named !== args.requestedBy) return [named];
+    const srSite = new Set(directory.srSiteSupervisorUserIds ?? []);
+    if (named && accept(named) && (!srSite.size || srSite.has(named))) return [named];
   }
-  return lineManagerUserIds(directory, args.locationId, lookupId).filter((id) => id !== args.requestedBy);
+  return lineManagerUserIds(directory, args.locationId, lookupId).filter(accept);
 }
 
 /**
