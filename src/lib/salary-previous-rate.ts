@@ -154,3 +154,33 @@ export function previousCompensationHistoryIds(
   if (!previousId || !resumeId) return null;
   return { previousId, resumeId };
 }
+
+/** True when workDate (YYYY-MM-DD) falls in the closed previous-rate window. */
+export function isDateInPreviousCompensationWindow(
+  workDate: string,
+  window: PreviousCompensationWindow | null | undefined,
+): boolean {
+  if (!window) return false;
+  const day = ymd(workDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  return day >= window.from && day <= window.to;
+}
+
+/**
+ * Split paid entitlement dates into previous-window vs current-rate days.
+ * Dates outside [from, to] (before or after) use current compensation.
+ */
+export function partitionPaidDatesByPreviousWindow(
+  paidDates: readonly string[],
+  window: PreviousCompensationWindow | null | undefined,
+): { previousDates: string[]; currentDates: string[] } {
+  const previousDates: string[] = [];
+  const currentDates: string[] = [];
+  for (const raw of paidDates ?? []) {
+    const day = ymd(raw);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    if (isDateInPreviousCompensationWindow(day, window)) previousDates.push(day);
+    else currentDates.push(day);
+  }
+  return { previousDates, currentDates };
+}

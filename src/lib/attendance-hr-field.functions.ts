@@ -18,6 +18,7 @@ import { ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_RULES } from "@/lib/attendance
 import {
   aggregatePayrollRows,
   includeStaffInPayrollAttendanceSummary,
+  listPayrollPaidDates,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
 import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
@@ -26,7 +27,10 @@ import {
   PAYROLL_VISIBLE_OT_STATUSES,
   computeProrationFactor,
   estimatePayrollReadinessPay,
+  previousCompensationWindowFromHistory,
+  sumVisibleOtAmountsByStaff,
   sumVisibleOtMinutesByStaff,
+  toPreviousRateHistoryRows,
 } from "@/lib/hr-payroll";
 import { LOCATION_KIND_WAREHOUSE, normalizeLocationKind } from "@/lib/locations/kind";
 import { formatLocationLabel } from "@/lib/locations/normalize";
@@ -754,11 +758,11 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       });
     }
 
-    // Ops / F&B / Cafe (and attendance) OT claims — show submitted pipeline hours, not punch OT alone.
+    // Ops / F&B / Cafe (and attendance) OT claims — submitted pipeline hours + formula amounts.
     const otRows = await collectPagedRows(async (from, to) => {
       const { data: page, error } = await supabaseAdmin
         .from("hr_ot_claims")
-        .select("staff_id, status, claimed_minutes, approved_minutes, work_date")
+        .select("staff_id, status, claimed_minutes, approved_minutes, amount_qar, work_date")
         .gte("work_date", data.dateFrom)
         .lte("work_date", data.dateTo)
         .in("status", [...PAYROLL_VISIBLE_OT_STATUSES])
@@ -768,14 +772,15 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       if (error) throw error;
       return page ?? [];
     }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
-    const submittedOtByStaff = sumVisibleOtMinutesByStaff(
-      otRows.map((r) => ({
-        staff_id: r.staff_id as string,
-        status: String(r.status),
-        claimed_minutes: Number(r.claimed_minutes ?? 0),
-        approved_minutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
-      })),
-    );
+    const otMapped = otRows.map((r) => ({
+      staff_id: r.staff_id as string,
+      status: String(r.status),
+      claimed_minutes: Number(r.claimed_minutes ?? 0),
+      approved_minutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
+      amount_qar: Number(r.amount_qar) || 0,
+    }));
+    const submittedOtByStaff = sumVisibleOtMinutesByStaff(otMapped);
+    const submittedOtPayByStaff = sumVisibleOtAmountsByStaff(otMapped);
 
     // Roster week-off / leave overlay — raw daily_summary often keeps missed_punch on rest days.
     const scheduledDays = await withPayrollScheduleContext(days, {
@@ -852,6 +857,10 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       string,
       { basic_qar: number | null; monthly_total_qar: number | null; daily_rate_qar: number | null; allowances: unknown }
     >();
+    const previousRateHistoryBy = new Map<
+      string,
+      ReturnType<typeof toPreviousRateHistoryRows>
+    >();
     const extBy = new Map<string, { employment_category: string | null }>();
     const employmentTypeByStaff = new Map<string, string | null>();
     for (const day of scheduledDays) {
@@ -866,7 +875,9 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
           .in("staff_id", staffIds),
         supabaseAdmin
           .from("staff_salary_history")
-          .select("staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on, created_at")
+          .select(
+            "id, staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on, created_at, reason",
+          )
           .in("staff_id", staffIds)
           .order("effective_on", { ascending: false })
           .order("created_at", { ascending: false }),
@@ -883,13 +894,32 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       }
       for (const h of hist ?? []) {
         const id = String(h.staff_id);
-        if (histBy.has(id)) continue;
-        histBy.set(id, {
-          basic_qar: h.basic_qar == null ? null : Number(h.basic_qar),
-          monthly_total_qar: h.monthly_total_qar == null ? null : Number(h.monthly_total_qar),
-          daily_rate_qar: h.daily_rate_qar == null ? null : Number(h.daily_rate_qar),
-          allowances: h.allowances,
-        });
+        if (
+          !histBy.has(id) &&
+          !["joker_previous_rate", "package_previous_rate"].includes(String(h.reason ?? ""))
+        ) {
+          histBy.set(id, {
+            basic_qar: h.basic_qar == null ? null : Number(h.basic_qar),
+            monthly_total_qar: h.monthly_total_qar == null ? null : Number(h.monthly_total_qar),
+            daily_rate_qar: h.daily_rate_qar == null ? null : Number(h.daily_rate_qar),
+            allowances: h.allowances,
+          });
+        }
+        const prevList = previousRateHistoryBy.get(id) ?? [];
+        prevList.push(
+          ...toPreviousRateHistoryRows([
+            {
+              id: h.id != null ? String(h.id) : null,
+              effective_on: h.effective_on,
+              daily_rate_qar: h.daily_rate_qar,
+              monthly_total_qar: h.monthly_total_qar,
+              basic_qar: h.basic_qar,
+              reason: h.reason,
+              created_at: h.created_at,
+            },
+          ]),
+        );
+        previousRateHistoryBy.set(id, prevList);
       }
       for (const e of ext ?? []) {
         extBy.set(String(e.staff_id), {
@@ -933,6 +963,10 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
           0,
         );
       }
+      const paidDates = listPayrollPaidDates(scheduledDays, row.staffId);
+      const previousWindow = previousCompensationWindowFromHistory(
+        previousRateHistoryBy.get(row.staffId) ?? [],
+      );
       const preview = estimatePayrollReadinessPay({
         employmentType: employmentTypeByStaff.get(row.staffId) ?? null,
         employmentCategory: extBy.get(row.staffId)?.employment_category ?? null,
@@ -942,6 +976,9 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         allowancesQar: allowances,
         paidDays: row.daysPresent,
         periodDays,
+        paidDates,
+        previousWindow,
+        otQar: submittedOtPayByStaff.get(row.staffId) ?? 0,
       });
       return {
         ...row,

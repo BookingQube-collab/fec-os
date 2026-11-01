@@ -7,6 +7,12 @@
 import { monthBounds } from "@/lib/attendance-hr/roster-period";
 import { canMarkPayrollPosted } from "@/lib/hr-ot";
 import { HR_POLICY_DEFAULTS } from "@/lib/hr-policy";
+import {
+  partitionPaidDatesByPreviousWindow,
+  resolvePreviousCompensationWindow,
+  type PreviousCompensationWindow,
+  type SalaryHistoryRateRow as PreviousRateHistoryRow,
+} from "@/lib/salary-previous-rate";
 
 export const HR_PAYROLL_STATUSES = [
   "draft",
@@ -365,12 +371,142 @@ export function resolveEarnedBasicQar(input: {
   return computeDailyRateBasicQar(rate, input.workedDays);
 }
 
+function previousWindowMatchesPayKind(
+  dailyPay: boolean,
+  window: PreviousCompensationWindow | null | undefined,
+): window is PreviousCompensationWindow {
+  if (!window) return false;
+  return dailyPay ? window.kind === "daily" : window.kind === "monthly";
+}
+
+/**
+ * Earned basic across paid dates, applying previous-rate window days at the previous
+ * amount and all other paid days at the current day rate / monthly package.
+ * A month that straddles From/To must split — not pick one rate for the whole period.
+ */
+export function resolveEarnedBasicWithPreviousWindow(input: {
+  dailyPay: boolean;
+  /** Current monthly package (permanent / secondment). Ignored for day-rate. */
+  contractBasicQar: number;
+  /** Current day rate. Ignored for monthly. */
+  dailyRateQar: number | null;
+  paidDates: readonly string[];
+  /** Inclusive calendar days in the payroll window. Monthly divisor. */
+  periodDays: number;
+  previousWindow?: PreviousCompensationWindow | null;
+}): {
+  earnedBasicQar: number;
+  previousDays: number;
+  currentDays: number;
+  usedPreviousWindow: boolean;
+} {
+  const paidDates = (input.paidDates ?? []).map((d) => String(d ?? "").slice(0, 10));
+  const periodDays = Math.max(1, Math.round(Number(input.periodDays) || 0) || 30);
+  const window = previousWindowMatchesPayKind(input.dailyPay, input.previousWindow)
+    ? input.previousWindow
+    : null;
+
+  if (!window) {
+    const earnedBasicQar = resolveEarnedBasicQar({
+      dailyPay: input.dailyPay,
+      contractBasicQar: input.contractBasicQar,
+      dailyRateQar: input.dailyRateQar,
+      workedDays: paidDates.length,
+      periodDays,
+    });
+    return {
+      earnedBasicQar,
+      previousDays: 0,
+      currentDays: paidDates.length,
+      usedPreviousWindow: false,
+    };
+  }
+
+  const { previousDates, currentDates } = partitionPaidDatesByPreviousWindow(paidDates, window);
+  if (input.dailyPay) {
+    const previousPart = computeDailyRateBasicQar(window.amountQar, previousDates.length);
+    const currentPart = computeDailyRateBasicQar(Number(input.dailyRateQar) || 0, currentDates.length);
+    return {
+      earnedBasicQar: round2(previousPart + currentPart),
+      previousDays: previousDates.length,
+      currentDays: currentDates.length,
+      usedPreviousWindow: previousDates.length > 0,
+    };
+  }
+
+  const previousDaily = window.amountQar / periodDays;
+  const currentDaily = (Number(input.contractBasicQar) || 0) / periodDays;
+  const previousPart = computeDailyRateBasicQar(previousDaily, previousDates.length);
+  const currentPart = computeDailyRateBasicQar(currentDaily, currentDates.length);
+  return {
+    earnedBasicQar: round2(previousPart + currentPart),
+    previousDays: previousDates.length,
+    currentDays: currentDates.length,
+    usedPreviousWindow: previousDates.length > 0,
+  };
+}
+
+/** Map salary-history DB/API rows into the previous-rate resolver shape. */
+export function toPreviousRateHistoryRows(
+  rows: readonly {
+    id?: string | null;
+    effective_on?: string | null;
+    effectiveOn?: string | null;
+    daily_rate_qar?: number | null;
+    dailyRateQar?: number | null;
+    monthly_total_qar?: number | null;
+    monthlyTotalQar?: number | null;
+    basic_qar?: number | null;
+    basicQar?: number | null;
+    reason?: string | null;
+    created_at?: string | null;
+    createdAt?: string | null;
+  }[],
+): PreviousRateHistoryRow[] {
+  return (rows ?? []).map((row) => ({
+    id: row.id != null ? String(row.id) : null,
+    effectiveOn: String(row.effectiveOn ?? row.effective_on ?? "").slice(0, 10),
+    dailyRateQar:
+      row.dailyRateQar != null
+        ? Number(row.dailyRateQar)
+        : row.daily_rate_qar != null
+          ? Number(row.daily_rate_qar)
+          : null,
+    monthlyTotalQar:
+      row.monthlyTotalQar != null
+        ? Number(row.monthlyTotalQar)
+        : row.monthly_total_qar != null
+          ? Number(row.monthly_total_qar)
+          : null,
+    basicQar:
+      row.basicQar != null
+        ? Number(row.basicQar)
+        : row.basic_qar != null
+          ? Number(row.basic_qar)
+          : null,
+    reason: row.reason != null ? String(row.reason) : null,
+    createdAt:
+      row.createdAt != null
+        ? String(row.createdAt)
+        : row.created_at != null
+          ? String(row.created_at)
+          : null,
+  }));
+}
+
+export function previousCompensationWindowFromHistory(
+  history: readonly PreviousRateHistoryRow[],
+): PreviousCompensationWindow | null {
+  return resolvePreviousCompensationWindow(history);
+}
+
 export type PayrollPayPreviewSource = "generated" | "estimate" | "missing";
 
 /**
- * Readiness-list pay preview using the same basic/allowance rules as Generate lines
- * (day rate × paid days, or monthly ÷ period days × paid days). Does not include OT /
- * air-ticket — those land on the payslip only after Generate.
+ * Readiness-list pay preview using the same basic/allowance (+ submitted OT) rules as
+ * Generate lines. When paidDates + previousWindow are provided, days inside [from, to]
+ * use previous amount. otQar should already be computed from submitted pipeline claims
+ * (Ops / F&B / Cafe amount_qar via the OT formula).
  */
 export function estimatePayrollReadinessPay(input: {
   employmentType?: string | null;
@@ -382,13 +518,22 @@ export function estimatePayrollReadinessPay(input: {
   allowancesQar?: number | null;
   paidDays: number;
   periodDays: number;
+  /** Preferred: actual paid entitlement dates so previous-rate windows can straddle. */
+  paidDates?: readonly string[] | null;
+  previousWindow?: PreviousCompensationWindow | null;
+  /** Submitted (visible) OT claim amounts already computed with the OT formula. */
+  otQar?: number | null;
 }): {
   dailyPay: boolean;
   missingCompensation: boolean;
   earnedBasicQar: number;
   allowancesQar: number;
+  otQar: number;
   payQar: number;
   paySource: Extract<PayrollPayPreviewSource, "estimate" | "missing">;
+  previousDays: number;
+  currentDays: number;
+  usedPreviousWindow: boolean;
 } {
   const monthlyStored = positiveRate(input.monthlySalaryQar);
   const dailyStored = positiveRate(input.dailyRateQar);
@@ -408,26 +553,50 @@ export function estimatePayrollReadinessPay(input: {
   const allowances = Math.max(0, Number(input.allowancesQar) || 0);
   const paidDays = Math.max(0, Number(input.paidDays) || 0);
   const periodDays = Math.max(1, Math.round(Number(input.periodDays) || 0) || 30);
+  const paidDates =
+    input.paidDates != null && input.paidDates.length > 0
+      ? input.paidDates.map((d) => String(d ?? "").slice(0, 10))
+      : null;
   const hasComp = dailyPay
     ? dayRateQar != null && dayRateQar > 0
     : basic > 0;
+  const otQar = round2(Math.max(0, Number(input.otQar) || 0));
   if (!hasComp) {
     return {
       dailyPay,
       missingCompensation: true,
       earnedBasicQar: 0,
       allowancesQar: 0,
+      otQar: 0,
       payQar: 0,
       paySource: "missing",
+      previousDays: 0,
+      currentDays: 0,
+      usedPreviousWindow: false,
     };
   }
-  const earnedBasicQar = resolveEarnedBasicQar({
-    dailyPay,
-    contractBasicQar: basic,
-    dailyRateQar: dayRateQar,
-    workedDays: paidDays,
-    periodDays,
-  });
+  const split = paidDates
+    ? resolveEarnedBasicWithPreviousWindow({
+        dailyPay,
+        contractBasicQar: basic,
+        dailyRateQar: dayRateQar,
+        paidDates,
+        periodDays,
+        previousWindow: input.previousWindow,
+      })
+    : {
+        earnedBasicQar: resolveEarnedBasicQar({
+          dailyPay,
+          contractBasicQar: basic,
+          dailyRateQar: dayRateQar,
+          workedDays: paidDays,
+          periodDays,
+        }),
+        previousDays: 0,
+        currentDays: paidDays,
+        usedPreviousWindow: false,
+      };
+  const earnedBasicQar = split.earnedBasicQar;
   const allowanceRatio = dailyPay || !(basic > 0) ? 0 : earnedBasicQar / basic;
   const allowancesQar = round2(allowances * allowanceRatio);
   return {
@@ -435,8 +604,12 @@ export function estimatePayrollReadinessPay(input: {
     missingCompensation: false,
     earnedBasicQar,
     allowancesQar,
-    payQar: round2(earnedBasicQar + allowancesQar),
+    otQar,
+    payQar: round2(earnedBasicQar + allowancesQar + otQar),
     paySource: "estimate",
+    previousDays: split.previousDays,
+    currentDays: split.currentDays,
+    usedPreviousWindow: split.usedPreviousWindow,
   };
 }
 
@@ -557,7 +730,11 @@ export function lockedLineResistsPolicyChange(
   return { grossQar: locked.grossQar, netQar: locked.netQar };
 }
 
-/** Consume OT only when claim is gm_approved (AT#4; final step before payroll). */
+/**
+ * Mark OT as payroll_posted only when claim is gm_approved (AT#4; once).
+ * Pay figures may still include earlier submitted pipeline amounts — see
+ * {@link filterPayableOtClaims}.
+ */
 export function filterConsumableOtClaims<T extends { status: string; amountQar?: number; amount_qar?: number }>(
   claims: T[],
 ): T[] {
@@ -573,9 +750,10 @@ export function sumOtAmounts(
 }
 
 /**
- * Pipeline OT that should appear on payroll readiness / period review.
+ * Pipeline OT that should appear on payroll readiness / period review / Generate pay.
  * Includes Ops supervisor + F&B Cafe submissions from `submitted` onward.
- * Does not pay — only gm_approved is consumable (AT#4).
+ * amount_qar on each claim is already computed with the OT formula at submit time.
+ * Consuming to payroll_posted still requires gm_approved (AT#4).
  */
 export const PAYROLL_VISIBLE_OT_STATUSES = [
   "submitted",
@@ -585,6 +763,32 @@ export const PAYROLL_VISIBLE_OT_STATUSES = [
   "gm_approved",
   "payroll_posted",
 ] as const;
+
+/** OT claims whose stored amount_qar should add into Generate / readiness Pay. */
+export function filterPayableOtClaims<T extends { status: string }>(claims: T[]): T[] {
+  return filterVisibleOtClaims(claims);
+}
+
+/** Sum payable (submitted+) OT amounts by staff for readiness Pay / Generate lines. */
+export function sumVisibleOtAmountsByStaff(
+  claims: Array<{
+    staff_id?: string | null;
+    staffId?: string | null;
+    status: string;
+    amountQar?: number | null;
+    amount_qar?: number | null;
+  }>,
+): Map<string, number> {
+  const byStaff = new Map<string, number>();
+  for (const claim of filterPayableOtClaims(claims)) {
+    const staffId = String(claim.staffId ?? claim.staff_id ?? "");
+    if (!staffId) continue;
+    const amount = Number(claim.amountQar ?? claim.amount_qar) || 0;
+    if (amount <= 0) continue;
+    byStaff.set(staffId, round2((byStaff.get(staffId) ?? 0) + amount));
+  }
+  return byStaff;
+}
 
 export function isPayrollVisibleOtStatus(status: string): boolean {
   return (PAYROLL_VISIBLE_OT_STATUSES as readonly string[]).includes(status);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  isDateInPreviousCompensationWindow,
+  partitionPaidDatesByPreviousWindow,
   previousCompensationHistoryIds,
   resolvePreviousCompensationWindow,
 } from "@/lib/salary-previous-rate";
@@ -88,5 +90,26 @@ describe("resolvePreviousCompensationWindow", () => {
         },
       ]),
     ).toEqual({ previousId: "prev-1", resumeId: "resume-1" });
+  });
+
+  it("partitions paid dates inside vs outside the previous window", () => {
+    const window = {
+      amountQar: 50,
+      from: "2026-03-10",
+      to: "2026-03-20",
+      kind: "daily" as const,
+    };
+    expect(isDateInPreviousCompensationWindow("2026-03-10", window)).toBe(true);
+    expect(isDateInPreviousCompensationWindow("2026-03-20", window)).toBe(true);
+    expect(isDateInPreviousCompensationWindow("2026-03-21", window)).toBe(false);
+    expect(
+      partitionPaidDatesByPreviousWindow(
+        ["2026-03-09", "2026-03-10", "2026-03-15", "2026-03-21"],
+        window,
+      ),
+    ).toEqual({
+      previousDates: ["2026-03-10", "2026-03-15"],
+      currentDates: ["2026-03-09", "2026-03-21"],
+    });
   });
 });

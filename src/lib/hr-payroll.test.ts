@@ -14,6 +14,7 @@ import {
   resolveEarnedBasicQar,
   fecPeriodForMonth,
   filterConsumableOtClaims,
+  filterPayableOtClaims,
   filterVisibleOtClaims,
   isDailyRateCompensation,
   isPayrollVisibleOtStatus,
@@ -26,8 +27,10 @@ import {
   estimatePayrollReadinessPay,
   resolveDailyRatePayroll,
   resolveDayRateOnDate,
+  resolveEarnedBasicWithPreviousWindow,
   resolvePaymentMethod,
   sumOtAmounts,
+  sumVisibleOtAmountsByStaff,
   sumVisibleOtMinutesByStaff,
 } from "./hr-payroll";
 
@@ -253,6 +256,123 @@ describe("payroll readiness pay preview", () => {
     expect(preview.payQar).toBe(0);
     expect(preview.missingCompensation).toBe(true);
   });
+
+  it("uses previous day-rate for paid dates entirely inside the window", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "joker",
+      monthlySalaryQar: null,
+      dailyRateQar: 60,
+      paidDays: 3,
+      periodDays: 31,
+      paidDates: ["2026-03-10", "2026-03-11", "2026-03-12"],
+      previousWindow: {
+        amountQar: 50,
+        from: "2026-03-01",
+        to: "2026-03-31",
+        kind: "daily",
+      },
+    });
+    expect(preview.usedPreviousWindow).toBe(true);
+    expect(preview.previousDays).toBe(3);
+    expect(preview.currentDays).toBe(0);
+    expect(preview.payQar).toBe(150);
+  });
+
+  it("splits a straddling month between previous and current joker rates", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "joker",
+      dailyRateQar: 60,
+      paidDays: 4,
+      periodDays: 31,
+      paidDates: ["2026-03-14", "2026-03-15", "2026-03-16", "2026-03-17"],
+      previousWindow: {
+        amountQar: 50,
+        from: "2026-03-01",
+        to: "2026-03-15",
+        kind: "daily",
+      },
+    });
+    // 50+50 + 60+60
+    expect(preview.previousDays).toBe(2);
+    expect(preview.currentDays).toBe(2);
+    expect(preview.payQar).toBe(220);
+  });
+
+  it("keeps current-only pay when no previous window is set", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "joker",
+      dailyRateQar: 60,
+      paidDays: 2,
+      periodDays: 31,
+      paidDates: ["2026-03-10", "2026-03-11"],
+      previousWindow: null,
+    });
+    expect(preview.usedPreviousWindow).toBe(false);
+    expect(preview.payQar).toBe(120);
+  });
+
+  it("splits a straddling month for monthly package previous price", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 4,
+      periodDays: 30,
+      paidDates: ["2026-05-14", "2026-05-15", "2026-05-16", "2026-05-17"],
+      previousWindow: {
+        amountQar: 4500,
+        from: "2026-05-01",
+        to: "2026-05-15",
+        kind: "monthly",
+      },
+    });
+    // (4500/30)*2 + (6000/30)*2 = 150+150 + 200+200 = 700
+    expect(preview.previousDays).toBe(2);
+    expect(preview.currentDays).toBe(2);
+    expect(preview.earnedBasicQar).toBe(700);
+    expect(preview.payQar).toBe(700);
+  });
+
+  it("adds submitted OT formula amounts into readiness Pay", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 30,
+      periodDays: 30,
+      otQar: 187.5,
+    });
+    expect(preview.otQar).toBe(187.5);
+    expect(preview.earnedBasicQar).toBe(6000);
+    expect(preview.payQar).toBe(6187.5);
+  });
+});
+
+describe("resolveEarnedBasicWithPreviousWindow", () => {
+  it("pays the full previous package when every paid day is inside the window", () => {
+    const paidDates = Array.from({ length: 30 }, (_, i) => {
+      const day = String(i + 1).padStart(2, "0");
+      return `2026-05-${day}`;
+    });
+    const result = resolveEarnedBasicWithPreviousWindow({
+      dailyPay: false,
+      contractBasicQar: 6000,
+      dailyRateQar: null,
+      paidDates,
+      periodDays: 30,
+      previousWindow: {
+        amountQar: 4500,
+        from: "2026-05-01",
+        to: "2026-05-31",
+        kind: "monthly",
+      },
+    });
+    expect(result.usedPreviousWindow).toBe(true);
+    expect(result.previousDays).toBe(30);
+    expect(result.earnedBasicQar).toBe(4500);
+  });
 });
 
 describe("AT#12 unpaid leave / absence affects net", () => {
@@ -344,16 +464,21 @@ describe("AT#12 unpaid leave / absence affects net", () => {
 });
 
 describe("AT#4 regression — OT enters payroll only once", () => {
-  it("consumes only gm_approved claims", () => {
+  it("marks payroll_posted only for gm_approved; Pay still sums submitted pipeline amounts", () => {
     const claims = [
-      { status: "gm_approved", amountQar: 150 },
-      { status: "payroll_posted", amountQar: 200 },
-      { status: "submitted", amountQar: 50 },
+      { status: "gm_approved", amountQar: 150, staff_id: "a" },
+      { status: "payroll_posted", amountQar: 200, staff_id: "a" },
+      { status: "submitted", amountQar: 50, staff_id: "a" },
     ];
     const consumable = filterConsumableOtClaims(claims);
     expect(consumable).toHaveLength(1);
     expect(sumOtAmounts(consumable)).toBe(150);
     expect(canMarkPayrollPosted("payroll_posted")).toBe(false);
+
+    const payable = filterPayableOtClaims(claims);
+    expect(payable).toHaveLength(3);
+    expect(sumOtAmounts(payable)).toBe(400);
+    expect(sumVisibleOtAmountsByStaff(claims).get("a")).toBe(400);
   });
 });
 

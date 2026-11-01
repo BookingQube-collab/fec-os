@@ -21,17 +21,21 @@ import {
   earningsToFixedVariable,
   fecPeriodForMonth,
   filterConsumableOtClaims,
+  filterPayableOtClaims,
   filterVisibleOtClaims,
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
   minutesToOtHours,
   nextStatusAfter,
   computeDailyRateBasicFromHistory,
+  previousCompensationWindowFromHistory,
   resolveDailyRatePayroll,
   resolveEarnedBasicQar,
+  resolveEarnedBasicWithPreviousWindow,
   resolvePaymentMethod,
   sumOtAmounts,
   sumVisibleOtMinutesByStaff,
+  toPreviousRateHistoryRows,
   type SalaryRateHistoryRow,
   type HrPayrollPaymentMethod,
   type HrPayrollStatus,
@@ -287,7 +291,7 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
   const { data: hist } = await supabaseAdmin
     .from("staff_salary_history")
     .select(
-      "staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on, created_at",
+      "id, staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on, created_at, reason",
     )
     .in("staff_id", staffIds)
     .order("effective_on", { ascending: false })
@@ -302,9 +306,19 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
   const compBy = new Map((comps ?? []).map((c) => [c.staff_id as string, c]));
   const histBy = new Map<string, Record<string, unknown>>();
   const histRowsBy = new Map<string, SalaryRateHistoryRow[]>();
+  const previousRateHistoryBy = new Map<
+    string,
+    ReturnType<typeof toPreviousRateHistoryRows>
+  >();
   for (const h of hist ?? []) {
     const id = h.staff_id as string;
-    if (!histBy.has(id)) histBy.set(id, h as Record<string, unknown>);
+    // Latest non-previous-window row for live package/rate (resume / manual_update / hire).
+    if (
+      !histBy.has(id) &&
+      !["joker_previous_rate", "package_previous_rate"].includes(String(h.reason ?? ""))
+    ) {
+      histBy.set(id, h as Record<string, unknown>);
+    }
     const list = histRowsBy.get(id) ?? [];
     list.push({
       effectiveOn: String(h.effective_on).slice(0, 10),
@@ -313,9 +327,24 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
       createdAt: h.created_at != null ? String(h.created_at) : null,
     });
     histRowsBy.set(id, list);
+    const prevList = previousRateHistoryBy.get(id) ?? [];
+    prevList.push(
+      ...toPreviousRateHistoryRows([
+        {
+          id: h.id != null ? String(h.id) : null,
+          effective_on: h.effective_on,
+          daily_rate_qar: h.daily_rate_qar,
+          monthly_total_qar: h.monthly_total_qar,
+          basic_qar: h.basic_qar,
+          reason: h.reason,
+          created_at: h.created_at,
+        },
+      ]),
+    );
+    previousRateHistoryBy.set(id, prevList);
   }
   const extBy = new Map((ext ?? []).map((e) => [e.staff_id as string, e]));
-  return { compBy, histBy, histRowsBy, extBy };
+  return { compBy, histBy, histRowsBy, previousRateHistoryBy, extBy };
 }
 
 type PayrollAttendanceRow = {
@@ -408,7 +437,10 @@ export const generatePayrollLines = createAuthenticatedAction(
     }
 
     const staffIds = staff.map((s) => s.id);
-    const { compBy, histBy, histRowsBy, extBy } = await staffPayBundle(context, staffIds);
+    const { compBy, histBy, histRowsBy, previousRateHistoryBy, extBy } = await staffPayBundle(
+      context,
+      staffIds,
+    );
 
     // Restore OT already posted to this period so regenerate does not drop OT amounts.
     await context.supabase
@@ -422,8 +454,8 @@ export const generatePayrollLines = createAuthenticatedAction(
       .eq("payroll_period_id", data.periodId)
       .eq("status", "payroll_posted");
 
-    // Visible OT (submitted → payroll_posted) for hours on the period grid.
-    // Pay still consumes only gm_approved (AT#4).
+    // Visible OT (submitted → payroll_posted): hours + pay use claim amount_qar
+    // (OT formula stamped at submit). Only gm_approved is marked payroll_posted (AT#4).
     const { data: otRows } = await context.supabase
       .from("hr_ot_claims")
       .select("id, staff_id, amount_qar, status, work_date, claimed_minutes, approved_minutes")
@@ -447,13 +479,15 @@ export const generatePayrollLines = createAuthenticatedAction(
       claimed_minutes: Number(r.claimed_minutes ?? 0),
       approved_minutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
     }));
+    const payableOt = filterPayableOtClaims(otMapped);
     const consumableOt = filterConsumableOtClaims(otMapped);
-    const otByStaff = new Map<string, typeof consumableOt>();
-    for (const c of consumableOt) {
+    const otByStaff = new Map<string, typeof payableOt>();
+    for (const c of payableOt) {
       const list = otByStaff.get(c.staff_id) ?? [];
       list.push(c);
       otByStaff.set(c.staff_id, list);
     }
+    const consumableIds = new Set(consumableOt.map((c) => c.id));
     const submittedOtMinutesByStaff = sumVisibleOtMinutesByStaff(otMapped);
     const approvedOtMinutesByStaff = sumVisibleOtMinutesByStaff(
       filterVisibleOtClaims(otMapped).filter((c) => c.status === "gm_approved" || c.status === "payroll_posted"),
@@ -642,10 +676,24 @@ export const generatePayrollLines = createAuthenticatedAction(
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
       const submittedOtHours = minutesToOtHours(submittedOtMinutes);
-      const otHoursReg = minutesToOtHours(approvedOtMinutes);
+      // REG hours track submitted pipeline OT (same basis as otPayReg / amount_qar).
+      const otHoursReg = minutesToOtHours(submittedOtMinutes || approvedOtMinutes);
       const historyRates = histRowsBy.get(s.id) ?? [];
+      const previousWindow = previousCompensationWindowFromHistory(
+        previousRateHistoryBy.get(s.id) ?? [],
+      );
+      const previousWindowPay = resolveEarnedBasicWithPreviousWindow({
+        dailyPay,
+        contractBasicQar: basic,
+        dailyRateQar: dayRateQar,
+        paidDates,
+        periodDays: activeWindow.periodDays,
+        previousWindow,
+      });
+      // Prefer explicit previous-price From/To split when that window overlaps paid days.
+      // Otherwise day-rate staff still walk salary history for mid-period rate changes.
       const historyPay =
-        dailyPay && historyRates.length > 0
+        !previousWindowPay.usedPreviousWindow && dailyPay && historyRates.length > 0
           ? computeDailyRateBasicFromHistory({
               workedDates: paidDates,
               history: historyRates,
@@ -661,15 +709,17 @@ export const generatePayrollLines = createAuthenticatedAction(
         : basic > 0
           ? basic / activeWindow.periodDays
           : null;
-      const basicForLine = historyPay
-        ? historyPay.basicQar
-        : resolveEarnedBasicQar({
-            dailyPay,
-            contractBasicQar: basic,
-            dailyRateQar: dayRateQar,
-            workedDays,
-            periodDays: activeWindow.periodDays,
-          });
+      const basicForLine = previousWindowPay.usedPreviousWindow
+        ? previousWindowPay.earnedBasicQar
+        : historyPay
+          ? historyPay.basicQar
+          : resolveEarnedBasicQar({
+              dailyPay,
+              contractBasicQar: basic,
+              dailyRateQar: dayRateQar,
+              workedDays,
+              periodDays: activeWindow.periodDays,
+            });
       const allowanceRatio = dailyPay || !(basic > 0) ? 0 : basicForLine / basic;
       const allowancesForLine = Math.round((allowances * allowanceRatio + Number.EPSILON) * 100) / 100;
       const proration = {
@@ -681,7 +731,9 @@ export const generatePayrollLines = createAuthenticatedAction(
 
       const staffOt = otByStaff.get(s.id) ?? [];
       const otQar = sumOtAmounts(staffOt);
-      for (const c of staffOt) otToConsume.push(c.id);
+      for (const c of staffOt) {
+        if (consumableIds.has(c.id)) otToConsume.push(c.id);
+      }
 
       const staffAir = airByStaff.get(s.id) ?? [];
       const airQar = staffAir.reduce((sum, a) => sum + a.amount, 0);
