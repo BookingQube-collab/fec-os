@@ -497,6 +497,69 @@ export function sumOtAmounts(
   );
 }
 
+/**
+ * Pipeline OT that should appear on payroll readiness / period review.
+ * Includes Ops supervisor + F&B Cafe submissions from `submitted` onward.
+ * Does not pay — only gm_approved is consumable (AT#4).
+ */
+export const PAYROLL_VISIBLE_OT_STATUSES = [
+  "submitted",
+  "manager_verified",
+  "ops_approved",
+  "hr_approved",
+  "gm_approved",
+  "payroll_posted",
+] as const;
+
+export function isPayrollVisibleOtStatus(status: string): boolean {
+  return (PAYROLL_VISIBLE_OT_STATUSES as readonly string[]).includes(status);
+}
+
+/** Prefer approved minutes once stamped; else claimed (submitted) minutes. */
+export function otClaimMinutes(claim: {
+  approved_minutes?: number | null;
+  approvedMinutes?: number | null;
+  claimed_minutes?: number | null;
+  claimedMinutes?: number | null;
+}): number {
+  const approved = claim.approvedMinutes ?? claim.approved_minutes;
+  if (approved != null && Number.isFinite(Number(approved)) && Number(approved) > 0) {
+    return Math.max(0, Number(approved));
+  }
+  return Math.max(0, Number(claim.claimedMinutes ?? claim.claimed_minutes ?? 0) || 0);
+}
+
+export function filterVisibleOtClaims<T extends { status: string }>(claims: T[]): T[] {
+  return claims.filter((c) => isPayrollVisibleOtStatus(String(c.status ?? "")));
+}
+
+/** Sum OT minutes by staff for payroll readiness (Ops / F&B / Cafe submitted claims). */
+export function sumVisibleOtMinutesByStaff(
+  claims: Array<{
+    staff_id?: string | null;
+    staffId?: string | null;
+    status: string;
+    approved_minutes?: number | null;
+    approvedMinutes?: number | null;
+    claimed_minutes?: number | null;
+    claimedMinutes?: number | null;
+  }>,
+): Map<string, number> {
+  const byStaff = new Map<string, number>();
+  for (const claim of filterVisibleOtClaims(claims)) {
+    const staffId = String(claim.staffId ?? claim.staff_id ?? "");
+    if (!staffId) continue;
+    const mins = otClaimMinutes(claim);
+    if (mins <= 0) continue;
+    byStaff.set(staffId, (byStaff.get(staffId) ?? 0) + mins);
+  }
+  return byStaff;
+}
+
+export function minutesToOtHours(minutes: number): number {
+  return Math.round((Math.max(0, Number(minutes) || 0) / 60) * 100) / 100;
+}
+
 /** Best-effort SIF-like WPS columns — Finance validation only, not bank certification. */
 export const WPS_EXPORT_COLUMNS = [
   "Employee ID",

@@ -14,15 +14,20 @@ import {
   resolveEarnedBasicQar,
   fecPeriodForMonth,
   filterConsumableOtClaims,
+  filterVisibleOtClaims,
   isDailyRateCompensation,
+  isPayrollVisibleOtStatus,
   lockedLineResistsPolicyChange,
   computeDailyRateBasicFromHistory,
   mergeUnpaidDaysForPayroll,
+  minutesToOtHours,
+  otClaimMinutes,
   partitionByPaymentMethod,
   resolveDailyRatePayroll,
   resolveDayRateOnDate,
   resolvePaymentMethod,
   sumOtAmounts,
+  sumVisibleOtMinutesByStaff,
 } from "./hr-payroll";
 
 describe("daily-rate joker pay", () => {
@@ -303,6 +308,36 @@ describe("AT#4 regression — OT enters payroll only once", () => {
     expect(consumable).toHaveLength(1);
     expect(sumOtAmounts(consumable)).toBe(150);
     expect(canMarkPayrollPosted("payroll_posted")).toBe(false);
+  });
+});
+
+describe("payroll visible / submitted OT hours", () => {
+  it("includes submitted Ops/F&B pipeline statuses but not cancelled/rejected/draft", () => {
+    expect(isPayrollVisibleOtStatus("submitted")).toBe(true);
+    expect(isPayrollVisibleOtStatus("ops_approved")).toBe(true);
+    expect(isPayrollVisibleOtStatus("gm_approved")).toBe(true);
+    expect(isPayrollVisibleOtStatus("draft")).toBe(false);
+    expect(isPayrollVisibleOtStatus("cancelled")).toBe(false);
+    expect(isPayrollVisibleOtStatus("rejected")).toBe(false);
+    expect(isPayrollVisibleOtStatus("changes_requested")).toBe(false);
+  });
+
+  it("prefers approved minutes then claimed, and sums by staff", () => {
+    expect(otClaimMinutes({ claimed_minutes: 90, approved_minutes: 120 })).toBe(120);
+    expect(otClaimMinutes({ claimedMinutes: 45 })).toBe(45);
+    expect(minutesToOtHours(90)).toBe(1.5);
+
+    const byStaff = sumVisibleOtMinutesByStaff([
+      { staff_id: "ops1", status: "submitted", claimed_minutes: 60 },
+      { staff_id: "ops1", status: "ops_approved", claimed_minutes: 90, approved_minutes: 90 },
+      { staff_id: "fnb1", status: "submitted", claimed_minutes: 180 },
+      { staff_id: "fnb1", status: "cancelled", claimed_minutes: 999 },
+      { staff_id: "x", status: "rejected", claimed_minutes: 40 },
+    ]);
+    expect(byStaff.get("ops1")).toBe(150);
+    expect(byStaff.get("fnb1")).toBe(180);
+    expect(byStaff.has("x")).toBe(false);
+    expect(filterVisibleOtClaims([{ status: "submitted" }, { status: "draft" }])).toHaveLength(1);
   });
 });
 

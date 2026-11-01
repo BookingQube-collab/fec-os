@@ -55,10 +55,18 @@ export type PayrollStaffRow = {
   daysAbsent: number;
   /** Days marked unpaid_leave in attendance (export treats these as Unpaid). */
   daysUnpaidLeave: number;
+  /** Paid + unpaid leave statuses (annual / sick / unpaid / comp off). */
+  daysLeave: number;
   daysLate: number;
   missedPunches: number;
   workedMinutes: number;
+  /** Punch-derived OT minutes from attendance_daily_summary. */
   overtimeMinutes: number;
+  /**
+   * Submitted OT claim minutes (Ops supervisor + F&B Cafe + attendance claims).
+   * Visibility only — pay still requires gm_approved (AT#4).
+   */
+  submittedOtMinutes: number;
   blockingDays: number;
   payrollReady: boolean;
   /** Aggregated why-blocked codes (source of truth for Fix UI). */
@@ -67,6 +75,13 @@ export type PayrollStaffRow = {
   blockDays: PayrollBlockDay[];
   locationLabel?: string;
 };
+
+const PAYROLL_LEAVE_STATUSES = new Set([
+  "annual_leave",
+  "sick_leave",
+  "unpaid_leave",
+  "comp_off",
+]);
 
 /** True when the day has both clock-in and clock-out (listing treats as a worked day). */
 export function hasPayrollCompletePunches(
@@ -242,10 +257,12 @@ function emptyStaff(id: string, name: string, code: string): PayrollStaffRow {
     daysPresent: 0,
     daysAbsent: 0,
     daysUnpaidLeave: 0,
+    daysLeave: 0,
     daysLate: 0,
     missedPunches: 0,
     workedMinutes: 0,
     overtimeMinutes: 0,
+    submittedOtMinutes: 0,
     blockingDays: 0,
     payrollReady: true,
     blockReasons: [],
@@ -269,6 +286,7 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
     if (isPayrollPresentDay(day)) current.daysPresent += 1;
     if (absenceStatus === "absent") current.daysAbsent += 1;
     if (status === "unpaid_leave") current.daysUnpaidLeave += 1;
+    if (PAYROLL_LEAVE_STATUSES.has(status)) current.daysLeave += 1;
     if (status === "late" || Number(day.late_minutes ?? 0) > 0) current.daysLate += 1;
     const blockCode = payrollBlockReasonCode(day);
     if (blockCode === "missed_punch") current.missedPunches += 1;

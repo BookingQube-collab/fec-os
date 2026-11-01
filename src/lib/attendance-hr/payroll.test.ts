@@ -266,10 +266,24 @@ describe("payroll readiness", () => {
         punch_count: 2,
         worked_minutes: 480,
       },
+      {
+        staff_id: "u",
+        staff_name: "Uma",
+        work_date: "2026-08-04",
+        status: "annual_leave",
+      },
+      {
+        staff_id: "u",
+        staff_name: "Uma",
+        work_date: "2026-08-05",
+        status: "sick_leave",
+      },
     ]);
     expect(row.daysAbsent).toBe(1);
     expect(row.daysUnpaidLeave).toBe(1);
+    expect(row.daysLeave).toBe(3);
     expect(row.daysPresent).toBe(1);
+    expect(row.submittedOtMinutes).toBe(0);
   });
 
   it("does not double-count the same staff day across locations", () => {

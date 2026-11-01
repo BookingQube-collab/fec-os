@@ -50,7 +50,7 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import { formatOtPolicySummary } from "@/lib/hr-advanced";
 import { getOtPolicy } from "@/lib/hr-announcements.functions";
-import { canDeletePayrollPeriod } from "@/lib/hr-payroll";
+import { canDeletePayrollPeriod, minutesToOtHours } from "@/lib/hr-payroll";
 import { createPayrollPeriod, deletePayrollPeriod, listPayrollPeriods } from "@/lib/hr-payroll.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useSites } from "@/hooks/queries/useSites";
@@ -385,6 +385,7 @@ export default function HrPayrollPage() {
                     <th>{t("hr.payroll.colStaff")}</th>
                     <th>{t("hr.payroll.colLocation")}</th>
                     <th>{t("hr.payroll.colPresent")}</th>
+                    <th>{t("hr.payroll.colLeaves")}</th>
                     <th>{t("hr.payroll.colMissed")}</th>
                     <th>{t("hr.payroll.colOt")}</th>
                     <th>{t("hr.payroll.colStatus")}</th>
@@ -393,7 +394,7 @@ export default function HrPayrollPage() {
                 <tbody>
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         <HrEmptyState message={t("hr.payroll.empty")} icon={Banknote} />
                       </td>
                     </tr>
@@ -406,8 +407,18 @@ export default function HrPayrollPage() {
                         </td>
                         <td className="text-xs">{row.locationLabel ?? "—"}</td>
                         <td className="tabular-nums">{row.daysPresent}</td>
+                        <td className="tabular-nums">{row.daysLeave ?? 0}</td>
                         <td className="tabular-nums">{row.missedPunches}</td>
-                        <td className="tabular-nums">{Math.round((row.overtimeMinutes / 60) * 100) / 100}</td>
+                        <td className="tabular-nums">
+                          {minutesToOtHours(row.submittedOtMinutes ?? 0) > 0
+                            ? minutesToOtHours(row.submittedOtMinutes ?? 0)
+                            : minutesToOtHours(row.overtimeMinutes)}
+                          {(row.submittedOtMinutes ?? 0) > 0 ? (
+                            <span className="ms-1 text-[0.65rem] text-muted-foreground">
+                              {t("hr.payroll.otSubmittedHint")}
+                            </span>
+                          ) : null}
+                        </td>
                         <td>
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge variant={row.payrollReady ? "success" : "destructive"}>

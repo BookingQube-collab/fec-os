@@ -232,7 +232,10 @@ function payrollSlots(line: PayrollGridLine, serial: number): Record<string, str
         line.workingHours != null ? qtyText(line.workingHours) : snapDisplay(snap.workingHours),
       earned: payrollEarnedCell(snap, line.grossQar),
       Bonus: qar(snapNum(snap, "bonus")),
-      "OT Hours (REG)": qar(snapNum(snap, "otHoursReg")),
+      // Prefer submitted Ops/F&B/Cafe pipeline hours for review; pay column stays GM-approved only.
+      "OT Hours (REG)": qtyText(
+        Number(snap.submittedOtHours) > 0 ? snap.submittedOtHours : snap.otHoursReg,
+      ),
       "OT Pay (REG)": qar(snapNum(snap, "otPayReg")),
       "OT HRS(PUB.HOL)": qar(snapNum(snap, "otHoursPh")),
       "OT Pay (PUB.HOL)": qar(snapNum(snap, "otPayPh")),

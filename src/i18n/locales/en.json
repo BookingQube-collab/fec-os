@@ -9471,13 +9471,15 @@
       "colStaff": "Staff",
       "colLocation": "Location",
       "colPresent": "Present",
+      "colLeaves": "Leaves",
       "colMissed": "Missed punch",
       "colOt": "OT hours",
+      "otSubmittedHint": "submitted",
       "colStatus": "Status",
       "empty": "No mapped attendance in this cycle yet.",
       "noAccess": "Payroll is limited to HR and finance roles.",
       "otPolicy": "OT policy (HR summary)",
-      "otPolicyHint": "Shown for payroll review only — daily OT still comes from attendance shift templates."
+      "otPolicyHint": "OT hours prefer submitted Ops / F&B / Cafe claims for this cycle; punch OT is shown only when no claim exists. Pay still requires GM approval."
     },
     "payrollRuns": {
       "kicker": "Payroll",

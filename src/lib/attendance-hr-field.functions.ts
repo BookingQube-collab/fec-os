@@ -14,10 +14,15 @@ import { canUserDo } from "@/lib/rbac";
 import { DEFAULT_GEOFENCE_RADIUS_METERS, evaluateGeofence, pickNearestFence, SITE_GEOFENCE_DEFAULTS } from "@/lib/attendance-hr/geofence";
 import { DEFAULT_HR_NOTIFY_TOGGLES } from "@/lib/attendance-hr/hr-notify";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
+import { ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { aggregatePayrollRows, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
+import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
+import {
+  PAYROLL_VISIBLE_OT_STATUSES,
+  sumVisibleOtMinutesByStaff,
+} from "@/lib/hr-payroll";
 import { LOCATION_KIND_WAREHOUSE, normalizeLocationKind } from "@/lib/locations/kind";
 import { formatLocationLabel } from "@/lib/locations/normalize";
-import { DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
 import { resolveFaceEnrollmentTarget } from "@/lib/attendance-hr/face-enrollment";
 import { resolveStaffProfileReadAccess } from "@/lib/staff-profile-access.server";
@@ -632,16 +637,57 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     // staff RLS (user_can_access_location has no HR bypass). Join staff/locations here.
     // Always load all sites in the cycle, then collapse staff+date (listing does the same).
     // Location filter = which staff appear, not "only count punches at this site".
-    const { data: rows, error } = await supabaseAdmin
-      .from("attendance_daily_summary")
-      .select(
-        "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out, staff(full_name, employee_code, employment_type, flexible_attendance, hire_date), locations(code, name)",
-      )
-      .gte("work_date", data.dateFrom)
-      .lte("work_date", data.dateTo)
-      .not("staff_id", "is", null)
-      .limit(50000);
-    if (error) throw error;
+    // PostgREST max_rows ~1000: .limit(50000) still returns one page and undercounts Present.
+    type PayrollSummaryAttRow = {
+      staff_id: string | null;
+      location_id: string | null;
+      work_date: string | null;
+      status: string | null;
+      late_minutes: number | null;
+      missed_punch: boolean | null;
+      overtime_minutes: number | null;
+      worked_minutes: number | null;
+      punch_count: number | null;
+      actual_in: string | null;
+      actual_out: string | null;
+      scheduled_in: string | null;
+      scheduled_out: string | null;
+      staff:
+        | {
+            full_name?: string | null;
+            employee_code?: string | null;
+            employment_type?: string | null;
+            flexible_attendance?: boolean | null;
+            hire_date?: string | null;
+          }
+        | Array<{
+            full_name?: string | null;
+            employee_code?: string | null;
+            employment_type?: string | null;
+            flexible_attendance?: boolean | null;
+            hire_date?: string | null;
+          }>
+        | null;
+      locations:
+        | { code?: string | null; name?: string | null }
+        | Array<{ code?: string | null; name?: string | null }>
+        | null;
+    };
+    const rows = await collectPagedRows(async (from, to) => {
+      const { data: page, error } = await supabaseAdmin
+        .from("attendance_daily_summary")
+        .select(
+          "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out, staff(full_name, employee_code, employment_type, flexible_attendance, hire_date), locations(code, name)",
+        )
+        .gte("work_date", data.dateFrom)
+        .lte("work_date", data.dateTo)
+        .not("staff_id", "is", null)
+        .order("work_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return (page ?? []) as PayrollSummaryAttRow[];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
 
     const locLabelById = new Map<string, string>();
     if (data.locationId) {
@@ -655,7 +701,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
 
     const staffAtFilterLoc = new Set<string>();
     const staffLocVotes = new Map<string, Map<string, number>>();
-    const days: PayrollDayInput[] = (rows ?? []).map((row) => {
+    const days: PayrollDayInput[] = rows.map((row) => {
       const staffId = String(row.staff_id);
       const locationId = row.location_id ? String(row.location_id) : "";
       if (data.locationId && locationId === data.locationId) staffAtFilterLoc.add(staffId);
@@ -701,9 +747,34 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       };
     });
 
+    // Ops / F&B / Cafe (and attendance) OT claims — show submitted pipeline hours, not punch OT alone.
+    const otRows = await collectPagedRows(async (from, to) => {
+      const { data: page, error } = await supabaseAdmin
+        .from("hr_ot_claims")
+        .select("staff_id, status, claimed_minutes, approved_minutes, work_date")
+        .gte("work_date", data.dateFrom)
+        .lte("work_date", data.dateTo)
+        .in("status", [...PAYROLL_VISIBLE_OT_STATUSES])
+        .order("work_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return page ?? [];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    const submittedOtByStaff = sumVisibleOtMinutesByStaff(
+      otRows.map((r) => ({
+        staff_id: r.staff_id as string,
+        status: String(r.status),
+        claimed_minutes: Number(r.claimed_minutes ?? 0),
+        approved_minutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
+      })),
+    );
+
     const filterLabel = data.locationId ? (locLabelById.get(data.locationId) ?? "—") : null;
     let summary = aggregatePayrollRows(days).map((row) => {
-      if (filterLabel) return { ...row, locationLabel: filterLabel };
+      const submittedOtMinutes = submittedOtByStaff.get(row.staffId) ?? 0;
+      const withOt = { ...row, submittedOtMinutes };
+      if (filterLabel) return { ...withOt, locationLabel: filterLabel };
       const votes = staffLocVotes.get(row.staffId);
       let bestId = "";
       let bestN = -1;
@@ -715,7 +786,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
           }
         }
       }
-      return { ...row, locationLabel: (bestId && locLabelById.get(bestId)) || "—" };
+      return { ...withOt, locationLabel: (bestId && locLabelById.get(bestId)) || "—" };
     });
     if (data.locationId) {
       summary = summary.filter((row) => staffAtFilterLoc.has(row.staffId));

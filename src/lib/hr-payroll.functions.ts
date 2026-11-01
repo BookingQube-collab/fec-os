@@ -21,14 +21,17 @@ import {
   earningsToFixedVariable,
   fecPeriodForMonth,
   filterConsumableOtClaims,
+  filterVisibleOtClaims,
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
+  minutesToOtHours,
   nextStatusAfter,
   computeDailyRateBasicFromHistory,
   resolveDailyRatePayroll,
   resolveEarnedBasicQar,
   resolvePaymentMethod,
   sumOtAmounts,
+  sumVisibleOtMinutesByStaff,
   type SalaryRateHistoryRow,
   type HrPayrollPaymentMethod,
   type HrPayrollStatus,
@@ -418,28 +421,42 @@ export const generatePayrollLines = createAuthenticatedAction(
       .eq("payroll_period_id", data.periodId)
       .eq("status", "payroll_posted");
 
+    // Visible OT (submitted → payroll_posted) for hours on the period grid.
+    // Pay still consumes only gm_approved (AT#4).
     const { data: otRows } = await context.supabase
       .from("hr_ot_claims")
-      .select("id, staff_id, amount_qar, status, work_date")
+      .select("id, staff_id, amount_qar, status, work_date, claimed_minutes, approved_minutes")
       .in("staff_id", staffIds)
-      .eq("status", "gm_approved")
+      .in("status", [
+        "submitted",
+        "manager_verified",
+        "ops_approved",
+        "hr_approved",
+        "gm_approved",
+        "payroll_posted",
+      ])
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo);
 
-    const consumableOt = filterConsumableOtClaims(
-      (otRows ?? []).map((r) => ({
-        id: r.id as string,
-        staff_id: r.staff_id as string,
-        status: String(r.status),
-        amount_qar: Number(r.amount_qar) || 0,
-      })),
-    );
+    const otMapped = (otRows ?? []).map((r) => ({
+      id: r.id as string,
+      staff_id: r.staff_id as string,
+      status: String(r.status),
+      amount_qar: Number(r.amount_qar) || 0,
+      claimed_minutes: Number(r.claimed_minutes ?? 0),
+      approved_minutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
+    }));
+    const consumableOt = filterConsumableOtClaims(otMapped);
     const otByStaff = new Map<string, typeof consumableOt>();
     for (const c of consumableOt) {
       const list = otByStaff.get(c.staff_id) ?? [];
       list.push(c);
       otByStaff.set(c.staff_id, list);
     }
+    const submittedOtMinutesByStaff = sumVisibleOtMinutesByStaff(otMapped);
+    const approvedOtMinutesByStaff = sumVisibleOtMinutesByStaff(
+      filterVisibleOtClaims(otMapped).filter((c) => c.status === "gm_approved" || c.status === "payroll_posted"),
+    );
 
     const { data: airRows } = await context.supabase
       .from("hr_air_ticket_issues")
@@ -471,7 +488,10 @@ export const generatePayrollLines = createAuthenticatedAction(
     // Do not filter by location_id: punches are company-wide per staff.
     // PostgREST max_rows is ~1000. .limit(50000) still returns one page and drops
     // most of a 109-person FEC month (28–27), so page with .range() like the listing.
-    const unpaidAttendanceByStaff = new Map<string, { absent: number; unpaidLeave: number }>();
+    const unpaidAttendanceByStaff = new Map<
+      string,
+      { absent: number; unpaidLeave: number; leaveDays: number }
+    >();
     const readinessByStaff = new Map<string, { payrollReady: boolean; blockingDays: number; missedPunches: number }>();
     const staffById = new Map(staff.map((s) => [s.id, s]));
     let dayInputs: PayrollDayInput[] = [];
@@ -502,6 +522,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         unpaidAttendanceByStaff.set(row.staffId, {
           absent: row.daysAbsent,
           unpaidLeave: row.daysUnpaidLeave,
+          leaveDays: row.daysLeave,
         });
         readinessByStaff.set(row.staffId, {
           payrollReady: row.payrollReady,
@@ -592,7 +613,11 @@ export const generatePayrollLines = createAuthenticatedAction(
         monthlySalaryQar: monthlyStored,
         dailyRateQar: dailyStored,
       });
-      const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? { absent: 0, unpaidLeave: 0 };
+      const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? {
+        absent: 0,
+        unpaidLeave: 0,
+        leaveDays: 0,
+      };
       // Hire/exit clips which listing days count. Earned pay is daily rate × those worked days
       // for every employment type — not full monthly basic minus absences.
       const activeWindow = computeProrationFactor({
@@ -606,6 +631,10 @@ export const generatePayrollLines = createAuthenticatedAction(
         to: activeWindow.activeTo,
       });
       const workedDays = workedDates.length;
+      const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
+      const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
+      const submittedOtHours = minutesToOtHours(submittedOtMinutes);
+      const otHoursReg = minutesToOtHours(approvedOtMinutes);
       const historyRates = histRowsBy.get(s.id) ?? [];
       const historyPay =
         dailyPay && historyRates.length > 0
@@ -733,6 +762,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         snapshot: {
           presentDays: workedDays,
           absentDays: attUnpaid.absent,
+          leaveDays: attUnpaid.leaveDays,
           unpaidLeaveDays: 0,
           dayRateQar: dailyRate,
           payrollReady: ready?.payrollReady ?? true,
@@ -747,10 +777,13 @@ export const generatePayrollLines = createAuthenticatedAction(
           earnedGross,
           grossSalary: hasComp ? contractGross : 0,
           bonus: 0,
-          otHoursReg: 0,
+          // Approved OT hours (gm_approved) for REG column; submitted pipeline hours for review.
+          otHoursReg,
           otPayReg: otQar,
           otHoursPh: 0,
           otPayPh: 0,
+          submittedOtHours,
+          submittedOtMinutes,
           extraPay: airQar,
           advancePay: 0,
           deduction: Math.round((deductionTotal + Number.EPSILON) * 100) / 100,
