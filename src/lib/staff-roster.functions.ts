@@ -357,6 +357,8 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       extras: z.array(salaryExtraSchema).max(20).optional(),
       /** Closed past joker day-rate window (does not replace live current price). */
       previousDailyRateQar: z.number().min(0).max(100_000).optional(),
+      /** Closed past monthly package total (permanent / secondment / monthly joker). */
+      previousMonthlySalaryQar: z.number().min(0).max(1_000_000).optional(),
       previousRateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       previousRateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     })
@@ -364,14 +366,18 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
     .superRefine((val, ctx) => {
       const hasPrev =
         val.previousDailyRateQar != null ||
+        val.previousMonthlySalaryQar != null ||
         val.previousRateFrom != null ||
         val.previousRateTo != null;
       if (!hasPrev) return;
-      if (val.previousDailyRateQar == null || !(val.previousDailyRateQar > 0)) {
+      const hasDailyPrev = val.previousDailyRateQar != null && val.previousDailyRateQar > 0;
+      const hasMonthlyPrev =
+        val.previousMonthlySalaryQar != null && val.previousMonthlySalaryQar > 0;
+      if (hasDailyPrev === hasMonthlyPrev) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Previous joker price is required when From/To dates are set.",
-          path: ["previousDailyRateQar"],
+          message: "Previous price needs either a day rate or a monthly package amount.",
+          path: hasDailyPrev ? ["previousDailyRateQar"] : ["previousMonthlySalaryQar"],
         });
       }
       if (!val.previousRateFrom || !val.previousRateTo) {
@@ -471,17 +477,21 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
 
     const previousFrom = data.previousRateFrom?.slice(0, 10);
     const previousTo = data.previousRateTo?.slice(0, 10);
-    const previousRate =
+    const previousDaily =
       data.previousDailyRateQar != null && data.previousDailyRateQar > 0
         ? data.previousDailyRateQar
         : null;
-    if (previousFrom && previousTo && previousRate != null) {
+    const previousMonthly =
+      data.previousMonthlySalaryQar != null && data.previousMonthlySalaryQar > 0
+        ? data.previousMonthlySalaryQar
+        : null;
+    if (previousFrom && previousTo && previousDaily != null) {
       if (!isDaily || daily == null) {
-        throw new Error("Previous price windows require a current joker day rate.");
+        throw new Error("Previous day-rate windows require a current day rate.");
       }
       await insertSalaryHistoryAndSync(context, {
         ...historyBase,
-        dailyRateQar: previousRate,
+        dailyRateQar: previousDaily,
         monthlyTotalQar: null,
         basicQar: null,
         housingQar: null,
@@ -498,6 +508,36 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
         dailyRateQar: daily,
         effectiveOn: addDaysYmd(previousTo, 1),
         reason: "joker_current_rate_resume",
+        syncCompensation: true,
+      });
+      return { ok: true as const };
+    }
+    if (previousFrom && previousTo && previousMonthly != null) {
+      if (isDaily) {
+        throw new Error("Previous monthly package windows require a monthly salary package.");
+      }
+      if (packageTotal == null || !(packageTotal > 0)) {
+        throw new Error("Previous package windows require a current monthly package total.");
+      }
+      await insertSalaryHistoryAndSync(context, {
+        ...historyBase,
+        dailyRateQar: null,
+        monthlyTotalQar: previousMonthly,
+        basicQar: previousMonthly,
+        housingQar: null,
+        transportQar: null,
+        replaceComponents: true,
+        allowances: undefined,
+        extras: undefined,
+        effectiveOn: previousFrom,
+        reason: "package_previous_rate",
+        syncCompensation: false,
+      });
+      await insertSalaryHistoryAndSync(context, {
+        ...historyBase,
+        dailyRateQar: null,
+        effectiveOn: addDaysYmd(previousTo, 1),
+        reason: "package_current_rate_resume",
         syncCompensation: true,
       });
       return { ok: true as const };

@@ -7,6 +7,7 @@ import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
 import { resolveSalaryExtras } from "@/lib/salary-package";
+import { resolvePreviousCompensationWindow } from "@/lib/salary-previous-rate";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 
@@ -74,6 +75,12 @@ export async function GET(
         transport_qar: number | null;
         extras: Array<{ id: string; title: string; amount_qar: number }>;
         currency: string;
+        previous_rate: {
+          amount_qar: number;
+          from: string;
+          to: string;
+          kind: "daily" | "monthly";
+        } | null;
       } | null = null;
       if (includeSalary && (loadOverview || legacyFull)) {
         const first = await db
@@ -125,16 +132,44 @@ export async function GET(
           throw first.error;
         }
         let historyAllowances: unknown;
+        let previousRate: {
+          amount_qar: number;
+          from: string;
+          to: string;
+          kind: "daily" | "monthly";
+        } | null = null;
         if (comp) {
           const hist = await db
             .from("staff_salary_history")
-            .select("allowances")
+            .select(
+              "allowances, daily_rate_qar, monthly_total_qar, basic_qar, effective_on, reason, created_at",
+            )
             .eq("staff_id", id)
             .order("effective_on", { ascending: false })
             .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (!hist.error) historyAllowances = hist.data?.allowances;
+            .limit(40);
+          if (!hist.error) {
+            const rows = hist.data ?? [];
+            historyAllowances = rows[0]?.allowances;
+            const previous = resolvePreviousCompensationWindow(
+              rows.map((row) => ({
+                effectiveOn: String(row.effective_on).slice(0, 10),
+                dailyRateQar: row.daily_rate_qar == null ? null : Number(row.daily_rate_qar),
+                monthlyTotalQar: row.monthly_total_qar == null ? null : Number(row.monthly_total_qar),
+                basicQar: row.basic_qar == null ? null : Number(row.basic_qar),
+                reason: row.reason ?? null,
+                createdAt: row.created_at != null ? String(row.created_at) : null,
+              })),
+            );
+            if (previous) {
+              previousRate = {
+                amount_qar: previous.amountQar,
+                from: previous.from,
+                to: previous.to,
+                kind: previous.kind,
+              };
+            }
+          }
         }
         compensation = comp
           ? {
@@ -149,6 +184,7 @@ export async function GET(
                 amount_qar: extra.amountQar,
               })),
               currency: comp.currency,
+              previous_rate: previousRate,
             }
           : null;
       }

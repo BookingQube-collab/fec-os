@@ -176,6 +176,12 @@ type ProfileResponse = {
     transport_qar: number | null;
     extras?: Array<{ id: string; title: string; amount_qar: number }>;
     currency: string;
+    previous_rate?: {
+      amount_qar: number;
+      from: string;
+      to: string;
+      kind: "daily" | "monthly";
+    } | null;
   } | null;
   transfers: Array<{
     id: string;
@@ -262,6 +268,9 @@ function StaffProfilePageBody() {
   const [basicQar, setBasicQar] = useState("");
   const [housingQar, setHousingQar] = useState("");
   const [transportQar, setTransportQar] = useState("");
+  const [previousPrice, setPreviousPrice] = useState("");
+  const [previousPriceFrom, setPreviousPriceFrom] = useState("");
+  const [previousPriceTo, setPreviousPriceTo] = useState("");
   const [salaryExtras, setSalaryExtras] = useState<Array<{ id: string; title: string; amount: string }>>([]);
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
@@ -391,6 +400,10 @@ function StaffProfilePageBody() {
     setBasicQar(c.basic_qar == null ? "" : String(c.basic_qar));
     setHousingQar(c.housing_qar == null ? "" : String(c.housing_qar));
     setTransportQar(c.transport_qar == null ? "" : String(c.transport_qar));
+    // Previous window is display-only from API; edit fields stay blank until HR records a new window.
+    setPreviousPrice("");
+    setPreviousPriceFrom("");
+    setPreviousPriceTo("");
     setSalaryExtras(
       parseSalaryExtras(c.extras).map((extra) => ({
         id: extra.id,
@@ -420,9 +433,40 @@ function StaffProfilePageBody() {
   const salaryMut = useMutation({
     mutationFn: async () => {
       const isJoker = employmentType === "joker" || profile.data?.staff?.employment_type === "joker";
+      const prevPriceRaw = previousPrice.trim();
+      const prevFrom = previousPriceFrom.trim();
+      const prevTo = previousPriceTo.trim();
+      const prevAny = Boolean(prevPriceRaw || prevFrom || prevTo);
+      let previousDailyRateQar: number | undefined;
+      let previousMonthlySalaryQar: number | undefined;
+      let previousRateFrom: string | undefined;
+      let previousRateTo: string | undefined;
+      if (prevAny) {
+        const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
+        if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
+          throw new Error(t("people.staff.previousPriceIncomplete"));
+        }
+        if (prevFrom > prevTo) {
+          throw new Error(t("people.staff.previousPriceRangeInvalid"));
+        }
+        previousRateFrom = prevFrom;
+        previousRateTo = prevTo;
+        if (isJoker) previousDailyRateQar = prevAmount;
+        else previousMonthlySalaryQar = prevAmount;
+      }
       if (isJoker) {
         const amount = parseMoneyField(salary, t("people.staff.currentPricePlaceholder"));
-        const result = await updateStaffSalary({ id, monthlySalaryQar: null, dailyRateQar: amount });
+        if (previousDailyRateQar != null && (amount == null || !(amount > 0))) {
+          throw new Error(t("people.staff.currentPricePlaceholder"));
+        }
+        const result = await updateStaffSalary({
+          id,
+          monthlySalaryQar: null,
+          dailyRateQar: amount,
+          ...(previousDailyRateQar != null && previousRateFrom && previousRateTo
+            ? { previousDailyRateQar, previousRateFrom, previousRateTo }
+            : {}),
+        });
         if (!result.ok) throw new Error(result.error);
         return result.data;
       }
@@ -447,6 +491,9 @@ function StaffProfilePageBody() {
         transportQar: transport,
         dailyRateQar: null,
         ...(extrasPayload !== undefined ? { extras: extrasPayload } : {}),
+        ...(previousMonthlySalaryQar != null && previousRateFrom && previousRateTo
+          ? { previousMonthlySalaryQar, previousRateFrom, previousRateTo }
+          : {}),
       });
       if (!result.ok) throw new Error(result.error);
       return result.data;
@@ -1245,6 +1292,7 @@ function StaffProfilePageBody() {
               {employmentType === "joker" || s.employment_type === "joker" ? (
                 <>
                   <FactGrid
+                    cols="grid-cols-2 lg:grid-cols-3"
                     items={[
                       fact(
                         t("people.staff.currentPrice"),
@@ -1252,17 +1300,62 @@ function StaffProfilePageBody() {
                           ? null
                           : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}/day`,
                       ),
+                      fact(
+                        t("people.staff.previousPrice"),
+                        profile.data?.compensation?.previous_rate?.amount_qar == null
+                          ? null
+                          : `${profile.data.compensation.previous_rate.amount_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}/day`,
+                      ),
+                      fact(
+                        t("people.staff.previousPriceRange"),
+                        profile.data?.compensation?.previous_rate?.from &&
+                          profile.data?.compensation?.previous_rate?.to
+                          ? `${profile.data.compensation.previous_rate.from} → ${profile.data.compensation.previous_rate.to}`
+                          : null,
+                      ),
                     ]}
                   />
                   {canSalary ? (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div className="space-y-1">
-                        <Label>{t("people.staff.currentPrice")}</Label>
-                        <Input
-                          value={salary}
-                          onChange={(e) => setSalary(e.target.value)}
-                          placeholder={t("people.staff.currentPricePlaceholder")}
-                        />
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="space-y-1">
+                          <Label>{t("people.staff.currentPrice")}</Label>
+                          <Input
+                            value={salary}
+                            onChange={(e) => setSalary(e.target.value)}
+                            placeholder={t("people.staff.currentPricePlaceholder")}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2 rounded-md border border-border/70 p-3">
+                        <div className="space-y-1">
+                          <Label>{t("people.staff.previousPrice")}</Label>
+                          <Input
+                            value={previousPrice}
+                            onChange={(e) => setPreviousPrice(e.target.value)}
+                            placeholder={t("people.staff.previousPricePlaceholder")}
+                            inputMode="decimal"
+                          />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label>{t("people.staff.previousPriceFrom")}</Label>
+                            <Input
+                              type="date"
+                              value={previousPriceFrom}
+                              onChange={(e) => setPreviousPriceFrom(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>{t("people.staff.previousPriceTo")}</Label>
+                            <Input
+                              type="date"
+                              value={previousPriceTo}
+                              onChange={(e) => setPreviousPriceTo(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{t("people.staff.previousPriceHelp")}</p>
                       </div>
                       <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
                         {salaryMut.isPending ? t("common.saving") : t("common.save")}
@@ -1303,6 +1396,19 @@ function StaffProfilePageBody() {
                         profile.data?.compensation?.monthly_salary_qar == null
                           ? null
                           : `${profile.data.compensation.monthly_salary_qar.toLocaleString()} QAR`,
+                      ),
+                      fact(
+                        t("people.staff.previousPrice"),
+                        profile.data?.compensation?.previous_rate?.amount_qar == null
+                          ? null
+                          : `${profile.data.compensation.previous_rate.amount_qar.toLocaleString()} QAR`,
+                      ),
+                      fact(
+                        t("people.staff.previousPriceRange"),
+                        profile.data?.compensation?.previous_rate?.from &&
+                          profile.data?.compensation?.previous_rate?.to
+                          ? `${profile.data.compensation.previous_rate.from} → ${profile.data.compensation.previous_rate.to}`
+                          : null,
                       ),
                     ]}
                   />
@@ -1434,6 +1540,38 @@ function StaffProfilePageBody() {
                           ))}
                         </div>
                       ) : null}
+                      <div className="space-y-2 rounded-md border border-border/70 p-3">
+                        <div className="space-y-1">
+                          <Label>{t("people.staff.previousPrice")}</Label>
+                          <Input
+                            value={previousPrice}
+                            onChange={(e) => setPreviousPrice(e.target.value)}
+                            placeholder={t("people.staff.previousPriceMonthlyPlaceholder")}
+                            inputMode="decimal"
+                          />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label>{t("people.staff.previousPriceFrom")}</Label>
+                            <Input
+                              type="date"
+                              value={previousPriceFrom}
+                              onChange={(e) => setPreviousPriceFrom(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>{t("people.staff.previousPriceTo")}</Label>
+                            <Input
+                              type="date"
+                              value={previousPriceTo}
+                              onChange={(e) => setPreviousPriceTo(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {t("people.staff.previousPriceMonthlyHelp")}
+                        </p>
+                      </div>
                       <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
                         {salaryMut.isPending ? t("common.saving") : t("common.save")}
                       </Button>
@@ -1678,10 +1816,29 @@ function StaffProfilePageBody() {
             <>
               {(employmentType === "joker" || s.employment_type === "joker") &&
               profile.data.compensation?.daily_rate_qar != null ? (
-                <Row
-                  label={t("people.staff.currentPrice")}
-                  value={`${profile.data.compensation.daily_rate_qar} ${profile.data.compensation.currency ?? "QAR"}/day`}
-                />
+                <>
+                  <Row
+                    label={t("people.staff.currentPrice")}
+                    value={`${profile.data.compensation.daily_rate_qar} ${profile.data.compensation.currency ?? "QAR"}/day`}
+                  />
+                  <Row
+                    label={t("people.staff.previousPrice")}
+                    value={
+                      profile.data.compensation.previous_rate?.amount_qar == null
+                        ? "—"
+                        : `${profile.data.compensation.previous_rate.amount_qar} ${profile.data.compensation.currency ?? "QAR"}/day`
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.previousPriceRange")}
+                    value={
+                      profile.data.compensation.previous_rate?.from &&
+                      profile.data.compensation.previous_rate?.to
+                        ? `${profile.data.compensation.previous_rate.from} → ${profile.data.compensation.previous_rate.to}`
+                        : "—"
+                    }
+                  />
+                </>
               ) : (
                 <>
                   <Row
@@ -1719,6 +1876,23 @@ function StaffProfilePageBody() {
                       profile.data.compensation?.monthly_salary_qar == null
                         ? "—"
                         : `${profile.data.compensation.monthly_salary_qar} QAR`
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.previousPrice")}
+                    value={
+                      profile.data.compensation?.previous_rate?.amount_qar == null
+                        ? "—"
+                        : `${profile.data.compensation.previous_rate.amount_qar} QAR`
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.previousPriceRange")}
+                    value={
+                      profile.data.compensation?.previous_rate?.from &&
+                      profile.data.compensation?.previous_rate?.to
+                        ? `${profile.data.compensation.previous_rate.from} → ${profile.data.compensation.previous_rate.to}`
+                        : "—"
                     }
                   />
                 </>
@@ -2013,6 +2187,21 @@ function StaffProfilePageBody() {
                     profile.data.compensation?.daily_rate_qar == null
                       ? null
                       : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,
+                  ),
+                  fact(
+                    t("people.staff.previousPrice"),
+                    profile.data.compensation?.previous_rate?.amount_qar == null
+                      ? null
+                      : `${profile.data.compensation.previous_rate.amount_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}${
+                          profile.data.compensation.previous_rate.kind === "daily" ? "/day" : ""
+                        }`,
+                  ),
+                  fact(
+                    t("people.staff.previousPriceRange"),
+                    profile.data.compensation?.previous_rate?.from &&
+                      profile.data.compensation?.previous_rate?.to
+                      ? `${profile.data.compensation.previous_rate.from} → ${profile.data.compensation.previous_rate.to}`
+                      : null,
                   ),
                   fact(
                     "Ticket amount",

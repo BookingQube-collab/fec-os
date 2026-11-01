@@ -674,6 +674,9 @@ function StaffFormDialog({
     if (open && !wasOpenRef.current) {
       setFormTab("profile");
       setShownEmployeeCode(staff?.employee_code ?? "");
+      setPreviousPrice("");
+      setPreviousPriceFrom("");
+      setPreviousPriceTo("");
     }
     wasOpenRef.current = open;
     if (open) return;
@@ -754,9 +757,12 @@ function StaffFormDialog({
       const prevTo = previousPriceTo.trim();
       const prevAny = Boolean(prevPriceRaw || prevFrom || prevTo);
       let previousDailyRateQar: number | undefined;
+      let previousMonthlySalaryQar: number | undefined;
       let previousRateFrom: string | undefined;
       let previousRateTo: string | undefined;
-      if (canEditSalary && jokerDaily && payBasis === "daily" && prevAny) {
+      const canSaveDailyPrevious = canEditSalary && jokerDaily && payBasis === "daily";
+      const canSaveMonthlyPrevious = canEditSalary && !jokerDaily;
+      if (canSaveDailyPrevious && prevAny) {
         const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
         if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
           throw new Error(t("people.staff.previousPriceIncomplete"));
@@ -770,12 +776,27 @@ function StaffFormDialog({
         previousDailyRateQar = prevAmount;
         previousRateFrom = prevFrom;
         previousRateTo = prevTo;
+      } else if (canSaveMonthlyPrevious && prevAny) {
+        const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
+        if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
+          throw new Error(t("people.staff.previousPriceIncomplete"));
+        }
+        if (prevFrom > prevTo) {
+          throw new Error(t("people.staff.previousPriceRangeInvalid"));
+        }
+        if (nextMonthly == null || !(nextMonthly > 0)) {
+          throw new Error(t("people.staff.salaryPlaceholder"));
+        }
+        previousMonthlySalaryQar = prevAmount;
+        previousRateFrom = prevFrom;
+        previousRateTo = prevTo;
       }
       const salaryChanged =
         canEditSalary &&
         (nextMonthly !== (staff?.monthly_salary_qar ?? null) ||
           nextDaily !== (staff?.daily_rate_qar ?? null) ||
-          previousDailyRateQar != null);
+          previousDailyRateQar != null ||
+          previousMonthlySalaryQar != null);
 
       const saveIdentity = identityFieldsChanged(identity, staff);
       const documents = saveIdentity
@@ -841,6 +862,13 @@ function StaffFormDialog({
           ...(previousDailyRateQar != null && previousRateFrom && previousRateTo
             ? {
                 previousDailyRateQar,
+                previousRateFrom,
+                previousRateTo,
+              }
+            : {}),
+          ...(previousMonthlySalaryQar != null && previousRateFrom && previousRateTo
+            ? {
+                previousMonthlySalaryQar,
                 previousRateFrom,
                 previousRateTo,
               }
@@ -1354,14 +1382,20 @@ function StaffFormDialog({
                       className={canEditSalary ? undefined : "bg-muted/40"}
                     />
                   </div>
-                  {employmentType === "joker" && payBasis === "daily" && canEditSalary ? (
+                  {canEditSalary &&
+                  ((employmentType === "joker" && payBasis === "daily") ||
+                    (employmentType !== "" && employmentType !== "joker")) ? (
                     <div className="space-y-2 rounded-md border border-border/70 p-3">
                       <div>
                         <Label>{t("people.staff.previousPrice")}</Label>
                         <Input
                           value={previousPrice}
                           onChange={(e) => setPreviousPrice(e.target.value)}
-                          placeholder={t("people.staff.previousPricePlaceholder")}
+                          placeholder={
+                            employmentType === "joker" && payBasis === "daily"
+                              ? t("people.staff.previousPricePlaceholder")
+                              : t("people.staff.previousPriceMonthlyPlaceholder")
+                          }
                           inputMode="decimal"
                         />
                       </div>
@@ -1383,7 +1417,11 @@ function StaffFormDialog({
                           />
                         </div>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">{t("people.staff.previousPriceHelp")}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {employmentType === "joker" && payBasis === "daily"
+                          ? t("people.staff.previousPriceHelp")
+                          : t("people.staff.previousPriceMonthlyHelp")}
+                      </p>
                     </div>
                   ) : null}
                 </div>
