@@ -453,6 +453,23 @@ export default function HrPayrollPage() {
                               {t("hr.payroll.paySourceMissing")}
                             </p>
                           ) : null}
+                          {(Number(row.submittedOtQar ?? 0) > 0 ||
+                            Number(row.submittedOtMinutes ?? 0) > 0 ||
+                            Number(row.airTicketQar ?? 0) > 0) ? (
+                            <p className="mt-0.5 text-[0.65rem] text-muted-foreground">
+                              {[
+                                Number(row.submittedOtQar ?? 0) > 0 ||
+                                Number(row.submittedOtMinutes ?? 0) > 0
+                                  ? t("hr.payroll.payExtraOt")
+                                  : null,
+                                Number(row.airTicketQar ?? 0) > 0
+                                  ? t("hr.payroll.payExtraAirTicket")
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          ) : null}
                         </td>
                         <td>
                           <div className="flex flex-wrap items-center gap-1.5">

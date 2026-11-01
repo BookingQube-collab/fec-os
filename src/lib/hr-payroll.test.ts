@@ -348,6 +348,22 @@ describe("payroll readiness pay preview", () => {
     expect(preview.earnedBasicQar).toBe(6000);
     expect(preview.payQar).toBe(6187.5);
   });
+
+  it("adds unpaid air-ticket allowance into readiness Pay", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 30,
+      periodDays: 30,
+      otQar: 100,
+      airTicketQar: 1200,
+    });
+    expect(preview.otQar).toBe(100);
+    expect(preview.airTicketQar).toBe(1200);
+    expect(preview.payQar).toBe(7300);
+  });
 });
 
 describe("resolveEarnedBasicWithPreviousWindow", () => {

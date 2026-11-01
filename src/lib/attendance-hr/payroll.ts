@@ -93,6 +93,13 @@ export type PayrollStaffRow = {
    * Visibility only — pay still requires gm_approved (AT#4).
    */
   submittedOtMinutes: number;
+  /** Submitted pipeline OT amount_qar (formula) for readiness Pay / badges. */
+  submittedOtQar?: number;
+  /**
+   * Air-ticket cash allowance that Generate would (or did) include for this staff —
+   * unpaid/pending approved issues, or issues already linked to the cycle period.
+   */
+  airTicketQar?: number;
   blockingDays: number;
   payrollReady: boolean;
   /** Aggregated why-blocked codes (source of truth for Fix UI). */
@@ -102,7 +109,8 @@ export type PayrollStaffRow = {
   locationLabel?: string;
   /**
    * Pay preview for the readiness list (QAR). Prefer generated period line net when
-   * present; otherwise estimate from compensation × paid days (Generate rules).
+   * present; otherwise estimate from compensation × paid days (+ submitted OT +
+   * air ticket when pending) matching Generate rules.
    */
   payQar?: number | null;
   /** generated = period line; estimate = compensation preview; missing = no salary set. */

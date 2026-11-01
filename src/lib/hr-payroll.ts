@@ -503,10 +503,11 @@ export function previousCompensationWindowFromHistory(
 export type PayrollPayPreviewSource = "generated" | "estimate" | "missing";
 
 /**
- * Readiness-list pay preview using the same basic/allowance (+ submitted OT) rules as
- * Generate lines. When paidDates + previousWindow are provided, days inside [from, to]
- * use previous amount. otQar should already be computed from submitted pipeline claims
- * (Ops / F&B / Cafe amount_qar via the OT formula).
+ * Readiness-list pay preview using the same basic/allowance (+ submitted OT +
+ * unpaid air-ticket) rules as Generate lines. When paidDates + previousWindow are
+ * provided, days inside [from, to] use previous amount. otQar should already be
+ * computed from submitted pipeline claims (Ops / F&B / Cafe amount_qar via the OT
+ * formula). airTicketQar is cash allowance from approved/issued unpaid issues.
  */
 export function estimatePayrollReadinessPay(input: {
   employmentType?: string | null;
@@ -523,12 +524,15 @@ export function estimatePayrollReadinessPay(input: {
   previousWindow?: PreviousCompensationWindow | null;
   /** Submitted (visible) OT claim amounts already computed with the OT formula. */
   otQar?: number | null;
+  /** Unpaid/pending approved air-ticket cash allowance that Generate would include. */
+  airTicketQar?: number | null;
 }): {
   dailyPay: boolean;
   missingCompensation: boolean;
   earnedBasicQar: number;
   allowancesQar: number;
   otQar: number;
+  airTicketQar: number;
   payQar: number;
   paySource: Extract<PayrollPayPreviewSource, "estimate" | "missing">;
   previousDays: number;
@@ -561,6 +565,7 @@ export function estimatePayrollReadinessPay(input: {
     ? dayRateQar != null && dayRateQar > 0
     : basic > 0;
   const otQar = round2(Math.max(0, Number(input.otQar) || 0));
+  const airTicketQar = round2(Math.max(0, Number(input.airTicketQar) || 0));
   if (!hasComp) {
     return {
       dailyPay,
@@ -568,6 +573,7 @@ export function estimatePayrollReadinessPay(input: {
       earnedBasicQar: 0,
       allowancesQar: 0,
       otQar: 0,
+      airTicketQar: 0,
       payQar: 0,
       paySource: "missing",
       previousDays: 0,
@@ -605,12 +611,34 @@ export function estimatePayrollReadinessPay(input: {
     earnedBasicQar,
     allowancesQar,
     otQar,
-    payQar: round2(earnedBasicQar + allowancesQar + otQar),
+    airTicketQar,
+    payQar: round2(earnedBasicQar + allowancesQar + otQar + airTicketQar),
     paySource: "estimate",
     previousDays: split.previousDays,
     currentDays: split.currentDays,
     usedPreviousWindow: split.usedPreviousWindow,
   };
+}
+
+/** Sum air-ticket cash allowances by staff (Generate / readiness enrichment). */
+export function sumAirTicketAmountsByStaff(
+  rows: Array<{
+    staff_id?: string | null;
+    staffId?: string | null;
+    amount?: number | null;
+    amountQar?: number | null;
+    cash_allowance_qar?: number | null;
+  }>,
+): Map<string, number> {
+  const byStaff = new Map<string, number>();
+  for (const row of rows) {
+    const staffId = String(row.staffId ?? row.staff_id ?? "");
+    if (!staffId) continue;
+    const amount = Number(row.amountQar ?? row.amount ?? row.cash_allowance_qar) || 0;
+    if (amount <= 0) continue;
+    byStaff.set(staffId, round2((byStaff.get(staffId) ?? 0) + amount));
+  }
+  return byStaff;
 }
 
 /**

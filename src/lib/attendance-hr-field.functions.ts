@@ -28,6 +28,7 @@ import {
   computeProrationFactor,
   estimatePayrollReadinessPay,
   previousCompensationWindowFromHistory,
+  sumAirTicketAmountsByStaff,
   sumVisibleOtAmountsByStaff,
   sumVisibleOtMinutesByStaff,
   toPreviousRateHistoryRows,
@@ -791,7 +792,8 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     const filterLabel = data.locationId ? (locLabelById.get(data.locationId) ?? "—") : null;
     let summary = aggregatePayrollRows(scheduledDays).map((row) => {
       const submittedOtMinutes = submittedOtByStaff.get(row.staffId) ?? 0;
-      const withOt = { ...row, submittedOtMinutes };
+      const submittedOtQar = submittedOtPayByStaff.get(row.staffId) ?? 0;
+      const withOt = { ...row, submittedOtMinutes, submittedOtQar };
       if (filterLabel) return { ...withOt, locationLabel: filterLabel };
       const votes = staffLocVotes.get(row.staffId);
       let bestId = "";
@@ -820,6 +822,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     // Pay preview: prefer generated period line net; else compensation × paid days (Generate rules).
     const staffIds = summary.map((r) => r.staffId);
     const generatedNetByStaff = new Map<string, number>();
+    let periodId: string | null = null;
     if (staffIds.length) {
       const { data: periodMatch } = await supabaseAdmin
         .from("hr_payroll_periods")
@@ -830,6 +833,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         .limit(1)
         .maybeSingle();
       if (periodMatch?.id) {
+        periodId = String(periodMatch.id);
         const staffSet = new Set(staffIds);
         const lineRows = await collectPagedRows(async (from, to) => {
           const { data: page, error } = await supabaseAdmin
@@ -846,6 +850,53 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
           if (!staffSet.has(sid)) continue;
           generatedNetByStaff.set(sid, Number(line.net_qar) || 0);
         }
+      }
+    }
+
+    // Same air-ticket intake as Generate: unpaid/pending approved/issued cash allowance.
+    // Also keep tickets already linked to this cycle's period (pending or paid).
+    const airTicketPayByStaff = new Map<string, number>();
+    if (staffIds.length) {
+      const staffSet = new Set(staffIds);
+      const [{ data: pendingAirRows }, periodAirResult] = await Promise.all([
+        supabaseAdmin
+          .from("hr_air_ticket_issues")
+          .select("id, cash_allowance_qar, entitlement_id")
+          .in("payroll_payment_status", ["unpaid", "pending"])
+          .in("status", ["approved", "issued"]),
+        periodId
+          ? supabaseAdmin
+              .from("hr_air_ticket_issues")
+              .select("id, cash_allowance_qar, entitlement_id")
+              .eq("payroll_period_id", periodId)
+          : Promise.resolve({ data: [] as Array<{ id: string; cash_allowance_qar: number | null; entitlement_id: string | null }> }),
+      ]);
+      const airById = new Map<string, { id: string; cash_allowance_qar: number | null; entitlement_id: string | null }>();
+      for (const row of [...(pendingAirRows ?? []), ...(periodAirResult.data ?? [])]) {
+        airById.set(String(row.id), row);
+      }
+      const airRows = [...airById.values()];
+      const entitlementIds = [
+        ...new Set(airRows.map((a) => a.entitlement_id as string).filter(Boolean)),
+      ];
+      const entStaff = new Map<string, string>();
+      if (entitlementIds.length) {
+        const { data: ents } = await supabaseAdmin
+          .from("hr_air_ticket_entitlements")
+          .select("id, staff_id")
+          .in("id", entitlementIds);
+        for (const e of ents ?? []) entStaff.set(e.id as string, e.staff_id as string);
+      }
+      const airMapped: Array<{ staff_id: string; cash_allowance_qar: number }> = [];
+      for (const a of airRows) {
+        const staffId = entStaff.get(a.entitlement_id as string);
+        if (!staffId || !staffSet.has(staffId)) continue;
+        const amount = Number(a.cash_allowance_qar) || 0;
+        if (amount <= 0) continue;
+        airMapped.push({ staff_id: staffId, cash_allowance_qar: amount });
+      }
+      for (const [staffId, amount] of sumAirTicketAmountsByStaff(airMapped)) {
+        airTicketPayByStaff.set(staffId, amount);
       }
     }
 
@@ -934,9 +985,11 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     }).periodDays;
 
     summary = summary.map((row) => {
+      const airTicketQar = airTicketPayByStaff.get(row.staffId) ?? 0;
+      const withAir = { ...row, airTicketQar };
       if (generatedNetByStaff.has(row.staffId)) {
         return {
-          ...row,
+          ...withAir,
           payQar: generatedNetByStaff.get(row.staffId) ?? 0,
           paySource: "generated" as const,
         };
@@ -979,9 +1032,10 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         paidDates,
         previousWindow,
         otQar: submittedOtPayByStaff.get(row.staffId) ?? 0,
+        airTicketQar,
       });
       return {
-        ...row,
+        ...withAir,
         payQar: preview.paySource === "missing" ? null : preview.payQar,
         paySource: preview.paySource,
       };
