@@ -219,7 +219,7 @@ function resolveWorkedHours(
   return null;
 }
 
-/** Period worked / required / shortfall — weekly off, compensatory off, and annual leave excluded. */
+/** Period worked / required / shortfall — hours only (weekly off / comp off / annual leave excluded). Payroll still pays week off + annual leave. */
 export function sumEmployeePeriodHours(
   byDate: Map<string, EmployeePeriodHoursRow>,
   rosterByDate: Map<string, EmployeePeriodHoursRosterHint>,

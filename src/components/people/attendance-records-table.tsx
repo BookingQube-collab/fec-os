@@ -76,7 +76,7 @@ export function sumListingTotalHours(rows: AttendanceListingSource[]): number {
   return Math.round(total * 100) / 100;
 }
 
-/** Worked / required / shortfall for the filtered listing (excludes weekly off / comp off). */
+/** Worked / required / shortfall for the filtered listing (hours only; excludes weekly off / comp off / AL). */
 export function sumListingHoursSummary(rows: AttendanceListingSource[]): {
   workedHours: number;
   requiredHours: number;

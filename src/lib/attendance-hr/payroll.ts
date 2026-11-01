@@ -1,4 +1,7 @@
-import { applyPreJoinAttendanceStatus } from "@/lib/attendance-display";
+import {
+  applyPreJoinAttendanceStatus,
+  isWorkDateBeforeHireDate,
+} from "@/lib/attendance-display";
 import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workbook";
 import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
 
@@ -51,6 +54,10 @@ export type PayrollStaffRow = {
   staffId: string;
   staffName: string;
   employeeCode: string;
+  /**
+   * Paid entitlement days for Generate: Present/Late worked days plus paid non-work
+   * (weekly off, annual leave, sick leave, comp off, public holiday).
+   */
   daysPresent: number;
   daysAbsent: number;
   /** Days marked unpaid_leave in attendance (export treats these as Unpaid). */
@@ -81,6 +88,19 @@ const PAYROLL_LEAVE_STATUSES = new Set([
   "sick_leave",
   "unpaid_leave",
   "comp_off",
+]);
+
+/**
+ * Non-work statuses that still earn pay (not unpaid absence).
+ * Week off + annual leave are paid; sick / comp off / public holiday match the same rule.
+ * unpaid_leave stays out — it reduces entitlement.
+ */
+export const PAYROLL_PAID_NON_WORK_STATUSES = new Set([
+  "weekly_off",
+  "annual_leave",
+  "sick_leave",
+  "comp_off",
+  "public_holiday",
 ]);
 
 /** True when the day has both clock-in and clock-out (listing treats as a worked day). */
@@ -134,6 +154,13 @@ export function isPayrollPresentDay(row: PayrollDayInput): boolean {
   return hasPayrollCompletePunches(row) && String(row.status ?? "") === "review_required";
 }
 
+/** Worked day or paid non-work status (week off / annual leave / etc.). Unpaid leave is not paid. */
+export function isPayrollPaidDay(row: PayrollDayInput): boolean {
+  if (isWorkDateBeforeHireDate(row.work_date, row.hire_date)) return false;
+  if (isPayrollPresentDay(row)) return true;
+  return PAYROLL_PAID_NON_WORK_STATUSES.has(String(row.status ?? ""));
+}
+
 /** Worked days inside an optional hire/exit window. One row per staff+date after listing collapse. */
 export function countListingWorkedDays(
   days: PayrollDayInput[],
@@ -149,6 +176,32 @@ export function listListingWorkedDates(
   staffId: string,
   bounds?: { from?: string | null; to?: string | null },
 ): string[] {
+  return listPayrollDatesMatching(days, staffId, bounds, isPayrollPresentDay);
+}
+
+/** Paid entitlement dates: worked + week off + annual leave (+ other paid non-work). */
+export function listPayrollPaidDates(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+): string[] {
+  return listPayrollDatesMatching(days, staffId, bounds, isPayrollPaidDay);
+}
+
+export function countPayrollPaidDays(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+): number {
+  return listPayrollPaidDates(days, staffId, bounds).length;
+}
+
+function listPayrollDatesMatching(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds: { from?: string | null; to?: string | null } | undefined,
+  match: (day: PayrollDayInput) => boolean,
+): string[] {
   const from = bounds?.from?.slice(0, 10) ?? "";
   const to = bounds?.to?.slice(0, 10) ?? "";
   if (from && to && from > to) return [];
@@ -159,7 +212,7 @@ export function listListingWorkedDates(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
     if (from && ymd < from) continue;
     if (to && ymd > to) continue;
-    if (isPayrollPresentDay(day)) out.push(ymd);
+    if (match(day)) out.push(ymd);
   }
   return out;
 }
@@ -283,7 +336,7 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
       workDate: day.work_date,
       hireDate: day.hire_date,
     });
-    if (isPayrollPresentDay(day)) current.daysPresent += 1;
+    if (isPayrollPaidDay(day)) current.daysPresent += 1;
     if (absenceStatus === "absent") current.daysAbsent += 1;
     if (status === "unpaid_leave") current.daysUnpaidLeave += 1;
     if (PAYROLL_LEAVE_STATUSES.has(status)) current.daysLeave += 1;

@@ -343,11 +343,11 @@ export function computeDailyRateBasicFromHistory(input: {
 }
 
 /**
- * Earned basic from the attendance listing worked-day count.
- * Joker / day-rate: stored day rate × worked days (monthly_salary_qar is the legacy day rate).
- * Monthly (permanent / secondment): contract ÷ calendar days in the payroll window × worked days.
- * A fixed ÷30 rate pays the full contract at 30 worked days even when the window is longer
- * (FEC 28–27 is 31 days). Do not also deduct absences — days not worked are already unpaid.
+ * Earned basic from the payroll paid-day count (worked + paid week off / annual leave / …).
+ * Joker / day-rate: stored day rate × paid days (monthly_salary_qar is the legacy day rate).
+ * Monthly (permanent / secondment): contract ÷ calendar days in the payroll window × paid days.
+ * A fixed ÷30 rate pays the full contract at 30 paid days even when the window is longer
+ * (FEC 28–27 is 31 days). Do not also deduct absences — unpaid / absent days are already excluded.
  */
 export function resolveEarnedBasicQar(input: {
   dailyPay: boolean;

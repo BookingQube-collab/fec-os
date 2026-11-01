@@ -41,7 +41,7 @@ import {
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 import {
   aggregatePayrollRows,
-  listListingWorkedDates,
+  listPayrollPaidDates,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
@@ -484,7 +484,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     }
 
     // Same attendance_daily_summary window as /people/attendance/reports.
-    // Worked days use isAttendanceListingWorkedDay (Present or Late), not raw status.
+    // Paid days = Present/Late worked days + paid non-work (weekly off, annual leave, …).
     // Do not filter by location_id: punches are company-wide per staff.
     // PostgREST max_rows is ~1000. .limit(50000) still returns one page and drops
     // most of a 109-person FEC month (28–27), so page with .range() like the listing.
@@ -618,19 +618,20 @@ export const generatePayrollLines = createAuthenticatedAction(
         unpaidLeave: 0,
         leaveDays: 0,
       };
-      // Hire/exit clips which listing days count. Earned pay is daily rate × those worked days
-      // for every employment type — not full monthly basic minus absences.
+      // Hire/exit clips which paid days count. Earned pay is rate × paid entitlement days
+      // (worked + week off + annual leave, …) for every employment type — not full monthly
+      // basic minus absences. Unpaid leave / absent days simply never enter the paid set.
       const activeWindow = computeProrationFactor({
         dateFrom,
         dateTo,
         hireDate: s.hire_date,
         exitDate,
       });
-      const workedDates = listListingWorkedDates(dayInputs, s.id, {
+      const paidDates = listPayrollPaidDates(dayInputs, s.id, {
         from: activeWindow.activeFrom,
         to: activeWindow.activeTo,
       });
-      const workedDays = workedDates.length;
+      const workedDays = paidDates.length;
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
       const submittedOtHours = minutesToOtHours(submittedOtMinutes);
@@ -639,7 +640,7 @@ export const generatePayrollLines = createAuthenticatedAction(
       const historyPay =
         dailyPay && historyRates.length > 0
           ? computeDailyRateBasicFromHistory({
-              workedDates,
+              workedDates: paidDates,
               history: historyRates,
               employmentType: s.employment_type,
               employmentCategory,
@@ -727,10 +728,11 @@ export const generatePayrollLines = createAuthenticatedAction(
             e.code === "basic"
               ? {
                   ...e,
-                  label: "Daily rate × worked days",
+                  label: "Daily rate × paid days",
                   meta: {
                     dayRateQar: dailyRate,
                     workedDays,
+                    paidDays: workedDays,
                     dailyPay,
                     distinctRates: historyPay?.distinctRates ?? 1,
                   },

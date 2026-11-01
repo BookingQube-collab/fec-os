@@ -5,9 +5,12 @@ import { resolveEarnedBasicQar } from "@/lib/hr-payroll";
 import {
   aggregatePayrollRows,
   countListingWorkedDays,
+  countPayrollPaidDays,
   formatPayrollBlockReasons,
   isPayrollBlockingDay,
+  isPayrollPaidDay,
   isPayrollReady,
+  listPayrollPaidDates,
   payrollBlockReasonCode,
 } from "./payroll";
 
@@ -282,8 +285,88 @@ describe("payroll readiness", () => {
     expect(row.daysAbsent).toBe(1);
     expect(row.daysUnpaidLeave).toBe(1);
     expect(row.daysLeave).toBe(3);
-    expect(row.daysPresent).toBe(1);
+    // Present + annual leave + sick leave are paid; unpaid leave / absent are not.
+    expect(row.daysPresent).toBe(3);
     expect(row.submittedOtMinutes).toBe(0);
+  });
+
+  it("treats weekly off and annual leave as paid entitlement days", () => {
+    const days = [
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina",
+        work_date: "2026-10-12",
+        status: "present",
+        actual_in: "2026-10-12T09:10:00.000Z",
+        actual_out: "2026-10-12T19:00:00.000Z",
+        punch_count: 2,
+        worked_minutes: 530,
+      },
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina",
+        work_date: "2026-10-14",
+        status: "weekly_off",
+      },
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina",
+        work_date: "2026-10-15",
+        status: "annual_leave",
+      },
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina",
+        work_date: "2026-10-16",
+        status: "unpaid_leave",
+      },
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina",
+        work_date: "2026-10-17",
+        status: "absent",
+      },
+    ];
+    expect(isPayrollPaidDay(days[0]!)).toBe(true);
+    expect(isPayrollPaidDay(days[1]!)).toBe(true);
+    expect(isPayrollPaidDay(days[2]!)).toBe(true);
+    expect(isPayrollPaidDay(days[3]!)).toBe(false);
+    expect(isPayrollPaidDay(days[4]!)).toBe(false);
+    expect(countListingWorkedDays(days, "jolina")).toBe(1);
+    expect(countPayrollPaidDays(days, "jolina")).toBe(3);
+    expect(listPayrollPaidDates(days, "jolina")).toEqual([
+      "2026-10-12",
+      "2026-10-14",
+      "2026-10-15",
+    ]);
+    const [row] = aggregatePayrollRows(days);
+    expect(row.daysPresent).toBe(3);
+    expect(row.daysLeave).toBe(2);
+    expect(row.daysUnpaidLeave).toBe(1);
+    expect(row.daysAbsent).toBe(1);
+    const periodDays = 30;
+    const earned = resolveEarnedBasicQar({
+      dailyPay: false,
+      contractBasicQar: 6000,
+      dailyRateQar: null,
+      workedDays: countPayrollPaidDays(days, "jolina"),
+      periodDays,
+    });
+    expect(earned).toBe(Math.round(((6000 / periodDays) * 3 + Number.EPSILON) * 100) / 100);
+  });
+
+  it("pays joker day-rate for week off and annual leave like worked days", () => {
+    const paidDays = 18 + 4 + 2; // present + weekly offs + annual leave
+    const dayRate = 150;
+    expect(
+      resolveEarnedBasicQar({
+        dailyPay: true,
+        contractBasicQar: 0,
+        dailyRateQar: dayRate,
+        workedDays: paidDays,
+        periodDays: 30,
+      }),
+    ).toBe(Math.round((dayRate * paidDays + Number.EPSILON) * 100) / 100);
   });
 
   it("does not double-count the same staff day across locations", () => {
@@ -344,8 +427,10 @@ describe("payroll readiness", () => {
       },
     ];
     expect(countListingWorkedDays(days, "s")).toBe(1);
+    // Paid days = punched present + weekly off (absent / open missed punch unpaid).
+    expect(countPayrollPaidDays(days, "s")).toBe(2);
     const [row] = aggregatePayrollRows(days);
-    expect(row.daysPresent).toBe(1);
+    expect(row.daysPresent).toBe(2);
     const periodDays = 31;
     const earned = resolveEarnedBasicQar({
       dailyPay: false,
