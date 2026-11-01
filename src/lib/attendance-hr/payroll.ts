@@ -100,6 +100,13 @@ export type PayrollStaffRow = {
   /** Individual blocking days when work_date was provided. */
   blockDays: PayrollBlockDay[];
   locationLabel?: string;
+  /**
+   * Pay preview for the readiness list (QAR). Prefer generated period line net when
+   * present; otherwise estimate from compensation × paid days (Generate rules).
+   */
+  payQar?: number | null;
+  /** generated = period line; estimate = compensation preview; missing = no salary set. */
+  paySource?: "generated" | "estimate" | "missing";
 };
 
 const PAYROLL_LEAVE_STATUSES = new Set([

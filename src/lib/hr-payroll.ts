@@ -365,6 +365,81 @@ export function resolveEarnedBasicQar(input: {
   return computeDailyRateBasicQar(rate, input.workedDays);
 }
 
+export type PayrollPayPreviewSource = "generated" | "estimate" | "missing";
+
+/**
+ * Readiness-list pay preview using the same basic/allowance rules as Generate lines
+ * (day rate × paid days, or monthly ÷ period days × paid days). Does not include OT /
+ * air-ticket — those land on the payslip only after Generate.
+ */
+export function estimatePayrollReadinessPay(input: {
+  employmentType?: string | null;
+  employmentCategory?: string | null;
+  monthlySalaryQar?: number | null;
+  dailyRateQar?: number | null;
+  /** Prefer salary-history basic when present (same as Generate). */
+  contractBasicQar?: number | null;
+  allowancesQar?: number | null;
+  paidDays: number;
+  periodDays: number;
+}): {
+  dailyPay: boolean;
+  missingCompensation: boolean;
+  earnedBasicQar: number;
+  allowancesQar: number;
+  payQar: number;
+  paySource: Extract<PayrollPayPreviewSource, "estimate" | "missing">;
+} {
+  const monthlyStored = positiveRate(input.monthlySalaryQar);
+  const dailyStored = positiveRate(input.dailyRateQar);
+  const { dailyPay, dayRateQar } = resolveDailyRatePayroll({
+    employmentType: input.employmentType,
+    employmentCategory: input.employmentCategory,
+    monthlySalaryQar: monthlyStored,
+    dailyRateQar: dailyStored,
+  });
+  const basicRaw = Number(input.contractBasicQar);
+  const basic =
+    Number.isFinite(basicRaw) && basicRaw > 0
+      ? basicRaw
+      : monthlyStored != null
+        ? monthlyStored
+        : 0;
+  const allowances = Math.max(0, Number(input.allowancesQar) || 0);
+  const paidDays = Math.max(0, Number(input.paidDays) || 0);
+  const periodDays = Math.max(1, Math.round(Number(input.periodDays) || 0) || 30);
+  const hasComp = dailyPay
+    ? dayRateQar != null && dayRateQar > 0
+    : basic > 0;
+  if (!hasComp) {
+    return {
+      dailyPay,
+      missingCompensation: true,
+      earnedBasicQar: 0,
+      allowancesQar: 0,
+      payQar: 0,
+      paySource: "missing",
+    };
+  }
+  const earnedBasicQar = resolveEarnedBasicQar({
+    dailyPay,
+    contractBasicQar: basic,
+    dailyRateQar: dayRateQar,
+    workedDays: paidDays,
+    periodDays,
+  });
+  const allowanceRatio = dailyPay || !(basic > 0) ? 0 : earnedBasicQar / basic;
+  const allowancesQar = round2(allowances * allowanceRatio);
+  return {
+    dailyPay,
+    missingCompensation: false,
+    earnedBasicQar,
+    allowancesQar,
+    payQar: round2(earnedBasicQar + allowancesQar),
+    paySource: "estimate",
+  };
+}
+
 /**
  * AT#12 unpaid days for monthly staff.
  * Absences always deduct. Leave-request unpaid and attendance unpaid_leave often

@@ -23,6 +23,7 @@ import {
   minutesToOtHours,
   otClaimMinutes,
   partitionByPaymentMethod,
+  estimatePayrollReadinessPay,
   resolveDailyRatePayroll,
   resolveDayRateOnDate,
   resolvePaymentMethod,
@@ -206,6 +207,51 @@ describe("AT#11 separates WPS / cheque / bank-transfer employees", () => {
     ]);
     expect(rows[0]?.[0]).toBe("Employee ID");
     expect(rows[1]?.[10]).toBe("4100");
+  });
+});
+
+describe("payroll readiness pay preview", () => {
+  it("estimates monthly staff as contract ÷ period days × paid days (+ allowances)", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      dailyRateQar: null,
+      contractBasicQar: 6000,
+      allowancesQar: 500,
+      paidDays: 30,
+      periodDays: 30,
+    });
+    expect(preview.paySource).toBe("estimate");
+    expect(preview.earnedBasicQar).toBe(6000);
+    expect(preview.allowancesQar).toBe(500);
+    expect(preview.payQar).toBe(6500);
+  });
+
+  it("estimates joker day-rate × paid days without allowances", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "joker",
+      monthlySalaryQar: 150,
+      dailyRateQar: null,
+      paidDays: 24,
+      periodDays: 31,
+    });
+    expect(preview.dailyPay).toBe(true);
+    expect(preview.paySource).toBe("estimate");
+    expect(preview.payQar).toBe(3600);
+    expect(preview.allowancesQar).toBe(0);
+  });
+
+  it("marks missing compensation when no rate is set", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: null,
+      dailyRateQar: null,
+      paidDays: 28,
+      periodDays: 31,
+    });
+    expect(preview.paySource).toBe("missing");
+    expect(preview.payQar).toBe(0);
+    expect(preview.missingCompensation).toBe(true);
   });
 });
 

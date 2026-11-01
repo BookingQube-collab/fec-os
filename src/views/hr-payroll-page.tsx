@@ -143,6 +143,17 @@ export default function HrPayrollPage() {
   const rows = payroll.data?.rows ?? [];
   const blocked = rows.filter((r) => !r.payrollReady);
   const ready = rows.filter((r) => r.payrollReady);
+  const payTotalQar =
+    payroll.data?.payTotalQar ??
+    rows.reduce((sum, row) => sum + (Number(row.payQar) || 0), 0);
+
+  function formatPayQar(n: number | null | undefined): string {
+    if (n == null || !Number.isFinite(n)) return "—";
+    return n.toLocaleString(i18n.language?.toLowerCase().startsWith("ar") ? "ar-QA" : "en-QA", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
 
   return (
     <CapabilityGate
@@ -362,7 +373,7 @@ export default function HrPayrollPage() {
             </HrPanel>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <HrKpiTile
               label={t("hr.payroll.ready")}
               value={payroll.data?.readyCount ?? ready.length}
@@ -375,9 +386,16 @@ export default function HrPayrollPage() {
               tone="alert"
               delay={3}
             />
+            <HrKpiTile
+              label={t("hr.payroll.payTotal")}
+              value={formatPayQar(payTotalQar)}
+              tone="mustard"
+              delay={4}
+            />
           </div>
+          <p className="text-xs text-muted-foreground">{t("hr.payroll.payHint")}</p>
 
-          <HrPanel flat delay={4} className="overflow-hidden">
+          <HrPanel flat delay={5} className="overflow-hidden">
             <div className="hr-table-wrap">
               <table>
                 <thead>
@@ -388,13 +406,14 @@ export default function HrPayrollPage() {
                     <th>{t("hr.payroll.colLeaves")}</th>
                     <th>{t("hr.payroll.colMissed")}</th>
                     <th>{t("hr.payroll.colOt")}</th>
+                    <th>{t("hr.payroll.colPay")}</th>
                     <th>{t("hr.payroll.colStatus")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <HrEmptyState message={t("hr.payroll.empty")} icon={Banknote} />
                       </td>
                     </tr>
@@ -417,6 +436,22 @@ export default function HrPayrollPage() {
                             <span className="ms-1 text-[0.65rem] text-muted-foreground">
                               {t("hr.payroll.otSubmittedHint")}
                             </span>
+                          ) : null}
+                        </td>
+                        <td className="tabular-nums">
+                          <p className="font-medium">{formatPayQar(row.payQar)}</p>
+                          {row.paySource === "generated" ? (
+                            <p className="text-[0.65rem] text-muted-foreground">
+                              {t("hr.payroll.paySourceGenerated")}
+                            </p>
+                          ) : row.paySource === "estimate" ? (
+                            <p className="text-[0.65rem] text-muted-foreground">
+                              {t("hr.payroll.paySourceEstimate")}
+                            </p>
+                          ) : row.paySource === "missing" ? (
+                            <p className="text-[0.65rem] text-destructive">
+                              {t("hr.payroll.paySourceMissing")}
+                            </p>
                           ) : null}
                         </td>
                         <td>

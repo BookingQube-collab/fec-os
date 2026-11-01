@@ -24,6 +24,8 @@ import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import {
   PAYROLL_VISIBLE_OT_STATUSES,
+  computeProrationFactor,
+  estimatePayrollReadinessPay,
   sumVisibleOtMinutesByStaff,
 } from "@/lib/hr-payroll";
 import { LOCATION_KIND_WAREHOUSE, normalizeLocationKind } from "@/lib/locations/kind";
@@ -809,11 +811,155 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         deletedAt: staffDeletedAtById.get(row.staffId) ?? null,
       }),
     );
+
+    // Pay preview: prefer generated period line net; else compensation × paid days (Generate rules).
+    const staffIds = summary.map((r) => r.staffId);
+    const generatedNetByStaff = new Map<string, number>();
+    if (staffIds.length) {
+      const { data: periodMatch } = await supabaseAdmin
+        .from("hr_payroll_periods")
+        .select("id")
+        .eq("date_from", data.dateFrom)
+        .eq("date_to", data.dateTo)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (periodMatch?.id) {
+        const staffSet = new Set(staffIds);
+        const lineRows = await collectPagedRows(async (from, to) => {
+          const { data: page, error } = await supabaseAdmin
+            .from("hr_payroll_lines")
+            .select("staff_id, net_qar")
+            .eq("period_id", periodMatch.id)
+            .order("staff_id", { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return page ?? [];
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+        for (const line of lineRows) {
+          const sid = String(line.staff_id);
+          if (!staffSet.has(sid)) continue;
+          generatedNetByStaff.set(sid, Number(line.net_qar) || 0);
+        }
+      }
+    }
+
+    const compBy = new Map<
+      string,
+      { monthly_salary_qar: number | null; daily_rate_qar: number | null }
+    >();
+    const histBy = new Map<
+      string,
+      { basic_qar: number | null; monthly_total_qar: number | null; daily_rate_qar: number | null; allowances: unknown }
+    >();
+    const extBy = new Map<string, { employment_category: string | null }>();
+    const employmentTypeByStaff = new Map<string, string | null>();
+    for (const day of scheduledDays) {
+      if (!day.staff_id || employmentTypeByStaff.has(day.staff_id)) continue;
+      employmentTypeByStaff.set(day.staff_id, day.employment_type ?? null);
+    }
+    if (staffIds.length) {
+      const [{ data: comps }, { data: hist }, { data: ext }] = await Promise.all([
+        supabaseAdmin
+          .from("staff_compensation")
+          .select("staff_id, monthly_salary_qar, daily_rate_qar")
+          .in("staff_id", staffIds),
+        supabaseAdmin
+          .from("staff_salary_history")
+          .select("staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on, created_at")
+          .in("staff_id", staffIds)
+          .order("effective_on", { ascending: false })
+          .order("created_at", { ascending: false }),
+        supabaseAdmin
+          .from("staff_profile_ext")
+          .select("staff_id, employment_category")
+          .in("staff_id", staffIds),
+      ]);
+      for (const c of comps ?? []) {
+        compBy.set(String(c.staff_id), {
+          monthly_salary_qar: c.monthly_salary_qar == null ? null : Number(c.monthly_salary_qar),
+          daily_rate_qar: c.daily_rate_qar == null ? null : Number(c.daily_rate_qar),
+        });
+      }
+      for (const h of hist ?? []) {
+        const id = String(h.staff_id);
+        if (histBy.has(id)) continue;
+        histBy.set(id, {
+          basic_qar: h.basic_qar == null ? null : Number(h.basic_qar),
+          monthly_total_qar: h.monthly_total_qar == null ? null : Number(h.monthly_total_qar),
+          daily_rate_qar: h.daily_rate_qar == null ? null : Number(h.daily_rate_qar),
+          allowances: h.allowances,
+        });
+      }
+      for (const e of ext ?? []) {
+        extBy.set(String(e.staff_id), {
+          employment_category: (e.employment_category as string | null) ?? null,
+        });
+      }
+    }
+
+    const periodDays = computeProrationFactor({
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+    }).periodDays;
+
+    summary = summary.map((row) => {
+      if (generatedNetByStaff.has(row.staffId)) {
+        return {
+          ...row,
+          payQar: generatedNetByStaff.get(row.staffId) ?? 0,
+          paySource: "generated" as const,
+        };
+      }
+      const hist = histBy.get(row.staffId);
+      const comp = compBy.get(row.staffId);
+      const monthlyStored =
+        hist?.monthly_total_qar != null
+          ? hist.monthly_total_qar
+          : comp?.monthly_salary_qar != null
+            ? comp.monthly_salary_qar
+            : null;
+      const dailyStored =
+        hist?.daily_rate_qar != null
+          ? hist.daily_rate_qar
+          : comp?.daily_rate_qar != null
+            ? comp.daily_rate_qar
+            : null;
+      let allowances = 0;
+      const allowJson = hist?.allowances;
+      if (allowJson && typeof allowJson === "object" && !Array.isArray(allowJson)) {
+        allowances = Object.values(allowJson as Record<string, unknown>).reduce(
+          (sum: number, v) => sum + (Number(v) || 0),
+          0,
+        );
+      }
+      const preview = estimatePayrollReadinessPay({
+        employmentType: employmentTypeByStaff.get(row.staffId) ?? null,
+        employmentCategory: extBy.get(row.staffId)?.employment_category ?? null,
+        monthlySalaryQar: monthlyStored,
+        dailyRateQar: dailyStored,
+        contractBasicQar: hist?.basic_qar != null ? hist.basic_qar : monthlyStored,
+        allowancesQar: allowances,
+        paidDays: row.daysPresent,
+        periodDays,
+      });
+      return {
+        ...row,
+        payQar: preview.paySource === "missing" ? null : preview.payQar,
+        paySource: preview.paySource,
+      };
+    });
+
+    const payTotalQar = Math.round(
+      (summary.reduce((sum, row) => sum + (Number(row.payQar) || 0), 0) + Number.EPSILON) * 100,
+    ) / 100;
+
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
       readyCount: summary.filter((r) => r.payrollReady).length,
       blockedCount: summary.filter((r) => !r.payrollReady).length,
+      payTotalQar,
       rows: summary,
     };
   },
