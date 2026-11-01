@@ -27,9 +27,10 @@ import {
   submitProbationDecision,
   upsertProbationDates,
 } from "@/lib/hr-probation.functions";
-import { HR_PROBATION_DECISIONS } from "@/lib/hr-probation";
+import { daysUntilProbationEnd, HR_PROBATION_DECISIONS } from "@/lib/hr-probation";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 
 function reviewBadge(status: string): "warning" | "info" | "success" | "muted" | "outline" {
   if (status === "pending_approval") return "warning";
@@ -82,38 +83,65 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
     void qc.invalidateQueries({ queryKey: queryKeys.people.hrOverview() });
   };
 
+  const effectiveStart = probationStart || detail.data?.probationStart || "";
+  const effectiveEnd = probationEnd || detail.data?.probationEnd || "";
+  const daysLeftDisplay =
+    detail.data?.daysRemaining ??
+    (effectiveEnd
+      ? daysUntilProbationEnd(
+          effectiveEnd,
+          new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }),
+        )
+      : null);
+
   const saveDates = useMutation({
-    mutationFn: () =>
-      upsertProbationDates({
+    mutationFn: async () => {
+      const start = effectiveStart;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+        throw new Error(t("hr.probation.datesRequired"));
+      }
+      const result = await upsertProbationDates({
         staffId: selectedStaffId!,
-        probationStart,
-        probationEnd: probationEnd || null,
-      }),
+        probationStart: start,
+        probationEnd: /^\d{4}-\d{2}-\d{2}$/.test(effectiveEnd) ? effectiveEnd : null,
+      });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("hr.probation.datesSaved"));
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, t("hr.probation.datesSaveFailed"))),
   });
 
   const openReview = useMutation({
-    mutationFn: () =>
-      openProbationReview({
+    mutationFn: async () => {
+      const start = effectiveStart;
+      const end = effectiveEnd;
+      const result = await openProbationReview({
         staffId: selectedStaffId!,
+        probationStart: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : null,
+        probationEnd: /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : null,
         managerFeedback: feedback || null,
         performanceRating: rating || null,
         supportingComments: comments || null,
-      }),
+      });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("hr.probation.reviewOpened"));
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, t("hr.probation.reviewOpenFailed"))),
   });
 
   const decide = useMutation({
-    mutationFn: (reviewId: string) =>
-      submitProbationDecision({
+    mutationFn: async (reviewId: string) => {
+      const result = await submitProbationDecision({
         reviewId,
         decision,
         decisionNote: comments || null,
@@ -121,7 +149,10 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
         performanceRating: rating || null,
         supportingComments: comments || null,
         extendEndDate: decision === "extend" ? extendEnd || null : null,
-      }),
+      });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (res) => {
       toast.success(
         res.flagsPhase6Termination
@@ -130,16 +161,22 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
       );
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, t("hr.probation.decisionFailed"))),
   });
 
   const approve = useMutation({
-    mutationFn: (reviewId: string) => approveProbationDecision({ reviewId }),
+    mutationFn: async (reviewId: string) => {
+      const result = await approveProbationDecision({ reviewId });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("hr.probation.approved"));
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, t("hr.probation.approveFailed"))),
   });
 
   useEffect(() => {
@@ -314,7 +351,7 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                     <Label>{t("hr.probation.start")}</Label>
                     <Input
                       type="date"
-                      value={probationStart || detail.data?.probationStart || ""}
+                      value={effectiveStart}
                       onChange={(e) => setProbationStart(e.target.value)}
                     />
                   </div>
@@ -322,7 +359,7 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                     <Label>{t("hr.probation.end")}</Label>
                     <Input
                       type="date"
-                      value={probationEnd || detail.data?.probationEnd || ""}
+                      value={effectiveEnd}
                       onChange={(e) => setProbationEnd(e.target.value)}
                     />
                   </div>
@@ -330,7 +367,7 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={saveDates.isPending || !probationStart}
+                  disabled={saveDates.isPending || !effectiveStart}
                   onClick={() => saveDates.mutate()}
                 >
                   {t("hr.probation.saveDates")}
@@ -340,7 +377,7 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                   <div className="grid gap-2 text-sm sm:grid-cols-2">
                     <p>
                       {t("hr.probation.daysLeft", {
-                        days: detail.data.daysRemaining ?? "—",
+                        days: daysLeftDisplay ?? "—",
                       })}
                     </p>
                     <p>

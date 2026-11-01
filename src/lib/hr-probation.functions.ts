@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import {
@@ -22,6 +23,7 @@ import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
   type AuthContext,
 } from "@/lib/server/create-action";
 
@@ -31,6 +33,47 @@ function qatarToday(): string {
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
+}
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** Capability-gated profile writes bypass staff_profile_ext RLS (ceo/coo/hr-only). */
+async function writeProbationDates(input: {
+  staffId: string;
+  probationStart: string;
+  probationEnd: string;
+  updatedBy: string;
+}) {
+  const { error } = await supabaseAdmin.from("staff_profile_ext").upsert(
+    {
+      staff_id: input.staffId,
+      probation_start: input.probationStart,
+      probation_end: input.probationEnd,
+      updated_by: input.updatedBy,
+    },
+    { onConflict: "staff_id" },
+  );
+  if (error) throw error;
+}
+
+async function readProbationDates(staffId: string): Promise<{
+  probationStart: string | null;
+  probationEnd: string | null;
+  reportingManagerStaffId: string | null;
+}> {
+  const { data, error } = await supabaseAdmin
+    .from("staff_profile_ext")
+    .select("probation_start, probation_end, reporting_manager_staff_id")
+    .eq("staff_id", staffId)
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    probationStart: data?.probation_start ? String(data.probation_start).slice(0, 10) : null,
+    probationEnd: data?.probation_end ? String(data.probation_end).slice(0, 10) : null,
+    reportingManagerStaffId: data?.reporting_manager_staff_id
+      ? String(data.reporting_manager_staff_id)
+      : null,
+  };
 }
 
 async function audit(
@@ -140,7 +183,9 @@ export const listProbationDashboard = createAuthenticatedActionNoInput(async (co
   horizon.setDate(horizon.getDate() + 45);
   const to = horizon.toISOString().slice(0, 10);
 
-  const { data: profiles, error } = await context.supabase
+  // Admin read: staff_profile_ext RLS is salary/self scoped and hides probation end dates
+  // from capability-gated callers who can still manage reviews.
+  const { data: profiles, error } = await supabaseAdmin
     .from("staff_profile_ext")
     .select(
       "staff_id, probation_start, probation_end, staff(full_name, employee_code, status, deleted_at)",
@@ -197,11 +242,7 @@ export const getProbationStaffDetail = createAuthenticatedAction(
       throw new ForbiddenError("Missing hr.probation.manage.");
     }
     const today = qatarToday();
-    const { data: ext } = await context.supabase
-      .from("staff_profile_ext")
-      .select("probation_start, probation_end, reporting_manager_staff_id")
-      .eq("staff_id", data.staffId)
-      .maybeSingle();
+    const ext = await readProbationDates(data.staffId);
 
     const { data: staff } = await context.supabase
       .from("staff")
@@ -251,8 +292,8 @@ export const getProbationStaffDetail = createAuthenticatedAction(
       .order("created_at", { ascending: false })
       .limit(10);
 
-    const start = ext?.probation_start ? String(ext.probation_start).slice(0, 10) : null;
-    const end = ext?.probation_end ? String(ext.probation_end).slice(0, 10) : null;
+    const start = ext.probationStart;
+    const end = ext.probationEnd;
 
     return {
       staff: staff
@@ -276,11 +317,12 @@ export const getProbationStaffDetail = createAuthenticatedAction(
   { auth: { capability: "hr.probation.manage" } },
 );
 
-export const upsertProbationDates = createAuthenticatedAction(
+/** Safe: production must not surface React #441 digests when date save fails. */
+export const upsertProbationDates = createSafeAuthenticatedAction(
   z.object({
     staffId: z.string().uuid(),
-    probationStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    probationEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    probationStart: isoDate,
+    probationEnd: isoDate.optional().nullable(),
   }),
   async (data, context) => {
     if (
@@ -294,16 +336,12 @@ export const upsertProbationDates = createAuthenticatedAction(
     const end = data.probationEnd ?? defaultProbationEnd(data.probationStart, months);
     if (end < data.probationStart) throw new Error("Probation end must be on or after start.");
 
-    const { error } = await context.supabase.from("staff_profile_ext").upsert(
-      {
-        staff_id: data.staffId,
-        probation_start: data.probationStart,
-        probation_end: end,
-        updated_by: context.userId,
-      },
-      { onConflict: "staff_id" },
-    );
-    if (error) throw error;
+    await writeProbationDates({
+      staffId: data.staffId,
+      probationStart: data.probationStart,
+      probationEnd: end,
+      updatedBy: context.userId,
+    });
     await audit(context, "hr.probation.dates", data.staffId, {
       probation_start: data.probationStart,
       probation_end: end,
@@ -313,9 +351,15 @@ export const upsertProbationDates = createAuthenticatedAction(
   { auth: { anyCapability: ["hr.probation.manage", "hr.profile.edit"] } },
 );
 
-export const openProbationReview = createAuthenticatedAction(
+/**
+ * Safe: production must not surface React #441 digests when open/save fails.
+ * Optional form dates are written first so Open review does not require a separate Save dates click.
+ */
+export const openProbationReview = createSafeAuthenticatedAction(
   z.object({
     staffId: z.string().uuid(),
+    probationStart: isoDate.optional().nullable(),
+    probationEnd: isoDate.optional().nullable(),
     managerFeedback: z.string().max(4000).optional().nullable(),
     performanceRating: z.string().max(100).optional().nullable(),
     performanceEvaluationId: z.string().uuid().optional().nullable(),
@@ -326,21 +370,36 @@ export const openProbationReview = createAuthenticatedAction(
       throw new ForbiddenError("Missing hr.probation.manage.");
     }
     const today = qatarToday();
-    const { data: ext } = await context.supabase
-      .from("staff_profile_ext")
-      .select("probation_start, probation_end")
-      .eq("staff_id", data.staffId)
-      .maybeSingle();
-    if (!ext?.probation_start || !ext?.probation_end) {
-      throw new Error("Set probation_start / probation_end on staff profile first.");
+    let start = data.probationStart?.slice(0, 10) ?? null;
+    let end = data.probationEnd?.slice(0, 10) ?? null;
+
+    if (start) {
+      const policy = await readPolicySection(context, "probation");
+      const months = policyNumber(policy.default_months, 6);
+      end = end ?? defaultProbationEnd(start, months);
+      if (end < start) throw new Error("Probation end must be on or after start.");
+      await writeProbationDates({
+        staffId: data.staffId,
+        probationStart: start,
+        probationEnd: end,
+        updatedBy: context.userId,
+      });
+    } else {
+      const ext = await readProbationDates(data.staffId);
+      start = ext.probationStart;
+      end = ext.probationEnd;
+    }
+
+    if (!start || !end) {
+      throw new Error("Set probation start and end dates before opening a review.");
     }
 
     const { data: row, error } = await context.supabase
       .from("hr_probation_reviews")
       .insert({
         staff_id: data.staffId,
-        probation_start: ext.probation_start,
-        probation_end: ext.probation_end,
+        probation_start: start,
+        probation_end: end,
         manager_feedback: data.managerFeedback ?? null,
         performance_rating: data.performanceRating ?? null,
         performance_evaluation_id: data.performanceEvaluationId ?? null,
@@ -356,7 +415,7 @@ export const openProbationReview = createAuthenticatedAction(
   { auth: { capability: "hr.probation.manage" } },
 );
 
-export const submitProbationDecision = createAuthenticatedAction(
+export const submitProbationDecision = createSafeAuthenticatedAction(
   z.object({
     reviewId: z.string().uuid(),
     decision: z.enum(HR_PROBATION_DECISIONS),
@@ -407,14 +466,17 @@ export const submitProbationDecision = createAuthenticatedAction(
     if (error) throw error;
 
     if (data.decision === "extend" && data.extendEndDate) {
-      await context.supabase.from("staff_profile_ext").upsert(
-        {
-          staff_id: existing.staff_id,
-          probation_end: data.extendEndDate,
-          updated_by: context.userId,
-        },
-        { onConflict: "staff_id" },
-      );
+      const ext = await readProbationDates(String(existing.staff_id));
+      const start = ext.probationStart ?? today;
+      if (data.extendEndDate < start) {
+        throw new Error("Extended probation end must be on or after start.");
+      }
+      await writeProbationDates({
+        staffId: String(existing.staff_id),
+        probationStart: start,
+        probationEnd: data.extendEndDate,
+        updatedBy: context.userId,
+      });
     }
 
     // NEVER set staff.terminated here — Phase 6 owns that workflow.
@@ -434,7 +496,7 @@ export const submitProbationDecision = createAuthenticatedAction(
   { auth: { capability: "hr.probation.manage" } },
 );
 
-export const approveProbationDecision = createAuthenticatedAction(
+export const approveProbationDecision = createSafeAuthenticatedAction(
   z.object({
     reviewId: z.string().uuid(),
     approvalNote: z.string().max(2000).optional().nullable(),
