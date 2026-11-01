@@ -92,6 +92,7 @@ ALTER TABLE public.event_timesheet_entries ENABLE ROW LEVEL SECURITY;
 -- Capacity is staff-keyed (no event_id). Gate on events.view / events.edit capability.
 DROP POLICY IF EXISTS "event_staff_capacity_select" ON public.event_staff_capacity;
 DROP POLICY IF EXISTS "event_staff_capacity_upsert" ON public.event_staff_capacity;
+DROP POLICY IF EXISTS "event_staff_capacity_insert" ON public.event_staff_capacity;
 DROP POLICY IF EXISTS "event_staff_capacity_update" ON public.event_staff_capacity;
 DROP POLICY IF EXISTS "event_staff_capacity_delete" ON public.event_staff_capacity;
 
