@@ -271,6 +271,12 @@ function StaffProfilePageBody() {
   const [previousPrice, setPreviousPrice] = useState("");
   const [previousPriceFrom, setPreviousPriceFrom] = useState("");
   const [previousPriceTo, setPreviousPriceTo] = useState("");
+  const [loadedPrevious, setLoadedPrevious] = useState<{
+    amount: number;
+    from: string;
+    to: string;
+    kind: "daily" | "monthly";
+  } | null>(null);
   const [salaryExtras, setSalaryExtras] = useState<Array<{ id: string; title: string; amount: string }>>([]);
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
@@ -400,10 +406,24 @@ function StaffProfilePageBody() {
     setBasicQar(c.basic_qar == null ? "" : String(c.basic_qar));
     setHousingQar(c.housing_qar == null ? "" : String(c.housing_qar));
     setTransportQar(c.transport_qar == null ? "" : String(c.transport_qar));
-    // Previous window is display-only from API; edit fields stay blank until HR records a new window.
-    setPreviousPrice("");
-    setPreviousPriceFrom("");
-    setPreviousPriceTo("");
+    const prev = c.previous_rate ?? null;
+    const wantKind: "daily" | "monthly" = isJoker ? "daily" : "monthly";
+    if (prev && prev.kind === wantKind) {
+      setLoadedPrevious({
+        amount: prev.amount_qar,
+        from: prev.from,
+        to: prev.to,
+        kind: prev.kind,
+      });
+      setPreviousPrice(String(prev.amount_qar));
+      setPreviousPriceFrom(prev.from);
+      setPreviousPriceTo(prev.to);
+    } else {
+      setLoadedPrevious(prev ? { amount: prev.amount_qar, from: prev.from, to: prev.to, kind: prev.kind } : null);
+      setPreviousPrice("");
+      setPreviousPriceFrom("");
+      setPreviousPriceTo("");
+    }
     setSalaryExtras(
       parseSalaryExtras(c.extras).map((extra) => ({
         id: extra.id,
@@ -433,6 +453,8 @@ function StaffProfilePageBody() {
   const salaryMut = useMutation({
     mutationFn: async () => {
       const isJoker = employmentType === "joker" || profile.data?.staff?.employment_type === "joker";
+      const wantKind: "daily" | "monthly" = isJoker ? "daily" : "monthly";
+      const loadedApplies = loadedPrevious?.kind === wantKind ? loadedPrevious : null;
       const prevPriceRaw = previousPrice.trim();
       const prevFrom = previousPriceFrom.trim();
       const prevTo = previousPriceTo.trim();
@@ -441,6 +463,7 @@ function StaffProfilePageBody() {
       let previousMonthlySalaryQar: number | undefined;
       let previousRateFrom: string | undefined;
       let previousRateTo: string | undefined;
+      let clearPreviousRate = false;
       if (prevAny) {
         const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
         if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
@@ -449,10 +472,19 @@ function StaffProfilePageBody() {
         if (prevFrom > prevTo) {
           throw new Error(t("people.staff.previousPriceRangeInvalid"));
         }
-        previousRateFrom = prevFrom;
-        previousRateTo = prevTo;
-        if (isJoker) previousDailyRateQar = prevAmount;
-        else previousMonthlySalaryQar = prevAmount;
+        const unchanged =
+          loadedApplies != null &&
+          loadedApplies.amount === prevAmount &&
+          loadedApplies.from === prevFrom &&
+          loadedApplies.to === prevTo;
+        if (!unchanged) {
+          previousRateFrom = prevFrom;
+          previousRateTo = prevTo;
+          if (isJoker) previousDailyRateQar = prevAmount;
+          else previousMonthlySalaryQar = prevAmount;
+        }
+      } else if (loadedApplies) {
+        clearPreviousRate = true;
       }
       if (isJoker) {
         const amount = parseMoneyField(salary, t("people.staff.currentPricePlaceholder"));
@@ -466,6 +498,7 @@ function StaffProfilePageBody() {
           ...(previousDailyRateQar != null && previousRateFrom && previousRateTo
             ? { previousDailyRateQar, previousRateFrom, previousRateTo }
             : {}),
+          ...(clearPreviousRate ? { clearPreviousRate: true } : {}),
         });
         if (!result.ok) throw new Error(result.error);
         return result.data;
@@ -494,6 +527,7 @@ function StaffProfilePageBody() {
         ...(previousMonthlySalaryQar != null && previousRateFrom && previousRateTo
           ? { previousMonthlySalaryQar, previousRateFrom, previousRateTo }
           : {}),
+        ...(clearPreviousRate ? { clearPreviousRate: true } : {}),
       });
       if (!result.ok) throw new Error(result.error);
       return result.data;

@@ -17,6 +17,7 @@ export const CURRENT_RATE_RESUME_REASONS = [
 ] as const;
 
 export type SalaryHistoryRateRow = {
+  id?: string | null;
   effectiveOn: string;
   dailyRateQar?: number | null;
   monthlyTotalQar?: number | null;
@@ -30,6 +31,12 @@ export type PreviousCompensationWindow = {
   from: string;
   to: string;
   kind: "daily" | "monthly";
+};
+
+export type PreviousCompensationWindowRows = {
+  window: PreviousCompensationWindow;
+  previous: SalaryHistoryRateRow;
+  resume: SalaryHistoryRateRow;
 };
 
 function ymd(value: string | null | undefined): string {
@@ -69,12 +76,12 @@ function windowAmount(row: SalaryHistoryRateRow): PreviousCompensationWindow["ki
 }
 
 /**
- * Latest closed previous-rate window from salary history (display + edit preload).
+ * Latest closed previous-rate window plus the history rows that define it.
  * To date is the day before the matching current-rate resume (or next history row).
  */
-export function resolvePreviousCompensationWindow(
+export function resolvePreviousCompensationWindowRows(
   history: readonly SalaryHistoryRateRow[],
-): PreviousCompensationWindow | null {
+): PreviousCompensationWindowRows | null {
   const rows = [...(history ?? [])]
     .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(ymd(row.effectiveOn)))
     .sort(compareHistoryDesc);
@@ -120,5 +127,30 @@ export function resolvePreviousCompensationWindow(
   const to = addDaysYmd(resumeOn, -1);
   if (to < from) return null;
 
-  return { amountQar, from, to, kind };
+  return {
+    window: { amountQar, from, to, kind },
+    previous,
+    resume,
+  };
+}
+
+/**
+ * Latest closed previous-rate window from salary history (display + edit preload).
+ */
+export function resolvePreviousCompensationWindow(
+  history: readonly SalaryHistoryRateRow[],
+): PreviousCompensationWindow | null {
+  return resolvePreviousCompensationWindowRows(history)?.window ?? null;
+}
+
+/** History row ids for the latest previous + resume pair (replace / clear). */
+export function previousCompensationHistoryIds(
+  history: readonly SalaryHistoryRateRow[],
+): { previousId: string; resumeId: string } | null {
+  const resolved = resolvePreviousCompensationWindowRows(history);
+  if (!resolved) return null;
+  const previousId = String(resolved.previous.id ?? "").trim();
+  const resumeId = String(resolved.resume.id ?? "").trim();
+  if (!previousId || !resumeId) return null;
+  return { previousId, resumeId };
 }

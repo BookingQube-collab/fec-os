@@ -15,6 +15,7 @@ import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
 import { addDaysYmd } from "@/lib/hr-overview";
+import { previousCompensationHistoryIds } from "@/lib/salary-previous-rate";
 import {
   canManageSalaryCustomExtras,
   parseSalaryExtras,
@@ -25,6 +26,36 @@ import {
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { employeeCodeAfterHomeLocationChange, employeeCodeHasLocationPrefix } from "@/lib/staff-employee-code";
 import { staffHomeWorkSiteIds } from "@/lib/staff-work-locations";
+
+/** Delete the latest previous-rate + resume history pair so edits replace instead of stacking. */
+async function removeLatestPreviousRateWindow(staffId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("staff_salary_history")
+    .select("id, daily_rate_qar, monthly_total_qar, basic_qar, effective_on, reason, created_at")
+    .eq("staff_id", staffId)
+    .order("effective_on", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(40);
+  if (error) throw error;
+  const ids = previousCompensationHistoryIds(
+    (data ?? []).map((row) => ({
+      id: row.id,
+      effectiveOn: String(row.effective_on).slice(0, 10),
+      dailyRateQar: row.daily_rate_qar == null ? null : Number(row.daily_rate_qar),
+      monthlyTotalQar: row.monthly_total_qar == null ? null : Number(row.monthly_total_qar),
+      basicQar: row.basic_qar == null ? null : Number(row.basic_qar),
+      reason: row.reason ?? null,
+      createdAt: row.created_at != null ? String(row.created_at) : null,
+    })),
+  );
+  if (!ids) return false;
+  const { error: delErr } = await supabaseAdmin
+    .from("staff_salary_history")
+    .delete()
+    .in("id", [ids.previousId, ids.resumeId]);
+  if (delErr) throw delErr;
+  return true;
+}
 
 async function assertStaffLocation(context: AuthContext, staffId: string): Promise<{ location_id: string; status: string; deleted_at: string | null }> {
   const { data, error } = await context.supabase
@@ -361,6 +392,8 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       previousMonthlySalaryQar: z.number().min(0).max(1_000_000).optional(),
       previousRateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       previousRateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      /** When true, removes the latest previous-rate window without writing a new one. */
+      clearPreviousRate: z.boolean().optional(),
     })
     .strict()
     .superRefine((val, ctx) => {
@@ -369,6 +402,16 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
         val.previousMonthlySalaryQar != null ||
         val.previousRateFrom != null ||
         val.previousRateTo != null;
+      if (val.clearPreviousRate) {
+        if (hasPrev) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "clearPreviousRate cannot be combined with previous price fields.",
+            path: ["clearPreviousRate"],
+          });
+        }
+        return;
+      }
       if (!hasPrev) return;
       const hasDailyPrev = val.previousDailyRateQar != null && val.previousDailyRateQar > 0;
       const hasMonthlyPrev =
@@ -485,10 +528,21 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       data.previousMonthlySalaryQar != null && data.previousMonthlySalaryQar > 0
         ? data.previousMonthlySalaryQar
         : null;
+    if (data.clearPreviousRate) {
+      await removeLatestPreviousRateWindow(data.id);
+      await insertSalaryHistoryAndSync(context, {
+        ...historyBase,
+        dailyRateQar: daily,
+        reason: "manual_update",
+      });
+      return { ok: true as const };
+    }
     if (previousFrom && previousTo && previousDaily != null) {
       if (!isDaily || daily == null) {
         throw new Error("Previous day-rate windows require a current day rate.");
       }
+      // Replace any existing previous window so edits update instead of stacking.
+      await removeLatestPreviousRateWindow(data.id);
       await insertSalaryHistoryAndSync(context, {
         ...historyBase,
         dailyRateQar: previousDaily,
@@ -519,6 +573,7 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       if (packageTotal == null || !(packageTotal > 0)) {
         throw new Error("Previous package windows require a current monthly package total.");
       }
+      await removeLatestPreviousRateWindow(data.id);
       await insertSalaryHistoryAndSync(context, {
         ...historyBase,
         dailyRateQar: null,

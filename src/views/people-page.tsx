@@ -630,6 +630,12 @@ function StaffFormDialog({
   const [previousPrice, setPreviousPrice] = useState("");
   const [previousPriceFrom, setPreviousPriceFrom] = useState("");
   const [previousPriceTo, setPreviousPriceTo] = useState("");
+  const [loadedPrevious, setLoadedPrevious] = useState<{
+    amount: number;
+    from: string;
+    to: string;
+    kind: "daily" | "monthly";
+  } | null>(null);
   const [editHomeLocationId, setEditHomeLocationId] = useState(staff?.location_id ?? "");
   const [workLocationIds, setWorkLocationIds] = useState<string[]>(
     staff?.work_location_ids?.length
@@ -667,6 +673,28 @@ function StaffFormDialog({
   const [formTab, setFormTab] = useState("profile");
 
   const wasOpenRef = useRef(false);
+  const applyLoadedPreviousFields = (
+    nextEmployment: string,
+    nextPayBasis: "monthly" | "daily",
+    loaded: {
+      amount: number;
+      from: string;
+      to: string;
+      kind: "daily" | "monthly";
+    } | null,
+  ) => {
+    const wantDaily = nextEmployment === "joker" && nextPayBasis === "daily";
+    const wantMonthly = nextEmployment !== "" && nextEmployment !== "joker";
+    if (loaded && ((wantDaily && loaded.kind === "daily") || (wantMonthly && loaded.kind === "monthly"))) {
+      setPreviousPrice(String(loaded.amount));
+      setPreviousPriceFrom(loaded.from);
+      setPreviousPriceTo(loaded.to);
+      return;
+    }
+    setPreviousPrice("");
+    setPreviousPriceFrom("");
+    setPreviousPriceTo("");
+  };
   useEffect(() => {
     setShownEmployeeCode(staff?.employee_code ?? "");
   }, [staff?.employee_code]);
@@ -677,6 +705,46 @@ function StaffFormDialog({
       setPreviousPrice("");
       setPreviousPriceFrom("");
       setPreviousPriceTo("");
+      setLoadedPrevious(null);
+      if (isEdit && staff?.id && canEditSalary) {
+        const staffId = staff.id;
+        const openEmployment = staff.employment_type ?? "permanent";
+        const openPayBasis: "monthly" | "daily" =
+          openEmployment !== "joker"
+            ? "monthly"
+            : staff.monthly_salary_qar != null &&
+                staff.monthly_salary_qar > 0 &&
+                !(staff.daily_rate_qar != null && staff.daily_rate_qar > 0)
+              ? "monthly"
+              : "daily";
+        void fetch(`/api/people/staff/${staffId}?sections=overview`, { credentials: "include" })
+          .then(async (res) => {
+            if (!res.ok) return null;
+            return (await res.json()) as {
+              compensation?: {
+                previous_rate?: {
+                  amount_qar: number;
+                  from: string;
+                  to: string;
+                  kind: "daily" | "monthly";
+                } | null;
+              } | null;
+            };
+          })
+          .then((body) => {
+            const prev = body?.compensation?.previous_rate ?? null;
+            if (!prev) return;
+            const loaded = {
+              amount: prev.amount_qar,
+              from: prev.from,
+              to: prev.to,
+              kind: prev.kind,
+            };
+            setLoadedPrevious(loaded);
+            applyLoadedPreviousFields(openEmployment, openPayBasis, loaded);
+          })
+          .catch(() => undefined);
+      }
     }
     wasOpenRef.current = open;
     if (open) return;
@@ -684,7 +752,8 @@ function StaffFormDialog({
     setCreatedStaffId(null);
     setPhotoDraft({ dataUrl: null, remove: false });
     setSkippedEmployeeCodes([]);
-  }, [open, staff]);
+    setLoadedPrevious(null);
+  }, [open, staff, isEdit, canEditSalary]);
 
   const branchCode = sites.find((site) => site.id === loc)?.code ?? "";
   const issuedEmployeeCodes = employeeCodesQuery.data;
@@ -760,8 +829,15 @@ function StaffFormDialog({
       let previousMonthlySalaryQar: number | undefined;
       let previousRateFrom: string | undefined;
       let previousRateTo: string | undefined;
+      let clearPreviousRate = false;
       const canSaveDailyPrevious = canEditSalary && jokerDaily && payBasis === "daily";
       const canSaveMonthlyPrevious = canEditSalary && !jokerDaily;
+      const loadedApplies =
+        loadedPrevious &&
+        ((canSaveDailyPrevious && loadedPrevious.kind === "daily") ||
+          (canSaveMonthlyPrevious && loadedPrevious.kind === "monthly"))
+          ? loadedPrevious
+          : null;
       if (canSaveDailyPrevious && prevAny) {
         const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
         if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
@@ -773,9 +849,16 @@ function StaffFormDialog({
         if (nextDaily == null || !(nextDaily > 0)) {
           throw new Error(t("people.staff.currentPricePlaceholder"));
         }
-        previousDailyRateQar = prevAmount;
-        previousRateFrom = prevFrom;
-        previousRateTo = prevTo;
+        const unchanged =
+          loadedApplies != null &&
+          loadedApplies.amount === prevAmount &&
+          loadedApplies.from === prevFrom &&
+          loadedApplies.to === prevTo;
+        if (!unchanged) {
+          previousDailyRateQar = prevAmount;
+          previousRateFrom = prevFrom;
+          previousRateTo = prevTo;
+        }
       } else if (canSaveMonthlyPrevious && prevAny) {
         const prevAmount = prevPriceRaw === "" ? NaN : Number(prevPriceRaw);
         if (!Number.isFinite(prevAmount) || prevAmount <= 0 || !prevFrom || !prevTo) {
@@ -787,16 +870,26 @@ function StaffFormDialog({
         if (nextMonthly == null || !(nextMonthly > 0)) {
           throw new Error(t("people.staff.salaryPlaceholder"));
         }
-        previousMonthlySalaryQar = prevAmount;
-        previousRateFrom = prevFrom;
-        previousRateTo = prevTo;
+        const unchanged =
+          loadedApplies != null &&
+          loadedApplies.amount === prevAmount &&
+          loadedApplies.from === prevFrom &&
+          loadedApplies.to === prevTo;
+        if (!unchanged) {
+          previousMonthlySalaryQar = prevAmount;
+          previousRateFrom = prevFrom;
+          previousRateTo = prevTo;
+        }
+      } else if ((canSaveDailyPrevious || canSaveMonthlyPrevious) && loadedApplies) {
+        clearPreviousRate = true;
       }
       const salaryChanged =
         canEditSalary &&
         (nextMonthly !== (staff?.monthly_salary_qar ?? null) ||
           nextDaily !== (staff?.daily_rate_qar ?? null) ||
           previousDailyRateQar != null ||
-          previousMonthlySalaryQar != null);
+          previousMonthlySalaryQar != null ||
+          clearPreviousRate);
 
       const saveIdentity = identityFieldsChanged(identity, staff);
       const documents = saveIdentity
@@ -873,6 +966,7 @@ function StaffFormDialog({
                 previousRateTo,
               }
             : {}),
+          ...(clearPreviousRate ? { clearPreviousRate: true } : {}),
         }).then(assertSaved);
       };
       const savePhoto = (id: string) => {
@@ -1009,6 +1103,7 @@ function StaffFormDialog({
       setPreviousPrice("");
       setPreviousPriceFrom("");
       setPreviousPriceTo("");
+      setLoadedPrevious(null);
       if (!isEdit) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.people.employeeCodes() });
       }
@@ -1323,12 +1418,11 @@ function StaffFormDialog({
                     setEmploymentType(v);
                     if (v === "joker") {
                       setStatus((prev) => (isActiveStaffStatus(prev) ? "joker" : prev));
+                      applyLoadedPreviousFields(v, payBasis, loadedPrevious);
                     } else {
                       setPayBasis("monthly");
                       setStatus((prev) => (prev === "joker" ? "active" : prev));
-                      setPreviousPrice("");
-                      setPreviousPriceFrom("");
-                      setPreviousPriceTo("");
+                      applyLoadedPreviousFields(v, "monthly", loadedPrevious);
                     }
                   }}>
                     <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
@@ -1351,7 +1445,14 @@ function StaffFormDialog({
               {employmentType === "joker" ? (
                 <div>
                   <Label>{t("people.staff.payBasis")}</Label>
-                  <Select value={payBasis} onValueChange={(v) => setPayBasis(v as "monthly" | "daily")}>
+                  <Select
+                    value={payBasis}
+                    onValueChange={(v) => {
+                      const next = v as "monthly" | "daily";
+                      setPayBasis(next);
+                      applyLoadedPreviousFields(employmentType, next, loadedPrevious);
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="monthly">{t("people.staff.payBasisMonthly")}</SelectItem>
