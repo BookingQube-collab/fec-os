@@ -6,13 +6,22 @@
 
 import { monthBounds } from "@/lib/attendance-hr/roster-period";
 import { canMarkPayrollPosted } from "@/lib/hr-ot";
-import { HR_POLICY_DEFAULTS } from "@/lib/hr-policy";
+import {
+  applyLateEscalateToSplitUnits,
+  DEFAULT_LATE_DEDUCT_POLICY,
+  HR_POLICY_DEFAULTS,
+  paidUnitsForLateDate,
+  type LateDeductPolicy,
+} from "@/lib/hr-policy";
 import {
   partitionPaidDatesByPreviousWindow,
   resolvePreviousCompensationWindow,
   type PreviousCompensationWindow,
   type SalaryHistoryRateRow as PreviousRateHistoryRow,
 } from "@/lib/salary-previous-rate";
+
+export type { LateDeductPolicy };
+export { DEFAULT_LATE_DEDUCT_POLICY, lateDeductPolicyFromSection } from "@/lib/hr-policy";
 
 export const HR_PAYROLL_STATUSES = [
   "draft",
@@ -309,29 +318,48 @@ export function resolveDayRateOnDate(input: {
   }).dayRateQar;
 }
 
-/** Late worked dates count as half a paid day toward basic (Generate / readiness). */
-export const PAYROLL_LATE_DAY_UNITS = 0.5;
+/**
+ * Default paid units for a late worked day when policy is unset.
+ * Kept for callers/tests; prefer {@link LateDeductPolicy}.
+ */
+export const PAYROLL_LATE_DAY_UNITS = DEFAULT_LATE_DEDUCT_POLICY.unitsPerLateDay
+  ? 1 - DEFAULT_LATE_DEDUCT_POLICY.unitsPerLateDay
+  : 0.5;
 
 function paidDayUnitsForDate(
   date: string,
   lateDates: ReadonlySet<string> | null | undefined,
+  policy: LateDeductPolicy = DEFAULT_LATE_DEDUCT_POLICY,
 ): number {
   if (!lateDates || lateDates.size === 0) return 1;
-  return lateDates.has(date) ? PAYROLL_LATE_DAY_UNITS : 1;
+  return paidUnitsForLateDate(lateDates.has(date), policy);
 }
 
 function sumPaidDayUnits(
   dates: readonly string[],
   lateDates: ReadonlySet<string> | null | undefined,
+  policy: LateDeductPolicy = DEFAULT_LATE_DEDUCT_POLICY,
 ): number {
   let units = 0;
-  for (const d of dates) units += paidDayUnitsForDate(d, lateDates);
+  for (const d of dates) units += paidDayUnitsForDate(d, lateDates, policy);
   return units;
 }
 
 function lateDateSet(lateDates: readonly string[] | null | undefined): Set<string> | null {
   if (lateDates == null || lateDates.length === 0) return null;
   return new Set(lateDates.map((d) => String(d ?? "").slice(0, 10)));
+}
+
+function countLateAmongPaid(
+  paidDates: readonly string[],
+  lateSet: ReadonlySet<string> | null,
+): number {
+  if (!lateSet || lateSet.size === 0) return 0;
+  let n = 0;
+  for (const d of paidDates) {
+    if (lateSet.has(String(d).slice(0, 10))) n += 1;
+  }
+  return n;
 }
 
 /** Sum day-rate pay across worked dates, using the history rate in effect each day. */
@@ -342,13 +370,18 @@ export function computeDailyRateBasicFromHistory(input: {
   employmentCategory?: string | null;
   fallbackDailyRateQar?: number | null;
   fallbackMonthlySalaryQar?: number | null;
-  /** Late worked dates — each contributes {@link PAYROLL_LATE_DAY_UNITS} × rate. */
+  /** Late worked dates — paid units from {@link lateDeductPolicy}. */
   lateDates?: readonly string[] | null;
+  lateDeductPolicy?: LateDeductPolicy | null;
 }): { basicQar: number; primaryDayRateQar: number | null; distinctRates: number } {
+  const policy = input.lateDeductPolicy ?? DEFAULT_LATE_DEDUCT_POLICY;
   const lateSet = lateDateSet(input.lateDates);
   const rates = new Map<number, number>();
   let basic = 0;
+  const ymds: string[] = [];
   for (const workDate of input.workedDates) {
+    const ymd = String(workDate).slice(0, 10);
+    ymds.push(ymd);
     const rate = resolveDayRateOnDate({
       workDate,
       history: input.history,
@@ -358,17 +391,30 @@ export function computeDailyRateBasicFromHistory(input: {
       fallbackMonthlySalaryQar: input.fallbackMonthlySalaryQar,
     });
     if (rate == null || rate <= 0) continue;
-    const units = paidDayUnitsForDate(String(workDate).slice(0, 10), lateSet);
+    const units = paidDayUnitsForDate(ymd, lateSet, policy);
     basic += rate * units;
     rates.set(rate, (rates.get(rate) ?? 0) + units);
   }
   let primaryDayRateQar: number | null = null;
   let primaryDays = -1;
+  let totalUnits = 0;
   for (const [rate, days] of rates) {
+    totalUnits += days;
     if (days > primaryDays) {
       primaryDays = days;
       primaryDayRateQar = rate;
     }
+  }
+  const lateDays = countLateAmongPaid(ymds, lateSet);
+  const escalated = applyLateEscalateToSplitUnits({
+    previousUnits: 0,
+    currentUnits: totalUnits,
+    lateDays,
+    policy,
+  });
+  if (escalated.escalateApplied && escalated.escalateUnits > 0 && primaryDayRateQar != null) {
+    // Period escalation cuts against the dominant day rate (same as unit subtract).
+    basic = Math.max(0, basic - escalated.escalateUnits * primaryDayRateQar);
   }
   return {
     basicQar: round2(basic),
@@ -412,7 +458,7 @@ function previousWindowMatchesPayKind(
  * Earned basic across paid dates, applying previous-rate window days at the previous
  * amount and all other paid days at the current day rate / monthly package.
  * A month that straddles From/To must split — not pick one rate for the whole period.
- * Late worked dates (optional) count as {@link PAYROLL_LATE_DAY_UNITS} each.
+ * Late worked dates (optional) use {@link LateDeductPolicy} (default half-day).
  */
 export function resolveEarnedBasicWithPreviousWindow(input: {
   dailyPay: boolean;
@@ -424,23 +470,33 @@ export function resolveEarnedBasicWithPreviousWindow(input: {
   /** Inclusive calendar days in the payroll window. Monthly divisor. */
   periodDays: number;
   previousWindow?: PreviousCompensationWindow | null;
-  /** Late worked dates among paidDates — each pays half a day. */
+  /** Late worked dates among paidDates. */
   lateDates?: readonly string[] | null;
+  lateDeductPolicy?: LateDeductPolicy | null;
 }): {
   earnedBasicQar: number;
   previousDays: number;
   currentDays: number;
   usedPreviousWindow: boolean;
 } {
+  const policy = input.lateDeductPolicy ?? DEFAULT_LATE_DEDUCT_POLICY;
   const paidDates = (input.paidDates ?? []).map((d) => String(d ?? "").slice(0, 10));
   const lateSet = lateDateSet(input.lateDates);
+  const lateDays = countLateAmongPaid(paidDates, lateSet);
   const periodDays = Math.max(1, Math.round(Number(input.periodDays) || 0) || 30);
   const window = previousWindowMatchesPayKind(input.dailyPay, input.previousWindow)
     ? input.previousWindow
     : null;
 
   if (!window) {
-    const units = sumPaidDayUnits(paidDates, lateSet);
+    const rawUnits = sumPaidDayUnits(paidDates, lateSet, policy);
+    const escalated = applyLateEscalateToSplitUnits({
+      previousUnits: 0,
+      currentUnits: rawUnits,
+      lateDays,
+      policy,
+    });
+    const units = escalated.currentUnits;
     const earnedBasicQar = resolveEarnedBasicQar({
       dailyPay: input.dailyPay,
       contractBasicQar: input.contractBasicQar,
@@ -457,8 +513,14 @@ export function resolveEarnedBasicWithPreviousWindow(input: {
   }
 
   const { previousDates, currentDates } = partitionPaidDatesByPreviousWindow(paidDates, window);
-  const previousUnits = sumPaidDayUnits(previousDates, lateSet);
-  const currentUnits = sumPaidDayUnits(currentDates, lateSet);
+  const split = applyLateEscalateToSplitUnits({
+    previousUnits: sumPaidDayUnits(previousDates, lateSet, policy),
+    currentUnits: sumPaidDayUnits(currentDates, lateSet, policy),
+    lateDays,
+    policy,
+  });
+  const previousUnits = split.previousUnits;
+  const currentUnits = split.currentUnits;
   if (input.dailyPay) {
     const previousPart = computeDailyRateBasicQar(window.amountQar, previousUnits);
     const currentPart = computeDailyRateBasicQar(Number(input.dailyRateQar) || 0, currentUnits);
@@ -557,8 +619,9 @@ export function estimatePayrollReadinessPay(input: {
   periodDays: number;
   /** Preferred: actual paid entitlement dates so previous-rate windows can straddle. */
   paidDates?: readonly string[] | null;
-  /** Late worked dates among paidDates — half-day basic each (same as Generate). */
+  /** Late worked dates among paidDates — units from lateDeductPolicy (same as Generate). */
   lateDates?: readonly string[] | null;
+  lateDeductPolicy?: LateDeductPolicy | null;
   previousWindow?: PreviousCompensationWindow | null;
   /** Submitted (visible) OT claim amounts already computed with the OT formula. */
   otQar?: number | null;
@@ -578,6 +641,7 @@ export function estimatePayrollReadinessPay(input: {
   usedPreviousWindow: boolean;
   lateDays: number;
 } {
+  const policy = input.lateDeductPolicy ?? DEFAULT_LATE_DEDUCT_POLICY;
   const monthlyStored = positiveRate(input.monthlySalaryQar);
   const dailyStored = positiveRate(input.dailyRateQar);
   const { dailyPay, dayRateQar } = resolveDailyRatePayroll({
@@ -629,6 +693,14 @@ export function estimatePayrollReadinessPay(input: {
       lateDays: 0,
     };
   }
+  const perLateDeduct = policy.enabled ? policy.unitsPerLateDay : 0;
+  const fallbackUnitsRaw = Math.max(0, paidDays - lateDays * perLateDeduct);
+  const fallbackEscalated = applyLateEscalateToSplitUnits({
+    previousUnits: 0,
+    currentUnits: fallbackUnitsRaw,
+    lateDays,
+    policy,
+  });
   const split = paidDates
     ? resolveEarnedBasicWithPreviousWindow({
         dailyPay,
@@ -638,17 +710,18 @@ export function estimatePayrollReadinessPay(input: {
         periodDays,
         previousWindow: input.previousWindow,
         lateDates,
+        lateDeductPolicy: policy,
       })
     : {
         earnedBasicQar: resolveEarnedBasicQar({
           dailyPay,
           contractBasicQar: basic,
           dailyRateQar: dayRateQar,
-          workedDays: Math.max(0, paidDays - lateDays * (1 - PAYROLL_LATE_DAY_UNITS)),
+          workedDays: fallbackEscalated.currentUnits,
           periodDays,
         }),
         previousDays: 0,
-        currentDays: Math.max(0, paidDays - lateDays * (1 - PAYROLL_LATE_DAY_UNITS)),
+        currentDays: fallbackEscalated.currentUnits,
         usedPreviousWindow: false,
       };
   const earnedBasicQar = split.earnedBasicQar;

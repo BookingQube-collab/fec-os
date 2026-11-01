@@ -713,9 +713,21 @@ describe("payroll readiness", () => {
     expect(payrollPaidDayUnits(days[1]!)).toBe(0.5);
     expect(payrollPaidDayUnits(days[2]!)).toBe(1);
     expect(payrollPaidDayUnits(days[3]!)).toBe(1);
+    expect(
+      payrollPaidDayUnits(days[1]!, { enabled: true, unitsPerLateDay: 1 }),
+    ).toBe(0);
+    expect(
+      payrollPaidDayUnits(days[1]!, { enabled: false, unitsPerLateDay: 0.5 }),
+    ).toBe(1);
     expect(listPayrollLateWorkedDates(days, "latey")).toEqual(["2026-03-11"]);
     expect(countPayrollPaidDays(days, "latey")).toBe(4);
     expect(sumPayrollPaidDayUnits(days, "latey")).toBe(3.5);
+    expect(
+      sumPayrollPaidDayUnits(days, "latey", undefined, {
+        enabled: true,
+        unitsPerLateDay: 1,
+      }),
+    ).toBe(3);
     const [row] = aggregatePayrollRows(days);
     expect(row.daysPresent).toBe(4);
     expect(row.daysLate).toBe(1);

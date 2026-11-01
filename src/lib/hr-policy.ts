@@ -108,6 +108,18 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
       higher_mgmt: "wps",
       operations: "wps",
     },
+    /**
+     * Late punch salary deduction (payroll period).
+     * - Each late worked day deducts `late_deduct_units_per_day` day-units (paid = 1 − units).
+     *   Default 0.5 = half-day pay (matches prior hardcode).
+     * - Optional: when late count ≥ `late_escalate_after_count` (>0), also deduct
+     *   `late_escalate_extra_units` once from the period total (e.g. 3 lates → +1 full day).
+     * Week off / leave never count as late.
+     */
+    late_deduct_enabled: true,
+    late_deduct_units_per_day: 0.5,
+    late_escalate_after_count: 0,
+    late_escalate_extra_units: 1,
   },
   notification: {
     channels: ["in_app", "email"],
@@ -138,6 +150,155 @@ export function policyNumber(value: unknown, fallback: number): number {
     return Number(value);
   }
   return fallback;
+}
+
+export function policyBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === 1 || value === "1") return true;
+  if (value === "false" || value === 0 || value === "0") return false;
+  return fallback;
+}
+
+/** Clamp day-units used by late deduct (0 … 1). */
+export function clampLateDeductUnits(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (value >= 1) return 1;
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Resolved late-punch deduction policy for a payroll period.
+ * See HR_POLICY_DEFAULTS.payroll late_* keys.
+ */
+export type LateDeductPolicy = {
+  enabled: boolean;
+  /** Day-units removed from each late worked day (0 / 0.5 / 1). Paid = 1 − this. */
+  unitsPerLateDay: number;
+  /** When late count ≥ this (>0), apply extra once. 0 = off. */
+  escalateAfterCount: number;
+  /** Extra day-units deducted once when the threshold is met. */
+  escalateExtraUnits: number;
+};
+
+export const DEFAULT_LATE_DEDUCT_POLICY: LateDeductPolicy = {
+  enabled: true,
+  unitsPerLateDay: 0.5,
+  escalateAfterCount: 0,
+  escalateExtraUnits: 1,
+};
+
+/** Build late deduct policy from a merged payroll policy section. */
+export function lateDeductPolicyFromSection(
+  section: Record<string, unknown> | null | undefined,
+): LateDeductPolicy {
+  const src = section ?? HR_POLICY_DEFAULTS.payroll;
+  return {
+    enabled: policyBoolean(src.late_deduct_enabled, DEFAULT_LATE_DEDUCT_POLICY.enabled),
+    unitsPerLateDay: clampLateDeductUnits(
+      policyNumber(src.late_deduct_units_per_day, DEFAULT_LATE_DEDUCT_POLICY.unitsPerLateDay),
+    ),
+    escalateAfterCount: Math.max(
+      0,
+      Math.round(policyNumber(src.late_escalate_after_count, DEFAULT_LATE_DEDUCT_POLICY.escalateAfterCount)),
+    ),
+    escalateExtraUnits: clampLateDeductUnits(
+      policyNumber(src.late_escalate_extra_units, DEFAULT_LATE_DEDUCT_POLICY.escalateExtraUnits),
+    ),
+  };
+}
+
+/** Paid day-units for one calendar date under late policy (no period escalation). */
+export function paidUnitsForLateDate(
+  isLate: boolean,
+  policy: LateDeductPolicy = DEFAULT_LATE_DEDUCT_POLICY,
+): number {
+  if (!policy.enabled || !isLate) return 1;
+  return Math.max(0, 1 - policy.unitsPerLateDay);
+}
+
+/**
+ * Sum paid day-units across paid dates, applying per-late-day deduct and optional
+ * once-per-period escalation when late count reaches the threshold.
+ */
+export function sumPaidUnitsWithLatePolicy(
+  paidDates: readonly string[],
+  lateDates: readonly string[] | null | undefined,
+  policy: LateDeductPolicy = DEFAULT_LATE_DEDUCT_POLICY,
+): {
+  units: number;
+  lateDays: number;
+  escalateApplied: boolean;
+  escalateUnits: number;
+} {
+  const lateSet = new Set(
+    (lateDates ?? []).map((d) => String(d ?? "").slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+  );
+  let units = 0;
+  let lateDays = 0;
+  for (const raw of paidDates) {
+    const ymd = String(raw ?? "").slice(0, 10);
+    const isLate = lateSet.has(ymd);
+    if (isLate) lateDays += 1;
+    units += paidUnitsForLateDate(isLate, policy);
+  }
+  let escalateApplied = false;
+  let escalateUnits = 0;
+  if (
+    policy.enabled &&
+    policy.escalateAfterCount > 0 &&
+    lateDays >= policy.escalateAfterCount &&
+    policy.escalateExtraUnits > 0
+  ) {
+    escalateUnits = policy.escalateExtraUnits;
+    units = Math.max(0, units - escalateUnits);
+    escalateApplied = true;
+  }
+  return {
+    units: Math.round((units + Number.EPSILON) * 100) / 100,
+    lateDays,
+    escalateApplied,
+    escalateUnits,
+  };
+}
+
+/** Subtract escalation units from current bucket first, then previous. */
+export function applyLateEscalateToSplitUnits(input: {
+  previousUnits: number;
+  currentUnits: number;
+  lateDays: number;
+  policy: LateDeductPolicy;
+}): {
+  previousUnits: number;
+  currentUnits: number;
+  escalateApplied: boolean;
+  escalateUnits: number;
+} {
+  const { policy, lateDays } = input;
+  let previousUnits = Math.max(0, input.previousUnits);
+  let currentUnits = Math.max(0, input.currentUnits);
+  if (
+    !policy.enabled ||
+    policy.escalateAfterCount <= 0 ||
+    lateDays < policy.escalateAfterCount ||
+    policy.escalateExtraUnits <= 0
+  ) {
+    return { previousUnits, currentUnits, escalateApplied: false, escalateUnits: 0 };
+  }
+  let remaining = policy.escalateExtraUnits;
+  const fromCurrent = Math.min(currentUnits, remaining);
+  currentUnits -= fromCurrent;
+  remaining -= fromCurrent;
+  if (remaining > 0) {
+    const fromPrevious = Math.min(previousUnits, remaining);
+    previousUnits -= fromPrevious;
+    remaining -= fromPrevious;
+  }
+  return {
+    previousUnits: Math.round((previousUnits + Number.EPSILON) * 100) / 100,
+    currentUnits: Math.round((currentUnits + Number.EPSILON) * 100) / 100,
+    escalateApplied: true,
+    escalateUnits: policy.escalateExtraUnits - remaining,
+  };
 }
 
 /** Leave allotment defaults for annual/sick from a merged leave section. */

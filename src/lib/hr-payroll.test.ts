@@ -399,6 +399,50 @@ describe("payroll readiness pay preview", () => {
     expect(preview.payQar).toBe(300);
   });
 
+  it("applies configured full-day late deduct and period escalation", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 3,
+      periodDays: 30,
+      paidDates: ["2026-03-10", "2026-03-11", "2026-03-12"],
+      lateDates: ["2026-03-10", "2026-03-11", "2026-03-12"],
+      lateDeductPolicy: {
+        enabled: true,
+        unitsPerLateDay: 0.5,
+        escalateAfterCount: 3,
+        escalateExtraUnits: 1,
+      },
+    });
+    // 3 × 0.5 − 1 escalate = 0.5 paid units → 100 QAR
+    expect(preview.lateDays).toBe(3);
+    expect(preview.currentDays).toBe(0.5);
+    expect(preview.earnedBasicQar).toBe(100);
+  });
+
+  it("skips late deduct when policy disabled", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 1,
+      periodDays: 30,
+      paidDates: ["2026-03-11"],
+      lateDates: ["2026-03-11"],
+      lateDeductPolicy: {
+        enabled: false,
+        unitsPerLateDay: 0.5,
+        escalateAfterCount: 0,
+        escalateExtraUnits: 1,
+      },
+    });
+    expect(preview.earnedBasicQar).toBe(200);
+    expect(preview.currentDays).toBe(1);
+  });
+
   it("keeps late half-day on previous-price window days", () => {
     const preview = estimatePayrollReadinessPay({
       employmentType: "joker",

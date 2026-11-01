@@ -430,14 +430,25 @@ export function isPayrollLateWorkedDay(row: PayrollDayInput): boolean {
   return status === "late" || Number(row.late_minutes ?? 0) > 0;
 }
 
-/** Late punch-in paid entitlement weight (full day = 1). */
+/**
+ * Default paid units for a late worked day (1 − default deduct 0.5).
+ * Prefer {@link payrollPaidDayUnits} with a LateDeductPolicy from HR settings.
+ */
 export const PAYROLL_LATE_PAID_DAY_UNITS = 0.5;
 
-/** Paid-day units toward basic: late worked day → 0.5; on-time / WO / leave → 1. */
-export function payrollPaidDayUnits(row: PayrollDayInput): number {
+/** Paid-day units toward basic under late deduct policy (WO / leave stay full). */
+export function payrollPaidDayUnits(
+  row: PayrollDayInput,
+  latePolicy?: { enabled: boolean; unitsPerLateDay: number } | null,
+): number {
   if (!isPayrollPaidDay(row)) return 0;
-  if (isPayrollLateWorkedDay(row)) return PAYROLL_LATE_PAID_DAY_UNITS;
-  return 1;
+  if (!isPayrollLateWorkedDay(row)) return 1;
+  if (latePolicy && latePolicy.enabled === false) return 1;
+  const deduct =
+    latePolicy != null && Number.isFinite(latePolicy.unitsPerLateDay)
+      ? Math.max(0, Math.min(1, latePolicy.unitsPerLateDay))
+      : 1 - PAYROLL_LATE_PAID_DAY_UNITS;
+  return Math.max(0, 1 - deduct);
 }
 
 /** Worked days inside an optional hire/exit window. One row per staff+date after listing collapse. */
@@ -484,11 +495,12 @@ export function countPayrollPaidDays(
   return listPayrollPaidDates(days, staffId, bounds).length;
 }
 
-/** Fractional paid entitlement (late worked days count as {@link PAYROLL_LATE_PAID_DAY_UNITS}). */
+/** Fractional paid entitlement under optional late deduct policy. */
 export function sumPayrollPaidDayUnits(
   days: PayrollDayInput[],
   staffId: string,
   bounds?: { from?: string | null; to?: string | null },
+  latePolicy?: { enabled: boolean; unitsPerLateDay: number } | null,
 ): number {
   const from = bounds?.from?.slice(0, 10) ?? "";
   const to = bounds?.to?.slice(0, 10) ?? "";
@@ -500,7 +512,7 @@ export function sumPayrollPaidDayUnits(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
     if (from && ymd < from) continue;
     if (to && ymd > to) continue;
-    units += payrollPaidDayUnits(day);
+    units += payrollPaidDayUnits(day, latePolicy);
   }
   return units;
 }

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_LATE_DEDUCT_POLICY,
   getPolicyDefault,
   HR_POLICY_DEFAULTS,
+  lateDeductPolicyFromSection,
   leaveAllotmentDefaultsFromPolicy,
   mergePolicySection,
+  paidUnitsForLateDate,
   policyNumber,
   rosterMissingStaffMutation,
+  sumPaidUnitsWithLatePolicy,
 } from "./hr-policy";
 
 describe("hr policy defaults", () => {
@@ -45,6 +49,9 @@ describe("hr policy defaults", () => {
     expect(HR_POLICY_DEFAULTS.ot.rate_eid).toBe(2.5);
     expect(HR_POLICY_DEFAULTS.payroll.currency).toBe("QAR");
     expect(HR_POLICY_DEFAULTS.payroll.timezone).toBe("Asia/Qatar");
+    expect(HR_POLICY_DEFAULTS.payroll.late_deduct_enabled).toBe(true);
+    expect(HR_POLICY_DEFAULTS.payroll.late_deduct_units_per_day).toBe(0.5);
+    expect(HR_POLICY_DEFAULTS.payroll.late_escalate_after_count).toBe(0);
     expect(HR_POLICY_DEFAULTS.air_ticket.cycle_months).toBe(12);
     expect(HR_POLICY_DEFAULTS.air_ticket.from_hire_date).toBe(true);
     expect(HR_POLICY_DEFAULTS.air_ticket.carry_forward_months).toBe(3);
@@ -66,5 +73,45 @@ describe("roster missing guard", () => {
     expect(mutation.auto_terminated).toBe(false);
     expect(mutation).not.toHaveProperty("status");
     expect(mutation).not.toHaveProperty("deleted_at");
+  });
+});
+
+describe("late deduct policy", () => {
+  it("defaults to half-day per late occurrence with escalation off", () => {
+    const policy = lateDeductPolicyFromSection(HR_POLICY_DEFAULTS.payroll);
+    expect(policy).toEqual(DEFAULT_LATE_DEDUCT_POLICY);
+    expect(paidUnitsForLateDate(true, policy)).toBe(0.5);
+    expect(paidUnitsForLateDate(false, policy)).toBe(1);
+  });
+
+  it("supports full-day per late and threshold extra full day", () => {
+    const policy = lateDeductPolicyFromSection({
+      late_deduct_enabled: true,
+      late_deduct_units_per_day: 0.5,
+      late_escalate_after_count: 3,
+      late_escalate_extra_units: 1,
+    });
+    const result = sumPaidUnitsWithLatePolicy(
+      ["2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04"],
+      ["2026-03-01", "2026-03-02", "2026-03-03"],
+      policy,
+    );
+    // 3 late × 0.5 + 1 on-time − 1 escalate = 1.5 + 1 − 1 = 1.5
+    expect(result.lateDays).toBe(3);
+    expect(result.escalateApplied).toBe(true);
+    expect(result.escalateUnits).toBe(1);
+    expect(result.units).toBe(1.5);
+  });
+
+  it("pays full day when late deduct is disabled", () => {
+    const policy = lateDeductPolicyFromSection({ late_deduct_enabled: false });
+    expect(paidUnitsForLateDate(true, policy)).toBe(1);
+    const result = sumPaidUnitsWithLatePolicy(
+      ["2026-03-01", "2026-03-02"],
+      ["2026-03-01"],
+      policy,
+    );
+    expect(result.units).toBe(2);
+    expect(result.escalateApplied).toBe(false);
   });
 });

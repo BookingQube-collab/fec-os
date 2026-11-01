@@ -9482,7 +9482,8 @@
       "paySourceMissing": "No salary set",
       "payExtraOt": "OT {{amount}}",
       "payExtraAirTicket": "Air ticket {{amount}}",
-      "payLateHalfDay": "Late ×{{count}} → half-day pay",
+      "payLateHalfDay": "Late ×{{count}} (policy deduct)",
+      "payLateDeduct": "Late ×{{count}} (policy deduct)",
       "otSubmittedHint": "submitted",
       "colStatus": "Status",
       "empty": "No mapped attendance in this cycle yet.",
@@ -11175,7 +11176,19 @@
       "maxWeekly": "Max weekly OT (minutes)",
       "preapprove": "Require pre-approval",
       "notes": "Policy notes",
-      "save": "Save policy"
+      "save": "Save policy",
+      "lateDeduct": {
+        "title": "Late punch salary deduction",
+        "hint": "Applied automatically on payroll readiness Pay and Generate. Week off and leave never count as late. Default matches prior behaviour: each late worked day pays half a day.",
+        "enabled": "Enable late deduction",
+        "perDay": "Deduction per late day",
+        "unitsNone": "None (full day paid)",
+        "unitsHalf": "Half day",
+        "unitsFull": "Full day",
+        "escalateAfter": "Escalate after N late days",
+        "escalateAfterHelp": "0 = no extra deduction. Example: 3 means after 3 late days in the period, also deduct the extra below once.",
+        "escalateExtra": "Extra deduction when threshold met"
+      }
     },
     "shiftPolicy": {
       "kicker": "HR admin",

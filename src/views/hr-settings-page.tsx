@@ -27,6 +27,13 @@ import { HrShell } from "@/components/hr/hr-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,6 +55,20 @@ const SECTION_ICONS: Record<HrPolicySection, LucideIcon> = {
   payroll: Wallet,
   notification: Bell,
 };
+
+/** Friendly payroll late-deduct keys — edited in a dedicated panel, not raw JSON. */
+const PAYROLL_LATE_DEDUCT_KEYS = new Set([
+  "late_deduct_enabled",
+  "late_deduct_units_per_day",
+  "late_escalate_after_count",
+  "late_escalate_extra_units",
+]);
+
+const LATE_DEDUCT_UNIT_OPTIONS = [
+  { value: "0", labelKey: "hr.settings.lateDeduct.unitsNone" },
+  { value: "0.5", labelKey: "hr.settings.lateDeduct.unitsHalf" },
+  { value: "1", labelKey: "hr.settings.lateDeduct.unitsFull" },
+] as const;
 
 function stringifyValue(value: unknown): string {
   if (value == null) return "";
@@ -186,8 +207,129 @@ export default function HrSettingsPage() {
                 </TabsList>
                 {HR_POLICY_SECTIONS.map((section) => (
                   <TabsContent key={section} value={section} className="space-y-3 pt-3">
+                    {section === "payroll" ? (
+                      <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3 sm:p-4">
+                        <div>
+                          <h3 className="text-sm font-semibold">
+                            {t("hr.settings.lateDeduct.title")}
+                          </h3>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {t("hr.settings.lateDeduct.hint")}
+                          </p>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5 sm:col-span-2">
+                            <div className="flex items-center gap-2 pt-1">
+                              <Switch
+                                id="payroll-late_deduct_enabled"
+                                checked={(drafts.payroll?.late_deduct_enabled ?? "true") === "true"}
+                                onCheckedChange={(checked) =>
+                                  setDrafts((d) => ({
+                                    ...d,
+                                    payroll: {
+                                      ...d.payroll,
+                                      late_deduct_enabled: String(checked),
+                                    },
+                                  }))
+                                }
+                              />
+                              <Label htmlFor="payroll-late_deduct_enabled">
+                                {t("hr.settings.lateDeduct.enabled")}
+                              </Label>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="payroll-late_deduct_units_per_day">
+                              {t("hr.settings.lateDeduct.perDay")}
+                            </Label>
+                            <Select
+                              value={drafts.payroll?.late_deduct_units_per_day ?? "0.5"}
+                              onValueChange={(value) =>
+                                setDrafts((d) => ({
+                                  ...d,
+                                  payroll: {
+                                    ...d.payroll,
+                                    late_deduct_units_per_day: value,
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger id="payroll-late_deduct_units_per_day">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {LATE_DEDUCT_UNIT_OPTIONS.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    {t(opt.labelKey)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="payroll-late_escalate_after_count">
+                              {t("hr.settings.lateDeduct.escalateAfter")}
+                            </Label>
+                            <Input
+                              id="payroll-late_escalate_after_count"
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={drafts.payroll?.late_escalate_after_count ?? "0"}
+                              onChange={(e) =>
+                                setDrafts((d) => ({
+                                  ...d,
+                                  payroll: {
+                                    ...d.payroll,
+                                    late_escalate_after_count: e.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {t("hr.settings.lateDeduct.escalateAfterHelp")}
+                            </p>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="payroll-late_escalate_extra_units">
+                              {t("hr.settings.lateDeduct.escalateExtra")}
+                            </Label>
+                            <Select
+                              value={drafts.payroll?.late_escalate_extra_units ?? "1"}
+                              onValueChange={(value) =>
+                                setDrafts((d) => ({
+                                  ...d,
+                                  payroll: {
+                                    ...d.payroll,
+                                    late_escalate_extra_units: value,
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger id="payroll-late_escalate_extra_units">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {LATE_DEDUCT_UNIT_OPTIONS.filter((o) => o.value !== "0").map(
+                                  (opt) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      {t(opt.labelKey)}
+                                    </SelectItem>
+                                  ),
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {Object.keys(drafts[section] ?? {}).map((key) => {
+                      {Object.keys(drafts[section] ?? {})
+                        .filter(
+                          (key) =>
+                            !(section === "payroll" && PAYROLL_LATE_DEDUCT_KEYS.has(key)),
+                        )
+                        .map((key) => {
                         const raw = drafts[section]?.[key] ?? "";
                         const prev = sectionValues[key];
                         const isBool = typeof prev === "boolean";

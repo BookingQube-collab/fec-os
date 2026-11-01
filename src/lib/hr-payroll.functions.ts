@@ -52,6 +52,11 @@ import {
 import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
+import {
+  lateDeductPolicyFromSection,
+  paidUnitsForLateDate,
+  sumPaidUnitsWithLatePolicy,
+} from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError, requireCapability } from "@/lib/server/authorize";
@@ -282,6 +287,11 @@ async function paymentDefaults(context: AuthContext) {
   return undefined;
 }
 
+async function readLateDeductPolicy(context: AuthContext) {
+  const section = await readPolicySection(context, "payroll");
+  return lateDeductPolicyFromSection(section);
+}
+
 async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
   // Service role: caller already passed payroll.generate / payroll.view. User-scoped
   // RLS on staff_compensation can still return empty for some admin JWT shapes.
@@ -415,6 +425,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     const dateFrom = String(periodRow.date_from).slice(0, 10);
     const dateTo = String(periodRow.date_to).slice(0, 10);
     const defaults = await paymentDefaults(context);
+    const lateDeductPolicy = await readLateDeductPolicy(context);
 
     let staffQ = context.supabase
       .from("staff")
@@ -675,12 +686,9 @@ export const generatePayrollLines = createAuthenticatedAction(
       };
       const paidDates = listPayrollPaidDates(dayInputs, s.id, paidBounds);
       const lateDates = listPayrollLateWorkedDates(dayInputs, s.id, paidBounds);
-      const lateSet = new Set(lateDates);
-      // Late punch-in worked days count as half a paid day toward basic.
-      const workedDays = paidDates.reduce(
-        (sum, d) => sum + (lateSet.has(d) ? 0.5 : 1),
-        0,
-      );
+      // Late deduct from HR payroll policy (default: each late → half day).
+      const lateUnits = sumPaidUnitsWithLatePolicy(paidDates, lateDates, lateDeductPolicy);
+      const workedDays = lateUnits.units;
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
       const submittedOtHours = minutesToOtHours(submittedOtMinutes);
@@ -698,6 +706,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         periodDays: activeWindow.periodDays,
         previousWindow,
         lateDates,
+        lateDeductPolicy,
       });
       // Prefer explicit previous-price From/To split when that window overlaps paid days.
       // Otherwise day-rate staff still walk salary history for mid-period rate changes.
@@ -711,6 +720,7 @@ export const generatePayrollLines = createAuthenticatedAction(
               fallbackDailyRateQar: dailyStored,
               fallbackMonthlySalaryQar: monthlyStored,
               lateDates,
+              lateDeductPolicy,
             })
           : null;
       const resolvedDayRateQar = historyPay?.primaryDayRateQar ?? dayRateQar;
@@ -777,7 +787,12 @@ export const generatePayrollLines = createAuthenticatedAction(
         );
       }
       if (lateDates.length > 0) {
-        noteParts.push(`late_half_day:${lateDates.length}`);
+        const perDay = paidUnitsForLateDate(true, lateDeductPolicy);
+        noteParts.push(
+          `late_deduct:${lateDates.length}@${perDay}${
+            lateUnits.escalateApplied ? `+escalate${lateUnits.escalateUnits}` : ""
+          }`,
+        );
       }
 
       const deductionTotal = computed.deductions.reduce(
@@ -806,6 +821,9 @@ export const generatePayrollLines = createAuthenticatedAction(
                     workedDays,
                     paidDays: workedDays,
                     lateDays: lateDates.length,
+                    latePaidUnitsPerDay: paidUnitsForLateDate(true, lateDeductPolicy),
+                    lateEscalateApplied: lateUnits.escalateApplied,
+                    lateEscalateUnits: lateUnits.escalateUnits,
                     dailyPay,
                     distinctRates: historyPay?.distinctRates ?? 1,
                   },

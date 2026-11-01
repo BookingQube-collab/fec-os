@@ -34,6 +34,8 @@ import {
   sumVisibleOtMinutesByStaff,
   toPreviousRateHistoryRows,
 } from "@/lib/hr-payroll";
+import { lateDeductPolicyFromSection } from "@/lib/hr-policy";
+import { readPolicySection } from "@/lib/hr-policy-read";
 import { LOCATION_KIND_WAREHOUSE, normalizeLocationKind } from "@/lib/locations/kind";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
@@ -821,6 +823,9 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     );
 
     // Pay preview: prefer generated period line net; else compensation × paid days (Generate rules).
+    const lateDeductPolicy = lateDeductPolicyFromSection(
+      await readPolicySection(context, "payroll"),
+    );
     const staffIds = summary.map((r) => r.staffId);
     const generatedNetByStaff = new Map<string, number>();
     let periodId: string | null = null;
@@ -1033,6 +1038,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         periodDays,
         paidDates,
         lateDates,
+        lateDeductPolicy,
         previousWindow,
         otQar: submittedOtPayByStaff.get(row.staffId) ?? 0,
         airTicketQar,
