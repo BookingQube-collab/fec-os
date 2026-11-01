@@ -60,6 +60,7 @@ describe("people directory for managers and supervisors", () => {
     expect(teamHrefs).toContain("/people/roster");
     expect(teamHrefs).not.toContain("/people/payroll");
     expect(teamHrefs).not.toContain("/people/hr/settings");
+    expect(teamHrefs.some((href) => href.startsWith("/people/hr/settings"))).toBe(false);
     expect(teamHrefs).not.toContain("/admin");
 
     const cashierNav = mergePeopleDirectoryDepartments(

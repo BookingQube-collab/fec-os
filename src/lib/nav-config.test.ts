@@ -215,6 +215,7 @@ describe("admin sidebar visibility", () => {
       "nav.communicationHub",
       "nav.hrHelpdesk",
       "nav.privacyRequests",
+      "nav.hrSuggestions",
       "nav.hrMyDay",
     ]);
     const flyoutHrefs = flyout.map((link) => link.href);
@@ -231,8 +232,10 @@ describe("admin sidebar visibility", () => {
     }
     expect(flyout.some((link) => link.href === "/profile#account" && link.labelKey === "nav.myAccount")).toBe(true);
     expect(navHrefPath("/profile#account")).toBe("/profile");
+    expect(navHrefPath("/people/hr/settings?section=payroll")).toBe("/people/hr/settings");
     expect(navHrefPath("/#people-dashboard")).toBeNull();
     expect(isNavItemActive("/profile", "/profile")).toBe(true);
+    expect(isNavItemActive("/people/hr/settings", "/people/hr/settings")).toBe(true);
     expect(isNavItemActive("/#people-dashboard", "/")).toBe(false);
     expect(flyout.map((link) => link.labelKey)).toEqual(
       expect.arrayContaining([
@@ -245,6 +248,7 @@ describe("admin sidebar visibility", () => {
         "nav.onboardingOffboarding",
         "nav.endOfService",
         "nav.employmentHistory",
+        "nav.hrSettings",
         "nav.hrProbationExit",
         "nav.teamOverview",
         "nav.hrWorkforce",
@@ -266,12 +270,12 @@ describe("admin sidebar visibility", () => {
         "nav.recordRetention",
         "nav.bulkImport",
         "nav.hardwareTools",
-        "nav.hrRulesSettings",
         "nav.hrLeave",
         "nav.hrPayroll",
         "nav.performance",
       ]),
     );
+    expect(flyout.map((link) => link.labelKey)).not.toContain("nav.hrRulesSettings");
     expect(flyout.map((link) => link.href)).toEqual(
       expect.arrayContaining([
         "/people/hr",
@@ -298,6 +302,7 @@ describe("admin sidebar visibility", () => {
         "/people/hr/helpdesk",
         "/people/hr/privacy",
         "/people/hr/service-history",
+        "/people/hr/settings?section=payroll",
         "/people/hr/end-of-service",
         "/people/hr/probation-exit",
         "/people/hr/team",
@@ -322,10 +327,15 @@ describe("admin sidebar visibility", () => {
       clusterItemsBySection(flyout).find((block) => block.sectionKey === "nav.peopleSectionPeople")?.items ?? [];
     const jobRequests = peopleSection.findIndex((item) => item.href === "/people/recruitment/jobs");
     const probationExit = peopleSection.findIndex((item) => item.href === "/people/hr/probation-exit");
+    const hrSettings = peopleSection.findIndex(
+      (item) => item.labelKey === "nav.hrSettings" && item.href === "/people/hr/settings?section=payroll",
+    );
     expect(jobRequests).toBeGreaterThanOrEqual(0);
     expect(probationExit).toBe(jobRequests + 1);
+    expect(hrSettings).toBeGreaterThanOrEqual(0);
     expect(peopleSection.some((item) => item.labelKey === "nav.endOfService" && item.href === "/people/hr/end-of-service")).toBe(true);
     expect(peopleSection.filter((item) => item.labelKey === "nav.hrProbationExit")).toHaveLength(1);
+    expect(peopleSection.filter((item) => item.labelKey === "nav.hrSettings")).toHaveLength(1);
     const adminLabels =
       clusterItemsBySection(flyout)
         .find((block) => block.sectionKey === "nav.peopleSectionAdmin")
@@ -334,7 +344,6 @@ describe("admin sidebar visibility", () => {
       "nav.recordRetention",
       "nav.bulkImport",
       "nav.hardwareTools",
-      "nav.hrRulesSettings",
       "nav.importRoster",
       "nav.hrJobAdmin",
       "nav.attendanceImport",
@@ -342,12 +351,13 @@ describe("admin sidebar visibility", () => {
       "nav.attendanceDevices",
       "nav.hrShiftPolicy",
       "nav.hrAnnouncements",
-      "nav.hrSettings",
       "nav.hrEmployeeApp",
       "nav.peopleExtras",
     ]);
     expect(adminLabels).not.toContain("nav.hrDirectory");
     expect(adminLabels).not.toContain("nav.hrAttendance");
+    expect(adminLabels).not.toContain("nav.hrSettings");
+    expect(adminLabels).not.toContain("nav.hrRulesSettings");
     expect(hrefs.indexOf("/people/hr")).toBe(0);
     expect(hrefs.filter((href) => href === "/people/hr")).toEqual(["/people/hr"]);
     expect(ops?.items.some((item) => item.href === "/chat" && item.labelKey === "nav.communicationHub")).toBe(true);

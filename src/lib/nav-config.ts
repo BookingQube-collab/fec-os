@@ -370,7 +370,6 @@ const PEOPLE_NAV_ITEMS: NavItem[] = [
     departmentId: "people",
     sectionKey: PEOPLE_SECTION.workspace,
   },
-  { href: "/people/hr/settings", labelKey: "nav.hrSettings", icon: Settings, capability: "hr.policy.configure", departmentId: "people", sectionKey: PEOPLE_SECTION.admin },
   { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", icon: UserRound, capability: "attendance.view", departmentId: "people", sectionKey: PEOPLE_SECTION.admin },
   ...EMPLOYEE_SECTION_NAV.map((item) => ({
     ...item,
@@ -405,6 +404,16 @@ const PICKER_SIDEBAR_ITEMS: NavItem[] = [
     { href: "/people/hr/onboarding", labelKey: "nav.onboardingOffboarding", icon: ClipboardList, capability: "hr.manage", departmentId: "people" },
     { href: "/people/hr/end-of-service", labelKey: "nav.endOfService", icon: Scale, capability: "hr.manage", departmentId: "people" },
     { href: "/people/hr/service-history", labelKey: "nav.employmentHistory", icon: History, capability: "people.view_roster", departmentId: "people" },
+    // Late punch salary deduction lives under Payroll on this page — keep the link in People
+    // (not buried in collapsed Administration) for HOO / HR policy editors.
+    {
+      href: "/people/hr/settings?section=payroll",
+      labelKey: "nav.hrSettings",
+      icon: Settings,
+      capability: "hr.policy.configure",
+      anyCapabilities: ["hr.policy.configure", "hr.manage", "payroll.generate"],
+      departmentId: "people",
+    },
   ]),
   ...withPeopleSection(PEOPLE_SECTION.workTime, [
     { href: "/people/hr/team", labelKey: "nav.teamOverview", icon: Users, capability: "people.view_roster", departmentId: "people" },
@@ -441,7 +450,6 @@ const PICKER_SIDEBAR_ITEMS: NavItem[] = [
     { href: "/people/hr/retention", labelKey: "nav.recordRetention", icon: Archive, capability: "hr.docs.manage", departmentId: "people" },
     { href: "/people/import", labelKey: "nav.bulkImport", icon: ClipboardList, capability: "people.import_roster", departmentId: "people" },
     { href: "/inventory#hardware", labelKey: "nav.hardwareTools", icon: Wrench, capability: "inventory.view", departmentId: "people" },
-    { href: "/people/hr/settings", labelKey: "nav.hrRulesSettings", icon: Settings, capability: "hr.policy.configure", departmentId: "people" },
   ]),
 ];
 
@@ -1052,11 +1060,11 @@ export const PRIMARY_NAV: PrimaryNavItem[] = [
   { href: "/admin", label: "Settings", icon: Settings, capability: "admin.view" },
 ];
 
-/** Hash anchors on `/` stay inactive. Other hash links highlight on their path (`/profile#account`). */
+/** Hash / query on `/` stay inactive. Other links highlight on their path (`/profile#account`, settings?section=). */
 export function navHrefPath(href: string): string | null {
-  if (!href.includes("#")) return href;
-  const path = href.slice(0, href.indexOf("#")) || "/";
-  if (path === "/") return null;
+  const withoutHash = href.includes("#") ? href.slice(0, href.indexOf("#")) || "/" : href;
+  const path = withoutHash.includes("?") ? withoutHash.slice(0, withoutHash.indexOf("?")) || "/" : withoutHash;
+  if (path === "/") return href.includes("#") || href.includes("?") ? null : "/";
   return path;
 }
 

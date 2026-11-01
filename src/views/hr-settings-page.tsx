@@ -126,6 +126,12 @@ export default function HrSettingsPage() {
   );
 
   useEffect(() => {
+    if (requested && (HR_POLICY_SECTIONS as readonly string[]).includes(requested)) {
+      setActiveSection(requested as HrPolicySection);
+    }
+  }, [requested]);
+
+  useEffect(() => {
     if (!policy.data?.sections) return;
     const next: Record<string, Record<string, string>> = {};
     for (const block of policy.data.sections) {
