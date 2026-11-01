@@ -699,13 +699,16 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
 
     const staffAtFilterLoc = new Set<string>();
     const staffLocVotes = new Map<string, Map<string, number>>();
+    const staffDeletedAtById = new Map<string, string | null>();
     const days: PayrollDayInput[] = [];
     for (const row of rows) {
       const staffJoin = Array.isArray(row.staff) ? row.staff[0] : row.staff;
-      // Soft-deleted merge archives (e.g. Lilam KDS-CC-STF02) — keeper already owns the person.
-      if (staffJoin?.deleted_at) continue;
-
       const staffId = String(row.staff_id);
+      const deletedAt = staffJoin?.deleted_at ? String(staffJoin.deleted_at) : null;
+      // Prefer any soft-delete signal seen for this staff id across join rows.
+      staffDeletedAtById.set(staffId, deletedAt ?? staffDeletedAtById.get(staffId) ?? null);
+      // Soft-deleted merge archives (e.g. Lilam KDS-CC-STF02) — keeper already owns the person.
+      if (deletedAt) continue;
       const locationId = row.location_id ? String(row.location_id) : "";
       if (data.locationId && locationId === data.locationId) staffAtFilterLoc.add(staffId);
       if (locationId) {
@@ -800,7 +803,12 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       summary = summary.filter((row) => staffAtFilterLoc.has(row.staffId));
     }
     // Drop terminated/resigned ghosts: 0 paid days and no leave/punches/OT/exceptions.
-    summary = summary.filter(includeStaffInPayrollAttendanceSummary);
+    // Also omit soft-deleted merge archives when deleted_at was seen on the staff join.
+    summary = summary.filter((row) =>
+      includeStaffInPayrollAttendanceSummary(row, {
+        deletedAt: staffDeletedAtById.get(row.staffId) ?? null,
+      }),
+    );
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,

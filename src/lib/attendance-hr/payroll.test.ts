@@ -955,7 +955,7 @@ describe("payroll readiness", () => {
         actual_in: "2026-09-28T05:00:00.000Z",
         actual_out: "2026-09-28T14:00:00.000Z",
       },
-    ]).filter(includeStaffInPayrollAttendanceSummary);
+    ]).filter((row) => includeStaffInPayrollAttendanceSummary(row));
 
     expect(rows.map((r) => r.staffId)).toEqual(["active-paid"]);
     expect(rows[0]?.daysPresent).toBe(1);
