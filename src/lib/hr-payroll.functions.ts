@@ -45,6 +45,7 @@ import {
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 import {
   aggregatePayrollRows,
+  listPayrollLateWorkedDates,
   listPayrollPaidDates,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
@@ -668,11 +669,18 @@ export const generatePayrollLines = createAuthenticatedAction(
         hireDate: s.hire_date,
         exitDate,
       });
-      const paidDates = listPayrollPaidDates(dayInputs, s.id, {
+      const paidBounds = {
         from: activeWindow.activeFrom,
         to: activeWindow.activeTo,
-      });
-      const workedDays = paidDates.length;
+      };
+      const paidDates = listPayrollPaidDates(dayInputs, s.id, paidBounds);
+      const lateDates = listPayrollLateWorkedDates(dayInputs, s.id, paidBounds);
+      const lateSet = new Set(lateDates);
+      // Late punch-in worked days count as half a paid day toward basic.
+      const workedDays = paidDates.reduce(
+        (sum, d) => sum + (lateSet.has(d) ? 0.5 : 1),
+        0,
+      );
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
       const submittedOtHours = minutesToOtHours(submittedOtMinutes);
@@ -689,6 +697,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         paidDates,
         periodDays: activeWindow.periodDays,
         previousWindow,
+        lateDates,
       });
       // Prefer explicit previous-price From/To split when that window overlaps paid days.
       // Otherwise day-rate staff still walk salary history for mid-period rate changes.
@@ -701,6 +710,7 @@ export const generatePayrollLines = createAuthenticatedAction(
               employmentCategory,
               fallbackDailyRateQar: dailyStored,
               fallbackMonthlySalaryQar: monthlyStored,
+              lateDates,
             })
           : null;
       const resolvedDayRateQar = historyPay?.primaryDayRateQar ?? dayRateQar;
@@ -766,6 +776,9 @@ export const generatePayrollLines = createAuthenticatedAction(
           `attendance_blocked:${ready.blockingDays}d/${ready.missedPunches}missed`,
         );
       }
+      if (lateDates.length > 0) {
+        noteParts.push(`late_half_day:${lateDates.length}`);
+      }
 
       const deductionTotal = computed.deductions.reduce(
         (sum, d) => sum + (Number(d.amountQar) || 0),
@@ -792,6 +805,7 @@ export const generatePayrollLines = createAuthenticatedAction(
                     dayRateQar: dailyRate,
                     workedDays,
                     paidDays: workedDays,
+                    lateDays: lateDates.length,
                     dailyPay,
                     distinctRates: historyPay?.distinctRates ?? 1,
                   },
@@ -825,6 +839,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           absentDays: attUnpaid.absent,
           leaveDays: attUnpaid.leaveDays,
           unpaidLeaveDays: 0,
+          lateDays: lateDates.length,
           dayRateQar: dailyRate,
           payrollReady: ready?.payrollReady ?? true,
           blockingDays: ready?.blockingDays ?? 0,

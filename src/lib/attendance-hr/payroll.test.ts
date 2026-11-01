@@ -14,12 +14,16 @@ import {
   formatPayrollBlockReasons,
   includeStaffInPayrollAttendanceSummary,
   isPayrollBlockingDay,
+  isPayrollLateWorkedDay,
   isPayrollMergedAwayStaff,
   isPayrollPaidDay,
   isPayrollPaidNonWorkDay,
   isPayrollReady,
+  listPayrollLateWorkedDates,
   listPayrollPaidDates,
   payrollBlockReasonCode,
+  payrollPaidDayUnits,
+  sumPayrollPaidDayUnits,
 } from "./payroll";
 
 describe("payroll readiness", () => {
@@ -662,6 +666,68 @@ describe("payroll readiness", () => {
         periodDays: 30,
       }),
     ).toBe(Math.round((dayRate * paidDays + Number.EPSILON) * 100) / 100);
+  });
+
+  it("treats late punch-in worked days as half paid units; leave/WO stay full", () => {
+    const days = [
+      {
+        staff_id: "latey",
+        staff_name: "Latey",
+        work_date: "2026-03-10",
+        status: "present",
+        late_minutes: 0,
+        actual_in: "2026-03-10T05:00:00.000Z",
+        actual_out: "2026-03-10T14:00:00.000Z",
+        punch_count: 2,
+      },
+      {
+        staff_id: "latey",
+        staff_name: "Latey",
+        work_date: "2026-03-11",
+        status: "late",
+        late_minutes: 12,
+        actual_in: "2026-03-11T05:30:00.000Z",
+        actual_out: "2026-03-11T14:00:00.000Z",
+        punch_count: 2,
+      },
+      {
+        staff_id: "latey",
+        staff_name: "Latey",
+        work_date: "2026-03-12",
+        status: "weekly_off",
+        late_minutes: 99,
+      },
+      {
+        staff_id: "latey",
+        staff_name: "Latey",
+        work_date: "2026-03-13",
+        status: "annual_leave",
+        late_minutes: 40,
+      },
+    ];
+    expect(isPayrollLateWorkedDay(days[0]!)).toBe(false);
+    expect(isPayrollLateWorkedDay(days[1]!)).toBe(true);
+    expect(isPayrollLateWorkedDay(days[2]!)).toBe(false);
+    expect(isPayrollLateWorkedDay(days[3]!)).toBe(false);
+    expect(payrollPaidDayUnits(days[0]!)).toBe(1);
+    expect(payrollPaidDayUnits(days[1]!)).toBe(0.5);
+    expect(payrollPaidDayUnits(days[2]!)).toBe(1);
+    expect(payrollPaidDayUnits(days[3]!)).toBe(1);
+    expect(listPayrollLateWorkedDates(days, "latey")).toEqual(["2026-03-11"]);
+    expect(countPayrollPaidDays(days, "latey")).toBe(4);
+    expect(sumPayrollPaidDayUnits(days, "latey")).toBe(3.5);
+    const [row] = aggregatePayrollRows(days);
+    expect(row.daysPresent).toBe(4);
+    expect(row.daysLate).toBe(1);
+    const earned = resolveEarnedBasicQar({
+      dailyPay: false,
+      contractBasicQar: 6000,
+      dailyRateQar: null,
+      workedDays: sumPayrollPaidDayUnits(days, "latey"),
+      periodDays: 30,
+    });
+    // (6000/30) * 3.5 = 700
+    expect(earned).toBe(700);
   });
 
   it("does not double-count the same staff day across locations", () => {

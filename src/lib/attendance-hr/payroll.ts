@@ -417,6 +417,29 @@ export function isPayrollPaidDay(row: PayrollDayInput): boolean {
   return isPayrollPaidNonWorkDay(row);
 }
 
+/**
+ * Late worked day for payroll half-day pay.
+ * Same signal as attendance Late: status=late or late_minutes > 0 (after shift
+ * on-time window). Week off / leave never count — no punch expected.
+ */
+export function isPayrollLateWorkedDay(row: PayrollDayInput): boolean {
+  if (!isPayrollPresentDay(row)) return false;
+  if (isPayrollPaidNonWorkDay(row)) return false;
+  if (isWorkDateBeforeHireDate(row.work_date, row.hire_date)) return false;
+  const status = normalizePayrollAttendanceStatus(effectivePayrollAttendanceStatus(row));
+  return status === "late" || Number(row.late_minutes ?? 0) > 0;
+}
+
+/** Late punch-in paid entitlement weight (full day = 1). */
+export const PAYROLL_LATE_PAID_DAY_UNITS = 0.5;
+
+/** Paid-day units toward basic: late worked day → 0.5; on-time / WO / leave → 1. */
+export function payrollPaidDayUnits(row: PayrollDayInput): number {
+  if (!isPayrollPaidDay(row)) return 0;
+  if (isPayrollLateWorkedDay(row)) return PAYROLL_LATE_PAID_DAY_UNITS;
+  return 1;
+}
+
 /** Worked days inside an optional hire/exit window. One row per staff+date after listing collapse. */
 export function countListingWorkedDays(
   days: PayrollDayInput[],
@@ -444,12 +467,42 @@ export function listPayrollPaidDates(
   return listPayrollDatesMatching(days, staffId, bounds, isPayrollPaidDay);
 }
 
+/** Late worked dates that deduct as half-day salary (excludes WO / leave). */
+export function listPayrollLateWorkedDates(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+): string[] {
+  return listPayrollDatesMatching(days, staffId, bounds, isPayrollLateWorkedDay);
+}
+
 export function countPayrollPaidDays(
   days: PayrollDayInput[],
   staffId: string,
   bounds?: { from?: string | null; to?: string | null },
 ): number {
   return listPayrollPaidDates(days, staffId, bounds).length;
+}
+
+/** Fractional paid entitlement (late worked days count as {@link PAYROLL_LATE_PAID_DAY_UNITS}). */
+export function sumPayrollPaidDayUnits(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+): number {
+  const from = bounds?.from?.slice(0, 10) ?? "";
+  const to = bounds?.to?.slice(0, 10) ?? "";
+  if (from && to && from > to) return 0;
+  let units = 0;
+  for (const day of collapsePayrollDayInputs(days)) {
+    if (day.staff_id !== staffId) continue;
+    const ymd = String(day.work_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+    if (from && ymd < from) continue;
+    if (to && ymd > to) continue;
+    units += payrollPaidDayUnits(day);
+  }
+  return units;
 }
 
 function listPayrollDatesMatching(
@@ -892,7 +945,8 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
     if (absenceStatus === "absent") current.daysAbsent += 1;
     if (status === "unpaid_leave") current.daysUnpaidLeave += 1;
     if (PAYROLL_LEAVE_STATUSES.has(status)) current.daysLeave += 1;
-    if (status === "late" || Number(day.late_minutes ?? 0) > 0) current.daysLate += 1;
+    // Late half-day only applies to worked days (not WO / leave with stale late_minutes).
+    if (isPayrollLateWorkedDay(day)) current.daysLate += 1;
     const blockCode = payrollBlockReasonCode(day);
     if (blockCode === "missed_punch") current.missedPunches += 1;
     if (blockCode) {

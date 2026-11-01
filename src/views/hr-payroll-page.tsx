@@ -455,9 +455,15 @@ export default function HrPayrollPage() {
                           ) : null}
                           {(Number(row.submittedOtQar ?? 0) > 0 ||
                             Number(row.submittedOtMinutes ?? 0) > 0 ||
-                            Number(row.airTicketQar ?? 0) > 0) ? (
+                            Number(row.airTicketQar ?? 0) > 0 ||
+                            Number(row.daysLate ?? 0) > 0) ? (
                             <p className="mt-0.5 text-[0.65rem] text-muted-foreground">
                               {[
+                                Number(row.daysLate ?? 0) > 0
+                                  ? t("hr.payroll.payLateHalfDay", {
+                                      count: Number(row.daysLate ?? 0),
+                                    })
+                                  : null,
                                 Number(row.submittedOtQar ?? 0) > 0 ||
                                 Number(row.submittedOtMinutes ?? 0) > 0
                                   ? t("hr.payroll.payExtraOt", {

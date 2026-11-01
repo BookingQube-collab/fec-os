@@ -9340,6 +9340,7 @@
       "paySourceMissing": "لا راتب محدد",
       "payExtraOt": "إضافي {{amount}}",
       "payExtraAirTicket": "تذكرة طيران {{amount}}",
+      "payLateHalfDay": "تأخير ×{{count}} → أجر نصف يوم",
       "otSubmittedHint": "مقدّم",
       "colStatus": "الحالة",
       "empty": "لا حضور مربوط في هذه الدورة بعد.",

@@ -364,6 +364,78 @@ describe("payroll readiness pay preview", () => {
     expect(preview.airTicketQar).toBe(1200);
     expect(preview.payQar).toBe(7300);
   });
+
+  it("pays a full day when punch-in is on time (no lateDates)", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 1,
+      periodDays: 30,
+      paidDates: ["2026-03-10"],
+      lateDates: [],
+    });
+    expect(preview.lateDays).toBe(0);
+    expect(preview.earnedBasicQar).toBe(200);
+    expect(preview.payQar).toBe(200);
+  });
+
+  it("deducts late punch-in as half-day salary", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 2,
+      periodDays: 30,
+      paidDates: ["2026-03-10", "2026-03-11"],
+      lateDates: ["2026-03-11"],
+    });
+    // on-time 200 + late 100 = 300
+    expect(preview.lateDays).toBe(1);
+    expect(preview.currentDays).toBe(1.5);
+    expect(preview.earnedBasicQar).toBe(300);
+    expect(preview.payQar).toBe(300);
+  });
+
+  it("keeps late half-day on previous-price window days", () => {
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "joker",
+      dailyRateQar: 60,
+      paidDays: 2,
+      periodDays: 31,
+      paidDates: ["2026-03-10", "2026-03-11"],
+      lateDates: ["2026-03-10"],
+      previousWindow: {
+        amountQar: 50,
+        from: "2026-03-01",
+        to: "2026-03-31",
+        kind: "daily",
+      },
+    });
+    // late previous 25 + on-time previous 50 = 75
+    expect(preview.usedPreviousWindow).toBe(true);
+    expect(preview.previousDays).toBe(1.5);
+    expect(preview.payQar).toBe(75);
+  });
+
+  it("does not cut leave/WO via lateDates that are not in paid worked set", () => {
+    // Leave/WO dates are never listed as lateDates by listPayrollLateWorkedDates;
+    // if a stale late date sneaks in but is not a paidDate, it is ignored.
+    const preview = estimatePayrollReadinessPay({
+      employmentType: "permanent",
+      monthlySalaryQar: 6000,
+      contractBasicQar: 6000,
+      allowancesQar: 0,
+      paidDays: 2,
+      periodDays: 30,
+      paidDates: ["2026-03-10", "2026-03-11"],
+      lateDates: ["2026-03-99"],
+    });
+    expect(preview.lateDays).toBe(0);
+    expect(preview.earnedBasicQar).toBe(400);
+  });
 });
 
 describe("resolveEarnedBasicWithPreviousWindow", () => {

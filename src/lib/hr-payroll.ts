@@ -309,6 +309,31 @@ export function resolveDayRateOnDate(input: {
   }).dayRateQar;
 }
 
+/** Late worked dates count as half a paid day toward basic (Generate / readiness). */
+export const PAYROLL_LATE_DAY_UNITS = 0.5;
+
+function paidDayUnitsForDate(
+  date: string,
+  lateDates: ReadonlySet<string> | null | undefined,
+): number {
+  if (!lateDates || lateDates.size === 0) return 1;
+  return lateDates.has(date) ? PAYROLL_LATE_DAY_UNITS : 1;
+}
+
+function sumPaidDayUnits(
+  dates: readonly string[],
+  lateDates: ReadonlySet<string> | null | undefined,
+): number {
+  let units = 0;
+  for (const d of dates) units += paidDayUnitsForDate(d, lateDates);
+  return units;
+}
+
+function lateDateSet(lateDates: readonly string[] | null | undefined): Set<string> | null {
+  if (lateDates == null || lateDates.length === 0) return null;
+  return new Set(lateDates.map((d) => String(d ?? "").slice(0, 10)));
+}
+
 /** Sum day-rate pay across worked dates, using the history rate in effect each day. */
 export function computeDailyRateBasicFromHistory(input: {
   workedDates: string[];
@@ -317,7 +342,10 @@ export function computeDailyRateBasicFromHistory(input: {
   employmentCategory?: string | null;
   fallbackDailyRateQar?: number | null;
   fallbackMonthlySalaryQar?: number | null;
+  /** Late worked dates — each contributes {@link PAYROLL_LATE_DAY_UNITS} × rate. */
+  lateDates?: readonly string[] | null;
 }): { basicQar: number; primaryDayRateQar: number | null; distinctRates: number } {
+  const lateSet = lateDateSet(input.lateDates);
   const rates = new Map<number, number>();
   let basic = 0;
   for (const workDate of input.workedDates) {
@@ -330,8 +358,9 @@ export function computeDailyRateBasicFromHistory(input: {
       fallbackMonthlySalaryQar: input.fallbackMonthlySalaryQar,
     });
     if (rate == null || rate <= 0) continue;
-    basic += rate;
-    rates.set(rate, (rates.get(rate) ?? 0) + 1);
+    const units = paidDayUnitsForDate(String(workDate).slice(0, 10), lateSet);
+    basic += rate * units;
+    rates.set(rate, (rates.get(rate) ?? 0) + units);
   }
   let primaryDayRateQar: number | null = null;
   let primaryDays = -1;
@@ -383,6 +412,7 @@ function previousWindowMatchesPayKind(
  * Earned basic across paid dates, applying previous-rate window days at the previous
  * amount and all other paid days at the current day rate / monthly package.
  * A month that straddles From/To must split — not pick one rate for the whole period.
+ * Late worked dates (optional) count as {@link PAYROLL_LATE_DAY_UNITS} each.
  */
 export function resolveEarnedBasicWithPreviousWindow(input: {
   dailyPay: boolean;
@@ -394,6 +424,8 @@ export function resolveEarnedBasicWithPreviousWindow(input: {
   /** Inclusive calendar days in the payroll window. Monthly divisor. */
   periodDays: number;
   previousWindow?: PreviousCompensationWindow | null;
+  /** Late worked dates among paidDates — each pays half a day. */
+  lateDates?: readonly string[] | null;
 }): {
   earnedBasicQar: number;
   previousDays: number;
@@ -401,47 +433,51 @@ export function resolveEarnedBasicWithPreviousWindow(input: {
   usedPreviousWindow: boolean;
 } {
   const paidDates = (input.paidDates ?? []).map((d) => String(d ?? "").slice(0, 10));
+  const lateSet = lateDateSet(input.lateDates);
   const periodDays = Math.max(1, Math.round(Number(input.periodDays) || 0) || 30);
   const window = previousWindowMatchesPayKind(input.dailyPay, input.previousWindow)
     ? input.previousWindow
     : null;
 
   if (!window) {
+    const units = sumPaidDayUnits(paidDates, lateSet);
     const earnedBasicQar = resolveEarnedBasicQar({
       dailyPay: input.dailyPay,
       contractBasicQar: input.contractBasicQar,
       dailyRateQar: input.dailyRateQar,
-      workedDays: paidDates.length,
+      workedDays: units,
       periodDays,
     });
     return {
       earnedBasicQar,
       previousDays: 0,
-      currentDays: paidDates.length,
+      currentDays: units,
       usedPreviousWindow: false,
     };
   }
 
   const { previousDates, currentDates } = partitionPaidDatesByPreviousWindow(paidDates, window);
+  const previousUnits = sumPaidDayUnits(previousDates, lateSet);
+  const currentUnits = sumPaidDayUnits(currentDates, lateSet);
   if (input.dailyPay) {
-    const previousPart = computeDailyRateBasicQar(window.amountQar, previousDates.length);
-    const currentPart = computeDailyRateBasicQar(Number(input.dailyRateQar) || 0, currentDates.length);
+    const previousPart = computeDailyRateBasicQar(window.amountQar, previousUnits);
+    const currentPart = computeDailyRateBasicQar(Number(input.dailyRateQar) || 0, currentUnits);
     return {
       earnedBasicQar: round2(previousPart + currentPart),
-      previousDays: previousDates.length,
-      currentDays: currentDates.length,
+      previousDays: previousUnits,
+      currentDays: currentUnits,
       usedPreviousWindow: previousDates.length > 0,
     };
   }
 
   const previousDaily = window.amountQar / periodDays;
   const currentDaily = (Number(input.contractBasicQar) || 0) / periodDays;
-  const previousPart = computeDailyRateBasicQar(previousDaily, previousDates.length);
-  const currentPart = computeDailyRateBasicQar(currentDaily, currentDates.length);
+  const previousPart = computeDailyRateBasicQar(previousDaily, previousUnits);
+  const currentPart = computeDailyRateBasicQar(currentDaily, currentUnits);
   return {
     earnedBasicQar: round2(previousPart + currentPart),
-    previousDays: previousDates.length,
-    currentDays: currentDates.length,
+    previousDays: previousUnits,
+    currentDays: currentUnits,
     usedPreviousWindow: previousDates.length > 0,
   };
 }
@@ -521,6 +557,8 @@ export function estimatePayrollReadinessPay(input: {
   periodDays: number;
   /** Preferred: actual paid entitlement dates so previous-rate windows can straddle. */
   paidDates?: readonly string[] | null;
+  /** Late worked dates among paidDates — half-day basic each (same as Generate). */
+  lateDates?: readonly string[] | null;
   previousWindow?: PreviousCompensationWindow | null;
   /** Submitted (visible) OT claim amounts already computed with the OT formula. */
   otQar?: number | null;
@@ -538,6 +576,7 @@ export function estimatePayrollReadinessPay(input: {
   previousDays: number;
   currentDays: number;
   usedPreviousWindow: boolean;
+  lateDays: number;
 } {
   const monthlyStored = positiveRate(input.monthlySalaryQar);
   const dailyStored = positiveRate(input.dailyRateQar);
@@ -561,6 +600,14 @@ export function estimatePayrollReadinessPay(input: {
     input.paidDates != null && input.paidDates.length > 0
       ? input.paidDates.map((d) => String(d ?? "").slice(0, 10))
       : null;
+  const lateDates =
+    input.lateDates != null && input.lateDates.length > 0
+      ? input.lateDates.map((d) => String(d ?? "").slice(0, 10))
+      : [];
+  const lateSet = lateDateSet(lateDates);
+  const lateDays = paidDates
+    ? paidDates.filter((d) => lateSet?.has(d)).length
+    : Math.max(0, Math.round(Number(input.lateDates?.length) || 0));
   const hasComp = dailyPay
     ? dayRateQar != null && dayRateQar > 0
     : basic > 0;
@@ -579,6 +626,7 @@ export function estimatePayrollReadinessPay(input: {
       previousDays: 0,
       currentDays: 0,
       usedPreviousWindow: false,
+      lateDays: 0,
     };
   }
   const split = paidDates
@@ -589,17 +637,18 @@ export function estimatePayrollReadinessPay(input: {
         paidDates,
         periodDays,
         previousWindow: input.previousWindow,
+        lateDates,
       })
     : {
         earnedBasicQar: resolveEarnedBasicQar({
           dailyPay,
           contractBasicQar: basic,
           dailyRateQar: dayRateQar,
-          workedDays: paidDays,
+          workedDays: Math.max(0, paidDays - lateDays * (1 - PAYROLL_LATE_DAY_UNITS)),
           periodDays,
         }),
         previousDays: 0,
-        currentDays: paidDays,
+        currentDays: Math.max(0, paidDays - lateDays * (1 - PAYROLL_LATE_DAY_UNITS)),
         usedPreviousWindow: false,
       };
   const earnedBasicQar = split.earnedBasicQar;
@@ -617,6 +666,7 @@ export function estimatePayrollReadinessPay(input: {
     previousDays: split.previousDays,
     currentDays: split.currentDays,
     usedPreviousWindow: split.usedPreviousWindow,
+    lateDays,
   };
 }
 

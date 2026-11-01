@@ -9482,6 +9482,7 @@
       "paySourceMissing": "No salary set",
       "payExtraOt": "OT {{amount}}",
       "payExtraAirTicket": "Air ticket {{amount}}",
+      "payLateHalfDay": "Late ×{{count}} → half-day pay",
       "otSubmittedHint": "submitted",
       "colStatus": "Status",
       "empty": "No mapped attendance in this cycle yet.",

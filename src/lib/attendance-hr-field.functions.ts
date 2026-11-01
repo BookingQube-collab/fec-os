@@ -18,6 +18,7 @@ import { ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_RULES } from "@/lib/attendance
 import {
   aggregatePayrollRows,
   includeStaffInPayrollAttendanceSummary,
+  listPayrollLateWorkedDates,
   listPayrollPaidDates,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
@@ -1017,6 +1018,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         );
       }
       const paidDates = listPayrollPaidDates(scheduledDays, row.staffId);
+      const lateDates = listPayrollLateWorkedDates(scheduledDays, row.staffId);
       const previousWindow = previousCompensationWindowFromHistory(
         previousRateHistoryBy.get(row.staffId) ?? [],
       );
@@ -1030,6 +1032,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         paidDays: row.daysPresent,
         periodDays,
         paidDates,
+        lateDates,
         previousWindow,
         otQar: submittedOtPayByStaff.get(row.staffId) ?? 0,
         airTicketQar,
