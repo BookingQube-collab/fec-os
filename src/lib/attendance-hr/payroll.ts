@@ -462,6 +462,18 @@ export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "miss
   return row.blockingDays === 0 && row.missedPunches === 0;
 }
 
+function earlierPayrollIso(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+}
+
+function laterPayrollIso(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
 /**
  * Score a daily summary row so multisite ABSENT fillers lose to the punched site
  * (same preference as attendance listing collapse).
@@ -469,22 +481,142 @@ export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "miss
 export function payrollDayRowScore(row: PayrollDayInput): number {
   let score = 0;
   score += Math.min(Number(row.punch_count) || 0, 20) * 100;
+  // Match listing flexibleDayRowScore: prefer rows that already carry a clock side.
+  if (row.actual_in) score += 50;
+  if (row.actual_out) score += 40;
   if (row.worked_minutes != null && Number(row.worked_minutes) > 0) score += 30;
   const status = normalizePayrollAttendanceStatus(effectivePayrollAttendanceStatus(row));
   if (status && status !== "absent") score += 20;
   // Prefer roster week-off / paid leave over punchless missed_punch sibling rows.
   if (isPayrollPaidNonWorkDay(row)) score += 40;
   if (isPayrollPresentDay(row)) score += 10;
+  if (hasPayrollCompletePunches(row)) score += 25;
   if (row.missed_punch || status === "missed_punch") score -= 5;
   return score;
 }
 
 /**
- * One row per staff+work_date. Listing collapses cross-site siblings; payroll must
- * too or Present undercounts when a site filter (or home ABSENT fillers) hide punches.
+ * Merge same staff+date site siblings the way attendance listing does:
+ * keep the best base row, take earliest In + latest Out across the group.
+ * Split transfer days (INF-CC in / UA-DM out) become one complete pair.
+ */
+export function mergePayrollDayGroup(group: readonly PayrollDayInput[]): PayrollDayInput {
+  if (group.length === 0) {
+    throw new Error("mergePayrollDayGroup requires at least one day");
+  }
+  if (group.length === 1) {
+    const only = group[0]!;
+    return { ...only, work_date: String(only.work_date ?? "").slice(0, 10) || only.work_date };
+  }
+
+  const ranked = [...group].sort((a, b) => payrollDayRowScore(b) - payrollDayRowScore(a));
+  // Prefer a complete-pair sibling as the base when available (status / OT / late).
+  const winner =
+    ranked.find((row) => hasPayrollCompletePunches(row)) ??
+    ranked.find((row) => isPayrollPaidNonWorkDay(row)) ??
+    ranked[0]!;
+
+  let actualIn = winner.actual_in ?? null;
+  let actualOut = winner.actual_out ?? null;
+  let worked = winner.worked_minutes ?? null;
+  let punchCount = Number(winner.punch_count ?? 0);
+  let overtime = Number(winner.overtime_minutes ?? 0);
+  let late = Number(winner.late_minutes ?? 0);
+  let scheduledIn = winner.scheduled_in ?? null;
+  let scheduledOut = winner.scheduled_out ?? null;
+  let isWeekOff = Boolean(winner.is_week_off);
+  let leaveType = winner.leave_type ?? null;
+  let hasOnDuty = winner.has_on_duty_roster;
+  let expected = winner.expected_minutes ?? null;
+
+  for (const row of ranked) {
+    actualIn = earlierPayrollIso(actualIn, row.actual_in);
+    actualOut = laterPayrollIso(actualOut, row.actual_out);
+    if (row.worked_minutes != null && (worked == null || Number(row.worked_minutes) > Number(worked))) {
+      worked = row.worked_minutes;
+    }
+    punchCount = Math.max(punchCount, Number(row.punch_count ?? 0));
+    overtime = Math.max(overtime, Number(row.overtime_minutes ?? 0));
+    late = Math.max(late, Number(row.late_minutes ?? 0));
+    if (!scheduledIn && row.scheduled_in) scheduledIn = row.scheduled_in;
+    if (!scheduledOut && row.scheduled_out) scheduledOut = row.scheduled_out;
+    if (row.is_week_off) isWeekOff = true;
+    if (!leaveType && row.leave_type) leaveType = row.leave_type;
+    if (row.has_on_duty_roster === true) hasOnDuty = true;
+    if (expected == null && row.expected_minutes != null) expected = row.expected_minutes;
+  }
+
+  if (actualIn && actualOut) {
+    const mins = Math.round(
+      (new Date(actualOut).getTime() - new Date(actualIn).getTime()) / 60_000,
+    );
+    if (Number.isFinite(mins) && mins >= 0) worked = mins;
+    punchCount = Math.max(punchCount, 2);
+  } else if (actualIn || actualOut) {
+    punchCount = Math.max(punchCount, 1);
+  }
+
+  const hasBoth = Boolean(actualIn && actualOut);
+  const incomplete = Boolean(actualIn) !== Boolean(actualOut);
+  const wasMissed =
+    Boolean(winner.missed_punch) ||
+    normalizePayrollAttendanceStatus(winner.status) === "missed_punch" ||
+    ranked.some(
+      (row) =>
+        Boolean(row.missed_punch) ||
+        normalizePayrollAttendanceStatus(row.status) === "missed_punch",
+    );
+
+  // Leave wins over week-off (same as attachPayrollScheduleContext).
+  if (leaveType) isWeekOff = false;
+
+  let status = winner.status;
+  if (hasBoth && wasMissed) {
+    status =
+      late > 0
+        ? "late"
+        : normalizePayrollAttendanceStatus(winner.status) === "short_hours"
+          ? "short_hours"
+          : "present";
+  } else if (
+    !hasBoth &&
+    !incomplete &&
+    isPayrollPaidNonWorkDay({ status: winner.status, is_week_off: isWeekOff, leave_type: leaveType })
+  ) {
+    status = effectivePayrollAttendanceStatus({
+      status: winner.status,
+      is_week_off: isWeekOff,
+      leave_type: leaveType,
+    });
+  }
+
+  return {
+    ...winner,
+    work_date: String(winner.work_date ?? "").slice(0, 10),
+    status,
+    actual_in: actualIn,
+    actual_out: actualOut,
+    scheduled_in: scheduledIn,
+    scheduled_out: scheduledOut,
+    worked_minutes: worked,
+    punch_count: punchCount,
+    overtime_minutes: overtime,
+    late_minutes: late,
+    expected_minutes: expected,
+    missed_punch: hasBoth ? false : incomplete || Boolean(winner.missed_punch),
+    is_week_off: isWeekOff,
+    leave_type: leaveType,
+    has_on_duty_roster: hasOnDuty,
+  };
+}
+
+/**
+ * One row per staff+work_date. Listing collapses cross-site siblings and merges
+ * earliest In + latest Out; payroll must too or transfer days Block on a punchless /
+ * one-sided abandoned site row while attendance shows Missed punch 0.
  */
 export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInput[] {
-  const byKey = new Map<string, PayrollDayInput>();
+  const byKey = new Map<string, PayrollDayInput[]>();
   const undated: PayrollDayInput[] = [];
   for (const day of days) {
     if (!day.staff_id) continue;
@@ -494,12 +626,87 @@ export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInp
       continue;
     }
     const key = `${day.staff_id}|${workDate}`;
-    const prev = byKey.get(key);
-    if (!prev || payrollDayRowScore(day) > payrollDayRowScore(prev)) {
-      byKey.set(key, { ...day, work_date: workDate });
-    }
+    const list = byKey.get(key) ?? [];
+    list.push({ ...day, work_date: workDate });
+    byKey.set(key, list);
   }
-  return [...byKey.values(), ...undated];
+  return [...[...byKey.values()].map((group) => mergePayrollDayGroup(group)), ...undated];
+}
+
+export type PayrollDeviceLogPunch = {
+  staff_id: string;
+  work_date: string;
+  punch_at: string;
+  excluded_from_calc?: boolean | null;
+  probable_duplicate?: boolean | null;
+};
+
+/**
+ * Same device-log hydration attendance listing uses for stale daily_summary:
+ * first usable punch = In, last usable (when 2+) = Out. Complete pairs clear MP.
+ * Paid leave / week-off rows stay punchless.
+ */
+export function applyPayrollDeviceLogPunchOverlay(
+  days: PayrollDayInput[],
+  logs: readonly PayrollDeviceLogPunch[],
+): PayrollDayInput[] {
+  if (!days.length || !logs.length) return days;
+
+  const punchesByKey = new Map<string, string[]>();
+  for (const log of logs) {
+    if (log.excluded_from_calc || log.probable_duplicate) continue;
+    const staffId = String(log.staff_id ?? "").trim();
+    const day = String(log.work_date ?? "").slice(0, 10);
+    const punchAt = String(log.punch_at ?? "").trim();
+    if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !punchAt) continue;
+    const key = `${staffId}|${day}`;
+    const list = punchesByKey.get(key) ?? [];
+    list.push(punchAt);
+    punchesByKey.set(key, list);
+  }
+  if (!punchesByKey.size) return days;
+
+  for (const [key, list] of punchesByKey) {
+    list.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    punchesByKey.set(key, list);
+  }
+
+  return days.map((day) => {
+    const staffId = day.staff_id ? String(day.staff_id) : "";
+    const workDate = String(day.work_date ?? "").slice(0, 10);
+    if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return day;
+    if (isPayrollPaidNonWorkDay(day)) return day;
+
+    const punches = punchesByKey.get(`${staffId}|${workDate}`);
+    if (!punches?.length) return day;
+
+    const incomplete = Boolean(day.actual_in) !== Boolean(day.actual_out);
+    const needsHydration = (!day.actual_in && !day.actual_out) || incomplete;
+    if (!needsHydration) return day;
+
+    const actualIn = punches[0] ?? null;
+    const actualOut = punches.length > 1 ? (punches[punches.length - 1] ?? null) : null;
+    const hasBoth = Boolean(actualIn && actualOut);
+    let worked = day.worked_minutes ?? null;
+    if (hasBoth) {
+      const mins = Math.round(
+        (new Date(actualOut!).getTime() - new Date(actualIn!).getTime()) / 60_000,
+      );
+      if (Number.isFinite(mins) && mins >= 0) worked = mins;
+    }
+    const wasMissed =
+      Boolean(day.missed_punch) ||
+      normalizePayrollAttendanceStatus(day.status) === "missed_punch";
+    return {
+      ...day,
+      actual_in: actualIn,
+      actual_out: actualOut,
+      worked_minutes: worked,
+      punch_count: Math.max(Number(day.punch_count ?? 0), punches.length),
+      missed_punch: hasBoth ? false : day.missed_punch,
+      status: hasBoth && wasMissed ? (Number(day.late_minutes ?? 0) > 0 ? "late" : "present") : day.status,
+    };
+  });
 }
 
 /** Canonical block code for a day — shared by aggregate + Fix UI.

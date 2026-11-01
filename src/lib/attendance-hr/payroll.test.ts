@@ -5,7 +5,9 @@ import { resolveEarnedBasicQar } from "@/lib/hr-payroll";
 import {
   aggregatePayrollRows,
   applyPayrollAcceptedCorrectionOverlay,
+  applyPayrollDeviceLogPunchOverlay,
   attachPayrollScheduleContext,
+  collapsePayrollDayInputs,
   countListingWorkedDays,
   countPayrollPaidDays,
   effectivePayrollAttendanceStatus,
@@ -765,5 +767,163 @@ describe("payroll readiness", () => {
       },
     ]);
     expect(row.daysAbsent).toBe(2);
+  });
+
+  it("merges INF-CC → UA-DM split punches so undertime/late/present transfer days Ready (Russell/Waqar)", () => {
+    // Russell: In at INF-CC, Out at UA-DM, listing shows Undertime + Missed punch 0.
+    const russellDays = [
+      {
+        staff_id: "russell",
+        staff_name: "Russell Bombita Pante",
+        work_date: "2026-10-18",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-18T06:39:09.000Z",
+        actual_out: null,
+        punch_count: 1,
+        late_minutes: 0,
+      },
+      {
+        staff_id: "russell",
+        staff_name: "Russell Bombita Pante",
+        work_date: "2026-10-18",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: null,
+        actual_out: "2026-10-18T15:17:14.000Z",
+        punch_count: 1,
+        worked_minutes: 0,
+      },
+    ];
+    const [russellCollapsed] = collapsePayrollDayInputs(russellDays);
+    expect(russellCollapsed.actual_in).toBe("2026-10-18T06:39:09.000Z");
+    expect(russellCollapsed.actual_out).toBe("2026-10-18T15:17:14.000Z");
+    expect(russellCollapsed.missed_punch).toBe(false);
+    expect(payrollBlockReasonCode(russellCollapsed)).toBe(null);
+    const [russellRow] = aggregatePayrollRows(russellDays);
+    expect(russellRow.missedPunches).toBe(0);
+    expect(russellRow.payrollReady).toBe(true);
+    expect(russellRow.daysPresent).toBe(1);
+
+    // Waqar: late + OT across sites; listing Present+late, Missed punch 0.
+    const waqarDays = [
+      {
+        staff_id: "waqar",
+        staff_name: "Waqar Asghar",
+        work_date: "2026-10-22",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-22T10:46:09.000Z",
+        actual_out: null,
+        punch_count: 1,
+        late_minutes: 121,
+      },
+      {
+        staff_id: "waqar",
+        staff_name: "Waqar Asghar",
+        work_date: "2026-10-22",
+        status: "overtime",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: "2026-10-22T20:07:41.000Z",
+        punch_count: 1,
+        overtime_minutes: 68,
+      },
+    ];
+    const [waqarRow] = aggregatePayrollRows(waqarDays);
+    expect(waqarRow.missedPunches).toBe(0);
+    expect(waqarRow.payrollReady).toBe(true);
+    expect(waqarRow.daysLate).toBe(1);
+    expect(waqarRow.blockReasons).toEqual([]);
+  });
+
+  it("does not Block when a complete Present/Undertime day has a punchless MP sibling (Marissa-style)", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "marissa",
+        staff_name: "Marissa Domingo Reyes",
+        work_date: "2026-10-23",
+        status: "present",
+        missed_punch: false,
+        actual_in: "2026-10-23T10:29:14.000Z",
+        actual_out: "2026-10-23T20:00:03.000Z",
+        punch_count: 2,
+        worked_minutes: 571,
+      },
+      {
+        staff_id: "marissa",
+        staff_name: "Marissa Domingo Reyes",
+        work_date: "2026-10-23",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ]);
+    expect(row.missedPunches).toBe(0);
+    expect(row.payrollReady).toBe(true);
+    expect(row.blockDays).toEqual([]);
+  });
+
+  it("hydrates stale one-sided daily_summary from device logs so Ready matches attendance", () => {
+    const raw = [
+      {
+        staff_id: "marissa",
+        staff_name: "Marissa Domingo Reyes",
+        work_date: "2026-10-23",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-23T10:29:14.000Z",
+        actual_out: null,
+        punch_count: 1,
+      },
+    ];
+    expect(payrollBlockReasonCode(raw[0]!)).toBe("missed_punch");
+
+    const [day] = applyPayrollDeviceLogPunchOverlay(raw, [
+      {
+        staff_id: "marissa",
+        work_date: "2026-10-23",
+        punch_at: "2026-10-23T10:29:14.000Z",
+      },
+      {
+        staff_id: "marissa",
+        work_date: "2026-10-23",
+        punch_at: "2026-10-23T20:00:03.000Z",
+      },
+    ]);
+    expect(day.actual_out).toBe("2026-10-23T20:00:03.000Z");
+    expect(day.missed_punch).toBe(false);
+    expect(payrollBlockReasonCode(day)).toBe(null);
+    expect(aggregatePayrollRows([day])[0]?.payrollReady).toBe(true);
+  });
+
+  it("still Blocks a true one-sided day after collapse when no sibling/out punch exists", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "one-side",
+        staff_name: "One Side",
+        work_date: "2026-10-20",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-20T09:00:00.000Z",
+        actual_out: null,
+        punch_count: 1,
+      },
+      {
+        staff_id: "one-side",
+        staff_name: "One Side",
+        work_date: "2026-10-20",
+        status: "absent",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ]);
+    expect(row.payrollReady).toBe(false);
+    expect(row.missedPunches).toBe(1);
+    expect(row.blockReasons).toEqual([{ code: "missed_punch", count: 1 }]);
   });
 });
