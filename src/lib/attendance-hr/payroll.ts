@@ -1,9 +1,11 @@
 import {
   applyPreJoinAttendanceStatus,
+  applyRosterDayStatusOverride,
   isWorkDateBeforeHireDate,
 } from "@/lib/attendance-display";
 import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workbook";
 import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
+import { resolveWeekOff } from "@/lib/attendance-hr/shift-policy";
 
 /** Undertime (short_hours) is not blocking — Generate pays roster/attendance days as worked;
  *  short-hour pay cuts are a manual payslip Other deduction if HR chooses.
@@ -38,6 +40,13 @@ export type PayrollDayInput = {
   flexible_attendance?: boolean | null;
   /** staff.hire_date. Days strictly before this are not absence deductions. */
   hire_date?: string | null;
+  /**
+   * Roster rest day for this staff+date (any site). Raw daily_summary often keeps
+   * status=missed_punch / absent on week offs — listing overlays roster; payroll must too.
+   */
+  is_week_off?: boolean | null;
+  /** Approved leave from attendance_leave_records (wins over roster week-off). */
+  leave_type?: string | null;
 };
 
 export type PayrollBlockReason = {
@@ -113,9 +122,98 @@ export function normalizePayrollAttendanceStatus(status: string | null | undefin
   return raw;
 }
 
+/**
+ * Effective attendance status for pay / Ready: roster week-off and approved leave
+ * override stale daily_summary missed_punch / absent (same as listing + My Attendance).
+ */
+export function effectivePayrollAttendanceStatus(
+  row: Pick<PayrollDayInput, "status" | "is_week_off" | "leave_type">,
+): string {
+  return applyRosterDayStatusOverride({
+    status: String(row.status ?? ""),
+    isWeekOff: row.is_week_off,
+    leaveType: row.leave_type,
+  });
+}
+
 /** Scheduled week off / paid leave — never a Ready blocker (ignore stale missed_punch). */
-export function isPayrollPaidNonWorkDay(row: Pick<PayrollDayInput, "status">): boolean {
-  return PAYROLL_PAID_NON_WORK_STATUSES.has(normalizePayrollAttendanceStatus(row.status));
+export function isPayrollPaidNonWorkDay(
+  row: Pick<PayrollDayInput, "status" | "is_week_off" | "leave_type">,
+): boolean {
+  return PAYROLL_PAID_NON_WORK_STATUSES.has(
+    normalizePayrollAttendanceStatus(effectivePayrollAttendanceStatus(row)),
+  );
+}
+
+export type PayrollRosterDay = {
+  staff_id: string;
+  work_date: string;
+  is_week_off: boolean;
+};
+
+export type PayrollLeaveDay = {
+  staff_id: string;
+  work_date: string;
+  leave_type: string;
+};
+
+/**
+ * Attach roster week-off + leave onto daily_summary rows before aggregatePayrollRows.
+ * Week-off on any roster site counts (listing rule). Standing weekly_off_weekday applies
+ * only when that staff+date has no roster row. Leave wins over week-off.
+ */
+export function attachPayrollScheduleContext(
+  days: PayrollDayInput[],
+  input: {
+    roster?: readonly PayrollRosterDay[];
+    leave?: readonly PayrollLeaveDay[];
+    weeklyOffWeekdayByStaff?: ReadonlyMap<string, number | null | undefined>;
+  },
+): PayrollDayInput[] {
+  const weekOffKeys = new Set<string>();
+  const rosteredKeys = new Set<string>();
+  for (const r of input.roster ?? []) {
+    const staffId = String(r.staff_id ?? "").trim();
+    const day = String(r.work_date ?? "").slice(0, 10);
+    if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const key = `${staffId}|${day}`;
+    rosteredKeys.add(key);
+    if (r.is_week_off) weekOffKeys.add(key);
+  }
+
+  const leaveByKey = new Map<string, string>();
+  for (const leave of input.leave ?? []) {
+    const staffId = String(leave.staff_id ?? "").trim();
+    const day = String(leave.work_date ?? "").slice(0, 10);
+    const leaveType = normalizePayrollAttendanceStatus(leave.leave_type);
+    if (!staffId || !day || !leaveType) continue;
+    leaveByKey.set(`${staffId}|${day}`, leaveType);
+  }
+
+  const standing = input.weeklyOffWeekdayByStaff;
+
+  return days.map((day) => {
+    const staffId = day.staff_id ? String(day.staff_id) : "";
+    const workDate = String(day.work_date ?? "").slice(0, 10);
+    if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return day;
+    const key = `${staffId}|${workDate}`;
+    const leaveType = leaveByKey.get(key) ?? day.leave_type ?? null;
+    const hasRosterRow = rosteredKeys.has(key);
+    const rosterIsWeekOff = weekOffKeys.has(key);
+    const isWeekOff = resolveWeekOff({
+      hasRosterRow,
+      rosterIsWeekOff,
+      workDate,
+      weeklyOffWeekday: standing?.get(staffId) ?? null,
+    });
+    if (!leaveType && !isWeekOff && !day.is_week_off && !day.leave_type) return day;
+    return {
+      ...day,
+      leave_type: leaveType,
+      // Leave wins: do not keep week-off when an approved leave type is attached.
+      is_week_off: leaveType ? false : Boolean(isWeekOff || day.is_week_off),
+    };
+  });
 }
 
 /** True when the day has both clock-in and clock-out (listing treats as a worked day). */
@@ -126,7 +224,10 @@ export function hasPayrollCompletePunches(
 }
 
 export function isPayrollBlockingDay(
-  row: Pick<PayrollDayInput, "status" | "missed_punch" | "actual_in" | "actual_out">,
+  row: Pick<
+    PayrollDayInput,
+    "status" | "missed_punch" | "actual_in" | "actual_out" | "is_week_off" | "leave_type"
+  >,
 ): boolean {
   return payrollBlockReasonCode(row) != null;
 }
@@ -244,7 +345,7 @@ export function payrollDayRowScore(row: PayrollDayInput): number {
   let score = 0;
   score += Math.min(Number(row.punch_count) || 0, 20) * 100;
   if (row.worked_minutes != null && Number(row.worked_minutes) > 0) score += 30;
-  const status = normalizePayrollAttendanceStatus(row.status);
+  const status = normalizePayrollAttendanceStatus(effectivePayrollAttendanceStatus(row));
   if (status && status !== "absent") score += 20;
   // Prefer roster week-off / paid leave over punchless missed_punch sibling rows.
   if (isPayrollPaidNonWorkDay(row)) score += 40;
@@ -282,12 +383,16 @@ export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInp
  *  Labels: xor or flagged incomplete punches → missed_punch; status-only gaps → incomplete /
  *  review_required (never relabel complete-punch review days as Missed punch). */
 export function payrollBlockReasonCode(
-  day: Pick<PayrollDayInput, "status" | "missed_punch" | "actual_in" | "actual_out">,
+  day: Pick<
+    PayrollDayInput,
+    "status" | "missed_punch" | "actual_in" | "actual_out" | "is_week_off" | "leave_type"
+  >,
 ): string | null {
   // Listing already shows Present/OT/Review with both times — Generate must Ready the same days.
   if (hasPayrollCompletePunches(day)) return null;
 
-  // Same protection as listing PROTECTED_STATUS / paid entitlement: WO/AL are not exceptions.
+  // Roster week-off / paid leave (and status aliases) — never Ready blockers, even when
+  // daily_summary still says missed_punch.
   if (isPayrollPaidNonWorkDay(day)) return null;
 
   const status = normalizePayrollAttendanceStatus(day.status);
@@ -351,7 +456,7 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
     const current =
       byStaff.get(day.staff_id) ??
       emptyStaff(day.staff_id, (day.staff_name ?? "").trim() || "Staff", day.employee_code ?? "");
-    const status = String(day.status ?? "");
+    const status = normalizePayrollAttendanceStatus(effectivePayrollAttendanceStatus(day));
     const absenceStatus = applyPreJoinAttendanceStatus({
       status,
       workDate: day.work_date,

@@ -4,8 +4,10 @@ import { resolveEarnedBasicQar } from "@/lib/hr-payroll";
 
 import {
   aggregatePayrollRows,
+  attachPayrollScheduleContext,
   countListingWorkedDays,
   countPayrollPaidDays,
+  effectivePayrollAttendanceStatus,
   formatPayrollBlockReasons,
   isPayrollBlockingDay,
   isPayrollPaidDay,
@@ -310,6 +312,26 @@ describe("payroll readiness", () => {
       }),
     ).toBe(null);
     expect(isPayrollBlockingDay({ status: "weekly_off", missed_punch: true })).toBe(false);
+    // Roster week-off wins even when daily_summary status stayed missed_punch.
+    expect(
+      payrollBlockReasonCode({
+        status: "missed_punch",
+        missed_punch: true,
+        is_week_off: true,
+        actual_in: null,
+        actual_out: null,
+      }),
+    ).toBe(null);
+    expect(effectivePayrollAttendanceStatus({ status: "missed_punch", is_week_off: true })).toBe(
+      "weekly_off",
+    );
+    expect(
+      payrollBlockReasonCode({
+        status: "missed_punch",
+        missed_punch: true,
+        leave_type: "annual_leave",
+      }),
+    ).toBe(null);
 
     const [row] = aggregatePayrollRows([
       {
@@ -400,6 +422,76 @@ describe("payroll readiness", () => {
     expect(row.daysPresent).toBe(1);
     expect(row.missedPunches).toBe(0);
     expect(row.payrollReady).toBe(true);
+  });
+
+  it("unblocks status=missed_punch when roster is_week_off or annual leave is attached", () => {
+    const raw: Parameters<typeof aggregatePayrollRows>[0] = [
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina Mae",
+        work_date: "2026-10-14",
+        status: "missed_punch",
+        missed_punch: true,
+        punch_count: 0,
+        actual_in: null,
+        actual_out: null,
+      },
+      {
+        staff_id: "judith",
+        staff_name: "Judith",
+        work_date: "2026-10-15",
+        status: "missed_punch",
+        missed_punch: true,
+        punch_count: 0,
+      },
+      {
+        staff_id: "jorene",
+        staff_name: "Jorene",
+        work_date: "2026-10-16",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-16T09:00:00.000Z",
+        actual_out: null,
+        punch_count: 1,
+      },
+    ];
+    const days = attachPayrollScheduleContext(raw, {
+      roster: [
+        { staff_id: "jolina", work_date: "2026-10-14", is_week_off: true },
+        { staff_id: "jorene", work_date: "2026-10-16", is_week_off: false },
+      ],
+      leave: [{ staff_id: "judith", work_date: "2026-10-15", leave_type: "annual_leave" }],
+    });
+
+    const byStaff = new Map(aggregatePayrollRows(days).map((r) => [r.staffId, r]));
+    expect(byStaff.get("jolina")?.payrollReady).toBe(true);
+    expect(byStaff.get("jolina")?.daysPresent).toBe(1);
+    expect(byStaff.get("judith")?.payrollReady).toBe(true);
+    expect(byStaff.get("judith")?.daysLeave).toBe(1);
+    // One-sided punch on an on-duty day still blocks Ready.
+    expect(byStaff.get("jorene")?.payrollReady).toBe(false);
+    expect(byStaff.get("jorene")?.missedPunches).toBe(1);
+    expect(payrollBlockReasonCode(days.find((d) => d.staff_id === "jorene")!)).toBe("missed_punch");
+  });
+
+  it("applies standing weekly_off_weekday when there is no roster row", () => {
+    // 2026-10-16 is Friday (UTC+3) → weekday 5
+    const [day] = attachPayrollScheduleContext(
+      [
+        {
+          staff_id: "s1",
+          work_date: "2026-10-16",
+          status: "missed_punch",
+          missed_punch: true,
+        },
+      ],
+      {
+        roster: [],
+        weeklyOffWeekdayByStaff: new Map([["s1", 5]]),
+      },
+    );
+    expect(day.is_week_off).toBe(true);
+    expect(payrollBlockReasonCode(day)).toBe(null);
   });
 
   it("treats weekly off and annual leave as paid entitlement days", () => {

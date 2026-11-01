@@ -257,4 +257,43 @@ describe("suppressAbsentWithoutOnDutyRoster", () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.status).toBe("weekly_off");
   });
+
+  it("converts punch-less missed_punch on roster week-off to weekly_off", () => {
+    const filtered = suppressAbsentWithoutOnDutyRoster({
+      rows: [
+        {
+          id: "mp-off",
+          staff_id: "jolina",
+          work_date: "2026-10-14",
+          location_id: "inf",
+          status: "missed_punch",
+          missed_punch: true,
+          punch_count: 0,
+        },
+      ],
+      roster: [{ staff_id: "jolina", work_date: "2026-10-14", is_week_off: true }],
+    });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.status).toBe("weekly_off");
+    expect(filtered[0]?.missed_punch).toBe(false);
+  });
+
+  it("keeps punch-less missed_punch when there is no roster that day", () => {
+    const filtered = suppressAbsentWithoutOnDutyRoster({
+      rows: [
+        {
+          id: "mp-real",
+          staff_id: "jorene",
+          work_date: "2026-10-15",
+          location_id: "inf",
+          status: "missed_punch",
+          missed_punch: true,
+          punch_count: 0,
+        },
+      ],
+      roster: [],
+    });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.status).toBe("missed_punch");
+  });
 });

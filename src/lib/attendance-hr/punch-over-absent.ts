@@ -37,6 +37,15 @@ function looksAbsentStatus(status: unknown): boolean {
   return !key || key === "absent";
 }
 
+function looksPunchlessWeekOffConvertible(status: unknown): boolean {
+  const key = String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  // Roster rest days often keep stale missed_punch in daily_summary — convert like Absent.
+  return !key || key === "absent" || key === "missed_punch";
+}
+
 /**
  * One row per location|staff|day. Prefer the row that carries punches so a
  * roster Absent filler never overwrites Present/Missed punch in the same batch.
@@ -180,7 +189,7 @@ export function suppressAbsentWithoutOnDutyRoster(input: {
   for (const row of input.rows) {
     const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
     const day = String(row.work_date ?? "").slice(0, 10);
-    if (!staffId || !day || rowHasUsablePunch(row) || !looksAbsentStatus(row.status)) {
+    if (!staffId || !day || rowHasUsablePunch(row) || !looksPunchlessWeekOffConvertible(row.status)) {
       out.push(row);
       continue;
     }
@@ -199,7 +208,11 @@ export function suppressAbsentWithoutOnDutyRoster(input: {
       });
       continue;
     }
-    // No roster that day — drop false Absent (e.g. Ruben Yaralyan INF-CC).
+    // No roster that day — drop false Absent only (e.g. Ruben Yaralyan INF-CC).
+    // Keep punch-less missed_punch — that is still a real Ready exception.
+    if (!looksAbsentStatus(row.status)) {
+      out.push(row);
+    }
   }
   return out;
 }

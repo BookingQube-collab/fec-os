@@ -44,6 +44,7 @@ import {
   listPayrollPaidDates,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
+import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import { readPolicySection } from "@/lib/hr-policy-read";
@@ -497,7 +498,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     let dayInputs: PayrollDayInput[] = [];
     {
       const attRows = await loadPayrollAttendanceRows(staffIds, dateFrom, dateTo);
-      dayInputs = attRows.map((row) => {
+      const rawDayInputs: PayrollDayInput[] = attRows.map((row) => {
         const staffId = String(row.staff_id);
         const meta = staffById.get(staffId);
         return {
@@ -517,6 +518,12 @@ export const generatePayrollLines = createAuthenticatedAction(
           flexible_attendance: Boolean(meta?.flexible_attendance),
           hire_date: meta?.hire_date ? String(meta.hire_date).slice(0, 10) : null,
         };
+      });
+      // Same roster/leave overlay as /people/payroll readiness (stale MP on week offs).
+      dayInputs = await withPayrollScheduleContext(rawDayInputs, {
+        dateFrom,
+        dateTo,
+        staffIds,
       });
       for (const row of aggregatePayrollRows(dayInputs)) {
         unpaidAttendanceByStaff.set(row.staffId, {

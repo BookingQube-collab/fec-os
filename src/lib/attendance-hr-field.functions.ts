@@ -16,6 +16,7 @@ import { DEFAULT_HR_NOTIFY_TOGGLES } from "@/lib/attendance-hr/hr-notify";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { aggregatePayrollRows, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
+import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import {
   PAYROLL_VISIBLE_OT_STATUSES,
@@ -770,8 +771,14 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       })),
     );
 
+    // Roster week-off / leave overlay — raw daily_summary often keeps missed_punch on rest days.
+    const scheduledDays = await withPayrollScheduleContext(days, {
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+    });
+
     const filterLabel = data.locationId ? (locLabelById.get(data.locationId) ?? "—") : null;
-    let summary = aggregatePayrollRows(days).map((row) => {
+    let summary = aggregatePayrollRows(scheduledDays).map((row) => {
       const submittedOtMinutes = submittedOtByStaff.get(row.staffId) ?? 0;
       const withOt = { ...row, submittedOtMinutes };
       if (filterLabel) return { ...withOt, locationLabel: filterLabel };
