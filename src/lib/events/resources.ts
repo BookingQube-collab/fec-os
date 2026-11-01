@@ -5,6 +5,8 @@ export const DEFAULT_WEEKLY_CAPACITY_HOURS = 40;
 export type AllocationLike = {
   id: string;
   staff_id: string;
+  staff_name?: string | null;
+  task_title?: string | null;
   event_id?: string | null;
   task_id?: string | null;
   start_date: string;

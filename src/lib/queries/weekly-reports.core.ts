@@ -140,7 +140,19 @@ export async function fetchWeeklyReports(
 
   if (filters.weekStart) q = q.eq("reporting_week_start", filters.weekStart);
   if (filters.locationId) q = q.eq("location_id", filters.locationId);
-  if (filters.status) q = q.eq("status", filters.status);
+  if (filters.status) {
+    q = q.eq(
+      "status",
+      filters.status as
+        | "draft"
+        | "submitted"
+        | "under_review"
+        | "sent_back"
+        | "approved"
+        | "included_in_executive"
+        | "closed",
+    );
+  }
 
   const { data, error } = await q;
   if (error) throw error;

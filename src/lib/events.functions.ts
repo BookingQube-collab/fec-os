@@ -6069,12 +6069,12 @@ export const getEventReports = createAuthenticatedAction(
   async (data, context): Promise<EventReportsPayload> => {
     const canFinance = canUserDo(context.roles ?? [], "events.finance");
     const lookups = await loadLookups(context);
+    // Single select string — a ternary of two literals unions into a parse error
+    // ("Unexpected input: , location_id") under supabase-js select typing.
     let q = context.supabase
       .from("events")
       .select(
-        canFinance
-          ? "id, event_number, name, event_name, client_name, venue_name, status, stage_id, pm_staff_id, event_start, event_end, setup_start, dismantle_date, health_rag, readiness_pct, go_live_approved, contracted_value, lessons_learned, location_id"
-          : "id, event_number, name, event_name, client_name, venue_name, status, stage_id, pm_staff_id, event_start, event_end, setup_start, dismantle_date, health_rag, readiness_pct, go_live_approved, lessons_learned, location_id",
+        "id, event_number, name, event_name, client_name, venue_name, status, stage_id, pm_staff_id, event_start, event_end, setup_start, dismantle_date, health_rag, readiness_pct, go_live_approved, contracted_value, lessons_learned, location_id",
       )
       .is("deleted_at", null)
       .order("event_start", { ascending: true, nullsFirst: false })

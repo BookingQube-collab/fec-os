@@ -4153,8 +4153,8 @@ async function loadListingGapRosterAndPunchDays(
       const { data, error } = await context.supabase.rpc("attendance_listing_punch_days", {
         p_date_from: dateFrom,
         p_date_to: dateTo,
-        p_location_id: staffIds?.length ? null : locationId,
-        p_staff_ids: chunk,
+        p_location_id: staffIds?.length ? undefined : locationId ?? undefined,
+        p_staff_ids: chunk ?? undefined,
       });
       if (error) {
         rpcOk = false;

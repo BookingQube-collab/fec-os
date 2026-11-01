@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/database-client";
 import type { ArcadeListHide } from "@/lib/arcade/domain";
 
 type Client = SupabaseClient<Database>;

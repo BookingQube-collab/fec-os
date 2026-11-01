@@ -56,7 +56,11 @@ export const COMPLIANCE_DOMAINS = [
   "IT",
 ] as const;
 
-export function venueMatchesScope(venueScope: string, locationCode: string | null): boolean {
+export function venueMatchesScope(
+  venueScope: string | null | undefined,
+  locationCode: string | null,
+): boolean {
   if (!locationCode || locationCode === "all") return true;
+  if (!venueScope) return false;
   return venueScope === "All" || venueScope === locationCode;
 }

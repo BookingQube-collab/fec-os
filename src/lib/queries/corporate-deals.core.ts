@@ -353,29 +353,32 @@ export async function commitCorporateDealImport(
   if (!period) throw new Error("Reporting period required");
 
   const { byCode, partnersByName } = await loadCodeMap(context);
+  // Use concrete table names per branch so `.eq` column types narrow correctly
+  // (a union `from(table)` only allows columns shared by all three tables).
   const table =
     input.kind === "week"
-      ? "corporate_deal_weekly_log"
+      ? ("corporate_deal_weekly_log" as const)
       : input.kind === "month"
-        ? "corporate_deal_month_data"
-        : "corporate_deal_trend_data";
-  const periodCol = input.kind === "week" ? "iso_week" : "period_month";
+        ? ("corporate_deal_month_data" as const)
+        : ("corporate_deal_trend_data" as const);
 
   if (input.kind === "week") {
     const { count } = await context.supabase
-      .from(table)
+      .from("corporate_deal_weekly_log")
       .select("id", { count: "exact", head: true })
-      .eq(periodCol, period);
+      .eq("iso_week", period);
     if ((count ?? 0) > 0 && !input.replace) {
       return { status: "duplicate" as const, period, rows_imported: 0, unmapped_codes: [] as string[] };
     }
     if (input.replace) {
-      const { error } = await context.supabase.from(table).delete().eq(periodCol, period);
+      const { error } = await context.supabase.from("corporate_deal_weekly_log").delete().eq("iso_week", period);
       if (error) throw error;
     }
+  } else if (input.kind === "month") {
+    const { error } = await context.supabase.from("corporate_deal_month_data").delete().eq("period_month", period);
+    if (error) throw error;
   } else {
-    // Month / trend: always replace the period (cadence replace)
-    const { error } = await context.supabase.from(table).delete().eq(periodCol, period);
+    const { error } = await context.supabase.from("corporate_deal_trend_data").delete().eq("period_month", period);
     if (error) throw error;
   }
 

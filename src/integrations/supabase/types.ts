@@ -1,10 +1,14 @@
+// Object/array branches accept `unknown` so dynamic `Record<string, unknown>`
+// payloads (audit metadata, snapshots, RPC extras) assign to Json columns.
+// Regenerating this file from Supabase will restore the stricter recursive
+// form — re-apply this widening (or keep it in database-client.ts) afterward.
 export type Json =
   | string
   | number
   | boolean
   | null
-  | { [key: string]: Json | undefined }
-  | Json[]
+  | { [key: string]: unknown }
+  | unknown[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options

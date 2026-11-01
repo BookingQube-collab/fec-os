@@ -106,6 +106,7 @@ export const getLocationComplianceItem = createAuthenticatedAction(
       .eq("id", data.id)
       .single();
     if (error) throw error;
+    if (!item.location_id) throw new Error("Compliance item is missing a location");
     await assertLocationAccess(context, item.location_id);
 
     const { data: attachments } = await context.supabase

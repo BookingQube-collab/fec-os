@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/database-client";
 import type { AttendanceIngestRecord, AttendanceIngestResult } from "@/lib/attendance-ingest";
 
 export type AttendanceIngestHitRow = {

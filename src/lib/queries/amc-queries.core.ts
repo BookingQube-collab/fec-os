@@ -165,7 +165,7 @@ export async function fetchComplianceRenewals(
 
   const rpcResult = await context.supabase.rpc("get_compliance_renewals", {
     p_limit: limit,
-    p_location_code: filters.locationCode ?? null,
+    p_location_code: filters.locationCode ?? undefined,
   });
   if (!rpcResult.error && Array.isArray(rpcResult.data)) {
     let rows = rpcResult.data as Array<{

@@ -305,7 +305,7 @@ export const updateHelpdeskRequest = createAuthenticatedAction(
       p_event_id: data.id,
       p_status: data.status,
       p_category: data.category,
-      p_assignee: data.assigneeStaffId,
+      p_assignee: data.assigneeStaffId ?? "",
     });
     if (error) {
       if (helpdeskStorageMissing(error.message)) throw new Error(HELPDESK_STORAGE_MISSING);
@@ -649,7 +649,7 @@ export const setHelpdeskAssignee = createAuthenticatedAction(
   async (data, context) => {
     const { error } = await context.supabase.rpc("hr_helpdesk_set_assignee", {
       p_event_id: data.id,
-      p_assignee: data.assigneeStaffId,
+      p_assignee: data.assigneeStaffId ?? "",
     });
     if (error) {
       if (helpdeskStorageMissing(error.message)) throw new Error(HELPDESK_STORAGE_MISSING);

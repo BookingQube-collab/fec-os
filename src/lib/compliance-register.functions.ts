@@ -63,9 +63,10 @@ export const getComplianceCommandCenter = createAuthenticatedAction(
 
     const byDomain = new Map<string, typeof items>();
     for (const i of items) {
-      const list = byDomain.get(i.domain) ?? [];
+      const domain = i.domain ?? "Unknown";
+      const list = byDomain.get(domain) ?? [];
       list.push(i);
-      byDomain.set(i.domain, list);
+      byDomain.set(domain, list);
     }
 
     const { data: locations } = await context.supabase.from("locations").select("code, name, region").eq("status", "active");
@@ -305,11 +306,11 @@ export const getComplianceCoverage = createAuthenticatedAction(
   async (data, context) => {
     const items = await fetchEnrichedItems(context, data);
     const { data: locations } = await context.supabase.from("locations").select("code, name").eq("status", "active").order("code");
-    const codes = (locations ?? []).map((l) => l.code);
-    const domains = [...new Set(items.map((i) => i.domain))];
+    const codes = (locations ?? []).map((l) => l.code).filter((code): code is string => Boolean(code));
+    const domains = [...new Set(items.map((i) => i.domain ?? "Unknown"))];
 
     const grid = domains.map((domain) => {
-      const domainItems = items.filter((i) => i.domain === domain);
+      const domainItems = items.filter((i) => (i.domain ?? "Unknown") === domain);
       const cells: Record<string, number> = {};
       for (const code of codes) {
         cells[code] = domainItems.filter((i) => venueMatchesScope(i.venue_scope, code)).length;

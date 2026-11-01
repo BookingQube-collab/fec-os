@@ -208,8 +208,20 @@ export async function fetchMaintenanceWeeklyReports(
     .limit(100);
 
   if (filters.weekStart) q = q.eq("reporting_week_start", filters.weekStart);
-  if (filters.team) q = q.eq("team", filters.team);
-  if (filters.status) q = q.eq("status", filters.status);
+  if (filters.team) q = q.eq("team", filters.team as "maintenance" | "logistics");
+  if (filters.status) {
+    q = q.eq(
+      "status",
+      filters.status as
+        | "draft"
+        | "submitted"
+        | "under_review"
+        | "sent_back"
+        | "approved"
+        | "included_in_executive"
+        | "closed",
+    );
+  }
   if (filters.locationId) q = q.eq("location_id", filters.locationId);
 
   const { data, error } = await q;

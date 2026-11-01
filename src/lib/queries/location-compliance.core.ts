@@ -107,8 +107,9 @@ export async function fetchLocationTrackerKpis(
   const rows = rowsRes.data ?? [];
   const highRiskLocations = new Set(
     rows
-      .filter((r: { risk_level?: string; location_code?: string }) => r.risk_level === "Critical" || r.risk_level === "High")
-      .map((r: { location_code?: string }) => r.location_code),
+      .filter((r) => r.risk_level === "Critical" || r.risk_level === "High")
+      .map((r) => r.location_code)
+      .filter((code): code is string => Boolean(code)),
   ).size;
 
   return {

@@ -52,7 +52,7 @@ export async function fetchExecutiveComplianceKpis(
   const timer = createTimer("fetchExecutiveComplianceKpis", "get_compliance_kpis");
 
   const rpcResult = await context.supabase.rpc("get_compliance_kpis", {
-    p_location_id: locationId ?? null,
+    p_location_id: locationId ?? undefined,
   });
 
   if (!rpcResult.error && rpcResult.data && typeof rpcResult.data === "object") {

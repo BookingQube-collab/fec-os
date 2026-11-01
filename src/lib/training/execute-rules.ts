@@ -28,8 +28,8 @@ export async function applyStoredTrainingRules(
     _trigger: input.trigger,
     _staff_id: input.staffId,
     _link_types: [...TRAINING_EVENT_LINK_TYPES[input.trigger]],
-    _entity_id: input.entityId ?? null,
-    _role_code: input.roleCode ?? null,
+    _entity_id: input.entityId ?? "",
+    _role_code: input.roleCode ?? "",
   });
   if (error) throw new Error(error.message);
 

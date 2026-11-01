@@ -41,11 +41,11 @@ export async function fetchComplianceRegister(
   const { data, error } = await context.supabase
     .from("compliance_items_enriched")
     .select(
-      "id, domain, item_name, venue_scope, vendor_authority, expiry_date, days_remaining, alert_tier, status, risk_level, renewal_cost, governing_date, item_type, license_number, notes",
+      "id, domain, item_name, venue_scope, vendor_authority, expiry_date, days_remaining, alert_tier, status, risk_level, renewal_cost, governing_date",
     )
     .order("governing_date");
   if (error) throw error;
-  let rows = (data ?? []) as ComplianceEnrichedItem[];
+  let rows = (data ?? []) as unknown as ComplianceEnrichedItem[];
   if (filter.domain) rows = rows.filter((r) => r.domain === filter.domain);
   if (filter.vendor) {
     rows = rows.filter((r) =>

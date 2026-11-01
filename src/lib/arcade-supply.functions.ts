@@ -553,10 +553,10 @@ export const useSparePart = createAuthenticatedAction(
       p_location_id: data.locationId,
       p_qty: data.qty,
       p_machine_id: data.machineId,
-      p_fault_id: data.faultId ?? null,
+      p_fault_id: data.faultId ?? "",
       p_part_id: part.id,
-      p_staff_id: data.staffId ?? null,
-      p_notes: data.notes ?? null,
+      p_staff_id: data.staffId ?? "",
+      p_notes: data.notes ?? "",
     });
     if (rpcError) throw rpcError;
     if (data.faultId) {
@@ -592,7 +592,7 @@ export const transferSparePart = createAuthenticatedAction(
       p_from_location_id: data.fromLocationId,
       p_to_location_id: data.toLocationId,
       p_qty: data.qty,
-      p_notes: data.notes ?? null,
+      p_notes: data.notes ?? "",
     });
     if (error) throw new Error(error.message);
     return moved;
@@ -865,17 +865,17 @@ export const getArcadeWeeklyReport = createAuthenticatedAction(
       weekEnd: bounds.end,
       generatedAt: new Date().toISOString(),
       sites: (sites ?? []).map((site) => ({
-        locationId: site.location_id,
-        siteName: names.get(site.location_id) ?? site.location_id,
-        active: site.active_machines,
-        working: site.working,
-        down: site.down,
-        underRepair: site.under_repair,
-        underObservation: site.under_observation,
-        waitingPart: site.waiting_part,
-        waitingSupplier: site.waiting_supplier,
-        pmDue: site.pm_due,
-        pmOverdue: site.pm_overdue,
+        locationId: site.location_id ?? "",
+        siteName: names.get(site.location_id ?? "") ?? site.location_id ?? "",
+        active: site.active_machines ?? 0,
+        working: site.working ?? 0,
+        down: site.down ?? 0,
+        underRepair: site.under_repair ?? 0,
+        underObservation: site.under_observation ?? 0,
+        waitingPart: site.waiting_part ?? 0,
+        waitingSupplier: site.waiting_supplier ?? 0,
+        pmDue: site.pm_due ?? 0,
+        pmOverdue: site.pm_overdue ?? 0,
       })),
       opened: list.length,
       resolved: list.filter((fault) => fault.resolved_at).length,
@@ -933,8 +933,8 @@ export const getArcadeMonthlyReport = createAuthenticatedAction(
     const { data: locs } = await context.supabase.from("locations").select("id, name");
     const locNames = new Map((locs ?? []).map((loc) => [loc.id, loc.name]));
     const machineNames = new Map((machines.data ?? []).map((machine) => [machine.id, machine]));
-    const active = (sites ?? []).reduce((sum, site) => sum + site.active_machines, 0);
-    const working = (sites ?? []).reduce((sum, site) => sum + site.working, 0);
+    const active = (sites ?? []).reduce((sum, site) => sum + (site.active_machines ?? 0), 0);
+    const working = (sites ?? []).reduce((sum, site) => sum + (site.working ?? 0), 0);
     const overdue = await context.supabase.from("arcade_machines").select("id", { count: "exact", head: true }).eq("active", true).lt("next_pm_on", start);
     return buildMonthlyArcadeReport({
       periodStart: start,

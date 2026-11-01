@@ -109,7 +109,7 @@ export function resolveMentionStaffIds(
   extraIds: Array<string | null | undefined> = [],
 ): string[] {
   const parsed = parseMentions(body, staff).staffIds;
-  const extras = extraIds.filter((id): id is string => Boolean(id) && UUID_RE.test(id));
+  const extras = extraIds.filter((id): id is string => typeof id === "string" && UUID_RE.test(id));
   return [...new Set([...parsed, ...extras])];
 }
 

@@ -161,7 +161,7 @@ export function financeHealthOnly(input: {
 }
 
 /** Strip monetary fields; keep hasBudget / hasInvoices flags for UI chrome. */
-export function redactFinanceTotals<T extends Record<string, unknown>>(finance: T): T {
+export function redactFinanceTotals<T extends object>(finance: T): T {
   const out = { ...finance } as Record<string, unknown>;
   for (const key of Object.keys(out)) {
     if (key === "hasBudget" || key === "hasInvoices") continue;

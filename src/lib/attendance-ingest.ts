@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/database-client";
 import { resolveLocationCode as resolveCanonicalLocationCode } from "@/lib/locations/normalize";
 import { toQatarIso } from "@/lib/staff-import";
 

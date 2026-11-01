@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/database-client";
 import {
   ADMS_CONNECTION_TEST_TIMEOUT_MS,
   ADMS_UNKNOWN_SERIAL_WINDOW_MS,

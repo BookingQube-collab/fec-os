@@ -4,7 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { cache } from "react";
 
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/database-client";
 import type { AppRole } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import { readRolesCookie } from "./roles-cookie";

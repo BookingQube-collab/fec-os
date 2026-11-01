@@ -1262,13 +1262,13 @@ export const getArcadePicture = createAuthenticatedAction(
     const hiddenGames = new Set(hides.filter((hide) => hide.machineId).map((hide) => hide.machineId as string));
     const listed = visibleArcadeList(
       siteRows.map((site) => ({
-        locationId: site.location_id,
-        games: site.active_machines,
-        working: site.working,
-        down: site.down,
-        inRepair: site.under_repair,
-        waitingPart: site.waiting_part,
-        waitingSupplier: site.waiting_supplier,
+        locationId: site.location_id ?? "",
+        games: site.active_machines ?? 0,
+        working: site.working ?? 0,
+        down: site.down ?? 0,
+        inRepair: site.under_repair ?? 0,
+        waitingPart: site.waiting_part ?? 0,
+        waitingSupplier: site.waiting_supplier ?? 0,
       })),
       machineRows.map((machine) => ({ id: machine.id, locationId: machine.location_id, status: machine.status })),
       hides,
