@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
 import { summarizeLeaveBalances, sumUsedLeaveDays } from "@/lib/hr-advanced";
+import { attendanceRowCountsAsPresent } from "@/lib/hr/team-today";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
@@ -123,12 +124,30 @@ async function loadAttendance(context: AuthContext, facts: HrAssistantFacts, loc
     .is("deleted_at", null);
   facts.headcount = await countOf(locationId ? headcount.eq("location_id", locationId) : headcount);
 
-  const present = context.supabase
+  // Prefer punch/actual_in parity with Team Today + HR overview — status-only undercounts.
+  let presentQ = context.supabase
     .from("attendance_daily_summary")
-    .select("id", { count: "exact", head: true })
+    .select("staff_id, punch_count, status, actual_in")
     .eq("work_date", today)
-    .in("status", ["present", "late", "overtime", "early_leave", "early_departure"]);
-  facts.presentToday = await countOf(locationId ? present.eq("location_id", locationId) : present);
+    .not("staff_id", "is", null)
+    .limit(5000);
+  if (locationId) presentQ = presentQ.eq("location_id", locationId);
+  const { data: presentRows } = await presentQ;
+  const presentIds = new Set<string>();
+  for (const row of presentRows ?? []) {
+    const staffId = row.staff_id ? String(row.staff_id) : "";
+    if (!staffId) continue;
+    if (
+      attendanceRowCountsAsPresent({
+        punchCount: row.punch_count as number | null | undefined,
+        status: (row.status as string | null | undefined) ?? null,
+        actualIn: (row.actual_in as string | null | undefined) ?? null,
+      })
+    ) {
+      presentIds.add(staffId);
+    }
+  }
+  facts.presentToday = presentIds.size;
 
   const absent = context.supabase
     .from("attendance_daily_summary")

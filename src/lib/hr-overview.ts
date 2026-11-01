@@ -2,6 +2,12 @@
  * HR dashboard aggregators (Phase 11). Pure — empty-safe, no Supabase.
  */
 
+import {
+  canonicalDepartmentDisplayName,
+  departmentAggregateKey,
+} from "@/lib/department-aliases";
+import { attendanceRowCountsAsPresent } from "@/lib/hr/team-today";
+
 /** Present-like daily statuses for Smart Board "Present today" (matches Team Today). */
 export const HR_OVERVIEW_PRESENT_STATUSES = [
   "present",
@@ -27,6 +33,18 @@ export function countPresentStaffInRoster(
     if (sid && rosterIds.has(sid)) hit.add(sid);
   }
   return hit.size;
+}
+
+/**
+ * Same present rule as Team Today: punch_count, actual_in, or a present-like status.
+ * Used so the KPI matches the site attendance table above the board.
+ */
+export function dailySummaryCountsAsPresent(row: {
+  punchCount?: number | null;
+  status?: string | null;
+  actualIn?: string | null;
+}): boolean {
+  return attendanceRowCountsAsPresent(row);
 }
 
 export type NamedCount = { key: string; label: string; count: number };
@@ -67,7 +85,8 @@ export function aggregateHrHeadcountBreakdowns(
   const byLoc = new Map<string, NamedCount>();
   for (const row of rows) {
     bump(byCat, row.employmentCategory, row.employmentCategory);
-    bump(byDept, row.departmentId, row.departmentName);
+    const deptLabel = canonicalDepartmentDisplayName(row.departmentName) || row.departmentName;
+    bump(byDept, departmentAggregateKey(row.departmentName, row.departmentId), deptLabel);
     const locLabel =
       [row.locationCode, row.locationName].filter(Boolean).join(" — ") || row.locationName || row.locationCode;
     bump(byLoc, row.locationId, locLabel);

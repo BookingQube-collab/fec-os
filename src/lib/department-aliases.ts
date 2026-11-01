@@ -1,17 +1,30 @@
 import { normalizeDepartmentName } from "@/lib/staff-departments";
 
 /**
- * Filter-only aliases between HO and FEC master department rows that mean the
- * same team. Catalogs stay separate (audience ho vs fec); directory / roster /
- * attendance filters treat either label or code as a match for the other.
+ * Filter + display aliases between HO and FEC master department rows that mean
+ * the same team. Catalogs may still store separate audience rows; directory /
+ * roster / attendance / dashboard charts treat either label or code as one team.
  *
- * Canonical display stays whatever is stored on the staff row. Do not use this
- * when assigning departments in edit dialogs — audience filtering still applies.
+ * Product display for this group is always {@link CANONICAL_OPERATIONS_LABEL}.
+ * Do not use alias expansion when assigning departments in edit dialogs —
+ * audience filtering still applies there.
  */
 const DEPARTMENT_ALIAS_GROUPS: readonly (readonly string[])[] = [
-  // HO Operations (OPS) ↔ FEC Operations (FEC_OPS)
-  ["operations", "operation", "ops", "fec operations", "fec ops", "fec_ops"],
+  // HO Operations (OPS) ↔ FEC Operations (FEC_OPS) and legacy free-text spellings
+  [
+    "operations",
+    "operation",
+    "ops",
+    "fec operations",
+    "fec operation",
+    "fec ops",
+    "fec op",
+    "fec_ops",
+  ],
 ];
+
+/** Single user-facing name for the Operations alias group. */
+export const CANONICAL_OPERATIONS_LABEL = "Operations";
 
 /** Collapse spaces and underscores so OPS / FEC_OPS / "FEC Operations" share keys. */
 export function normalizeDepartmentMatchKey(value: string | null | undefined): string {
@@ -27,6 +40,10 @@ const KEY_TO_GROUP = (() => {
   return map;
 })();
 
+function aliasGroupFor(nameOrCode: string | null | undefined): ReadonlySet<string> | undefined {
+  return KEY_TO_GROUP.get(normalizeDepartmentMatchKey(nameOrCode));
+}
+
 /** All match keys equivalent to this name or code (self only when not aliased). */
 export function departmentMatchKeys(nameOrCode: string | null | undefined): ReadonlySet<string> {
   const key = normalizeDepartmentMatchKey(nameOrCode);
@@ -36,8 +53,40 @@ export function departmentMatchKeys(nameOrCode: string | null | undefined): Read
 
 /** True when this label/code belongs to a multi-name alias group (e.g. Operations). */
 export function isAliasedDepartmentLabel(nameOrCode: string | null | undefined): boolean {
-  const group = KEY_TO_GROUP.get(normalizeDepartmentMatchKey(nameOrCode));
+  const group = aliasGroupFor(nameOrCode);
   return Boolean(group && group.size > 1);
+}
+
+/** True when the label/code is in the Operations alias group. */
+export function isOperationsDepartmentLabel(nameOrCode: string | null | undefined): boolean {
+  const group = aliasGroupFor(nameOrCode);
+  return Boolean(group?.has("operations"));
+}
+
+/**
+ * User-facing department label. Operations aliases always render as "Operations"
+ * so charts, filters, and tables never show "FEC Operations" / "fec operation".
+ */
+export function canonicalDepartmentDisplayName(name: string | null | undefined): string {
+  const raw = (name ?? "").trim();
+  if (!raw) return "";
+  if (isOperationsDepartmentLabel(raw)) return CANONICAL_OPERATIONS_LABEL;
+  return raw;
+}
+
+/**
+ * Aggregation key for headcount charts: Operations aliases share one bucket.
+ * Falls back to the normalized name, then an id, then "unassigned".
+ */
+export function departmentAggregateKey(
+  name: string | null | undefined,
+  fallbackId?: string | null,
+): string {
+  if (isOperationsDepartmentLabel(name)) return "operations";
+  const key = normalizeDepartmentMatchKey(name);
+  if (key) return key;
+  const id = fallbackId != null ? String(fallbackId).trim() : "";
+  return id || "unassigned";
 }
 
 /** True when two department labels/codes are the same team under alias rules. */
@@ -58,11 +107,7 @@ export function expandDepartmentAliasIds(
   selected: { id: string; name?: string | null; code?: string | null },
   catalog: readonly { id: string; name?: string | null; code?: string | null }[],
 ): string[] {
-  const group = (() => {
-    const fromName = KEY_TO_GROUP.get(normalizeDepartmentMatchKey(selected.name));
-    if (fromName) return fromName;
-    return KEY_TO_GROUP.get(normalizeDepartmentMatchKey(selected.code));
-  })();
+  const group = aliasGroupFor(selected.name) ?? aliasGroupFor(selected.code);
   if (!group) return [selected.id];
 
   const ids = new Set<string>([selected.id]);
@@ -74,4 +119,60 @@ export function expandDepartmentAliasIds(
     }
   }
   return [...ids];
+}
+
+/**
+ * Collapse Operations alias rows to one filter option labeled "Operations",
+ * preferring code OPS / name Operations when both HO and FEC rows exist.
+ */
+export function dedupeDepartmentOptionsByAlias<
+  T extends { id: string; name?: string | null; code?: string | null },
+>(departments: readonly T[]): T[] {
+  const preferredOps = [...departments]
+    .filter((row) => isOperationsDepartmentLabel(row.name) || isOperationsDepartmentLabel(row.code))
+    .sort((a, b) => operationsPreferenceRank(a) - operationsPreferenceRank(b))[0];
+
+  const out: T[] = [];
+  let opsEmitted = false;
+  for (const row of departments) {
+    if (isOperationsDepartmentLabel(row.name) || isOperationsDepartmentLabel(row.code)) {
+      if (opsEmitted) continue;
+      opsEmitted = true;
+      const pick = preferredOps ?? row;
+      out.push({ ...pick, name: CANONICAL_OPERATIONS_LABEL });
+      continue;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+function operationsPreferenceRank(row: { name?: string | null; code?: string | null }): number {
+  const code = normalizeDepartmentMatchKey(row.code);
+  const name = normalizeDepartmentMatchKey(row.name);
+  if (code === "ops" || name === "operations") return 0;
+  if (code === "fec ops" || code === "fec_ops") return 1;
+  return 2;
+}
+
+/**
+ * Join department labels for tables/cards, collapsing Operations aliases to one
+ * "Operations" token so compound rows never show both "fec operation" and Operations.
+ */
+export function formatCanonicalDepartmentDisplay(
+  names: readonly (string | null | undefined)[] | null | undefined,
+  fallback?: string | null,
+): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of names ?? []) {
+    if (!raw?.trim()) continue;
+    const label = canonicalDepartmentDisplayName(raw) || raw.trim();
+    if (seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+  }
+  if (out.length) return out.join(", ");
+  const fb = (fallback ?? "").trim();
+  return fb ? canonicalDepartmentDisplayName(fb) || fb : "";
 }

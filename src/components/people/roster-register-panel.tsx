@@ -58,6 +58,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCanAmendShiftRoster, useCanBulkDeleteMonthlyRoster } from "@/hooks/use-auth";
+import {
+  canonicalDepartmentDisplayName,
+  dedupeDepartmentOptionsByAlias,
+} from "@/lib/department-aliases";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
   ALL_ORG_DEPARTMENTS_CHECKED,
@@ -908,9 +912,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const rosterLocationCode = (sites.data ?? []).find((site) => site.id === locationId)?.code ?? null;
     const departmentOptions = useMemo(
       () =>
-        filterDepartmentsForLocation(departments, rosterLocationCode, excludedDepartmentIds)
-          .filter((d) => d.active !== false)
-          .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
+        dedupeDepartmentOptionsByAlias(
+          filterDepartmentsForLocation(departments, rosterLocationCode, excludedDepartmentIds).filter(
+            (d) => d.active !== false,
+          ),
+        ).map((d) => {
+          const label = canonicalDepartmentDisplayName(d.name) || d.name;
+          return { value: d.id, label, keywords: `${label} ${d.name} ${d.code ?? ""}` };
+        }),
       [departments, rosterLocationCode, excludedDepartmentIds],
     );
 

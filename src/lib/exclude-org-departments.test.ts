@@ -71,6 +71,8 @@ describe("org focus department names", () => {
     expect(orgFocusDepartmentOfName("FB_MANAGER")).toBe("fb_cafe");
     expect(orgFocusDepartmentOfName("FB_SUPERVISOR")).toBe("fb_cafe");
     expect(orgFocusDepartmentOfName("FEC Operations")).toBe("operations");
+    expect(orgFocusDepartmentOfName("fec operation")).toBe("operations");
+    expect(orgFocusDepartmentOfName("fec op")).toBe("operations");
     expect(orgFocusDepartmentOfName("FEC_OPS")).toBe("operations");
   });
 

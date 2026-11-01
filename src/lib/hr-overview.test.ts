@@ -9,6 +9,7 @@ import {
   countMissingCvStaff,
   countPresentStaffInRoster,
   countUnattestedEducationalDocs,
+  dailySummaryCountsAsPresent,
   emptyHrOverviewBreakdowns,
 } from "./hr-overview";
 
@@ -36,7 +37,7 @@ describe("hr overview aggregators", () => {
       {
         employmentCategory: "permanent",
         departmentId: "d1",
-        departmentName: "Ops",
+        departmentName: "Maintenance",
         locationId: "l1",
         locationCode: "INF",
         locationName: "City Center",
@@ -44,7 +45,7 @@ describe("hr overview aggregators", () => {
       {
         employmentCategory: "permanent",
         departmentId: "d1",
-        departmentName: "Ops",
+        departmentName: "Maintenance",
         locationId: "l2",
         locationCode: "UA",
         locationName: "Doha Mall",
@@ -58,8 +59,30 @@ describe("hr overview aggregators", () => {
       },
     ]);
     expect(b.byCategory.find((r) => r.key === "permanent")?.count).toBe(2);
-    expect(b.byDepartment.find((r) => r.key === "d1")?.count).toBe(2);
+    expect(b.byDepartment.find((r) => r.key === "maintenance")?.count).toBe(2);
     expect(b.byLocation.find((r) => r.key === "l1")?.count).toBe(2);
+  });
+
+  it("merges FEC Operations aliases into one Operations department bucket", () => {
+    const b = aggregateHrHeadcountBreakdowns([
+      { departmentId: "fec-ops", departmentName: "fec operation" },
+      { departmentId: "ops", departmentName: "Operations" },
+      { departmentId: "fec-ops-2", departmentName: "FEC Operations" },
+      { departmentId: "maint", departmentName: "Maintenance" },
+    ]);
+    expect(b.byDepartment.find((r) => r.key === "operations")).toMatchObject({
+      label: "Operations",
+      count: 3,
+    });
+    expect(b.byDepartment.find((r) => r.key === "maintenance")?.count).toBe(1);
+    expect(b.byDepartment.filter((r) => /fec/i.test(r.label))).toHaveLength(0);
+  });
+
+  it("treats punch/actual_in days as present like Team Today", () => {
+    expect(dailySummaryCountsAsPresent({ punchCount: 2, status: "missed_punch" })).toBe(true);
+    expect(dailySummaryCountsAsPresent({ punchCount: 0, actualIn: "2026-11-01T05:00:00Z" })).toBe(true);
+    expect(dailySummaryCountsAsPresent({ punchCount: 0, status: "present" })).toBe(true);
+    expect(dailySummaryCountsAsPresent({ punchCount: 0, status: "absent" })).toBe(false);
   });
 
   it("counts missing CVs and unattested educational docs", () => {

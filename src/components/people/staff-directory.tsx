@@ -44,6 +44,11 @@ import { StaffAvatar } from "@/components/people/staff-photo-field";
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { StaffDuplicateDialog } from "@/components/people/staff-duplicate-dialog";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
+import {
+  canonicalDepartmentDisplayName,
+  dedupeDepartmentOptionsByAlias,
+  formatCanonicalDepartmentDisplay,
+} from "@/lib/department-aliases";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
   ALL_ORG_DEPARTMENTS_CHECKED,
@@ -412,9 +417,14 @@ export function StaffDirectory({
 
   const departmentOptions = useMemo(
     () =>
-      filterDepartmentsForLocation(departments, loc || null, department ? [department] : [])
-        .filter((d) => d.active !== false)
-        .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
+      dedupeDepartmentOptionsByAlias(
+        filterDepartmentsForLocation(departments, loc || null, department ? [department] : []).filter(
+          (d) => d.active !== false,
+        ),
+      ).map((d) => {
+        const label = canonicalDepartmentDisplayName(d.name) || d.name;
+        return { value: d.id, label, keywords: `${label} ${d.name} ${d.code ?? ""}` };
+      }),
     [departments, loc, department],
   );
 
@@ -1089,7 +1099,7 @@ export function StaffDirectory({
                         const displayName = formatStaffDisplayName(s.full_name);
                         const alerts = staffHrAlerts(s);
                         const deptLabel =
-                          s.department || (s.department_names?.length ? s.department_names.join(", ") : null);
+                          formatCanonicalDepartmentDisplay(s.department_names, s.department) || null;
                         return (
                           <tr
                             key={s.id}

@@ -10,7 +10,7 @@ export type FecDepartmentSpec = {
 export const FEC_DEPARTMENT_CATALOG: readonly FecDepartmentSpec[] = [
   { name: "Managing Director / Chief Executive Officer", code: "MD_CEO", sortOrder: 1000 },
   { name: "General Manager", code: "GM", sortOrder: 1010 },
-  { name: "FEC Operations", code: "FEC_OPS", sortOrder: 1020 },
+  { name: "Operations", code: "FEC_OPS", sortOrder: 1020 },
   { name: "Sr. Site Supervisor", code: "SR_SITE_SUP", sortOrder: 1030 },
   { name: "Site Supervisor", code: "SITE_SUP", sortOrder: 1040 },
   { name: "AV Specialist / FEC Supervisor", code: "AV_FEC_SUP", sortOrder: 1050 },

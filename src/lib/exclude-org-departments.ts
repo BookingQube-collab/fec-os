@@ -38,7 +38,14 @@ export const ALL_ORG_DEPARTMENTS_CHECKED: OrgDepartmentChecks = {
   fb_cafe: true,
 };
 
-const OPERATIONS_KEYS = new Set(["operations", "operation", "fec operations"]);
+const OPERATIONS_KEYS = new Set([
+  "operations",
+  "operation",
+  "fec operations",
+  "fec operation",
+  "fec ops",
+  "fec op",
+]);
 /** Site supervision titles already used on staff. Exact label only. F&B Supervisor is F&B, not Operations. */
 const OPERATIONS_SUPERVISOR_KEYS = new Set([
   "supervisor",

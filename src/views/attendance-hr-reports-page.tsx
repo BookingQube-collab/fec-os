@@ -53,6 +53,10 @@ import { OrgDepartmentsFilter } from "@/components/people/exclude-org-department
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { useFileExport } from "@/hooks/use-file-export";
 import { useSites } from "@/hooks/queries/useSites";
+import {
+  canonicalDepartmentDisplayName,
+  dedupeDepartmentOptionsByAlias,
+} from "@/lib/department-aliases";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
   ALL_ORG_DEPARTMENTS_CHECKED,
@@ -151,9 +155,14 @@ export default function AttendanceHrReportsPage() {
   const locationCode = (sites ?? []).find((site) => site.id === locationId)?.code ?? null;
   const departmentOptions = useMemo(
     () =>
-      filterDepartmentsForLocation(departments, locationCode, departmentIds)
-        .filter((d) => d.active !== false)
-        .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
+      dedupeDepartmentOptionsByAlias(
+        filterDepartmentsForLocation(departments, locationCode, departmentIds).filter(
+          (d) => d.active !== false,
+        ),
+      ).map((d) => {
+        const label = canonicalDepartmentDisplayName(d.name) || d.name;
+        return { value: d.id, label, keywords: `${label} ${d.name} ${d.code ?? ""}` };
+      }),
     [departments, locationCode, departmentIds],
   );
 

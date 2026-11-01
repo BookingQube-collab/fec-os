@@ -1,4 +1,5 @@
 import type { AuthContext } from "@/lib/server/auth";
+import { canonicalDepartmentDisplayName } from "@/lib/department-aliases";
 import { CANONICAL_LOCATION_CODES, rosterSheetLabel } from "@/lib/locations/normalize";
 import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
 import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
@@ -326,11 +327,17 @@ export async function fetchPeopleDashboard(
         ?.map((d) => d.master_departments?.name)
         .filter((n): n is string => Boolean(n)) ?? [];
     if (deptNames.length) {
-      for (const dept of deptNames) {
+      // One person, one department bucket — Operations aliases collapse to "Operations".
+      const seen = new Set<string>();
+      for (const raw of deptNames) {
+        const dept = canonicalDepartmentDisplayName(raw) || raw;
+        if (seen.has(dept)) continue;
+        seen.add(dept);
         deptCounts.set(dept, (deptCounts.get(dept) ?? 0) + 1);
       }
     } else {
-      const dept = s.department?.trim() || "Unassigned";
+      const raw = s.department?.trim() || "Unassigned";
+      const dept = raw === "Unassigned" ? raw : canonicalDepartmentDisplayName(raw) || raw;
       deptCounts.set(dept, (deptCounts.get(dept) ?? 0) + 1);
     }
   }

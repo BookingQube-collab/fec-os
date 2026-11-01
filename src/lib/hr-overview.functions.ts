@@ -22,10 +22,11 @@ import {
   countMissingCvStaff,
   countPresentStaffInRoster,
   countUnattestedEducationalDocs,
+  dailySummaryCountsAsPresent,
   emptyHrOverviewBreakdowns,
-  HR_OVERVIEW_PRESENT_STATUSES,
 } from "@/lib/hr-overview";
 import { readPolicySection } from "@/lib/hr-policy-read";
+import { canonicalDepartmentDisplayName } from "@/lib/department-aliases";
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
@@ -345,7 +346,7 @@ export const getHrOverview = createAuthenticatedAction(
             ? String((ext as { last_working_date?: string | null }).last_working_date).slice(0, 10)
             : null,
           departmentId: firstDept?.department_id ?? null,
-          departmentName: md?.name ?? null,
+          departmentName: canonicalDepartmentDisplayName(md?.name ?? null) || md?.name || null,
           locationId: (s.location_id as string | null) ?? null,
           locationCode: (loc as { code?: string } | null)?.code ?? null,
           locationName: (loc as { name?: string } | null)?.name ?? null,
@@ -362,28 +363,53 @@ export const getHrOverview = createAuthenticatedAction(
       const staffIds = roster.map((m) => m.id);
       const rosterIdSet = new Set(staffIds);
 
-      // Present today: distinct mapped staff in the Active roster with a present-like
-      // summary today. Unmapped bio: rows are excluded (orphan cleanup must not move
-      // this KPI). Site + org-focus already applied via `roster`.
+      // Present today: same rule as Team Today (punch / actual_in / present-like
+      // status, plus non-excluded attendance logs). Distinct mapped staff in the
+      // Active roster only — bio: orphans never inflate this KPI. Site + org-focus
+      // already applied via `roster`.
       if (staffIds.length) {
         rosterAttendanceResolved = true;
-        const presentStaffIds: string[] = [];
+        const presentStaffIds = new Set<string>();
         for (const chunk of chunkIds(staffIds)) {
           let presentQ = context.supabase
             .from("attendance_daily_summary")
-            .select("staff_id")
+            .select("staff_id, punch_count, status, actual_in")
             .eq("work_date", today)
             .in("staff_id", chunk)
-            .in("status", [...HR_OVERVIEW_PRESENT_STATUSES])
             .limit(5000);
           if (data.locationId) presentQ = presentQ.eq("location_id", data.locationId);
           const { data: presentRows, error: presentErr } = await presentQ;
           if (presentErr && !tableMissing(presentErr.message)) throw presentErr;
           for (const row of presentRows ?? []) {
-            if (row.staff_id) presentStaffIds.push(String(row.staff_id));
+            const staffId = row.staff_id ? String(row.staff_id) : "";
+            if (!staffId) continue;
+            if (
+              dailySummaryCountsAsPresent({
+                punchCount: row.punch_count as number | null | undefined,
+                status: (row.status as string | null | undefined) ?? null,
+                actualIn: (row.actual_in as string | null | undefined) ?? null,
+              })
+            ) {
+              presentStaffIds.add(staffId);
+            }
+          }
+
+          const { data: logRows, error: logErr } = await context.supabase
+            .from("attendance_logs")
+            .select("staff_id, excluded_from_calc")
+            .eq("attendance_date", today)
+            .in("staff_id", chunk)
+            .limit(5000);
+          if (logErr && !tableMissing(logErr.message) && !/permission/i.test(logErr.message ?? "")) {
+            throw logErr;
+          }
+          for (const row of logRows ?? []) {
+            if ((row as { excluded_from_calc?: boolean | null }).excluded_from_calc) continue;
+            const staffId = row.staff_id ? String(row.staff_id) : "";
+            if (staffId) presentStaffIds.add(staffId);
           }
         }
-        presentToday = countPresentStaffInRoster(presentStaffIds, rosterIdSet);
+        presentToday = countPresentStaffInRoster([...presentStaffIds], rosterIdSet);
 
         const leaveIds = new Set<string>();
         for (const chunk of chunkIds(staffIds)) {
@@ -456,22 +482,33 @@ export const getHrOverview = createAuthenticatedAction(
       }
     }
 
-    // Staff-detail unavailable: still count mapped people only (never bio: orphans).
+    // Staff-detail unavailable: still count mapped people only (never bio: orphans),
+    // using the same Team Today present rule (punches / actual_in / present status).
     if (!rosterAttendanceResolved) {
+      const presentStaffIds = new Set<string>();
       let presentQ = context.supabase
         .from("attendance_daily_summary")
-        .select("staff_id")
+        .select("staff_id, punch_count, status, actual_in")
         .eq("work_date", today)
         .not("staff_id", "is", null)
-        .in("status", [...HR_OVERVIEW_PRESENT_STATUSES])
         .limit(5000);
       if (data.locationId) presentQ = presentQ.eq("location_id", data.locationId);
       const { data: presentRows, error: presentErr } = await presentQ;
       if (presentErr && !tableMissing(presentErr.message)) throw presentErr;
-      const mappedPresentIds = (presentRows ?? [])
-        .map((row) => (row.staff_id ? String(row.staff_id) : ""))
-        .filter(Boolean);
-      presentToday = new Set(mappedPresentIds).size;
+      for (const row of presentRows ?? []) {
+        const staffId = row.staff_id ? String(row.staff_id) : "";
+        if (!staffId) continue;
+        if (
+          dailySummaryCountsAsPresent({
+            punchCount: row.punch_count as number | null | undefined,
+            status: (row.status as string | null | undefined) ?? null,
+            actualIn: (row.actual_in as string | null | undefined) ?? null,
+          })
+        ) {
+          presentStaffIds.add(staffId);
+        }
+      }
+      presentToday = presentStaffIds.size;
 
       const { data: leaveRows, error: onLeaveErr } = await context.supabase
         .from("hr_leave_requests")
