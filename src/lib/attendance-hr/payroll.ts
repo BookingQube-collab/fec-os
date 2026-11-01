@@ -103,6 +103,21 @@ export const PAYROLL_PAID_NON_WORK_STATUSES = new Set([
   "public_holiday",
 ]);
 
+/** Normalize aliases (OFF / week_off) to the canonical payroll status key. */
+export function normalizePayrollAttendanceStatus(status: string | null | undefined): string {
+  const raw = String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (raw === "week_off" || raw === "weekoff" || raw === "off") return "weekly_off";
+  return raw;
+}
+
+/** Scheduled week off / paid leave — never a Ready blocker (ignore stale missed_punch). */
+export function isPayrollPaidNonWorkDay(row: Pick<PayrollDayInput, "status">): boolean {
+  return PAYROLL_PAID_NON_WORK_STATUSES.has(normalizePayrollAttendanceStatus(row.status));
+}
+
 /** True when the day has both clock-in and clock-out (listing treats as a worked day). */
 export function hasPayrollCompletePunches(
   day: Pick<PayrollDayInput, "actual_in" | "actual_out">,
@@ -158,7 +173,7 @@ export function isPayrollPresentDay(row: PayrollDayInput): boolean {
 export function isPayrollPaidDay(row: PayrollDayInput): boolean {
   if (isWorkDateBeforeHireDate(row.work_date, row.hire_date)) return false;
   if (isPayrollPresentDay(row)) return true;
-  return PAYROLL_PAID_NON_WORK_STATUSES.has(String(row.status ?? ""));
+  return isPayrollPaidNonWorkDay(row);
 }
 
 /** Worked days inside an optional hire/exit window. One row per staff+date after listing collapse. */
@@ -229,8 +244,10 @@ export function payrollDayRowScore(row: PayrollDayInput): number {
   let score = 0;
   score += Math.min(Number(row.punch_count) || 0, 20) * 100;
   if (row.worked_minutes != null && Number(row.worked_minutes) > 0) score += 30;
-  const status = String(row.status ?? "").toLowerCase();
+  const status = normalizePayrollAttendanceStatus(row.status);
   if (status && status !== "absent") score += 20;
+  // Prefer roster week-off / paid leave over punchless missed_punch sibling rows.
+  if (isPayrollPaidNonWorkDay(row)) score += 40;
   if (isPayrollPresentDay(row)) score += 10;
   if (row.missed_punch || status === "missed_punch") score -= 5;
   return score;
@@ -261,6 +278,7 @@ export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInp
 
 /** Canonical block code for a day — shared by aggregate + Fix UI.
  *  Aligns with attendance listing: both punches ⇒ not a missed punch / not Ready-blocking.
+ *  Paid week off / annual leave / other paid non-work never block (stale missed_punch ignored).
  *  Labels: xor or flagged incomplete punches → missed_punch; status-only gaps → incomplete /
  *  review_required (never relabel complete-punch review days as Missed punch). */
 export function payrollBlockReasonCode(
@@ -269,7 +287,10 @@ export function payrollBlockReasonCode(
   // Listing already shows Present/OT/Review with both times — Generate must Ready the same days.
   if (hasPayrollCompletePunches(day)) return null;
 
-  const status = String(day.status ?? "");
+  // Same protection as listing PROTECTED_STATUS / paid entitlement: WO/AL are not exceptions.
+  if (isPayrollPaidNonWorkDay(day)) return null;
+
+  const status = normalizePayrollAttendanceStatus(day.status);
   const hasIn = Boolean(day.actual_in);
   const hasOut = Boolean(day.actual_out);
   const incompletePair = hasIn !== hasOut;

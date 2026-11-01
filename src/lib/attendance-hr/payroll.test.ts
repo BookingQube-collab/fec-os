@@ -9,6 +9,7 @@ import {
   formatPayrollBlockReasons,
   isPayrollBlockingDay,
   isPayrollPaidDay,
+  isPayrollPaidNonWorkDay,
   isPayrollReady,
   listPayrollPaidDates,
   payrollBlockReasonCode,
@@ -288,6 +289,117 @@ describe("payroll readiness", () => {
     // Present + annual leave + sick leave are paid; unpaid leave / absent are not.
     expect(row.daysPresent).toBe(3);
     expect(row.submittedOtMinutes).toBe(0);
+  });
+
+  it("does not block Ready for week off / annual leave with stale missed_punch (Jolina-style)", () => {
+    expect(isPayrollPaidNonWorkDay({ status: "weekly_off" })).toBe(true);
+    expect(isPayrollPaidNonWorkDay({ status: "OFF" })).toBe(true);
+    expect(isPayrollPaidNonWorkDay({ status: "annual_leave" })).toBe(true);
+    expect(
+      payrollBlockReasonCode({
+        status: "weekly_off",
+        missed_punch: true,
+        actual_in: null,
+        actual_out: null,
+      }),
+    ).toBe(null);
+    expect(
+      payrollBlockReasonCode({
+        status: "annual_leave",
+        missed_punch: true,
+      }),
+    ).toBe(null);
+    expect(isPayrollBlockingDay({ status: "weekly_off", missed_punch: true })).toBe(false);
+
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina Mae Castillo Salino",
+        employee_code: "INF-CC-STF15",
+        work_date: "2026-10-12",
+        status: "present",
+        actual_in: "2026-10-12T09:10:00.000Z",
+        actual_out: "2026-10-12T19:00:00.000Z",
+        punch_count: 2,
+        worked_minutes: 530,
+      },
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina Mae Castillo Salino",
+        employee_code: "INF-CC-STF15",
+        work_date: "2026-10-14",
+        status: "weekly_off",
+        missed_punch: true,
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        staff_id: "jolina",
+        staff_name: "Jolina Mae Castillo Salino",
+        employee_code: "INF-CC-STF15",
+        work_date: "2026-10-21",
+        status: "weekly_off",
+        missed_punch: false,
+      },
+    ]);
+    expect(row.daysPresent).toBe(3);
+    expect(row.missedPunches).toBe(0);
+    expect(row.blockingDays).toBe(0);
+    expect(row.payrollReady).toBe(true);
+    expect(row.blockReasons).toEqual([]);
+    expect(row.blockDays).toEqual([]);
+  });
+
+  it("still blocks a real missed punch alongside paid week offs", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "jorene",
+        staff_name: "Jorene Tesoro Quixote",
+        work_date: "2026-10-14",
+        status: "weekly_off",
+        missed_punch: true,
+      },
+      {
+        staff_id: "jorene",
+        staff_name: "Jorene Tesoro Quixote",
+        work_date: "2026-10-15",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-15T09:00:00.000Z",
+        actual_out: null,
+        punch_count: 1,
+      },
+    ]);
+    expect(row.daysPresent).toBe(2); // week off paid + one-sided punch still listing-worked
+    expect(row.payrollReady).toBe(false);
+    expect(row.missedPunches).toBe(1);
+    expect(row.blockReasons).toEqual([{ code: "missed_punch", count: 1 }]);
+    expect(row.blockDays).toEqual([{ workDate: "2026-10-15", code: "missed_punch" }]);
+  });
+
+  it("prefers weekly_off over a punchless missed_punch sibling when collapsing sites", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "judith",
+        staff_name: "Judith appiah",
+        work_date: "2026-10-14",
+        status: "missed_punch",
+        missed_punch: true,
+        punch_count: 0,
+      },
+      {
+        staff_id: "judith",
+        staff_name: "Judith appiah",
+        work_date: "2026-10-14",
+        status: "weekly_off",
+        missed_punch: false,
+        punch_count: 0,
+      },
+    ]);
+    expect(row.daysPresent).toBe(1);
+    expect(row.missedPunches).toBe(0);
+    expect(row.payrollReady).toBe(true);
   });
 
   it("treats weekly off and annual leave as paid entitlement days", () => {
