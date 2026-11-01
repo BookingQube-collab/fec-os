@@ -8,8 +8,7 @@ import { jsPDF } from "jspdf";
 import type { HrLetterStaffContext } from "@/lib/hr/hr-letter-fallback";
 import type { HrLetterDraft } from "@/lib/hr/hr-letter-types";
 
-const HEADER_REL = path.join("public", "brand", "e3-letterhead-header.jpg");
-const FOOTER_REL = path.join("public", "brand", "e3-letterhead-footer.jpg");
+type BrandLetterheadAsset = "header" | "footer";
 
 function formatLetterDate(iso: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
@@ -21,10 +20,27 @@ function wrapLines(doc: jsPDF, text: string, maxWidth: number): string[] {
   return doc.splitTextToSize(text, maxWidth) as string[];
 }
 
-async function loadBrandJpeg(relPath: string): Promise<string | null> {
+/**
+ * Each readFile must receive a fully static path.join(process.cwd(), ...) call
+ * (not a variable) so Turbopack only traces public/brand, not the whole project.
+ */
+async function loadBrandJpeg(asset: BrandLetterheadAsset): Promise<string | null> {
   try {
-    const abs = path.join(process.cwd(), relPath);
-    const bytes = await readFile(abs);
+    let bytes: Buffer;
+    switch (asset) {
+      case "header":
+        bytes = await readFile(
+          path.join(process.cwd(), "public", "brand", "e3-letterhead-header.jpg"),
+        );
+        break;
+      case "footer":
+        bytes = await readFile(
+          path.join(process.cwd(), "public", "brand", "e3-letterhead-footer.jpg"),
+        );
+        break;
+      default:
+        return null;
+    }
     return bytes.toString("base64");
   } catch {
     return null;
@@ -52,8 +68,8 @@ export async function renderHrLetterPdf(input: HrLetterPdfInput): Promise<Uint8A
   const rtl = input.locale === "ar";
 
   const [headerB64, footerB64] = await Promise.all([
-    loadBrandJpeg(HEADER_REL),
-    loadBrandJpeg(FOOTER_REL),
+    loadBrandJpeg("header"),
+    loadBrandJpeg("footer"),
   ]);
 
   const headerH = 32;
