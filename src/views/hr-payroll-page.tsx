@@ -460,10 +460,14 @@ export default function HrPayrollPage() {
                               {[
                                 Number(row.submittedOtQar ?? 0) > 0 ||
                                 Number(row.submittedOtMinutes ?? 0) > 0
-                                  ? t("hr.payroll.payExtraOt")
+                                  ? t("hr.payroll.payExtraOt", {
+                                      amount: formatPayQar(Number(row.submittedOtQar ?? 0)),
+                                    })
                                   : null,
                                 Number(row.airTicketQar ?? 0) > 0
-                                  ? t("hr.payroll.payExtraAirTicket")
+                                  ? t("hr.payroll.payExtraAirTicket", {
+                                      amount: formatPayQar(Number(row.airTicketQar ?? 0)),
+                                    })
                                   : null,
                               ]
                                 .filter(Boolean)
