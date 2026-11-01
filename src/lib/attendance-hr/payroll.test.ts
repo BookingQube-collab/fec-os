@@ -12,7 +12,9 @@ import {
   countPayrollPaidDays,
   effectivePayrollAttendanceStatus,
   formatPayrollBlockReasons,
+  includeStaffInPayrollAttendanceSummary,
   isPayrollBlockingDay,
+  isPayrollMergedAwayStaff,
   isPayrollPaidDay,
   isPayrollPaidNonWorkDay,
   isPayrollReady,
@@ -925,5 +927,117 @@ describe("payroll readiness", () => {
     expect(row.payrollReady).toBe(false);
     expect(row.missedPunches).toBe(1);
     expect(row.blockReasons).toEqual([{ code: "missed_punch", count: 1 }]);
+  });
+
+  it("omits exited staff with only Absent filler rows (0 paid days, no attendance activity)", () => {
+    const rows = aggregatePayrollRows([
+      {
+        staff_id: "exited",
+        staff_name: "Abiola Moses Ogunniyi",
+        employee_code: "KDS-CC-STF05",
+        work_date: "2026-09-28",
+        status: "absent",
+      },
+      {
+        staff_id: "exited",
+        staff_name: "Abiola Moses Ogunniyi",
+        employee_code: "KDS-CC-STF05",
+        work_date: "2026-09-29",
+        status: "absent",
+      },
+      {
+        staff_id: "active-paid",
+        staff_name: "Abdallah Osman",
+        work_date: "2026-09-28",
+        status: "present",
+        worked_minutes: 480,
+        overtime_minutes: 77,
+        actual_in: "2026-09-28T05:00:00.000Z",
+        actual_out: "2026-09-28T14:00:00.000Z",
+      },
+    ]).filter(includeStaffInPayrollAttendanceSummary);
+
+    expect(rows.map((r) => r.staffId)).toEqual(["active-paid"]);
+    expect(rows[0]?.daysPresent).toBe(1);
+  });
+
+  it("omits soft-deleted merge archives (Lilam stub) and keeps the surviving staff id", () => {
+    expect(isPayrollMergedAwayStaff("2026-10-01T12:00:00.000Z")).toBe(true);
+    expect(isPayrollMergedAwayStaff(null)).toBe(false);
+
+    const archiveRow = {
+      daysPresent: 0,
+      daysLeave: 0,
+      daysUnpaidLeave: 0,
+      daysLate: 0,
+      missedPunches: 0,
+      blockingDays: 0,
+      workedMinutes: 0,
+      overtimeMinutes: 0,
+      submittedOtMinutes: 0,
+    };
+    // KDS-CC-STF02 archived via merge_duplicate_staff_locations → deleted_at set.
+    expect(
+      includeStaffInPayrollAttendanceSummary(archiveRow, {
+        deletedAt: "2026-10-01T12:00:00.000Z",
+      }),
+    ).toBe(false);
+
+    // Keeper S17 with paid days stays even when a merge archive exists elsewhere.
+    expect(
+      includeStaffInPayrollAttendanceSummary(
+        { ...archiveRow, daysPresent: 18 },
+        { deletedAt: null },
+      ),
+    ).toBe(true);
+
+    // Keeper with 0 paid days and no activity still drops via the zero-day rule.
+    expect(includeStaffInPayrollAttendanceSummary(archiveRow, { deletedAt: null })).toBe(false);
+  });
+
+  it("keeps staff with attendance activity even when paid days are 0", () => {
+    // Punchless review_required blocks Ready but is not a paid entitlement day.
+    const [blocked] = aggregatePayrollRows([
+      {
+        staff_id: "review",
+        staff_name: "Needs Review",
+        work_date: "2026-09-28",
+        status: "review_required",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ]);
+    expect(blocked.daysPresent).toBe(0);
+    expect(blocked.blockingDays).toBe(1);
+    expect(includeStaffInPayrollAttendanceSummary(blocked)).toBe(true);
+
+    const [onLeave] = aggregatePayrollRows([
+      {
+        staff_id: "leave",
+        staff_name: "Unpaid Leave Only",
+        work_date: "2026-09-28",
+        status: "unpaid_leave",
+      },
+    ]);
+    expect(onLeave.daysPresent).toBe(0);
+    expect(onLeave.daysLeave).toBe(1);
+    expect(includeStaffInPayrollAttendanceSummary(onLeave)).toBe(true);
+
+    // Submitted OT alone (after aggregate) must keep a 0-paid row visible.
+    expect(
+      includeStaffInPayrollAttendanceSummary({
+        daysPresent: 0,
+        daysLeave: 0,
+        daysUnpaidLeave: 0,
+        daysLate: 0,
+        missedPunches: 0,
+        blockingDays: 0,
+        workedMinutes: 0,
+        overtimeMinutes: 0,
+        submittedOtMinutes: 90,
+      }),
+    ).toBe(true);
   });
 });

@@ -15,7 +15,11 @@ import { DEFAULT_GEOFENCE_RADIUS_METERS, evaluateGeofence, pickNearestFence, SIT
 import { DEFAULT_HR_NOTIFY_TOGGLES } from "@/lib/attendance-hr/hr-notify";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_RULES } from "@/lib/attendance-hr/constants";
-import { aggregatePayrollRows, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
+import {
+  aggregatePayrollRows,
+  includeStaffInPayrollAttendanceSummary,
+  type PayrollDayInput,
+} from "@/lib/attendance-hr/payroll";
 import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import {
@@ -639,6 +643,14 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     // Always load all sites in the cycle, then collapse staff+date (listing does the same).
     // Location filter = which staff appear, not "only count punches at this site".
     // PostgREST max_rows ~1000: .limit(50000) still returns one page and undercounts Present.
+    type PayrollSummaryStaffJoin = {
+      full_name?: string | null;
+      employee_code?: string | null;
+      employment_type?: string | null;
+      flexible_attendance?: boolean | null;
+      hire_date?: string | null;
+      deleted_at?: string | null;
+    };
     type PayrollSummaryAttRow = {
       staff_id: string | null;
       location_id: string | null;
@@ -653,22 +665,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       actual_out: string | null;
       scheduled_in: string | null;
       scheduled_out: string | null;
-      staff:
-        | {
-            full_name?: string | null;
-            employee_code?: string | null;
-            employment_type?: string | null;
-            flexible_attendance?: boolean | null;
-            hire_date?: string | null;
-          }
-        | Array<{
-            full_name?: string | null;
-            employee_code?: string | null;
-            employment_type?: string | null;
-            flexible_attendance?: boolean | null;
-            hire_date?: string | null;
-          }>
-        | null;
+      staff: PayrollSummaryStaffJoin | PayrollSummaryStaffJoin[] | null;
       locations:
         | { code?: string | null; name?: string | null }
         | Array<{ code?: string | null; name?: string | null }>
@@ -678,7 +675,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       const { data: page, error } = await supabaseAdmin
         .from("attendance_daily_summary")
         .select(
-          "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out, staff(full_name, employee_code, employment_type, flexible_attendance, hire_date), locations(code, name)",
+          "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out, staff(full_name, employee_code, employment_type, flexible_attendance, hire_date, deleted_at), locations(code, name)",
         )
         .gte("work_date", data.dateFrom)
         .lte("work_date", data.dateTo)
@@ -702,7 +699,12 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
 
     const staffAtFilterLoc = new Set<string>();
     const staffLocVotes = new Map<string, Map<string, number>>();
-    const days: PayrollDayInput[] = rows.map((row) => {
+    const days: PayrollDayInput[] = [];
+    for (const row of rows) {
+      const staffJoin = Array.isArray(row.staff) ? row.staff[0] : row.staff;
+      // Soft-deleted merge archives (e.g. Lilam KDS-CC-STF02) — keeper already owns the person.
+      if (staffJoin?.deleted_at) continue;
+
       const staffId = String(row.staff_id);
       const locationId = row.location_id ? String(row.location_id) : "";
       if (data.locationId && locationId === data.locationId) staffAtFilterLoc.add(staffId);
@@ -711,7 +713,6 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         votes.set(locationId, (votes.get(locationId) ?? 0) + 1);
         staffLocVotes.set(staffId, votes);
       }
-      const staffJoin = Array.isArray(row.staff) ? row.staff[0] : row.staff;
       const locJoin = Array.isArray(row.locations) ? row.locations[0] : row.locations;
       if (locationId && locJoin && !locLabelById.has(locationId)) {
         locLabelById.set(
@@ -722,12 +723,12 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
           ),
         );
       }
-      const fullName = String((staffJoin as { full_name?: string } | null)?.full_name ?? "").trim();
-      const employeeCode = String((staffJoin as { employee_code?: string } | null)?.employee_code ?? "");
-      const employmentType = (staffJoin as { employment_type?: string | null } | null)?.employment_type ?? null;
-      const flexible = Boolean((staffJoin as { flexible_attendance?: boolean | null } | null)?.flexible_attendance);
-      const hireDate = (staffJoin as { hire_date?: string | null } | null)?.hire_date ?? null;
-      return {
+      const fullName = String(staffJoin?.full_name ?? "").trim();
+      const employeeCode = String(staffJoin?.employee_code ?? "");
+      const employmentType = staffJoin?.employment_type ?? null;
+      const flexible = Boolean(staffJoin?.flexible_attendance);
+      const hireDate = staffJoin?.hire_date ?? null;
+      days.push({
         staff_id: staffId,
         staff_name: fullName || null,
         employee_code: employeeCode || null,
@@ -745,8 +746,8 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         employment_type: employmentType,
         flexible_attendance: flexible,
         hire_date: hireDate ? String(hireDate).slice(0, 10) : null,
-      };
-    });
+      });
+    }
 
     // Ops / F&B / Cafe (and attendance) OT claims — show submitted pipeline hours, not punch OT alone.
     const otRows = await collectPagedRows(async (from, to) => {
@@ -798,6 +799,8 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     if (data.locationId) {
       summary = summary.filter((row) => staffAtFilterLoc.has(row.staffId));
     }
+    // Drop terminated/resigned ghosts: 0 paid days and no leave/punches/OT/exceptions.
+    summary = summary.filter(includeStaffInPayrollAttendanceSummary);
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,

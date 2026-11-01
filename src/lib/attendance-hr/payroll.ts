@@ -462,6 +462,71 @@ export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "miss
   return row.blockingDays === 0 && row.missedPunches === 0;
 }
 
+/**
+ * Meaningful period activity beyond phantom absent / unscheduled filler rows.
+ * Terminated / resigned people often still have daily_summary Absent rows for the
+ * whole cycle — those alone must not keep them on /people/payroll.
+ */
+export function hasPayrollAttendanceActivity(
+  row: Pick<
+    PayrollStaffRow,
+    | "daysLeave"
+    | "daysUnpaidLeave"
+    | "daysLate"
+    | "missedPunches"
+    | "blockingDays"
+    | "workedMinutes"
+    | "overtimeMinutes"
+    | "submittedOtMinutes"
+  >,
+): boolean {
+  return (
+    row.daysLeave > 0 ||
+    row.daysUnpaidLeave > 0 ||
+    row.daysLate > 0 ||
+    row.missedPunches > 0 ||
+    row.blockingDays > 0 ||
+    row.workedMinutes > 0 ||
+    row.overtimeMinutes > 0 ||
+    row.submittedOtMinutes > 0
+  );
+}
+
+/**
+ * Soft-deleted merge archives (`staff.deleted_at`, same as deactivateStaff /
+ * merge_duplicate_staff_locations for Lilam KDS-CC-STF02 → S17). Keepers already
+ * own relocated attendance; the archived row must not appear on /people/payroll.
+ */
+export function isPayrollMergedAwayStaff(deletedAt: string | null | undefined): boolean {
+  return Boolean(deletedAt);
+}
+
+/**
+ * /people/payroll readiness list: keep anyone with paid entitlement days or real
+ * attendance activity (leave, punches/OT, missed punch / blockers). Omit exited /
+ * never-worked ghosts with 0 paid days and only Absent filler rows.
+ * Also omit soft-deleted merge archives when `deletedAt` is provided.
+ */
+export function includeStaffInPayrollAttendanceSummary(
+  row: Pick<
+    PayrollStaffRow,
+    | "daysPresent"
+    | "daysLeave"
+    | "daysUnpaidLeave"
+    | "daysLate"
+    | "missedPunches"
+    | "blockingDays"
+    | "workedMinutes"
+    | "overtimeMinutes"
+    | "submittedOtMinutes"
+  >,
+  evidence?: { deletedAt?: string | null },
+): boolean {
+  if (isPayrollMergedAwayStaff(evidence?.deletedAt)) return false;
+  if (row.daysPresent > 0) return true;
+  return hasPayrollAttendanceActivity(row);
+}
+
 function earlierPayrollIso(a: string | null | undefined, b: string | null | undefined): string | null {
   if (!a) return b ?? null;
   if (!b) return a;
