@@ -4,6 +4,7 @@ import { resolveEarnedBasicQar } from "@/lib/hr-payroll";
 
 import {
   aggregatePayrollRows,
+  applyPayrollAcceptedCorrectionOverlay,
   attachPayrollScheduleContext,
   countListingWorkedDays,
   countPayrollPaidDays,
@@ -492,6 +493,92 @@ describe("payroll readiness", () => {
     );
     expect(day.is_week_off).toBe(true);
     expect(payrollBlockReasonCode(day)).toBe(null);
+  });
+
+  it("clears Ready block when an approved missed-punch correction supplies both clocks", () => {
+    const raw = [
+      {
+        staff_id: "staff-mp",
+        staff_name: "Approved MP",
+        work_date: "2026-10-18",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-10-18T06:00:00.000Z",
+        actual_out: null,
+        punch_count: 1,
+      },
+    ];
+    expect(payrollBlockReasonCode(raw[0]!)).toBe("missed_punch");
+
+    const [day] = applyPayrollAcceptedCorrectionOverlay(raw, [
+      {
+        id: "corr-1",
+        staffId: "staff-mp",
+        workDate: "2026-10-18",
+        status: "approved",
+        currentStepRole: null,
+        punchType: "both",
+        punchAt: null,
+        punchInAt: "2026-10-18T06:00:00.000Z",
+        punchOutAt: "2026-10-18T15:00:00.000Z",
+        requestedAt: "2026-10-19T10:00:00.000Z",
+      },
+    ]);
+    expect(day.actual_out).toBe("2026-10-18T15:00:00.000Z");
+    expect(day.missed_punch).toBe(false);
+    expect(day.status).toBe("present");
+    expect(payrollBlockReasonCode(day)).toBe(null);
+    expect(aggregatePayrollRows([day])[0]?.payrollReady).toBe(true);
+  });
+
+  it("does not block punchless joker days with no on-duty roster (Beth 18–21)", () => {
+    const raw = [18, 19, 20, 21].map((d) => ({
+      staff_id: "beth",
+      staff_name: "Bethany",
+      work_date: `2026-10-${d}`,
+      status: "missed_punch" as const,
+      missed_punch: true,
+      employment_type: "joker",
+      actual_in: null,
+      actual_out: null,
+      punch_count: 0,
+    }));
+    const days = attachPayrollScheduleContext(raw, { roster: [] });
+    for (const day of days) {
+      expect(day.status).toBe("unscheduled");
+      expect(day.missed_punch).toBe(false);
+      expect(day.has_on_duty_roster).toBe(false);
+      expect(payrollBlockReasonCode(day)).toBe(null);
+    }
+    const [row] = aggregatePayrollRows(days);
+    expect(row.missedPunches).toBe(0);
+    expect(row.blockingDays).toBe(0);
+    expect(row.payrollReady).toBe(true);
+  });
+
+  it("still blocks a real one-sided punch on a scheduled joker work day", () => {
+    const [day] = attachPayrollScheduleContext(
+      [
+        {
+          staff_id: "beth",
+          staff_name: "Bethany",
+          work_date: "2026-10-22",
+          status: "missed_punch",
+          missed_punch: true,
+          employment_type: "joker",
+          actual_in: "2026-10-22T09:00:00.000Z",
+          actual_out: null,
+          punch_count: 1,
+        },
+      ],
+      {
+        roster: [{ staff_id: "beth", work_date: "2026-10-22", is_week_off: false }],
+      },
+    );
+    expect(day.has_on_duty_roster).toBe(true);
+    expect(day.status).toBe("missed_punch");
+    expect(payrollBlockReasonCode(day)).toBe("missed_punch");
+    expect(aggregatePayrollRows([day])[0]?.payrollReady).toBe(false);
   });
 
   it("treats weekly off and annual leave as paid entitlement days", () => {

@@ -5,7 +5,12 @@ import {
 } from "@/lib/attendance-display";
 import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workbook";
 import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
+import {
+  applyAcceptedCorrectionTimes,
+  type AcceptedCorrectionPunch,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { resolveWeekOff } from "@/lib/attendance-hr/shift-policy";
+import { isJokerStaff } from "@/lib/staff-status";
 
 /** Undertime (short_hours) is not blocking — Generate pays roster/attendance days as worked;
  *  short-hour pay cuts are a manual payslip Other deduction if HR chooses.
@@ -45,6 +50,11 @@ export type PayrollDayInput = {
    * status=missed_punch / absent on week offs — listing overlays roster; payroll must too.
    */
   is_week_off?: boolean | null;
+  /**
+   * True when roster has an on-duty (non week-off) assignment that day.
+   * Jokers without on-duty roster are unscheduled — not missed_punch Ready blockers.
+   */
+  has_on_duty_roster?: boolean | null;
   /** Approved leave from attendance_leave_records (wins over roster week-off). */
   leave_type?: string | null;
 };
@@ -157,10 +167,50 @@ export type PayrollLeaveDay = {
   leave_type: string;
 };
 
+function payrollDayHasUsablePunch(
+  day: Pick<PayrollDayInput, "actual_in" | "actual_out" | "punch_count">,
+): boolean {
+  if (day.actual_in || day.actual_out) return true;
+  return Number(day.punch_count ?? 0) > 0;
+}
+
+/**
+ * Punchless joker / day-rate with no on-duty roster and no leave — attendance shows
+ * Unscheduled (Beth). Stale daily_summary missed_punch must not Block Ready.
+ */
+export function isPayrollUnscheduledNonWorkDay(
+  day: Pick<
+    PayrollDayInput,
+    | "status"
+    | "missed_punch"
+    | "actual_in"
+    | "actual_out"
+    | "punch_count"
+    | "employment_type"
+    | "has_on_duty_roster"
+    | "is_week_off"
+    | "leave_type"
+    | "scheduled_in"
+    | "scheduled_out"
+  >,
+): boolean {
+  if (payrollDayHasUsablePunch(day)) return false;
+  if (day.leave_type) return false;
+  if (isPayrollPaidNonWorkDay(day)) return false;
+  const status = normalizePayrollAttendanceStatus(day.status);
+  if (status === "unscheduled") return true;
+  if (!isJokerStaff({ employment_type: day.employment_type })) return false;
+  if (day.has_on_duty_roster === true) return false;
+  if (day.has_on_duty_roster === false) return true;
+  // Schedule context not attached: infer from shift bounds (no times ⇒ not expected).
+  return !day.scheduled_in && !day.scheduled_out && !day.is_week_off;
+}
+
 /**
  * Attach roster week-off + leave onto daily_summary rows before aggregatePayrollRows.
  * Week-off on any roster site counts (listing rule). Standing weekly_off_weekday applies
  * only when that staff+date has no roster row. Leave wins over week-off.
+ * Punchless jokers without on-duty roster become unscheduled (not missed_punch).
  */
 export function attachPayrollScheduleContext(
   days: PayrollDayInput[],
@@ -172,6 +222,7 @@ export function attachPayrollScheduleContext(
 ): PayrollDayInput[] {
   const weekOffKeys = new Set<string>();
   const rosteredKeys = new Set<string>();
+  const onDutyKeys = new Set<string>();
   for (const r of input.roster ?? []) {
     const staffId = String(r.staff_id ?? "").trim();
     const day = String(r.work_date ?? "").slice(0, 10);
@@ -179,6 +230,7 @@ export function attachPayrollScheduleContext(
     const key = `${staffId}|${day}`;
     rosteredKeys.add(key);
     if (r.is_week_off) weekOffKeys.add(key);
+    else onDutyKeys.add(key);
   }
 
   const leaveByKey = new Map<string, string>();
@@ -200,18 +252,81 @@ export function attachPayrollScheduleContext(
     const leaveType = leaveByKey.get(key) ?? day.leave_type ?? null;
     const hasRosterRow = rosteredKeys.has(key);
     const rosterIsWeekOff = weekOffKeys.has(key);
+    const hasOnDutyRoster = onDutyKeys.has(key);
     const isWeekOff = resolveWeekOff({
       hasRosterRow,
       rosterIsWeekOff,
       workDate,
       weeklyOffWeekday: standing?.get(staffId) ?? null,
     });
-    if (!leaveType && !isWeekOff && !day.is_week_off && !day.leave_type) return day;
-    return {
+    let next: PayrollDayInput = {
       ...day,
-      leave_type: leaveType,
-      // Leave wins: do not keep week-off when an approved leave type is attached.
-      is_week_off: leaveType ? false : Boolean(isWeekOff || day.is_week_off),
+      has_on_duty_roster: hasOnDutyRoster,
+    };
+    if (leaveType || isWeekOff || day.is_week_off || day.leave_type) {
+      next = {
+        ...next,
+        leave_type: leaveType,
+        // Leave wins: do not keep week-off when an approved leave type is attached.
+        is_week_off: leaveType ? false : Boolean(isWeekOff || day.is_week_off),
+      };
+    }
+    // Beth-style joker: no duty, no punches, not leave → Unscheduled (listing rule).
+    if (
+      isPayrollUnscheduledNonWorkDay({
+        ...next,
+        has_on_duty_roster: hasOnDutyRoster,
+        leave_type: leaveType ?? next.leave_type,
+        is_week_off: next.is_week_off,
+      })
+    ) {
+      return {
+        ...next,
+        status: "unscheduled",
+        missed_punch: false,
+        has_on_duty_roster: false,
+      };
+    }
+    return next;
+  });
+}
+
+/**
+ * Overlay ops-accepted / fully approved correction clocks onto payroll days
+ * (same as attendance listing + My Attendance) so Ready clears when attendance looks OK
+ * even if daily_summary still has stale missed_punch / one-sided times.
+ */
+export function applyPayrollAcceptedCorrectionOverlay(
+  days: PayrollDayInput[],
+  corrections: readonly AcceptedCorrectionPunch[],
+): PayrollDayInput[] {
+  if (!days.length || !corrections.length) return days;
+  const timed = applyAcceptedCorrectionTimes(
+    days.map((day) => ({
+      ...day,
+      staff_id: day.staff_id,
+      work_date: String(day.work_date ?? "").slice(0, 10),
+      actual_in: day.actual_in ?? null,
+      actual_out: day.actual_out ?? null,
+    })),
+    corrections,
+  );
+  return timed.map((row, index) => {
+    const prev = days[index]!;
+    if (row.actual_in === (prev.actual_in ?? null) && row.actual_out === (prev.actual_out ?? null)) {
+      return prev;
+    }
+    const hasBoth = Boolean(row.actual_in && row.actual_out);
+    const wasMissed =
+      Boolean(prev.missed_punch) ||
+      normalizePayrollAttendanceStatus(prev.status) === "missed_punch";
+    return {
+      ...prev,
+      actual_in: row.actual_in,
+      actual_out: row.actual_out,
+      missed_punch: hasBoth ? false : prev.missed_punch,
+      status: hasBoth && wasMissed ? "present" : prev.status,
+      punch_count: hasBoth ? Math.max(Number(prev.punch_count ?? 0), 2) : prev.punch_count,
     };
   });
 }
@@ -226,7 +341,17 @@ export function hasPayrollCompletePunches(
 export function isPayrollBlockingDay(
   row: Pick<
     PayrollDayInput,
-    "status" | "missed_punch" | "actual_in" | "actual_out" | "is_week_off" | "leave_type"
+    | "status"
+    | "missed_punch"
+    | "actual_in"
+    | "actual_out"
+    | "is_week_off"
+    | "leave_type"
+    | "punch_count"
+    | "employment_type"
+    | "has_on_duty_roster"
+    | "scheduled_in"
+    | "scheduled_out"
   >,
 ): boolean {
   return payrollBlockReasonCode(row) != null;
@@ -380,12 +505,23 @@ export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInp
 /** Canonical block code for a day — shared by aggregate + Fix UI.
  *  Aligns with attendance listing: both punches ⇒ not a missed punch / not Ready-blocking.
  *  Paid week off / annual leave / other paid non-work never block (stale missed_punch ignored).
+ *  Punchless jokers / unscheduled (no on-duty roster) never block.
  *  Labels: xor or flagged incomplete punches → missed_punch; status-only gaps → incomplete /
  *  review_required (never relabel complete-punch review days as Missed punch). */
 export function payrollBlockReasonCode(
   day: Pick<
     PayrollDayInput,
-    "status" | "missed_punch" | "actual_in" | "actual_out" | "is_week_off" | "leave_type"
+    | "status"
+    | "missed_punch"
+    | "actual_in"
+    | "actual_out"
+    | "is_week_off"
+    | "leave_type"
+    | "punch_count"
+    | "employment_type"
+    | "has_on_duty_roster"
+    | "scheduled_in"
+    | "scheduled_out"
   >,
 ): string | null {
   // Listing already shows Present/OT/Review with both times — Generate must Ready the same days.
@@ -394,6 +530,9 @@ export function payrollBlockReasonCode(
   // Roster week-off / paid leave (and status aliases) — never Ready blockers, even when
   // daily_summary still says missed_punch.
   if (isPayrollPaidNonWorkDay(day)) return null;
+
+  // Joker / unscheduled rest — not expected to punch; stale missed_punch must not Block.
+  if (isPayrollUnscheduledNonWorkDay(day)) return null;
 
   const status = normalizePayrollAttendanceStatus(day.status);
   const hasIn = Boolean(day.actual_in);

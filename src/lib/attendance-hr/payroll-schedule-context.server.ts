@@ -1,23 +1,35 @@
 /**
- * Load roster week-off + leave for payroll readiness / Generate.
- * daily_summary often keeps status=missed_punch on rest days; attachPayrollScheduleContext
- * overlays the same schedule signals the attendance listing uses.
+ * Load roster week-off + leave + ops-accepted correction clocks for payroll readiness / Generate.
+ * daily_summary often keeps status=missed_punch on rest days or after approved corrections;
+ * attachPayrollScheduleContext + applyPayrollAcceptedCorrectionOverlay overlay the same
+ * signals the attendance listing / My Attendance use.
  */
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 import {
+  applyPayrollAcceptedCorrectionOverlay,
   attachPayrollScheduleContext,
   type PayrollDayInput,
   type PayrollLeaveDay,
   type PayrollRosterDay,
 } from "@/lib/attendance-hr/payroll";
+import {
+  punchesFromCorrectionValue,
+  type AcceptedCorrectionPunch,
+  type MissedPunchStepRole,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 
 function chunkIds(ids: string[], size: number): string[][] {
   const out: string[][] = [];
   for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
   return out;
+}
+
+function asStepRole(value: unknown): MissedPunchStepRole | null {
+  if (value === "manager" || value === "ops" || value === "hr" || value === "gm") return value;
+  return null;
 }
 
 async function loadPayrollRosterDays(
@@ -111,7 +123,46 @@ async function loadWeeklyOffWeekdayByStaff(staffIds: string[]): Promise<Map<stri
   return out;
 }
 
-/** Overlay roster week-off + leave (+ standing weekday) onto payroll day inputs. */
+/** Same ops-accepted correction clocks the attendance listing overlays. */
+async function loadPayrollAcceptedCorrectionPunches(
+  staffIds: string[],
+  dateFrom: string,
+  dateTo: string,
+): Promise<AcceptedCorrectionPunch[]> {
+  if (!staffIds.length) return [];
+  const out: AcceptedCorrectionPunch[] = [];
+  for (const chunk of chunkIds(staffIds, 80)) {
+    const { data, error } = await supabaseAdmin
+      .from("attendance_corrections")
+      .select("id, staff_id, work_date, status, current_step_role, new_value, requested_at")
+      .in("staff_id", chunk)
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .in("status", ["pending", "approved"]);
+    if (error) {
+      if (/does not exist|schema cache|column/i.test(error.message)) return out;
+      throw error;
+    }
+    for (const row of data ?? []) {
+      const clocks = punchesFromCorrectionValue((row.new_value ?? null) as Record<string, unknown> | null);
+      out.push({
+        id: String(row.id),
+        staffId: row.staff_id ? String(row.staff_id) : null,
+        workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
+        status: String(row.status ?? ""),
+        currentStepRole: asStepRole(row.current_step_role),
+        punchType: clocks.punchType,
+        punchAt: clocks.punchAt,
+        punchInAt: clocks.punchInAt,
+        punchOutAt: clocks.punchOutAt,
+        requestedAt: row.requested_at ? String(row.requested_at) : null,
+      });
+    }
+  }
+  return out;
+}
+
+/** Overlay roster week-off + leave (+ standing weekday) + accepted MP corrections onto payroll day inputs. */
 export async function withPayrollScheduleContext(
   days: PayrollDayInput[],
   opts: { dateFrom: string; dateTo: string; staffIds?: string[] },
@@ -128,15 +179,17 @@ export async function withPayrollScheduleContext(
       ];
   if (!staffIds.length || days.length === 0) return days;
 
-  const [roster, leave, weeklyOffWeekdayByStaff] = await Promise.all([
+  const [roster, leave, weeklyOffWeekdayByStaff, acceptedCorrections] = await Promise.all([
     loadPayrollRosterDays(staffIds, opts.dateFrom, opts.dateTo),
     loadPayrollLeaveDays(staffIds, opts.dateFrom, opts.dateTo),
     loadWeeklyOffWeekdayByStaff(staffIds),
+    loadPayrollAcceptedCorrectionPunches(staffIds, opts.dateFrom, opts.dateTo),
   ]);
 
-  return attachPayrollScheduleContext(days, {
+  const scheduled = attachPayrollScheduleContext(days, {
     roster,
     leave,
     weeklyOffWeekdayByStaff,
   });
+  return applyPayrollAcceptedCorrectionOverlay(scheduled, acceptedCorrections);
 }
