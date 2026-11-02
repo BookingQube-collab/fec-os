@@ -64,7 +64,7 @@ export async function notifyUsers(opts: NotifyInsert): Promise<number> {
     return 0;
   }
 
-  // Phase 12: HR categories also POST to NOTIFICATION_EMAIL_WEBHOOK when set.
+  // Phase 12: HR categories also send via Admin email driver (SMTP/Resend/webhook).
   // Include staff.email as `to` so delivery uses the roster address after login-email sync.
   if (isHrNotificationCategory(opts.category)) {
     const emails = await staffEmailsByUserId(ids);

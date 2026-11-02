@@ -11,16 +11,33 @@ import {
   readEmailEnv,
   saveEmailSettingsRow,
   toPublicEmailSettings,
+  type EmailProvider,
   type EmailSettingsPublic,
+  type SmtpEncryption,
+  type SmtpPreset,
 } from "@/lib/email/settings";
+import { sendOutboundEmail, verifySmtpConnection } from "@/lib/email/send";
 import { createSafeAuthenticatedAction } from "@/lib/server/create-action";
+
+const providerSchema = z.enum(["resend", "smtp"]);
+const encryptionSchema = z.enum(["none", "ssl", "tls", "starttls"]);
+const presetSchema = z.enum(["custom", "mailgun_eu", "mailgun_us", "gmail"]);
 
 const saveSchema = z.object({
   enabled: z.boolean(),
+  provider: providerSchema,
   fromAddress: z.string().trim().max(320),
+  fromName: z.string().trim().max(200),
   resendApiKey: z.string().max(500),
+  smtpHost: z.string().trim().max(320),
+  smtpPort: z.number().int().min(1).max(65535),
+  smtpEncryption: encryptionSchema,
+  smtpUsername: z.string().trim().max(320),
+  smtpPassword: z.string().max(500),
+  smtpPreset: presetSchema,
   webhookUrl: z.string().max(2000),
   clearResendKey: z.boolean().optional(),
+  clearSmtpPassword: z.boolean().optional(),
   clearWebhook: z.boolean().optional(),
 });
 
@@ -30,16 +47,17 @@ const testSchema = z.object({
 
 const PLAIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function assertFromAddress(value: string, enabled: boolean) {
+function assertFromAddress(value: string, enabled: boolean, provider: EmailProvider) {
   const from = value.trim();
   if (!from) {
-    if (enabled) throw new Error("From address is required when outbound email is enabled.");
+    if (enabled) throw new Error("From / sender email is required when outbound email is enabled.");
     return;
   }
   if (PLAIN_EMAIL_RE.test(from)) return;
   const angled = from.match(/^[^<]*<([^>]+)>$/);
   if (angled && PLAIN_EMAIL_RE.test(angled[1].trim())) return;
   throw new Error("From address must be a valid email (or Name <email@domain>).");
+  void provider;
 }
 
 function assertHttpsWebhook(url: string) {
@@ -56,6 +74,27 @@ function assertHttpsWebhook(url: string) {
   }
 }
 
+function assertSmtpReady(opts: {
+  enabled: boolean;
+  provider: EmailProvider;
+  host: string;
+  username: string;
+  password: string;
+  envHost: string;
+  envUser: string;
+  envPass: string;
+}) {
+  if (!opts.enabled || opts.provider !== "smtp") return;
+  const host = opts.host.trim() || opts.envHost.trim();
+  const user = opts.username.trim() || opts.envUser.trim();
+  const pass = opts.password.trim() || opts.envPass.trim();
+  if (!host || !user || !pass) {
+    throw new Error(
+      "SMTP requires host, username, and password (or matching SMTP_* / GMAIL_* env vars).",
+    );
+  }
+}
+
 export const loadAppEmailSettings = createSafeAuthenticatedAction(
   z.object({}),
   async (): Promise<EmailSettingsPublic> => getPublicEmailSettings(),
@@ -66,19 +105,36 @@ export const saveAppEmailSettings = createSafeAuthenticatedAction(
   saveSchema,
   async (data, context): Promise<EmailSettingsPublic> => {
     const existing = await loadEmailSettingsRow();
+    const env = readEmailEnv();
     const fromAddress = data.fromAddress.trim();
-    assertFromAddress(fromAddress, data.enabled);
+    const fromName = data.fromName.trim();
+    const provider = data.provider as EmailProvider;
+    assertFromAddress(fromAddress, data.enabled, provider);
     assertHttpsWebhook(data.webhookUrl);
 
     let resendApiKey = keepSecret(existing?.resend_api_key ?? "", data.resendApiKey);
+    let smtpPassword = keepSecret(existing?.smtp_password ?? "", data.smtpPassword);
     let webhookUrl = keepSecret(existing?.webhook_url ?? "", data.webhookUrl);
     if (data.clearResendKey) resendApiKey = "";
+    if (data.clearSmtpPassword) smtpPassword = "";
     if (data.clearWebhook) webhookUrl = "";
 
-    if (data.enabled && !resendApiKey.trim() && !webhookUrl.trim()) {
-      const env = readEmailEnv();
+    assertSmtpReady({
+      enabled: data.enabled,
+      provider,
+      host: data.smtpHost,
+      username: data.smtpUsername,
+      password: smtpPassword,
+      envHost: env.smtpHost,
+      envUser: env.smtpUsername,
+      envPass: env.smtpPassword,
+    });
+
+    if (data.enabled && provider === "resend" && !resendApiKey.trim() && !webhookUrl.trim()) {
       if (!env.resendApiKey && !env.webhookUrl) {
-        throw new Error("Enable outbound email only after a Resend API key or webhook URL is saved (or set in env).");
+        throw new Error(
+          "Enable Resend only after an API key or webhook URL is saved (or set in env).",
+        );
       }
     }
 
@@ -86,20 +142,28 @@ export const saveAppEmailSettings = createSafeAuthenticatedAction(
       {
         managed: true,
         enabled: data.enabled,
+        provider,
         from_address: fromAddress,
+        from_name: fromName,
         resend_api_key: resendApiKey.trim(),
+        smtp_host: data.smtpHost.trim(),
+        smtp_port: data.smtpPort,
+        smtp_encryption: data.smtpEncryption as SmtpEncryption,
+        smtp_username: data.smtpUsername.trim(),
+        smtp_password: smtpPassword.trim(),
+        smtp_preset: data.smtpPreset as SmtpPreset,
         webhook_url: webhookUrl.trim(),
       },
       context.userId,
     );
-    return toPublicEmailSettings(saved, readEmailEnv());
+    return toPublicEmailSettings(saved, env);
   },
   { auth: EMAIL_SETTINGS_AUTH },
 );
 
 export const testAppEmailSettings = createSafeAuthenticatedAction(
   testSchema,
-  async (data): Promise<{ sent: boolean; reason?: string; source?: string }> => {
+  async (data): Promise<{ sent: boolean; reason?: string; source?: string; provider?: string }> => {
     const config = await getOutboundEmailConfig();
     if (!config) {
       return { sent: false, reason: "email_provider_not_configured" };
@@ -109,45 +173,40 @@ export const testAppEmailSettings = createSafeAuthenticatedAction(
     const html =
       "<h2>Email configuration test</h2><p>This message confirms outbound email is working from the Admin Email settings page.</p>";
 
-    if (config.resendApiKey) {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.resendApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: config.fromAddress,
-          to: data.to,
-          subject,
-          html,
-        }),
-      });
-      if (!res.ok) {
-        return { sent: false, reason: await res.text(), source: config.source };
-      }
-      return { sent: true, source: config.source };
-    }
+    const result = await sendOutboundEmail(
+      {
+        to: data.to,
+        subject,
+        html,
+        template: "admin_email_test",
+        channel: "email",
+      },
+      config,
+    );
+    return {
+      sent: result.sent,
+      reason: result.reason,
+      source: result.source,
+      provider: result.provider,
+    };
+  },
+  { auth: EMAIL_SETTINGS_AUTH },
+);
 
-    if (config.webhookUrl) {
-      const res = await fetch(config.webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: data.to,
-          subject,
-          html,
-          template: "admin_email_test",
-          channel: "email",
-        }),
-      });
-      if (!res.ok) {
-        return { sent: false, reason: await res.text(), source: config.source };
-      }
-      return { sent: true, source: config.source };
+export const testAppSmtpConnection = createSafeAuthenticatedAction(
+  z.object({}),
+  async (): Promise<{ ok: boolean; reason?: string; host?: string; port?: number }> => {
+    const config = await getOutboundEmailConfig();
+    if (!config?.smtp) {
+      return { ok: false, reason: "smtp_not_configured" };
     }
-
-    return { sent: false, reason: "email_provider_not_configured" };
+    const verified = await verifySmtpConnection(config.smtp);
+    return {
+      ok: verified.ok,
+      reason: verified.reason,
+      host: config.smtp.host,
+      port: config.smtp.port,
+    };
   },
   { auth: EMAIL_SETTINGS_AUTH },
 );

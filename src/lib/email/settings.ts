@@ -10,6 +10,7 @@ export {
 } from "@/lib/email/settings-store";
 
 export {
+  applySmtpPreset,
   keepSecret,
   readEmailEnv,
   resolveOutboundEmailConfig,
@@ -17,8 +18,15 @@ export {
   toPublicEmailSettings,
   webhookHostHint,
   DEFAULT_EMAIL_FROM,
+  EMAIL_PROVIDERS,
+  SMTP_ENCRYPTIONS,
+  SMTP_PRESETS,
+  SMTP_PRESET_VALUES,
   type EmailEnv,
+  type EmailProvider,
   type EmailSettingsPublic,
   type EmailSettingsRow,
   type OutboundEmailConfig,
+  type SmtpEncryption,
+  type SmtpPreset,
 } from "@/lib/email/outbound-config";

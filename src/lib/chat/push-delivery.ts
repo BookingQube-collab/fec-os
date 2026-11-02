@@ -96,7 +96,7 @@ async function emailOptIn(userIds: readonly string[]): Promise<Set<string>> {
 /**
  * In-app rows are already inserted. This does not throw.
  * Push runs only when an admin has enabled saved keys (or the settings row is missing and env is complete).
- * Email runs only when NOTIFICATION_EMAIL_WEBHOOK is set and that user turned on chat email.
+ * Email runs only when an outbound driver is configured and that user turned on chat email.
  */
 export async function deliverChatChannels(input: {
   userIds: readonly string[];
@@ -154,14 +154,16 @@ export async function deliverChatChannels(input: {
   }
 
   const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+  const { outboundEmailReady } = await import("@/lib/email/send");
   const emailConfig = await getOutboundEmailConfig().catch(() => null);
-  const webhookConfigured = Boolean(emailConfig?.webhookUrl?.trim());
-  if (!webhookConfigured) return;
+  const emailConfigured = outboundEmailReady(emailConfig);
+  if (!emailConfigured) return;
 
   try {
     const allowed = await emailOptIn(userIds);
     await Promise.all(
       userIds.map(async (userId) => {
+        // Keep the existing gate name; "webhookConfigured" now means any outbound driver.
         if (!shouldSendChatEmail({ webhookConfigured: true, channelEmail: allowed.has(userId) })) return;
         const result = await emailProvider.dispatch({
           notificationId: `chat-${userId}`,

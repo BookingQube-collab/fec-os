@@ -100,55 +100,14 @@ async function logEmail(
 }
 
 async function dispatchEmail(payload: EmailPayload): Promise<{ sent: boolean; reason?: string }> {
-  const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
-  const config = await getOutboundEmailConfig();
-  if (!config) {
-    return { sent: false, reason: "email_provider_not_configured" };
-  }
-
-  const from = config.fromAddress;
-  const resendKey = config.resendApiKey;
-  const webhook = config.webhookUrl;
-
-  if (resendKey) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: payload.to,
-        subject: payload.subject,
-        html: payload.html,
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      return { sent: false, reason: text };
-    }
-    return { sent: true };
-  }
-
-  if (webhook) {
-    const res = await fetch(webhook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: payload.to,
-        subject: payload.subject,
-        html: payload.html,
-        template: payload.templateKey,
-      }),
-    });
-    if (!res.ok) {
-      return { sent: false, reason: await res.text() };
-    }
-    return { sent: true };
-  }
-
-  return { sent: false, reason: "email_provider_not_configured" };
+  const { sendOutboundEmail } = await import("@/lib/email/send");
+  const result = await sendOutboundEmail({
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+    template: payload.templateKey,
+  });
+  return { sent: result.sent, reason: result.reason };
 }
 
 export async function sendMaintenanceEmail(

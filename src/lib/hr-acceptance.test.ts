@@ -434,8 +434,25 @@ describe("HR acceptance AT#1–20 (Phase 12)", () => {
 });
 
 describe("Phase 12 email provider (HR categories)", () => {
-  afterEach(() => {
+  const clearEmailEnv = () => {
     delete process.env.NOTIFICATION_EMAIL_WEBHOOK;
+    delete process.env.RESEND_API_KEY;
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_USERNAME;
+    delete process.env.SMTP_PASSWORD;
+    delete process.env.EMAIL_SMTP_HOST;
+    delete process.env.EMAIL_SMTP_USER;
+    delete process.env.EMAIL_SMTP_PASSWORD;
+    delete process.env.GMAIL_USER;
+    delete process.env.GMAIL_APP_PASSWORD;
+    delete process.env.SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.SUPABASE_SECRET_KEY;
+  };
+
+  afterEach(() => {
+    clearEmailEnv();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -456,8 +473,8 @@ describe("Phase 12 email provider (HR categories)", () => {
     expect(isHrNotificationCategory("procurement")).toBe(false);
   });
 
-  it("skips email when webhook unset", async () => {
-    delete process.env.NOTIFICATION_EMAIL_WEBHOOK;
+  it("skips email when outbound providers unset", async () => {
+    clearEmailEnv();
     const result = await dispatchHrEmailIfConfigured({
       notificationId: "n1",
       userId: "u1",
@@ -467,6 +484,7 @@ describe("Phase 12 email provider (HR categories)", () => {
   });
 
   it("POSTs to NOTIFICATION_EMAIL_WEBHOOK when configured", async () => {
+    clearEmailEnv();
     process.env.NOTIFICATION_EMAIL_WEBHOOK = "https://hooks.example/email";
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => "" });
     vi.stubGlobal("fetch", fetchMock);
@@ -476,6 +494,7 @@ describe("Phase 12 email provider (HR categories)", () => {
       title: "QID expiring",
       body: "Renew soon",
       actionUrl: "/people/hr/documents",
+      to: "hr@example.com",
     });
     expect(result.status).toBe("sent");
     expect(fetchMock).toHaveBeenCalledWith(

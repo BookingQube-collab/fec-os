@@ -589,9 +589,17 @@ export type Database = {
         Row: {
           enabled: boolean
           from_address: string
+          from_name: string
           id: string
           managed: boolean
+          provider: string
           resend_api_key: string
+          smtp_encryption: string
+          smtp_host: string
+          smtp_password: string
+          smtp_port: number
+          smtp_preset: string
+          smtp_username: string
           updated_at: string
           updated_by: string | null
           webhook_url: string
@@ -599,9 +607,17 @@ export type Database = {
         Insert: {
           enabled?: boolean
           from_address?: string
+          from_name?: string
           id: string
           managed?: boolean
+          provider?: string
           resend_api_key?: string
+          smtp_encryption?: string
+          smtp_host?: string
+          smtp_password?: string
+          smtp_port?: number
+          smtp_preset?: string
+          smtp_username?: string
           updated_at?: string
           updated_by?: string | null
           webhook_url?: string
@@ -609,9 +625,17 @@ export type Database = {
         Update: {
           enabled?: boolean
           from_address?: string
+          from_name?: string
           id?: string
           managed?: boolean
+          provider?: string
           resend_api_key?: string
+          smtp_encryption?: string
+          smtp_host?: string
+          smtp_password?: string
+          smtp_port?: number
+          smtp_preset?: string
+          smtp_username?: string
           updated_at?: string
           updated_by?: string | null
           webhook_url?: string

@@ -26,7 +26,7 @@ export interface NotificationProvider {
   dispatch(payload: DispatchPayload): Promise<DispatchResult>;
 }
 
-/** HR in-app categories that may also fan out to email when webhook is set. */
+/** HR in-app categories that may also fan out to email when outbound email is configured. */
 export const HR_NOTIFICATION_CATEGORIES = NOTIFICATION_CATEGORIES.filter((c) =>
   c.startsWith("hr_"),
 ) as NotificationCategory[];
@@ -45,55 +45,99 @@ export const inAppProvider: NotificationProvider = {
 };
 
 /**
- * Email via Admin UI / env webhook (same JSON POST pattern as maintenance).
- * Prefers app_email_settings when managed; otherwise NOTIFICATION_EMAIL_WEBHOOK.
- * Skips cleanly when unset — no third-party SDK.
+ * Email via Admin UI driver (SMTP / Resend) with webhook fallback.
+ * Prefers app_email_settings when managed; otherwise env.
+ * Skips cleanly when unset — no third-party SDK required for webhook path.
  */
+async function resolveRecipientEmail(userId: string, explicit?: string | null): Promise<string | null> {
+  const trimmed = explicit?.trim();
+  if (trimmed) return trimmed;
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { resolveStaffPayslipEmail } = await import("@/lib/staff-login-email-sync");
+    const { data } = await supabaseAdmin
+      .from("staff")
+      .select("email")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return resolveStaffPayslipEmail(data?.email ?? null);
+  } catch {
+    return null;
+  }
+}
+
 export const emailProvider: NotificationProvider = {
   channel: "email",
-  providerName: "webhook",
+  providerName: "outbound",
   async dispatch(payload) {
     const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+    const { outboundEmailReady, sendOutboundEmail } = await import("@/lib/email/send");
     const config = await getOutboundEmailConfig();
-    const webhook = config?.webhookUrl?.trim();
-    if (!webhook) {
-      return { channel: "email", provider: "webhook", status: "skipped" };
+    if (!outboundEmailReady(config)) {
+      return { channel: "email", provider: "outbound", status: "skipped" };
     }
+
+    const to = await resolveRecipientEmail(payload.userId, payload.to);
+    if (!to && !config?.webhookUrl) {
+      // SMTP/Resend need an address; webhook can resolve by userId.
+      return {
+        channel: "email",
+        provider: config?.provider ?? "outbound",
+        status: "skipped",
+        errorMessage: "missing_recipient_email",
+      };
+    }
+
     try {
-      const res = await fetch(webhook, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          toUserId: payload.userId,
-          /** Canonical staff.email when provided — use after login-email sync. */
-          to: payload.to?.trim() || undefined,
-          notificationId: payload.notificationId,
+      const html = [
+        `<h2>${escapeHtml(payload.title)}</h2>`,
+        payload.body ? `<p>${escapeHtml(payload.body)}</p>` : "",
+        payload.actionUrl
+          ? `<p><a href="${escapeAttr(payload.actionUrl)}">${escapeHtml(payload.actionUrl)}</a></p>`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("");
+
+      const result = await sendOutboundEmail(
+        {
+          to: to || payload.userId,
           subject: payload.title,
-          title: payload.title,
-          body: payload.body ?? null,
-          actionUrl: payload.actionUrl ?? null,
+          html,
+          text: [payload.title, payload.body, payload.actionUrl].filter(Boolean).join("\n"),
+          template: "notification_email",
           channel: "email",
-        }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
+          extra: {
+            toUserId: payload.userId,
+            to: to || undefined,
+            notificationId: payload.notificationId,
+            title: payload.title,
+            body: payload.body ?? null,
+            actionUrl: payload.actionUrl ?? null,
+          },
+        },
+        config,
+      );
+
+      if (!result.sent) {
         return {
           channel: "email",
-          provider: "webhook",
+          provider: result.provider ?? "outbound",
           status: "failed",
-          errorMessage: text || `HTTP ${res.status}`,
+          errorMessage: result.reason ?? "email_dispatch_failed",
         };
       }
       return {
         channel: "email",
-        provider: "webhook",
+        provider: result.provider ?? "outbound",
         status: "sent",
-        providerRef: "webhook",
+        providerRef: result.provider,
       };
     } catch (err) {
       return {
         channel: "email",
-        provider: "webhook",
+        provider: "outbound",
         status: "failed",
         errorMessage: err instanceof Error ? err.message : "email_dispatch_failed",
       };
@@ -101,14 +145,27 @@ export const emailProvider: NotificationProvider = {
   },
 };
 
-/** Fire-and-forget email for HR categories when webhook is configured. */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function escapeAttr(value: string): string {
+  return escapeHtml(value).replaceAll("'", "&#39;");
+}
+
+/** Fire-and-forget email for HR categories when any outbound driver is configured. */
 export async function dispatchHrEmailIfConfigured(
   payload: DispatchPayload,
 ): Promise<DispatchResult> {
   const { getOutboundEmailConfig } = await import("@/lib/email/settings-store");
+  const { outboundEmailReady } = await import("@/lib/email/send");
   const config = await getOutboundEmailConfig();
-  if (!config?.webhookUrl?.trim()) {
-    return { channel: "email", provider: "webhook", status: "skipped" };
+  if (!outboundEmailReady(config)) {
+    return { channel: "email", provider: "outbound", status: "skipped" };
   }
   return emailProvider.dispatch(payload);
 }

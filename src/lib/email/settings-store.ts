@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 import {
+  EMAIL_SETTINGS_SELECT,
+  normalizeEmailSettingsRow,
   readEmailEnv,
   resolveOutboundEmailConfig,
   toPublicEmailSettings,
@@ -20,7 +22,7 @@ export const EMAIL_SETTINGS_AUTH = {
 type SettingsQuery = {
   select: (columns: string) => {
     eq: (column: string, value: string) => {
-      maybeSingle: () => Promise<{ data: EmailSettingsRow | null; error: { message: string } | null }>;
+      maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
     };
   };
   upsert: (
@@ -28,7 +30,7 @@ type SettingsQuery = {
     options: { onConflict: string },
   ) => {
     select: (columns: string) => {
-      maybeSingle: () => Promise<{ data: EmailSettingsRow | null; error: { message: string } | null }>;
+      maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
     };
   };
 };
@@ -38,24 +40,14 @@ function settingsTable(): SettingsQuery {
   return db.from("app_email_settings");
 }
 
-function normalizeRow(data: EmailSettingsRow): EmailSettingsRow {
-  return {
-    managed: Boolean(data.managed),
-    enabled: Boolean(data.enabled),
-    from_address: String(data.from_address ?? ""),
-    resend_api_key: String(data.resend_api_key ?? ""),
-    webhook_url: String(data.webhook_url ?? ""),
-  };
-}
-
 export async function loadEmailSettingsRow(): Promise<EmailSettingsRow | null> {
   const result = await settingsTable()
-    .select("managed, enabled, from_address, resend_api_key, webhook_url")
+    .select(EMAIL_SETTINGS_SELECT)
     .eq("id", APP_EMAIL_SETTINGS_ID)
     .maybeSingle();
   if (result.error) throw new Error(result.error.message);
   if (!result.data) return null;
-  return normalizeRow(result.data);
+  return normalizeEmailSettingsRow(result.data);
 }
 
 export async function saveEmailSettingsRow(
@@ -68,19 +60,27 @@ export async function saveEmailSettingsRow(
         id: APP_EMAIL_SETTINGS_ID,
         managed: true,
         enabled: row.enabled,
+        provider: row.provider,
         from_address: row.from_address,
+        from_name: row.from_name,
         resend_api_key: row.resend_api_key,
+        smtp_host: row.smtp_host,
+        smtp_port: row.smtp_port,
+        smtp_encryption: row.smtp_encryption,
+        smtp_username: row.smtp_username,
+        smtp_password: row.smtp_password,
+        smtp_preset: row.smtp_preset,
         webhook_url: row.webhook_url,
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
       { onConflict: "id" },
     )
-    .select("managed, enabled, from_address, resend_api_key, webhook_url")
+    .select(EMAIL_SETTINGS_SELECT)
     .maybeSingle();
   if (result.error) throw new Error(result.error.message);
   if (!result.data) throw new Error("Email settings could not be saved.");
-  return normalizeRow(result.data);
+  return normalizeEmailSettingsRow(result.data);
 }
 
 function hasSupabaseAdminEnv(env: NodeJS.ProcessEnv = process.env): boolean {
