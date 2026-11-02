@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { formatEnglishTime, joinHm12, splitHm12 } from "@/lib/hr-assist/time";
+import { formatEnglishTime, joinHm12, splitHm12, type Hm12Parts } from "@/lib/hr-assist/time";
 import { cn } from "@/lib/utils";
 
 type ShiftRangeEditorProps = {
@@ -65,6 +66,12 @@ export function ShiftRangeEditor({
   );
 }
 
+type DraftParts = {
+  hour12?: number;
+  minute?: number;
+  period?: "AM" | "PM";
+};
+
 function ShiftTimeInput({
   value,
   placeholder,
@@ -77,16 +84,43 @@ function ShiftTimeInput({
   onChange?: (value: string | null) => void;
 }) {
   const parts = splitHm12(value);
-  const hour12 = parts?.hour12 ?? "";
-  const minute = parts ? String(parts.minute).padStart(2, "0") : "";
-  const period = parts?.period ?? "";
+  // Incomplete picks while value is empty — never assume AM and write 01:00 for a 1 PM shift.
+  const [draft, setDraft] = useState<DraftParts>({});
 
-  function emit(next: { hour12: number; minute: number; period: "AM" | "PM" }) {
+  useEffect(() => {
+    setDraft({});
+  }, [value]);
+
+  const hour12 = parts?.hour12 ?? draft.hour12;
+  const minute = parts ? parts.minute : draft.minute;
+  const period = parts?.period ?? draft.period;
+
+  function commit(next: Hm12Parts) {
     onChange?.(joinHm12(next.hour12, next.minute, next.period));
+    setDraft({});
   }
 
-  function ensureParts(): { hour12: number; minute: number; period: "AM" | "PM" } {
-    return parts ?? { hour12: 8, minute: 0, period: "AM" };
+  function applyPatch(patch: DraftParts) {
+    const merged: DraftParts = {
+      hour12: patch.hour12 ?? hour12,
+      minute: patch.minute ?? minute,
+      period: patch.period ?? period,
+    };
+    if (
+      merged.hour12 != null &&
+      Number.isFinite(merged.hour12) &&
+      merged.minute != null &&
+      Number.isFinite(merged.minute) &&
+      (merged.period === "AM" || merged.period === "PM")
+    ) {
+      commit({
+        hour12: merged.hour12,
+        minute: merged.minute,
+        period: merged.period,
+      });
+      return;
+    }
+    setDraft(merged);
   }
 
   return (
@@ -100,15 +134,15 @@ function ShiftTimeInput({
     >
       <select
         aria-label={`${ariaLabel} hour`}
-        value={hour12 === "" ? "" : String(hour12)}
+        value={hour12 == null ? "" : String(hour12)}
         onChange={(event) => {
           const raw = event.target.value;
           if (!raw) {
+            setDraft({});
             onChange?.(null);
             return;
           }
-          const current = ensureParts();
-          emit({ ...current, hour12: Number(raw) });
+          applyPatch({ hour12: Number(raw) });
         }}
         className="h-7 max-w-[3.1rem] rounded border-0 bg-transparent px-0.5 text-xs tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       >
@@ -124,15 +158,15 @@ function ShiftTimeInput({
       </span>
       <select
         aria-label={`${ariaLabel} minute`}
-        value={minute}
+        value={minute == null ? "" : String(minute).padStart(2, "0")}
         onChange={(event) => {
           const raw = event.target.value;
           if (!raw) {
+            setDraft({});
             onChange?.(null);
             return;
           }
-          const current = ensureParts();
-          emit({ ...current, minute: Number(raw) });
+          applyPatch({ minute: Number(raw) });
         }}
         className="h-7 max-w-[3.25rem] rounded border-0 bg-transparent px-0.5 text-xs tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       >
@@ -148,15 +182,15 @@ function ShiftTimeInput({
       </select>
       <select
         aria-label={`${ariaLabel} AM or PM`}
-        value={period}
+        value={period ?? ""}
         onChange={(event) => {
           const raw = event.target.value;
           if (raw !== "AM" && raw !== "PM") {
+            setDraft({});
             onChange?.(null);
             return;
           }
-          const current = ensureParts();
-          emit({ ...current, period: raw });
+          applyPatch({ period: raw });
         }}
         className="h-7 max-w-[3.4rem] rounded border-0 bg-transparent px-0.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       >

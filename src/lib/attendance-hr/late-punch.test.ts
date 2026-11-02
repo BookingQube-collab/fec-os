@@ -33,6 +33,7 @@ describe("late punch helpers", () => {
 
   it("roster 10:30 − reporting 30 + buffer 15 → late after 10:15", () => {
     // reporting_clock 10:00; on_time_until 10:15
+    // Buffer = grace after reporting clock (not an early-arrival window).
     expect(
       computeLatePunchMinutes({
         actualIn: "2026-08-27T07:14:00.000Z", // 10:14 Qatar
@@ -59,6 +60,40 @@ describe("late punch helpers", () => {
         bufferMinutes: 15,
       }),
     ).toBe(1.5);
+  });
+
+  it("afternoon roster 13:00 + reporting 30 + buffer 15 → 12:24 PM in is not late", () => {
+    // Rajan-style: reporting clock 12:30, on_time_until 12:45. Wrong AM shift (01:00)
+    // would invent ~699m late; correct HH:mm must stay 0.
+    const scheduledIn = scheduledIsoFromHm("2026-11-02", "13:00");
+    expect(scheduledIn).toBe("2026-11-02T10:00:00.000Z");
+    expect(
+      computeLatePunchMinutes({
+        actualIn: "2026-11-02T09:24:09.000Z", // 12:24:09 Qatar
+        scheduledIn,
+        reportingTimeMinutes: 30,
+        bufferMinutes: 15,
+      }),
+    ).toBe(0);
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-11-02T09:24:09.000Z",
+        rosterScheduledIn: scheduledIn,
+        reportingTimeMinutes: 30,
+        bufferMinutes: 15,
+      }),
+    ).toBe(0);
+  });
+
+  it("wrong overnight AM roster start invents huge late vs afternoon punch", () => {
+    // Guardrail: 01:00 stored instead of 13:00 → late after 00:45 → ~699m at 12:24 PM.
+    const late = computeLatePunchMinutes({
+      actualIn: "2026-11-02T09:24:09.000Z", // 12:24:09 Qatar
+      scheduledIn: scheduledIsoFromHm("2026-11-02", "01:00"),
+      reportingTimeMinutes: 30,
+      bufferMinutes: 15,
+    });
+    expect(late).toBeGreaterThan(600);
   });
 
   it("does not use midnight/default baseline without scheduled_in", () => {

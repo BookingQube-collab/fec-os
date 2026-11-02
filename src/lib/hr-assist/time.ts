@@ -89,10 +89,16 @@ export function splitHm12(hm: string | null | undefined): Hm12Parts | null {
   };
 }
 
-/** Join 12-hour clock parts into a 24-hour HH:mm string. */
+/**
+ * Join 12-hour clock parts into a 24-hour HH:mm string.
+ * 12 AM → 00:xx, 12 PM → 12:xx, 1 PM → 13:xx (never map 12 PM to 00:00).
+ */
 export function joinHm12(hour12: number, minute: number, period: "AM" | "PM"): string {
-  const h12 = ((Math.trunc(hour12) % 12) + 12) % 12 || 12;
-  const m = Math.min(59, Math.max(0, Math.trunc(minute)));
+  const rawHour = Math.trunc(Number(hour12));
+  const m = Math.min(59, Math.max(0, Math.trunc(Number(minute)) || 0));
+  // Accept only 1–12; out-of-range falls back to 12 so AM→00 / PM→12 stay valid.
+  const h12 = rawHour >= 1 && rawHour <= 12 ? rawHour : 12;
+  // 12 o'clock is 0 in 24h math; AM stays 0–11, PM adds 12 → 12–23.
   let h24 = h12 % 12;
   if (period === "PM") h24 += 12;
   return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
