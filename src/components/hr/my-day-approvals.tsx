@@ -124,19 +124,20 @@ export function MyDayLeaveApprovals({
   if (reports.isPending || !show) return null;
 
   const directIds = new Set(reports.data?.directReportStaffIds ?? []);
-  const rows = historyOnly
-    ? (list.data ?? [])
-    : (list.data ?? []).filter((row) =>
-        canApproveLeaveOnMyDay({
-          roles,
-          stepRole: row.currentStepRole,
-          isOwnRequest: row.staffId === myStaffId,
-          isLineManager: directIds.has(row.staffId),
-          jobTitle,
-          department,
-          opsLane: row.opsLane,
-        }),
-      );
+  const rows = (list.data ?? [])
+    .map((row) => {
+      const canAct = canApproveLeaveOnMyDay({
+        roles,
+        stepRole: row.currentStepRole,
+        isOwnRequest: row.staffId === myStaffId,
+        isLineManager: directIds.has(row.staffId),
+        jobTitle,
+        department,
+        opsLane: row.opsLane,
+      });
+      return { row, canAct };
+    })
+    .filter(({ canAct }) => historyOnly || canAct);
 
   function leaveStepLabel(stepRole: string | null | undefined, opsLane: string | null | undefined): string {
     if (stepRole === "ops" && opsLane === "fnb_manager") {
@@ -167,9 +168,11 @@ export function MyDayLeaveApprovals({
       ) : null}
       {rows.length > 0 ? (
         <ul className="hd-approval-list">
-          {rows.map((row) => {
+          {rows.map(({ row, canAct }) => {
             const busy = act.isPending && act.variables?.leaveId === row.id;
             const name = row.staffName ?? "Staff";
+            // Mirror corrections: actions only when this login can act on the current seat.
+            const showActions = !historyOnly && row.status === "pending" && canAct;
             return (
               <li key={row.id}>
                 <article
@@ -237,7 +240,11 @@ export function MyDayLeaveApprovals({
                   <div className="hd-approval__step">
                     {historyOnly ? (
                       <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
-                        {t(`hr.leave.status.${row.status}`)}
+                        {row.status === "pending" && row.currentStepRole
+                          ? t("hr.leave.waitingStep", {
+                              step: leaveStepLabel(row.currentStepRole, row.opsLane),
+                            })
+                          : t(`hr.leave.status.${row.status}`)}
                       </Badge>
                     ) : row.currentStepRole ? (
                       <>
@@ -252,7 +259,7 @@ export function MyDayLeaveApprovals({
                       <span />
                     )}
                   </div>
-                  {!historyOnly ? (
+                  {showActions ? (
                     <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
                       <Button
                         type="button"

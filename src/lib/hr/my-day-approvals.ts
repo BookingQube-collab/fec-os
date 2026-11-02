@@ -33,6 +33,9 @@ function asRoles(roles: readonly string[]): AppRole[] {
  * Head of Operations (Operations) or F&B Manager (F&B) at ops (terminal),
  * and hr.leave.manage only for legacy hr seats.
  * A person does not approve their own request from this page.
+ *
+ * Title seats win over manage: Sr. Site with branch_gm (hr.leave.manage) still
+ * only acts on the site step — manage must not clear HoO or the supervisor seat.
  */
 export function canApproveLeaveOnMyDay(input: {
   roles: readonly string[];
@@ -55,11 +58,12 @@ export function canApproveLeaveOnMyDay(input: {
   if (step === "site") return manage || srSite;
   if (step === "manager") {
     // Sr. Site holds the site seat — do not clear the supervisor step.
-    if (srSite) return manage;
+    if (srSite) return false;
     return manage || managerCap || input.isLineManager;
   }
+  // Sr. Site manage (e.g. branch_gm) must not unlock the HoO / F&B seat.
   return canActOnOpsApprovalStep({
-    manage,
+    manage: manage && !srSite,
     lane: input.opsLane ?? "head_of_operations",
     actorJobTitle: input.jobTitle,
     actorDepartment: input.department,
