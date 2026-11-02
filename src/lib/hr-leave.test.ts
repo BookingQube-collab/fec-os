@@ -8,6 +8,7 @@ import {
   assertLeaveTransition,
   canTransitionLeave,
   countLeaveDays,
+  dedupeLeaveApprovalRows,
   defaultLeaveApprovalSteps,
   leaveApprovalStepsForRequester,
   leaveOpeningStepRole,
@@ -176,6 +177,51 @@ describe("annual accrual from hire_date (AT#8 leave)", () => {
       fromHireDate: false,
     });
     expect(r.accruedDays).toBe(21);
+  });
+});
+
+describe("approve queue dedupe", () => {
+  it("keeps one id and collapses identical pending retry rows", () => {
+    const rows = [
+      {
+        id: "a",
+        staffId: "s1",
+        leaveType: "sick",
+        dateFrom: "2026-11-02",
+        dateTo: "2026-11-02",
+        createdAt: "2026-11-02T10:00:00Z",
+        status: "pending",
+      },
+      {
+        id: "a",
+        staffId: "s1",
+        leaveType: "sick",
+        dateFrom: "2026-11-02",
+        dateTo: "2026-11-02",
+        createdAt: "2026-11-02T10:00:00Z",
+        status: "pending",
+      },
+      {
+        id: "b",
+        staffId: "s1",
+        leaveType: "sick",
+        dateFrom: "2026-11-02",
+        dateTo: "2026-11-02",
+        createdAt: "2026-11-02T11:00:00Z",
+        status: "pending",
+      },
+      {
+        id: "c",
+        staffId: "s2",
+        leaveType: "sick",
+        dateFrom: "2026-11-02",
+        dateTo: "2026-11-02",
+        createdAt: "2026-11-02T12:00:00Z",
+        status: "pending",
+      },
+    ];
+    const deduped = dedupeLeaveApprovalRows(rows, { collapsePendingExact: true });
+    expect(deduped.map((r) => r.id).sort()).toEqual(["a", "c"]);
   });
 });
 

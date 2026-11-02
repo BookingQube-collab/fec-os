@@ -155,3 +155,42 @@ export function leaveStepSeatLabel(
   if (stepRole === "hr") return "HR";
   return "Supervisor";
 }
+
+/**
+ * Approve / Approved queues: unique by leave id, and collapse identical pending
+ * retry rows (same staff + type + dates) to the earliest created request.
+ */
+export function dedupeLeaveApprovalRows<
+  T extends {
+    id: string;
+    staffId: string;
+    leaveType: string;
+    dateFrom: string;
+    dateTo: string;
+    createdAt: string;
+    status: string;
+  },
+>(rows: T[], opts?: { collapsePendingExact?: boolean }): T[] {
+  const byId = new Map<string, T>();
+  for (const row of rows) {
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  const unique = [...byId.values()];
+  if (!opts?.collapsePendingExact) {
+    return unique;
+  }
+  const pendingBest = new Map<string, T>();
+  const other: T[] = [];
+  for (const row of unique) {
+    if (row.status !== "pending") {
+      other.push(row);
+      continue;
+    }
+    const key = `${row.staffId}|${row.leaveType}|${row.dateFrom}|${row.dateTo}`;
+    const prev = pendingBest.get(key);
+    if (!prev || row.createdAt < prev.createdAt) pendingBest.set(key, row);
+  }
+  return [...pendingBest.values(), ...other].sort((a, b) =>
+    a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0,
+  );
+}

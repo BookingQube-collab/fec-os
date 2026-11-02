@@ -87,7 +87,11 @@ export function MyDayLeaveApprovals({
     staleTime: STALE.people,
   });
   const act = useMutation({
-    mutationFn: (input: { leaveId: string; action: "approved" | "rejected" }) => actOnLeaveApproval(input),
+    mutationFn: async (input: { leaveId: string; action: "approved" | "rejected" }) => {
+      const result = await actOnLeaveApproval(input);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onMutate: async (input) => {
       if (historyOnly) return { previous: undefined as LeaveListRow[] | undefined };
       // My Day only shows rows this actor can step; drop immediately after click.

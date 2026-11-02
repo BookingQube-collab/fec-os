@@ -173,12 +173,16 @@ export function HrLeaveWorkspace({
   });
 
   const stepAct = useMutation({
-    mutationFn: (vars: {
+    mutationFn: async (vars: {
       leaveId: string;
       action: "approved" | "rejected";
       comments?: string | null;
       payrollImpact?: boolean;
-    }) => actOnLeaveApproval(vars),
+    }) => {
+      const result = await actOnLeaveApproval(vars);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onMutate: async (vars) => {
       // Intermediate approve keeps the row in the pending queue for the next step.
       if (vars.action !== "rejected") return { previous: undefined as LeaveListRow[] | undefined };
