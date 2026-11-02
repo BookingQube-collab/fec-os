@@ -4,10 +4,14 @@ import {
   DEFAULT_EMAIL_FROM,
   applySmtpPreset,
   formatFromHeader,
+  isSmtpAuthFailure,
   keepSecret,
+  mailgunRegionHint,
+  mailgunUsernameHint,
   resolveOutboundEmailConfig,
   resolveSmtpConfig,
   secretLast4,
+  smtpAuthDiagnostics,
   smtpMissingReason,
   toPublicEmailSettings,
   webhookHostHint,
@@ -326,10 +330,47 @@ describe("secret helpers", () => {
     expect(pub.resendKeySet).toBe(true);
     expect(pub.smtpPasswordSet).toBe(true);
     expect(pub.smtpPasswordLast4).toBe("8888");
+    expect(pub.smtpPasswordLength).toBe("app_password_8888".length);
     expect(pub.webhookSet).toBe(true);
     expect(pub.webhookHint).toBe("hooks.example.com");
     expect(JSON.stringify(pub)).not.toContain("re_secret_9999");
     expect(JSON.stringify(pub)).not.toContain("app_password_8888");
     expect(JSON.stringify(pub)).not.toContain("/hook");
+  });
+});
+
+describe("SMTP auth diagnostics helpers", () => {
+  it("exposes length and last4 only", () => {
+    expect(
+      smtpAuthDiagnostics({
+        host: "smtp.eu.mailgun.org",
+        port: 587,
+        encryption: "tls",
+        username: "postmaster@noreply.example.com",
+        password: "abc774a",
+      }),
+    ).toEqual({
+      host: "smtp.eu.mailgun.org",
+      port: 587,
+      encryption: "tls",
+      username: "postmaster@noreply.example.com",
+      passwordLength: 7,
+      passwordLast4: "774a",
+    });
+  });
+
+  it("detects Mailgun 535 auth failures", () => {
+    expect(isSmtpAuthFailure("Invalid login: 535 Authentication failed")).toBe(true);
+    expect(isSmtpAuthFailure("connection timeout")).toBe(false);
+  });
+
+  it("hints Mailgun username and region", () => {
+    expect(mailgunUsernameHint("postmaster@mg.x.com", "smtp.eu.mailgun.org")).toBe("");
+    expect(mailgunUsernameHint("admin@noreply.bookingqube.com", "smtp.eu.mailgun.org")).toBe(
+      "mailgun_username_unusual",
+    );
+    expect(mailgunUsernameHint("plainuser", "smtp.mailgun.org")).toBe("mailgun_username_need_at");
+    expect(mailgunRegionHint("smtp.eu.mailgun.org")).toBe("eu");
+    expect(mailgunRegionHint("smtp.mailgun.org")).toBe("us");
   });
 });

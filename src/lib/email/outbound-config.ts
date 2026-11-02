@@ -85,6 +85,8 @@ export type EmailSettingsPublic = {
   smtpUsername: string;
   smtpPasswordSet: boolean;
   smtpPasswordLast4: string;
+  /** Length of saved SMTP password (helps verify Save stored the full secret). */
+  smtpPasswordLength: number;
   smtpPreset: SmtpPreset;
   webhookSet: boolean;
   webhookHint: string;
@@ -167,6 +169,66 @@ export function webhookHostHint(url: string): string {
 export function keepSecret(previous: string, submitted: string): string {
   const incoming = submitted.trim();
   return incoming.length > 0 ? incoming : previous;
+}
+
+/** Safe SMTP auth fields for admin error toasts (never the full password). */
+export type SmtpAuthDiagnostics = {
+  host: string;
+  port: number;
+  encryption: SmtpEncryption;
+  username: string;
+  passwordLength: number;
+  passwordLast4: string;
+};
+
+export function smtpAuthDiagnostics(smtp: OutboundSmtpConfig): SmtpAuthDiagnostics {
+  const password = smtp.password.trim();
+  return {
+    host: smtp.host.trim(),
+    port: smtp.port,
+    encryption: smtp.encryption,
+    username: smtp.username.trim(),
+    passwordLength: password.length,
+    passwordLast4: secretLast4(password),
+  };
+}
+
+/** True when nodemailer/Mailgun rejected username+password (not a transport bug). */
+export function isSmtpAuthFailure(reason: string | undefined | null): boolean {
+  if (!reason) return false;
+  const lower = reason.toLowerCase();
+  return (
+    lower.includes("535") ||
+    lower.includes("authentication failed") ||
+    lower.includes("invalid login") ||
+    (lower.includes("auth") && lower.includes("fail"))
+  );
+}
+
+/**
+ * Soft Mailgun username guidance. Empty string = no warning.
+ * Mailgun SMTP logins are per-domain credentials (often postmaster@domain),
+ * not arbitrary mailboxes and not the account email.
+ */
+export function mailgunUsernameHint(username: string, host: string): string {
+  const user = username.trim();
+  const h = host.trim().toLowerCase();
+  if (!h.includes("mailgun")) return "";
+  if (!user) return "mailgun_username_empty";
+  if (!user.includes("@")) return "mailgun_username_need_at";
+  // Default Mailgun login is postmaster@domain; custom SMTP logins are allowed.
+  if (!/^postmaster@/i.test(user)) {
+    return "mailgun_username_unusual";
+  }
+  return "";
+}
+
+/** Region mismatch hint when host is a known Mailgun endpoint. */
+export function mailgunRegionHint(host: string): "eu" | "us" | null {
+  const h = host.trim().toLowerCase();
+  if (h === "smtp.eu.mailgun.org" || h.endsWith(".eu.mailgun.org")) return "eu";
+  if (h === "smtp.mailgun.org" || h === "smtp.mailgun.net") return "us";
+  return null;
 }
 
 export function formatFromHeader(fromAddress: string, fromName: string): string {
@@ -370,6 +432,7 @@ export function toPublicEmailSettings(row: EmailSettingsRow | null, env: EmailEn
     smtpUsername: row?.smtp_username?.trim() ?? "",
     smtpPasswordSet: smtpPassword.length > 0,
     smtpPasswordLast4: secretLast4(smtpPassword),
+    smtpPasswordLength: smtpPassword.length,
     smtpPreset: row && isSmtpPreset(row.smtp_preset) ? row.smtp_preset : "custom",
     webhookSet: webhook.length > 0,
     webhookHint: webhookHostHint(webhook),

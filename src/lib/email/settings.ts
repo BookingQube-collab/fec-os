@@ -11,11 +11,15 @@ export {
 
 export {
   applySmtpPreset,
+  isSmtpAuthFailure,
   keepSecret,
+  mailgunRegionHint,
+  mailgunUsernameHint,
   readEmailEnv,
   resolveOutboundEmailConfig,
   resolveSmtpConfig,
   secretLast4,
+  smtpAuthDiagnostics,
   smtpFromParts,
   smtpMissingReason,
   toPublicEmailSettings,
@@ -30,6 +34,7 @@ export {
   type EmailSettingsPublic,
   type EmailSettingsRow,
   type OutboundEmailConfig,
+  type SmtpAuthDiagnostics,
   type SmtpDraftInput,
   type SmtpEncryption,
   type SmtpMissingReason,

@@ -2,8 +2,10 @@ import nodemailer from "nodemailer";
 
 import {
   formatFromHeader,
+  smtpAuthDiagnostics,
   type OutboundEmailConfig,
   type OutboundSmtpConfig,
+  type SmtpAuthDiagnostics,
   type SmtpEncryption,
 } from "@/lib/email/outbound-config";
 import { getOutboundEmailConfig } from "@/lib/email/settings-store";
@@ -24,6 +26,8 @@ export type SendOutboundEmailResult = {
   reason?: string;
   provider?: string;
   source?: "ui" | "env";
+  /** Present on SMTP failures — host/user/password length only. */
+  diagnostics?: SmtpAuthDiagnostics;
 };
 
 function nodemailerSecureOptions(encryption: SmtpEncryption, port: number): {
@@ -69,6 +73,7 @@ export async function sendViaSmtp(
       sent: false,
       provider: "smtp",
       reason: err instanceof Error ? err.message : "smtp_send_failed",
+      diagnostics: smtpAuthDiagnostics(smtp),
     };
   } finally {
     transport.close();
@@ -77,7 +82,7 @@ export async function sendViaSmtp(
 
 export async function verifySmtpConnection(
   smtp: OutboundSmtpConfig,
-): Promise<{ ok: boolean; reason?: string }> {
+): Promise<{ ok: boolean; reason?: string; diagnostics?: SmtpAuthDiagnostics }> {
   const transport = nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
@@ -89,11 +94,12 @@ export async function verifySmtpConnection(
   });
   try {
     await transport.verify();
-    return { ok: true };
+    return { ok: true, diagnostics: smtpAuthDiagnostics(smtp) };
   } catch (err) {
     return {
       ok: false,
       reason: err instanceof Error ? err.message : "smtp_verify_failed",
+      diagnostics: smtpAuthDiagnostics(smtp),
     };
   } finally {
     transport.close();

@@ -11,9 +11,11 @@ import {
   readEmailEnv,
   resolveSmtpConfig,
   saveEmailSettingsRow,
+  smtpAuthDiagnostics,
   toPublicEmailSettings,
   type EmailProvider,
   type EmailSettingsPublic,
+  type SmtpAuthDiagnostics,
   type SmtpEncryption,
   type SmtpPreset,
 } from "@/lib/email/settings";
@@ -34,7 +36,8 @@ const saveSchema = z.object({
   smtpPort: z.number().int().min(1).max(65535),
   smtpEncryption: encryptionSchema,
   smtpUsername: z.string().trim().max(320),
-  smtpPassword: z.string().max(500),
+  /** Mailgun SMTP passwords are typically short; allow headroom for pasted secrets. */
+  smtpPassword: z.string().max(2000),
   smtpPreset: presetSchema,
   webhookUrl: z.string().max(2000),
   clearResendKey: z.boolean().optional(),
@@ -162,10 +165,70 @@ export const saveAppEmailSettings = createSafeAuthenticatedAction(
   { auth: EMAIL_SETTINGS_AUTH },
 );
 
+const testSendSchema = testSchema.extend({
+  /** Optional draft SMTP fields so Send test matches Test SMTP (form → DB → env). */
+  smtpHost: z.string().trim().max(320).optional(),
+  smtpPort: z.number().int().min(1).max(65535).optional(),
+  smtpEncryption: encryptionSchema.optional(),
+  smtpUsername: z.string().trim().max(320).optional(),
+  smtpPassword: z.string().max(2000).optional(),
+  fromAddress: z.string().trim().max(320).optional(),
+  fromName: z.string().trim().max(200).optional(),
+});
+
 export const testAppEmailSettings = createSafeAuthenticatedAction(
-  testSchema,
-  async (data): Promise<{ sent: boolean; reason?: string; source?: string; provider?: string }> => {
-    const config = await getOutboundEmailConfig();
+  testSendSchema,
+  async (
+    data,
+  ): Promise<{
+    sent: boolean;
+    reason?: string;
+    source?: string;
+    provider?: string;
+    diagnostics?: SmtpAuthDiagnostics;
+  }> => {
+    const env = readEmailEnv();
+    let row = null as Awaited<ReturnType<typeof loadEmailSettingsRow>>;
+    try {
+      row = await loadEmailSettingsRow();
+    } catch {
+      row = null;
+    }
+
+    // Prefer draft SMTP when the admin typed host/user (or password) in the form.
+    const draftSmtp = resolveSmtpConfig(
+      {
+        host: data.smtpHost,
+        port: data.smtpPort,
+        encryption: data.smtpEncryption as SmtpEncryption | undefined,
+        username: data.smtpUsername,
+        password: data.smtpPassword,
+      },
+      row,
+      env,
+    ).smtp;
+
+    let config = await getOutboundEmailConfig();
+    if (draftSmtp) {
+      const fromAddress =
+        (data.fromAddress?.trim() ||
+          config?.fromAddress ||
+          row?.from_address?.trim() ||
+          env.fromAddress.trim() ||
+          "maintenance@fec.qa");
+      const fromName =
+        data.fromName?.trim() || config?.fromName || row?.from_name?.trim() || env.fromName.trim() || "";
+      config = {
+        provider: "smtp",
+        resendApiKey: config?.resendApiKey ?? null,
+        smtp: draftSmtp,
+        webhookUrl: config?.webhookUrl ?? null,
+        fromAddress,
+        fromName,
+        source: "ui",
+      };
+    }
+
     if (!config) {
       return { sent: false, reason: "email_provider_not_configured" };
     }
@@ -189,6 +252,7 @@ export const testAppEmailSettings = createSafeAuthenticatedAction(
       reason: result.reason,
       source: result.source,
       provider: result.provider,
+      diagnostics: result.diagnostics ?? (config.smtp ? smtpAuthDiagnostics(config.smtp) : undefined),
     };
   },
   { auth: EMAIL_SETTINGS_AUTH },
@@ -200,12 +264,20 @@ const smtpTestSchema = z.object({
   smtpEncryption: encryptionSchema.optional(),
   smtpUsername: z.string().trim().max(320).optional(),
   /** When blank, saved DB password then env SMTP_PASSWORD / GMAIL_APP_PASSWORD are used. */
-  smtpPassword: z.string().max(500).optional(),
+  smtpPassword: z.string().max(2000).optional(),
 });
 
 export const testAppSmtpConnection = createSafeAuthenticatedAction(
   smtpTestSchema,
-  async (data): Promise<{ ok: boolean; reason?: string; host?: string; port?: number }> => {
+  async (
+    data,
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    host?: string;
+    port?: number;
+    diagnostics?: SmtpAuthDiagnostics;
+  }> => {
     const env = readEmailEnv();
     let row = null as Awaited<ReturnType<typeof loadEmailSettingsRow>>;
     try {
@@ -236,6 +308,7 @@ export const testAppSmtpConnection = createSafeAuthenticatedAction(
       reason: verified.reason,
       host: smtp.host,
       port: smtp.port,
+      diagnostics: verified.diagnostics ?? smtpAuthDiagnostics(smtp),
     };
   },
   { auth: EMAIL_SETTINGS_AUTH },

@@ -14,7 +14,11 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import {
   applySmtpPreset,
+  isSmtpAuthFailure,
+  mailgunRegionHint,
+  mailgunUsernameHint,
   type EmailProvider,
+  type SmtpAuthDiagnostics,
   type SmtpEncryption,
   type SmtpPreset,
 } from "@/lib/email/outbound-config";
@@ -151,22 +155,62 @@ function AdminEmailSettingsPage() {
     );
   }
 
+  function formatSmtpDiagnostics(diag: SmtpAuthDiagnostics | undefined): string {
+    if (!diag) return "";
+    const last4 = diag.passwordLast4 ? `…${diag.passwordLast4}` : "(none)";
+    return t("emailSettings.smtpDiagnostics", {
+      host: diag.host,
+      port: diag.port,
+      user: diag.username,
+      passwordLength: diag.passwordLength,
+      passwordLast4: last4,
+    });
+  }
+
+  function smtpFailureMessage(reason: string | undefined, diag: SmtpAuthDiagnostics | undefined): string {
+    const detail = formatSmtpDiagnostics(diag);
+    if (isSmtpAuthFailure(reason)) {
+      const region = mailgunRegionHint(diag?.host || smtpHost);
+      const authMsg =
+        region === "eu"
+          ? t("emailSettings.smtpAuthFailedMailgunEu")
+          : region === "us"
+            ? t("emailSettings.smtpAuthFailedMailgunUs")
+            : t("emailSettings.smtpAuthFailed");
+      return detail ? `${authMsg} ${detail}` : authMsg;
+    }
+    const base = reason || t("emailSettings.smtpVerifyFailed");
+    return detail ? `${base} ${detail}` : base;
+  }
+
   async function sendTest() {
     setTesting(true);
-    const result = await testAppEmailSettings({ to: testTo.trim() });
+    const result = await testAppEmailSettings({
+      to: testTo.trim(),
+      smtpHost,
+      smtpPort,
+      smtpEncryption,
+      smtpUsername,
+      smtpPassword,
+      fromAddress,
+      fromName,
+    });
     setTesting(false);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
     if (!result.data.sent) {
-      toast.error(result.data.reason || t("emailSettings.testFailed"));
+      toast.error(smtpFailureMessage(result.data.reason, result.data.diagnostics) || t("emailSettings.testFailed"));
       return;
     }
     toast.success(t("emailSettings.testSent"));
   }
 
-  function smtpVerifyErrorMessage(reason: string | undefined): string {
+  function smtpVerifyErrorMessage(
+    reason: string | undefined,
+    diag?: SmtpAuthDiagnostics,
+  ): string {
     switch (reason) {
       case "smtp_host_missing":
         return t("emailSettings.smtpHostMissing");
@@ -177,7 +221,7 @@ function AdminEmailSettingsPage() {
       case "smtp_not_configured":
         return t("emailSettings.smtpNotConfigured");
       default:
-        return reason || t("emailSettings.smtpVerifyFailed");
+        return smtpFailureMessage(reason, diag);
     }
   }
 
@@ -196,7 +240,7 @@ function AdminEmailSettingsPage() {
       return;
     }
     if (!result.data.ok) {
-      toast.error(smtpVerifyErrorMessage(result.data.reason));
+      toast.error(smtpVerifyErrorMessage(result.data.reason, result.data.diagnostics));
       return;
     }
     toast.success(
@@ -206,6 +250,8 @@ function AdminEmailSettingsPage() {
       }),
     );
   }
+
+  const mailgunUserHintKey = mailgunUsernameHint(smtpUsername, smtpHost);
 
   return (
     <div className="space-y-5">
@@ -312,9 +358,11 @@ function AdminEmailSettingsPage() {
                   <p className="text-xs text-muted-foreground">
                     {smtpPreset === "gmail"
                       ? t("emailSettings.gmailHint")
-                      : smtpPreset === "mailgun_eu" || smtpPreset === "mailgun_us"
-                        ? t("emailSettings.mailgunHint")
-                        : t("emailSettings.smtpPresetHint")}
+                      : smtpPreset === "mailgun_eu"
+                        ? t("emailSettings.mailgunHintEu")
+                        : smtpPreset === "mailgun_us"
+                          ? t("emailSettings.mailgunHintUs")
+                          : t("emailSettings.smtpPresetHint")}
                   </p>
                 </div>
 
@@ -384,6 +432,15 @@ function AdminEmailSettingsPage() {
                       smtpPreset === "gmail" ? "you@gmail.com" : "postmaster@mg.example.com"
                     }
                   />
+                  {mailgunUserHintKey === "mailgun_username_need_at" ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {t("emailSettings.mailgunUsernameNeedAt")}
+                    </p>
+                  ) : mailgunUserHintKey === "mailgun_username_unusual" ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("emailSettings.mailgunUsernameUnusual")}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -399,7 +456,10 @@ function AdminEmailSettingsPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     {settings.data?.smtpPasswordSet
-                      ? t("emailSettings.smtpPasswordLast4", { last4: settings.data.smtpPasswordLast4 })
+                      ? t("emailSettings.smtpPasswordLast4", {
+                          last4: settings.data.smtpPasswordLast4,
+                          length: settings.data.smtpPasswordLength,
+                        })
                       : t("emailSettings.smtpPasswordEmpty")}
                   </p>
                   {settings.data?.smtpPasswordSet ? (
