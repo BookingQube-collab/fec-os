@@ -123,6 +123,26 @@ export function isLeaveSiteStepActor(jobTitle: string | null | undefined): boole
 }
 
 /**
+ * Print form: staff / Venue supervisor applicants show the Supervisor column.
+ * Sr. Site applicants hide it (their ladder opens on HoO).
+ */
+export function leavePrintShowsSupervisorSeat(jobTitle: string | null | undefined): boolean {
+  return !isSrSiteSupervisorTitle(jobTitle);
+}
+
+/**
+ * When the leave subject is Sr. Site, skip supervisor + site and open on HoO
+ * (self-apply or recorded leave — mirrors Sr. Site team-submit opening).
+ */
+export function leaveSubjectSeatSkips(jobTitle: string | null | undefined): {
+  skipManagerSeat: boolean;
+  skipSiteSeat: boolean;
+} | null {
+  if (!isSrSiteSupervisorTitle(jobTitle)) return null;
+  return { skipManagerSeat: true, skipSiteSeat: true };
+}
+
+/**
  * When a supervisor / Sr. Site / HoO applies leave for a team member, skip seats
  * they already hold so the request does not return to the same actor.
  */

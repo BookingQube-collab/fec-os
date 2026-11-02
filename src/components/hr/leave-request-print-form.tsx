@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 
+import { DigitalSignatureImage } from "@/components/hr/digital-signature-image";
 import { E3DocumentFooter, E3DocumentLetterhead } from "@/components/hr/e3-document-letterhead";
 import {
   formatLetterheadDisplayDate,
@@ -9,7 +10,22 @@ import {
   LetterheadFormField,
   LetterheadRequestNumber,
 } from "@/components/hr/hr-letterhead-print-shell";
-import type { HrLeaveStatus } from "@/lib/hr-leave";
+import {
+  leavePrintSignatureActors,
+  leavePrintSignatureDone,
+  type HrLeaveStatus,
+  type LeavePrintSigKey,
+  type LeavePrintSignature,
+} from "@/lib/hr-leave";
+import { leavePrintShowsSupervisorSeat } from "@/lib/hr-leave-routing";
+
+export type LeaveRequestPrintStep = {
+  stepRole: string;
+  status: string;
+  actedByName?: string | null;
+  actedAt?: string | null;
+  actedBySignatureUrl?: string | null;
+};
 
 export type LeaveRequestPrintPayload = {
   requestNumber?: string | null;
@@ -25,12 +41,80 @@ export type LeaveRequestPrintPayload = {
   days: number;
   reason: string | null;
   status?: HrLeaveStatus | null;
+  /** Approval trail — drives which signature cells fill after each seat approves. */
+  steps?: LeaveRequestPrintStep[];
+  /**
+   * When false, hide the Supervisor column (Sr. Site applicant).
+   * Defaults from jobTitle via leavePrintShowsSupervisorSeat.
+   */
+  showSupervisorSignature?: boolean;
 };
+
+function formatSignatureWhen(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const day = iso.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return formatLetterheadDisplayDate(day);
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
+  } catch {
+    return day;
+  }
+}
+
+function SignatureStamp({
+  done,
+  signature,
+}: {
+  done: boolean;
+  signature?: LeavePrintSignature | null;
+}) {
+  if (!done) return null;
+  const imageUrl = signature?.imageUrl?.trim() || null;
+  const name = signature?.name?.trim() || null;
+  const when = formatSignatureWhen(signature?.at);
+  if (!imageUrl && !name && !when) {
+    return <span className="text-lg leading-none">✓</span>;
+  }
+  return (
+    <div className="flex flex-col items-center justify-center gap-0.5 bg-transparent px-1 py-1">
+      {imageUrl ? (
+        <DigitalSignatureImage
+          src={imageUrl}
+          alt={name ? `${name} signature` : "Signature"}
+          className="max-h-12 max-w-[92%]"
+        />
+      ) : (
+        <span className="text-lg leading-none">✓</span>
+      )}
+      {name ? (
+        <span className="max-w-full truncate text-[9px] leading-tight text-neutral-800">{name}</span>
+      ) : null}
+      {when ? <span className="text-[8px] text-neutral-600">{when}</span> : null}
+    </div>
+  );
+}
 
 function LeaveRequestSheet({ payload }: { payload: LeaveRequestPrintPayload }) {
   const { t } = useTranslation();
   const sheetNumber = payload.requestNumber?.trim() || null;
-  const approved = payload.status === "approved";
+  const steps = payload.steps ?? [];
+  const showSupervisor =
+    payload.showSupervisorSignature ?? leavePrintShowsSupervisorSeat(payload.jobTitle);
+  const actors = leavePrintSignatureActors({ status: payload.status, steps });
+  const done = (key: LeavePrintSigKey) => leavePrintSignatureDone(payload.status, steps, key);
+
+  const columns: Array<{ key: LeavePrintSigKey; label: string }> = [
+    ...(showSupervisor
+      ? [{ key: "supervisor" as const, label: t("hr.leave.print.sigSupervisor") }]
+      : []),
+    { key: "site", label: t("hr.leave.print.sigSite") },
+    { key: "hoo", label: t("hr.leave.print.sigHoo") },
+    { key: "hr", label: t("hr.leave.print.sigHr") },
+  ];
 
   return (
     <article className="hr-letterhead-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-6 pb-6 pt-4 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
@@ -89,31 +173,23 @@ function LeaveRequestSheet({ payload }: { payload: LeaveRequestPrintPayload }) {
       <p className="mt-4 text-[10px] italic text-neutral-600">{t("hr.leave.print.instruction")}</p>
 
       <div className="mt-auto pt-8">
-        <table className="w-full border-collapse border border-neutral-800 text-center text-[11px]">
+        <table className="w-full border-collapse border border-neutral-800 text-center text-[9px]">
           <thead>
             <tr>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
-                {t("hr.leave.print.sigManager")}
-              </th>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
-                {t("hr.leave.print.sigOps")}
-              </th>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
-                {t("hr.leave.print.sigHr")}
-              </th>
+              {columns.map((col) => (
+                <th key={col.key} className="border border-neutral-800 px-1 py-2 font-bold uppercase">
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="h-20 border border-neutral-800 align-middle text-lg">
-                {approved ? "✓" : ""}
-              </td>
-              <td className="h-20 border border-neutral-800 align-middle text-lg">
-                {approved ? "✓" : ""}
-              </td>
-              <td className="h-20 border border-neutral-800 align-middle text-lg">
-                {approved ? "✓" : ""}
-              </td>
+              {columns.map((col) => (
+                <td key={col.key} className="h-24 border border-neutral-800 align-middle">
+                  <SignatureStamp done={done(col.key)} signature={actors[col.key]} />
+                </td>
+              ))}
             </tr>
           </tbody>
         </table>

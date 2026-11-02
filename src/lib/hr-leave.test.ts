@@ -13,12 +13,16 @@ import {
   leaveApprovalStepsForRequester,
   leaveOpeningStepRole,
   leaveStepSeatLabel,
+  leavePrintSignatureActors,
+  leavePrintSignatureDone,
   leaveTeamSubmitOpening,
   shouldFinalizeLeaveOnApprove,
 } from "./hr-leave";
 import {
   isLeaveSiteStepActor,
   leaveApproverUserIdsForStep,
+  leavePrintShowsSupervisorSeat,
+  leaveSubjectSeatSkips,
   leaveTeamSubmitSkips,
   resolveLeaveSupervisorRoute,
 } from "./hr-leave-routing";
@@ -101,6 +105,74 @@ describe("leave status transitions", () => {
     expect(leaveStepSeatLabel("ops", { opsLane: "fnb_manager" })).toBe("F&B Manager");
     expect(isLeaveSiteStepActor("Sr. Site Supervisor")).toBe(true);
     expect(isLeaveSiteStepActor("Site Supervisor")).toBe(false);
+  });
+
+  it("skips supervisor + site seats when the leave subject is Sr. Site", () => {
+    expect(leaveSubjectSeatSkips("Sr. Site Supervisor")).toEqual({
+      skipManagerSeat: true,
+      skipSiteSeat: true,
+    });
+    expect(leaveSubjectSeatSkips("Crew / Attendant")).toBeNull();
+    expect(leaveOpeningStepRole(true, true)).toBe("ops");
+    expect(leavePrintShowsSupervisorSeat("Crew / Attendant")).toBe(true);
+    expect(leavePrintShowsSupervisorSeat("Supervisor")).toBe(true);
+    expect(leavePrintShowsSupervisorSeat("Sr. Site Supervisor")).toBe(false);
+  });
+
+  it("stamps print signatures only after each seat actually approves", () => {
+    const pending = [
+      { stepRole: "manager", status: "pending" },
+      { stepRole: "site", status: "pending" },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leavePrintSignatureDone("pending", pending, "supervisor")).toBe(false);
+    expect(leavePrintSignatureDone("pending", pending, "site")).toBe(false);
+    expect(leavePrintSignatureDone("pending", pending, "hoo")).toBe(false);
+    expect(leavePrintSignatureDone("pending", pending, "hr")).toBe(false);
+
+    const afterSupervisor = [
+      {
+        stepRole: "manager",
+        status: "approved",
+        actedByName: "Venue Lead",
+        actedAt: "2026-11-02T10:00:00Z",
+      },
+      { stepRole: "site", status: "pending" },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leavePrintSignatureDone("pending", afterSupervisor, "supervisor")).toBe(true);
+    expect(leavePrintSignatureDone("pending", afterSupervisor, "site")).toBe(false);
+    expect(leavePrintSignatureActors({ status: "pending", steps: afterSupervisor }).supervisor.name).toBe(
+      "Venue Lead",
+    );
+
+    const skippedSupervisor = [
+      { stepRole: "manager", status: "skipped" },
+      {
+        stepRole: "site",
+        status: "approved",
+        actedByName: "Mary Wangare Muiruri",
+        actedAt: "2026-11-02T11:00:00Z",
+        actedBySignatureUrl: "https://signed.example/mary.png",
+      },
+      {
+        stepRole: "ops",
+        status: "approved",
+        actedByName: "Rajan Pathak",
+        actedAt: "2026-11-02T12:00:00Z",
+      },
+    ];
+    expect(leavePrintSignatureDone("approved", skippedSupervisor, "supervisor")).toBe(false);
+    expect(leavePrintSignatureDone("approved", skippedSupervisor, "site")).toBe(true);
+    expect(leavePrintSignatureDone("approved", skippedSupervisor, "hoo")).toBe(true);
+    expect(leavePrintSignatureDone("approved", skippedSupervisor, "hr")).toBe(true);
+    const actors = leavePrintSignatureActors({ status: "approved", steps: skippedSupervisor });
+    expect(actors.site).toEqual({
+      name: "Mary Wangare Muiruri",
+      at: "2026-11-02T11:00:00Z",
+      imageUrl: "https://signed.example/mary.png",
+    });
+    expect(actors.hoo.name).toBe("Rajan Pathak");
   });
 
   it("routes Operations leave ops step to Head of Operations and F&B to F&B Manager", () => {

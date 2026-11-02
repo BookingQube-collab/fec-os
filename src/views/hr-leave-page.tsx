@@ -97,6 +97,13 @@ export function HrLeaveWorkspace({
       days: row.days,
       reason: row.reason,
       status: row.status,
+      steps: (row.steps ?? []).map((step) => ({
+        stepRole: step.stepRole,
+        status: step.status,
+        actedByName: step.actedByName,
+        actedAt: step.actedAt,
+        actedBySignatureUrl: step.actedBySignatureUrl ?? null,
+      })),
     });
     setPrintOpen(true);
   };

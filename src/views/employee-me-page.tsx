@@ -400,6 +400,7 @@ export default function EmployeeMePage() {
           days: res.days,
           reason: leaveReason || null,
           status: "finalized" in res && res.finalized ? "approved" : "pending",
+          steps: [],
         });
         setLeavePrintOpen(true);
       }
@@ -971,6 +972,13 @@ export default function EmployeeMePage() {
                                     days: row.days,
                                     reason: row.reason,
                                     status: row.status,
+                                    steps: (row.steps ?? []).map((step) => ({
+                                      stepRole: step.stepRole,
+                                      status: step.status,
+                                      actedByName: step.actedByName,
+                                      actedAt: step.actedAt,
+                                      actedBySignatureUrl: step.actedBySignatureUrl ?? null,
+                                    })),
                                   });
                                   setLeavePrintOpen(true);
                                 }}

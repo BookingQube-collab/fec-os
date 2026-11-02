@@ -48,9 +48,11 @@ import {
   type HrLeaveApprovalRole,
   type HrLeaveStatus,
 } from "@/lib/hr-leave";
+import { STAFF_SIGNATURES_BUCKET } from "@/lib/digital-signature";
 import {
   isLeaveSiteStepActor,
   leaveApproverUserIdsForStep,
+  leaveSubjectSeatSkips,
   leaveTeamSubmitSkips,
   resolveLeaveSupervisorRoute,
 } from "@/lib/hr-leave-routing";
@@ -137,7 +139,48 @@ type LeaveApprovalStepMapped = {
   actedBy: string | null;
   actedByName: string | null;
   actedAt: string | null;
+  /** Signed URL for opt-in auto-apply digital signature when available. */
+  actedBySignatureUrl: string | null;
 };
+
+/** Opt-in auto-apply signature storage paths by profile id. */
+async function leaveSignaturePathByUserId(userIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!ids.length) return map;
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, signature_url, signature_auto_apply")
+    .in("id", ids);
+  if (error) {
+    console.warn("[hr-leave] signature lookup failed", error.message);
+    return map;
+  }
+  for (const row of data ?? []) {
+    const auto = Boolean((row as { signature_auto_apply?: boolean | null }).signature_auto_apply);
+    const path = (row as { signature_url?: string | null }).signature_url?.trim() || null;
+    if (auto && path) map.set(String(row.id), path);
+  }
+  return map;
+}
+
+async function leaveSignedSignatureUrls(paths: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  const signed = new Map<string, string>();
+  if (!unique.length) return signed;
+  const { data, error } = await supabaseAdmin.storage
+    .from(STAFF_SIGNATURES_BUCKET)
+    .createSignedUrls(unique, 3600);
+  if (error) {
+    console.warn("[hr-leave] signature sign failed", error.message);
+    return signed;
+  }
+  for (let i = 0; i < unique.length; i += 1) {
+    const url = data?.[i]?.signedUrl?.trim();
+    if (url) signed.set(unique[i]!, url);
+  }
+  return signed;
+}
 
 function mapLeaveRow(
   row: Record<string, unknown>,
@@ -198,7 +241,7 @@ async function nameByUserId(userIds: string[]) {
   return names;
 }
 
-/** Attach approval-step trail (with actor names) for Approved history filters/UI. */
+/** Attach approval-step trail (actor names + digital signature URLs) for history/print. */
 async function attachLeaveApprovalSteps<
   T extends { id: string; steps?: LeaveApprovalStepMapped[] },
 >(rows: T[]): Promise<T[]> {
@@ -213,13 +256,19 @@ async function attachLeaveApprovalSteps<
     if (tableMissing(error.message)) return rows;
     throw error;
   }
-  const actorNames = await nameByUserId(
-    (stepRows ?? []).map((step) => step.acted_by).filter((id): id is string => Boolean(id)),
-  );
+  const actorIds = (stepRows ?? [])
+    .map((step) => step.acted_by)
+    .filter((id): id is string => Boolean(id));
+  const [actorNames, signaturePaths] = await Promise.all([
+    nameByUserId(actorIds),
+    leaveSignaturePathByUserId(actorIds),
+  ]);
+  const signedUrls = await leaveSignedSignatureUrls([...signaturePaths.values()]);
   const byLeave = new Map<string, LeaveApprovalStepMapped[]>();
   for (const step of stepRows ?? []) {
     const leaveId = String(step.leave_id);
     const actedBy = step.acted_by ? String(step.acted_by) : null;
+    const path = actedBy ? signaturePaths.get(actedBy) ?? null : null;
     const list = byLeave.get(leaveId) ?? [];
     list.push({
       stepRole: String(step.step_role),
@@ -227,6 +276,7 @@ async function attachLeaveApprovalSteps<
       actedBy,
       actedByName: actedBy ? actorNames.get(actedBy) ?? null : null,
       actedAt: step.acted_at ? String(step.acted_at) : null,
+      actedBySignatureUrl: path ? signedUrls.get(path) ?? null : null,
     });
     byLeave.set(leaveId, list);
   }
@@ -848,7 +898,9 @@ export const listLeaveRequests = createAuthenticatedAction(
       );
     }
     // Dedupe by id; Approve tab also collapses identical pending retry rows.
-    return dedupeLeaveApprovalRows(mapped, { collapsePendingExact: Boolean(data.approvals) });
+    // Always attach steps so print/preview can stamp signatures after each seat approves.
+    const deduped = dedupeLeaveApprovalRows(mapped, { collapsePendingExact: Boolean(data.approvals) });
+    return attachLeaveApprovalSteps(deduped);
   },
   { auth: { anyCapability: ["hr.leave.manage", "hr.leave.approve_manager", "hr.employee_app"] } },
 );
@@ -1230,8 +1282,16 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           isOpsFinalizer: submitterIsOpsForTarget,
         });
     const teamSkips = teamOpening ? leaveTeamSubmitSkips(teamOpening) : null;
-    const skipManagerSeat = teamSkips ? teamSkips.skipManagerSeat : employeeRoute.skipManagerSeat;
-    const skipSiteSeat = teamSkips ? teamSkips.skipSiteSeat : false;
+    // Sr. Site's own leave (self or recorded): skip Supervisor + Sr. Site → open on HoO.
+    const subjectSkips = leaveSubjectSeatSkips(
+      (staff as { job_title?: string | null }).job_title,
+    );
+    const skipManagerSeat = teamSkips
+      ? teamSkips.skipManagerSeat
+      : Boolean(subjectSkips?.skipManagerSeat || employeeRoute.skipManagerSeat);
+    const skipSiteSeat = teamSkips
+      ? teamSkips.skipSiteSeat
+      : Boolean(subjectSkips?.skipSiteSeat);
     const finalizeNow = teamOpening === "final";
     const openingStep: HrLeaveApprovalRole | null = finalizeNow
       ? null
@@ -1506,8 +1566,15 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
       throw new Error("Leave request not found.");
     }
 
-    if (stepRole === "hr" && !manage) {
-      throw new ForbiddenError("HR verification requires hr.leave.manage.");
+    if (stepRole === "hr") {
+      // Sr. Site with branch_gm (hr.leave.manage) must not clear the legacy HR seat.
+      if (srSiteActor || !manage) {
+        throw new ForbiddenError(
+          srSiteActor
+            ? "HR verification is not available to Sr. Site Supervisor."
+            : "HR verification requires hr.leave.manage.",
+        );
+      }
     }
     if (stepRole === "manager") {
       // Sr. Site title is the site seat only — never the supervisor seat (even with manage).
@@ -1728,6 +1795,18 @@ export const reviewLeaveRequest = createAuthenticatedAction(
     }
 
     if (!manage) throw new ForbiddenError("Final leave review requires hr.leave.manage.");
+    // Sr. Site + branch_gm must not final-stamp remaining HoO / HR seats via the HR admin path.
+    const { data: reviewerRow } = await supabaseAdmin
+      .from("staff")
+      .select("job_title")
+      .eq("user_id", context.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (isLeaveSiteStepActor((reviewerRow as { job_title?: string | null } | null)?.job_title)) {
+      throw new ForbiddenError(
+        "Sr. Site Supervisor cannot final-approve leave for Head of Operations or HR seats.",
+      );
+    }
     assertLeaveTransition(from, data.status as HrLeaveStatus, "hr");
 
     if (data.status === "rejected") {

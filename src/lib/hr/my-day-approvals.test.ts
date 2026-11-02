@@ -184,7 +184,7 @@ describe("who may approve from My Day", () => {
   });
 
   it("keeps Sr. Site on the site seat even when login has hr.leave.manage (branch_gm)", () => {
-    // Mary: Sr. Site title + branch_gm — manage must not unlock HoO or supervisor.
+    // Mary: Sr. Site title + branch_gm — manage must not unlock HoO, HR, or supervisor.
     expect(
       canApproveLeaveOnMyDay({
         roles: ["branch_gm"],
@@ -221,7 +221,7 @@ describe("who may approve from My Day", () => {
         isLineManager: false,
         jobTitle: "Sr. Site Supervisor",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("lets Head of Operations approve the ops step for leave and punches", () => {

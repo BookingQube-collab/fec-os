@@ -9710,10 +9710,13 @@
         "dateFrom": "From date",
         "dateTo": "To date",
         "reason": "Reason",
-        "instruction": "Instruction: Leave is not final until the approval steps are complete.",
-        "sigManager": "Line manager signature",
-        "sigOps": "Operations signature",
-        "sigHr": "HR signature"
+        "instruction": "Instruction: Attendance updates when Head of Operations (or F&B Manager) approves. HR is notified after — leave is already final for the roster.",
+        "sigSupervisor": "Supervisor signature",
+        "sigSite": "Sr. Site Supervisor signature",
+        "sigHoo": "Head of Operations signature",
+        "sigHr": "HR signature",
+        "sigManager": "Supervisor signature",
+        "sigOps": "Head of Operations signature"
       }
     },
     "missedPunch": {

@@ -133,6 +133,7 @@ export function leaveTeamSubmitOpening(input: {
 /**
  * HoO / F&B approval writes attendance_leave_records (roster leave codes) and finishes
  * the request. Legacy `hr` seats still finalize when reached.
+ * Attendance must not wait on an HR signature seat.
  */
 export function shouldFinalizeLeaveOnApprove(
   stepRole: HrLeaveApprovalRole | string,
@@ -141,6 +142,72 @@ export function shouldFinalizeLeaveOnApprove(
   if (stepRole === "ops" || stepRole === "hr") return true;
   if (!nextStepRole) return true;
   return false;
+}
+
+/** Print-slip signature columns: Supervisor → Sr. Site → HoO → HR. */
+export type LeavePrintSigKey = "supervisor" | "site" | "hoo" | "hr";
+
+export type LeavePrintSignature = {
+  name: string | null;
+  at: string | null;
+  imageUrl?: string | null;
+};
+
+/**
+ * Progressive print stamps from approval steps.
+ * Only `approved` seats fill (skipped stays blank). HR stamps when leave is
+ * finalized (ops already wrote attendance) or a legacy hr seat approved.
+ */
+export function leavePrintSignatureDone(
+  status: string | null | undefined,
+  steps: ReadonlyArray<{ stepRole: string; status: string }> | null | undefined,
+  key: LeavePrintSigKey,
+): boolean {
+  const byRole = new Map((steps ?? []).map((step) => [step.stepRole, step.status]));
+  const seatApproved = (role: string) => byRole.get(role) === "approved";
+
+  if (key === "supervisor") return seatApproved("manager");
+  if (key === "site") return seatApproved("site");
+  if (key === "hoo") {
+    if (seatApproved("ops")) return true;
+    // Legacy fully-approved rows with no stored ops seat.
+    if (status === "approved" && (steps?.length ?? 0) === 0) return true;
+    return false;
+  }
+  // HR notify-only after ops finalize — show stamp once leave is approved.
+  if (seatApproved("hr")) return true;
+  if (status === "approved" && (seatApproved("ops") || (steps?.length ?? 0) === 0)) return true;
+  return false;
+}
+
+/** Map print seats to people who approved (names + optional digital signature URL). */
+export function leavePrintSignatureActors(args: {
+  status?: string | null;
+  steps: ReadonlyArray<{
+    stepRole: string;
+    status: string;
+    actedByName?: string | null;
+    actedAt?: string | null;
+    actedBySignatureUrl?: string | null;
+  }>;
+}): Record<LeavePrintSigKey, LeavePrintSignature> {
+  const empty = (): LeavePrintSignature => ({ name: null, at: null, imageUrl: null });
+  const pick = (role: string): LeavePrintSignature => {
+    const step = args.steps.find((s) => s.stepRole === role && s.status === "approved");
+    if (!step) return empty();
+    return {
+      name: step.actedByName?.trim() || null,
+      at: step.actedAt ?? null,
+      imageUrl: step.actedBySignatureUrl?.trim() || null,
+    };
+  };
+  return {
+    supervisor: pick("manager"),
+    site: pick("site"),
+    hoo: pick("ops"),
+    // HR is notify-only after ops — stamp cell with ✓ via leavePrintSignatureDone; no actor unless legacy hr seat.
+    hr: pick("hr"),
+  };
 }
 
 export function leaveStepSeatLabel(
