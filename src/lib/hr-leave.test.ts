@@ -189,12 +189,13 @@ describe("overlap prevention", () => {
     expect(hasHardLeaveOverlap(conflicts)).toBe(true);
   });
 
-  it("does not hard-block roster-only conflicts", () => {
+  it("does not treat roster assignment as a leave conflict", () => {
     const conflicts = detectLeaveConflicts({
       dateFrom: "2026-08-28",
       dateTo: "2026-08-30",
       rosterDates: ["2026-08-29"],
     });
+    expect(conflicts).toEqual([]);
     expect(hasHardLeaveOverlap(conflicts)).toBe(false);
   });
 });

@@ -62,6 +62,7 @@ import {
   DEFAULT_SICK_ALLOTMENT,
   detectLeaveConflicts,
   enumerateLeaveDates,
+  hasAckRequiredLeaveConflicts,
   hasHardLeaveOverlap,
   mapHrLeaveTypeToAttendance,
   summarizeLeaveBalances,
@@ -299,14 +300,8 @@ async function loadLeaveConflicts(
   dateTo: string,
   excludeId?: string,
 ) {
-  const [rosterRes, attendanceRes, leaveRes, holidayRes, staffLoc] = await Promise.all([
-    context.supabase
-      .from("attendance_roster_assignments")
-      .select("work_date")
-      .eq("staff_id", staffId)
-      .gte("work_date", dateFrom)
-      .lte("work_date", dateTo)
-      .limit(100),
+  // Roster assignment is not checked: leave on a rostered day is expected (leave replaces the shift).
+  const [attendanceRes, leaveRes, holidayRes, staffLoc] = await Promise.all([
     context.supabase
       .from("attendance_daily_summary")
       .select("work_date, status")
@@ -341,7 +336,6 @@ async function loadLeaveConflicts(
   return detectLeaveConflicts({
     dateFrom,
     dateTo,
-    rosterDates: (rosterRes.data ?? []).map((r) => String(r.work_date)),
     attendancePresentDates: (attendanceRes.data ?? []).map((r) => String(r.work_date)),
     holidayDates,
     overlappingLeave: (leaveRes.data ?? [])
@@ -1009,7 +1003,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         openingStep: null as string | null,
       };
     }
-    if (conflicts.length > 0 && !data.acknowledgeConflicts) {
+    if (hasAckRequiredLeaveConflicts(conflicts) && !data.acknowledgeConflicts) {
       return {
         id: null as string | null,
         days,
@@ -1711,7 +1705,7 @@ export const recordLeaveForStaff = createAuthenticatedAction(
         syncedDays: 0,
       };
     }
-    if (conflicts.length > 0 && !data.acknowledgeConflicts) {
+    if (hasAckRequiredLeaveConflicts(conflicts) && !data.acknowledgeConflicts) {
       return {
         id: null as string | null,
         days,

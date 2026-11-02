@@ -7,6 +7,8 @@ import {
   detectLeaveConflicts,
   enumerateLeaveDates,
   formatOtPolicySummary,
+  hasAckRequiredLeaveConflicts,
+  hasHardLeaveOverlap,
   mapHrLeaveTypeToAttendance,
   sumLeaveDaysInPeriod,
   sumUsedLeaveDays,
@@ -39,7 +41,7 @@ describe("leave balances", () => {
 });
 
 describe("leave conflicts", () => {
-  it("flags roster and attendance overlaps", () => {
+  it("flags attendance and leave overlaps but ignores roster assignment", () => {
     const conflicts = detectLeaveConflicts({
       dateFrom: "2026-08-28",
       dateTo: "2026-08-30",
@@ -47,7 +49,7 @@ describe("leave conflicts", () => {
       attendancePresentDates: ["2026-08-28"],
       overlappingLeave: [{ dateFrom: "2026-08-30", dateTo: "2026-09-01", status: "pending" }],
     });
-    expect(conflicts.map((c) => c.kind).sort()).toEqual(["attendance", "leave_overlap", "roster"]);
+    expect(conflicts.map((c) => c.kind).sort()).toEqual(["attendance", "leave_overlap"]);
   });
 
   it("flags public holidays when provided", () => {
@@ -62,6 +64,34 @@ describe("leave conflicts", () => {
   it("detects range overlap inclusively", () => {
     expect(dateRangesOverlap("2026-01-01", "2026-01-05", "2026-01-05", "2026-01-10")).toBe(true);
     expect(dateRangesOverlap("2026-01-01", "2026-01-05", "2026-01-06", "2026-01-10")).toBe(false);
+  });
+
+  it("requires ack for attendance/holiday but not hard-block leave overlap alone", () => {
+    expect(
+      hasAckRequiredLeaveConflicts(
+        detectLeaveConflicts({
+          dateFrom: "2026-08-28",
+          dateTo: "2026-08-28",
+          attendancePresentDates: ["2026-08-28"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      hasAckRequiredLeaveConflicts(
+        detectLeaveConflicts({
+          dateFrom: "2026-08-28",
+          dateTo: "2026-08-28",
+          holidayDates: ["2026-08-28"],
+        }),
+      ),
+    ).toBe(true);
+    const leaveOnly = detectLeaveConflicts({
+      dateFrom: "2026-08-28",
+      dateTo: "2026-08-28",
+      overlappingLeave: [{ dateFrom: "2026-08-28", dateTo: "2026-08-28", status: "pending" }],
+    });
+    expect(hasHardLeaveOverlap(leaveOnly)).toBe(true);
+    expect(hasAckRequiredLeaveConflicts(leaveOnly)).toBe(false);
   });
 });
 

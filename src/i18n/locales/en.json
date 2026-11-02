@@ -9612,7 +9612,7 @@
       "days": "days",
       "empty": "No leave requests in this filter.",
       "noAccess": "You cannot review leave requests.",
-      "conflictWarn": "This leave overlaps roster, attendance, or another request.",
+      "conflictWarn": "This leave overlaps attendance or a public holiday.",
       "overlapBlocked": "Overlapping leave requests are not allowed.",
       "history": "My leave history",
       "balancesTitle": "Leave balances",

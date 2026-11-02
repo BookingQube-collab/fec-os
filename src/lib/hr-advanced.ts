@@ -97,6 +97,7 @@ export function dateRangesOverlap(
 export function detectLeaveConflicts(input: {
   dateFrom: string;
   dateTo: string;
+  /** @deprecated Roster assignment alone is expected for leave (leave replaces the shift). Ignored. */
   rosterDates?: string[];
   attendancePresentDates?: string[];
   holidayDates?: string[];
@@ -107,12 +108,9 @@ export function detectLeaveConflicts(input: {
   const to = input.dateTo.slice(0, 10);
   if (countLeaveDays(from, to) < 1) return conflicts;
 
-  for (const workDate of input.rosterDates ?? []) {
-    const d = workDate.slice(0, 10);
-    if (d >= from && d <= to) {
-      conflicts.push({ kind: "roster", workDate: d, detail: "Assigned on roster" });
-    }
-  }
+  // Roster assignment is not a leave conflict — applying leave on a rostered day is normal.
+  void input.rosterDates;
+
   for (const workDate of input.attendancePresentDates ?? []) {
     const d = workDate.slice(0, 10);
     if (d >= from && d <= to) {
@@ -138,9 +136,14 @@ export function detectLeaveConflicts(input: {
   return conflicts;
 }
 
-/** Overlapping leave requests are hard-blocked; roster/attendance/holiday may warn. */
+/** Overlapping leave requests are hard-blocked. */
 export function hasHardLeaveOverlap(conflicts: LeaveConflict[]): boolean {
   return conflicts.some((c) => c.kind === "leave_overlap");
+}
+
+/** Attendance / holiday soft conflicts need acknowledge before submit; roster does not. */
+export function hasAckRequiredLeaveConflicts(conflicts: LeaveConflict[]): boolean {
+  return conflicts.some((c) => c.kind === "attendance" || c.kind === "holiday");
 }
 
 export function formatOtPolicySummary(policy: {
