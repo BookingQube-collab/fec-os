@@ -2,11 +2,14 @@ import nodemailer from "nodemailer";
 
 import {
   formatFromHeader,
+  isSmtpAuthFailure,
+  mailgunAlternateSmtpHost,
+  mailgunPresetForHost,
+  nodemailerSecureOptions,
   smtpAuthDiagnostics,
   type OutboundEmailConfig,
   type OutboundSmtpConfig,
   type SmtpAuthDiagnostics,
-  type SmtpEncryption,
 } from "@/lib/email/outbound-config";
 import { getOutboundEmailConfig } from "@/lib/email/settings-store";
 
@@ -30,26 +33,8 @@ export type SendOutboundEmailResult = {
   diagnostics?: SmtpAuthDiagnostics;
 };
 
-function nodemailerSecureOptions(encryption: SmtpEncryption, port: number): {
-  secure: boolean;
-  requireTLS?: boolean;
-  tls?: { rejectUnauthorized: boolean };
-} {
-  if (encryption === "ssl" || port === 465) {
-    return { secure: true };
-  }
-  if (encryption === "tls" || encryption === "starttls") {
-    return { secure: false, requireTLS: true };
-  }
-  return { secure: false };
-}
-
-export async function sendViaSmtp(
-  smtp: OutboundSmtpConfig,
-  from: string,
-  input: Pick<SendOutboundEmailInput, "to" | "subject" | "html" | "text">,
-): Promise<SendOutboundEmailResult> {
-  const transport = nodemailer.createTransport({
+function createSmtpTransport(smtp: OutboundSmtpConfig) {
+  return nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
     ...nodemailerSecureOptions(smtp.encryption, smtp.port),
@@ -58,6 +43,44 @@ export async function sendViaSmtp(
       pass: smtp.password,
     },
   });
+}
+
+/**
+ * If Mailgun rejected auth on the configured host, probe the opposite region
+ * with the same credentials (verify only — never auto-send via the other host).
+ */
+async function enrichMailgunRegionDiagnostics(
+  smtp: OutboundSmtpConfig,
+  reason: string | undefined,
+  diagnostics: SmtpAuthDiagnostics,
+): Promise<SmtpAuthDiagnostics> {
+  if (!isSmtpAuthFailure(reason)) return diagnostics;
+  const alternateHost = mailgunAlternateSmtpHost(smtp.host);
+  if (!alternateHost) return diagnostics;
+
+  const probe: OutboundSmtpConfig = { ...smtp, host: alternateHost };
+  const transport = createSmtpTransport(probe);
+  try {
+    await transport.verify();
+    const preset = mailgunPresetForHost(alternateHost);
+    return {
+      ...diagnostics,
+      alternateHostWorked: alternateHost,
+      ...(preset ? { alternatePreset: preset } : {}),
+    };
+  } catch {
+    return diagnostics;
+  } finally {
+    transport.close();
+  }
+}
+
+export async function sendViaSmtp(
+  smtp: OutboundSmtpConfig,
+  from: string,
+  input: Pick<SendOutboundEmailInput, "to" | "subject" | "html" | "text">,
+): Promise<SendOutboundEmailResult> {
+  const transport = createSmtpTransport(smtp);
 
   try {
     await transport.sendMail({
@@ -69,11 +92,17 @@ export async function sendViaSmtp(
     });
     return { sent: true, provider: "smtp" };
   } catch (err) {
+    const reason = err instanceof Error ? err.message : "smtp_send_failed";
+    const diagnostics = await enrichMailgunRegionDiagnostics(
+      smtp,
+      reason,
+      smtpAuthDiagnostics(smtp),
+    );
     return {
       sent: false,
       provider: "smtp",
-      reason: err instanceof Error ? err.message : "smtp_send_failed",
-      diagnostics: smtpAuthDiagnostics(smtp),
+      reason,
+      diagnostics,
     };
   } finally {
     transport.close();
@@ -83,23 +112,21 @@ export async function sendViaSmtp(
 export async function verifySmtpConnection(
   smtp: OutboundSmtpConfig,
 ): Promise<{ ok: boolean; reason?: string; diagnostics?: SmtpAuthDiagnostics }> {
-  const transport = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    ...nodemailerSecureOptions(smtp.encryption, smtp.port),
-    auth: {
-      user: smtp.username,
-      pass: smtp.password,
-    },
-  });
+  const transport = createSmtpTransport(smtp);
   try {
     await transport.verify();
     return { ok: true, diagnostics: smtpAuthDiagnostics(smtp) };
   } catch (err) {
+    const reason = err instanceof Error ? err.message : "smtp_verify_failed";
+    const diagnostics = await enrichMailgunRegionDiagnostics(
+      smtp,
+      reason,
+      smtpAuthDiagnostics(smtp),
+    );
     return {
       ok: false,
-      reason: err instanceof Error ? err.message : "smtp_verify_failed",
-      diagnostics: smtpAuthDiagnostics(smtp),
+      reason,
+      diagnostics,
     };
   } finally {
     transport.close();

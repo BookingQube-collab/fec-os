@@ -178,18 +178,33 @@ export type SmtpAuthDiagnostics = {
   encryption: SmtpEncryption;
   username: string;
   passwordLength: number;
+  /**
+   * Last 4 of the password — only for the saved-settings form status.
+   * Do not put this in error toasts (too easy to leak in screenshots).
+   */
   passwordLast4: string;
+  /** Soft Mailgun password-shape hint when host looks like Mailgun. */
+  passwordHint?: string;
+  /**
+   * When primary host auth failed with 535 but the opposite Mailgun region
+   * accepted the same username/password on a probe.
+   */
+  alternateHostWorked?: string;
+  alternatePreset?: "mailgun_eu" | "mailgun_us";
 };
 
 export function smtpAuthDiagnostics(smtp: OutboundSmtpConfig): SmtpAuthDiagnostics {
   const password = smtp.password.trim();
+  const host = smtp.host.trim();
+  const passwordHint = mailgunSmtpPasswordHint(password, host) || undefined;
   return {
-    host: smtp.host.trim(),
+    host,
     port: smtp.port,
     encryption: smtp.encryption,
     username: smtp.username.trim(),
     passwordLength: password.length,
     passwordLast4: secretLast4(password),
+    ...(passwordHint ? { passwordHint } : {}),
   };
 }
 
@@ -253,6 +268,38 @@ export function mailgunRegionHint(host: string): "eu" | "us" | null {
   if (h === "smtp.eu.mailgun.org" || h.endsWith(".eu.mailgun.org")) return "eu";
   if (h === "smtp.mailgun.org" || h === "smtp.mailgun.net") return "us";
   return null;
+}
+
+/** Opposite Mailgun SMTP host for a one-shot region probe after 535. */
+export function mailgunAlternateSmtpHost(host: string): string | null {
+  const region = mailgunRegionHint(host);
+  if (region === "eu") return "smtp.mailgun.org";
+  if (region === "us") return "smtp.eu.mailgun.org";
+  return null;
+}
+
+export function mailgunPresetForHost(host: string): "mailgun_eu" | "mailgun_us" | null {
+  const region = mailgunRegionHint(host);
+  if (region === "eu") return "mailgun_eu";
+  if (region === "us") return "mailgun_us";
+  return null;
+}
+
+/** Nodemailer TLS flags for our encryption enum (port 587 = STARTTLS, not secure:true). */
+export function nodemailerSecureOptions(
+  encryption: SmtpEncryption,
+  port: number,
+): {
+  secure: boolean;
+  requireTLS?: boolean;
+} {
+  if (encryption === "ssl" || port === 465) {
+    return { secure: true };
+  }
+  if (encryption === "tls" || encryption === "starttls") {
+    return { secure: false, requireTLS: true };
+  }
+  return { secure: false };
 }
 
 export function formatFromHeader(fromAddress: string, fromName: string): string {

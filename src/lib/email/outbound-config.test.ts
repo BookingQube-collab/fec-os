@@ -6,9 +6,12 @@ import {
   formatFromHeader,
   isSmtpAuthFailure,
   keepSecret,
+  mailgunAlternateSmtpHost,
+  mailgunPresetForHost,
   mailgunRegionHint,
   mailgunSmtpPasswordHint,
   mailgunUsernameHint,
+  nodemailerSecureOptions,
   resolveOutboundEmailConfig,
   resolveSmtpConfig,
   secretLast4,
@@ -373,6 +376,17 @@ describe("SMTP auth diagnostics helpers", () => {
     expect(mailgunUsernameHint("plainuser", "smtp.mailgun.org")).toBe("mailgun_username_need_at");
     expect(mailgunRegionHint("smtp.eu.mailgun.org")).toBe("eu");
     expect(mailgunRegionHint("smtp.mailgun.org")).toBe("us");
+    expect(mailgunAlternateSmtpHost("smtp.eu.mailgun.org")).toBe("smtp.mailgun.org");
+    expect(mailgunAlternateSmtpHost("smtp.mailgun.org")).toBe("smtp.eu.mailgun.org");
+    expect(mailgunPresetForHost("smtp.eu.mailgun.org")).toBe("mailgun_eu");
+    expect(mailgunPresetForHost("smtp.mailgun.org")).toBe("mailgun_us");
+  });
+
+  it("maps encryption to nodemailer secure/requireTLS correctly", () => {
+    expect(nodemailerSecureOptions("tls", 587)).toEqual({ secure: false, requireTLS: true });
+    expect(nodemailerSecureOptions("starttls", 587)).toEqual({ secure: false, requireTLS: true });
+    expect(nodemailerSecureOptions("ssl", 465)).toEqual({ secure: true });
+    expect(nodemailerSecureOptions("none", 587)).toEqual({ secure: false });
   });
 
   it("warns when SMTP password looks like Mailgun API Security secrets", () => {
@@ -392,5 +406,14 @@ describe("SMTP auth diagnostics helpers", () => {
     );
     expect(mailgunSmtpPasswordHint("real-smtp-password-from-domain", host)).toBe("");
     expect(mailgunSmtpPasswordHint(fakePrivateApiKey, "smtp.gmail.com")).toBe("");
+    expect(
+      smtpAuthDiagnostics({
+        host,
+        port: 587,
+        encryption: "tls",
+        username: "postmaster@example.com",
+        password: fakePrivateApiKey,
+      }).passwordHint,
+    ).toBe("mailgun_password_looks_like_api_key");
   });
 });

@@ -158,27 +158,54 @@ function AdminEmailSettingsPage() {
 
   function formatSmtpDiagnostics(diag: SmtpAuthDiagnostics | undefined): string {
     if (!diag) return "";
-    const last4 = diag.passwordLast4 ? `…${diag.passwordLast4}` : "(none)";
+    // Length + host/user only — never password suffix in toasts (screenshots leak).
     return t("emailSettings.smtpDiagnostics", {
       host: diag.host,
       port: diag.port,
       user: diag.username,
       passwordLength: diag.passwordLength,
-      passwordLast4: last4,
     });
+  }
+
+  function smtpPasswordShapeHint(diag: SmtpAuthDiagnostics | undefined): string {
+    switch (diag?.passwordHint) {
+      case "mailgun_password_looks_like_api_key":
+        return t("emailSettings.mailgunPasswordLooksLikeApiKey");
+      case "mailgun_password_looks_like_pubkey":
+        return t("emailSettings.mailgunPasswordLooksLikePubkey");
+      case "mailgun_password_looks_like_webhook_signing":
+        return t("emailSettings.mailgunPasswordLooksLikeWebhookSigning");
+      default:
+        return "";
+    }
   }
 
   function smtpFailureMessage(reason: string | undefined, diag: SmtpAuthDiagnostics | undefined): string {
     const detail = formatSmtpDiagnostics(diag);
     if (isSmtpAuthFailure(reason)) {
+      if (diag?.alternateHostWorked) {
+        const regionMsg = t("emailSettings.smtpAuthFailedOtherRegionWorks", {
+          failedHost: diag.host,
+          workingHost: diag.alternateHostWorked,
+          preset:
+            diag.alternatePreset === "mailgun_eu"
+              ? t("emailSettings.presetMailgunEu")
+              : diag.alternatePreset === "mailgun_us"
+                ? t("emailSettings.presetMailgunUs")
+                : diag.alternateHostWorked,
+        });
+        return detail ? `${regionMsg} ${detail}` : regionMsg;
+      }
       const region = mailgunRegionHint(diag?.host || smtpHost);
+      const shape = smtpPasswordShapeHint(diag);
       const authMsg =
         region === "eu"
           ? t("emailSettings.smtpAuthFailedMailgunEu")
           : region === "us"
             ? t("emailSettings.smtpAuthFailedMailgunUs")
             : t("emailSettings.smtpAuthFailed");
-      return detail ? `${authMsg} ${detail}` : authMsg;
+      const withShape = shape ? `${authMsg} ${shape}` : authMsg;
+      return detail ? `${withShape} ${detail}` : withShape;
     }
     const base = reason || t("emailSettings.smtpVerifyFailed");
     return detail ? `${base} ${detail}` : base;
