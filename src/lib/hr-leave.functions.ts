@@ -743,13 +743,28 @@ export const listLeaveRequests = createAuthenticatedAction(
     const staff = await myStaff(context);
 
     if (data.approvalsHistory) {
-      const { data: acted, error: actedErr } = await supabaseAdmin
+      // Sr. Site Approved history: only manager/site seats (never mistaken ops/hr stamps),
+      // and hide rows already handed to HoO so they live on the HoO Approve panel.
+      const { data: actorStaff } = await supabaseAdmin
+        .from("staff")
+        .select("job_title")
+        .eq("user_id", context.userId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      const historySrSite = isLeaveSiteStepActor(
+        (actorStaff as { job_title?: string | null } | null)?.job_title,
+      );
+      let actedQuery = supabaseAdmin
         .from("hr_leave_approvals")
-        .select("leave_id, acted_at")
+        .select("leave_id, acted_at, step_role")
         .eq("acted_by", context.userId)
         .eq("status", "approved")
         .order("acted_at", { ascending: false })
         .limit(120);
+      if (historySrSite) {
+        actedQuery = actedQuery.in("step_role", ["manager", "site"]);
+      }
+      const { data: acted, error: actedErr } = await actedQuery;
       if (actedErr) {
         if (tableMissing(actedErr.message)) return [];
         throw actedErr;
@@ -762,6 +777,8 @@ export const listLeaveRequests = createAuthenticatedAction(
           "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
         )
         .in("id", leaveIds)
+        .neq("status", "cancelled")
+        .neq("status", "rejected")
         .order("created_at", { ascending: false })
         .limit(120);
       if (error) {
@@ -772,19 +789,40 @@ export const listLeaveRequests = createAuthenticatedAction(
               "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
             )
             .in("id", leaveIds)
+            .neq("status", "cancelled")
+            .neq("status", "rejected")
             .order("created_at", { ascending: false })
             .limit(120);
           if (fallbackErr) throw fallbackErr;
-          const mappedFallback = dedupeLeaveApprovalRows(
+          let mappedFallback = dedupeLeaveApprovalRows(
             (fallback ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>)),
           );
+          if (historySrSite) {
+            mappedFallback = mappedFallback.filter(
+              (row) =>
+                !(
+                  row.status === "pending" &&
+                  (row.currentStepRole === "ops" || row.currentStepRole === "hr")
+                ),
+            );
+          }
           return attachLeaveApprovalSteps(mappedFallback);
         }
         throw error;
       }
-      const mappedHistory = dedupeLeaveApprovalRows(
+      let mappedHistory = dedupeLeaveApprovalRows(
         (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>)),
       );
+      if (historySrSite) {
+        // Handed off to HoO / legacy HR — drop from Sr. Site Approved; HoO Approve owns them.
+        mappedHistory = mappedHistory.filter(
+          (row) =>
+            !(
+              row.status === "pending" &&
+              (row.currentStepRole === "ops" || row.currentStepRole === "hr")
+            ),
+        );
+      }
       return attachLeaveApprovalSteps(mappedHistory);
     }
 
