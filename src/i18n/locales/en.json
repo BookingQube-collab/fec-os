@@ -9623,7 +9623,8 @@
       "compassionateInside": "Compassionate (inside Qatar)",
       "compassionateOutside": "Compassionate (outside Qatar)",
       "steps": {
-        "manager": "Reporting manager",
+        "manager": "Supervisor",
+        "site": "Sr. Site Supervisor",
         "ops": "Head of Operations",
         "opsFnb": "F&B Manager",
         "hr": "HR verification"

@@ -14,7 +14,11 @@ export type HrLeaveType = (typeof HR_LEAVE_TYPES)[number];
 export const HR_LEAVE_STATUSES = ["pending", "approved", "rejected", "cancelled"] as const;
 export type HrLeaveStatus = (typeof HR_LEAVE_STATUSES)[number];
 
-export const HR_LEAVE_APPROVAL_ROLES = ["manager", "ops", "hr"] as const;
+/**
+ * Leave seats: manager (line / Venue supervisor) → site (Sr. Site) → ops (HoO / F&B).
+ * `hr` remains for legacy in-flight rows only (notify-only on the ops-final ladder).
+ */
+export const HR_LEAVE_APPROVAL_ROLES = ["manager", "site", "ops", "hr"] as const;
 export type HrLeaveApprovalRole = (typeof HR_LEAVE_APPROVAL_ROLES)[number];
 
 export const HR_LEAVE_APPROVAL_STATUSES = ["pending", "approved", "skipped", "rejected"] as const;
@@ -26,13 +30,14 @@ export type HrEmergencyTreatment = (typeof HR_EMERGENCY_TREATMENTS)[number];
 export const HR_COMPASSIONATE_SCOPES = ["inside_qatar", "outside_qatar"] as const;
 export type HrCompassionateScope = (typeof HR_COMPASSIONATE_SCOPES)[number];
 
-export type HrLeaveActor = "employee" | "hr" | "manager" | "ops";
+export type HrLeaveActor = "employee" | "hr" | "manager" | "site" | "ops";
 
 const TRANSITIONS: Record<HrLeaveStatus, Partial<Record<HrLeaveActor, HrLeaveStatus[]>>> = {
   pending: {
     employee: ["cancelled"],
     hr: ["approved", "rejected"],
     manager: ["rejected"],
+    site: ["rejected"],
     ops: ["rejected"],
   },
   approved: {},
@@ -67,8 +72,8 @@ export function countLeaveDays(dateFrom: string, dateTo: string): number {
 }
 
 /**
- * Default approval ladder: manager → ops → HR (final syncs attendance).
- * Ops is Head of Operations for Operations staff, F&B Manager for F&B staff.
+ * Active approval ladder: supervisor → Sr. Site Supervisor → HoO / F&B Manager.
+ * Ops is terminal (syncs attendance / roster). HR is notified after ops, not a seat.
  */
 export function defaultLeaveApprovalSteps(): Array<{
   stepOrder: number;
@@ -76,7 +81,55 @@ export function defaultLeaveApprovalSteps(): Array<{
 }> {
   return [
     { stepOrder: 1, stepRole: "manager" },
-    { stepOrder: 2, stepRole: "ops" },
-    { stepOrder: 3, stepRole: "hr" },
+    { stepOrder: 2, stepRole: "site" },
+    { stepOrder: 3, stepRole: "ops" },
   ];
+}
+
+/**
+ * When the named boss is already Sr. Site (or missing), skip the supervisor seat
+ * and start on `site` so Mary is not asked twice.
+ */
+export function leaveApprovalStepsForRequester(input: {
+  skipManagerSeat: boolean;
+}): Array<{ stepOrder: number; stepRole: HrLeaveApprovalRole; status: "pending" | "skipped" }> {
+  const steps = defaultLeaveApprovalSteps();
+  if (!input.skipManagerSeat) {
+    return steps.map((step) => ({ ...step, status: "pending" as const }));
+  }
+  return steps.map((step) =>
+    step.stepRole === "manager"
+      ? { ...step, status: "skipped" as const }
+      : { ...step, status: "pending" as const },
+  );
+}
+
+export function leaveOpeningStepRole(skipManagerSeat: boolean): HrLeaveApprovalRole {
+  return skipManagerSeat ? "site" : "manager";
+}
+
+/**
+ * HoO / F&B approval writes attendance_leave_records (roster leave codes) and finishes
+ * the request. Legacy `hr` seats still finalize when reached.
+ */
+export function shouldFinalizeLeaveOnApprove(
+  stepRole: HrLeaveApprovalRole | string,
+  nextStepRole: string | null | undefined,
+): boolean {
+  if (stepRole === "ops" || stepRole === "hr") return true;
+  if (!nextStepRole) return true;
+  return false;
+}
+
+export function leaveStepSeatLabel(
+  stepRole: string | null | undefined,
+  opts?: { opsLane?: "head_of_operations" | "fnb_manager" | null },
+): string {
+  if (stepRole === "manager") return "Supervisor";
+  if (stepRole === "site") return "Sr. Site Supervisor";
+  if (stepRole === "ops") {
+    return opts?.opsLane === "fnb_manager" ? "F&B Manager" : "Head of Operations";
+  }
+  if (stepRole === "hr") return "HR";
+  return "Supervisor";
 }

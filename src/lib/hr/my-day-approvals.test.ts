@@ -155,6 +155,34 @@ describe("who may approve from My Day", () => {
     expect(mayReviewStaffCorrectionsOnMyDay({ roles: ["ceo"], hasDirectReports: false })).toBe(true);
   });
 
+  it("lets Sr. Site Supervisor approve the site seat, not the supervisor seat", () => {
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["duty_manager"],
+        stepRole: "site",
+        isOwnRequest: false,
+        isLineManager: true,
+        jobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe(true);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["duty_manager"],
+        stepRole: "manager",
+        isOwnRequest: false,
+        isLineManager: true,
+        jobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe(false);
+    expect(
+      mayReviewStaffLeaveOnMyDay({
+        roles: ["duty_manager"],
+        hasDirectReports: true,
+        jobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe(true);
+  });
+
   it("lets Head of Operations approve the ops step for leave and punches", () => {
     expect(
       canApproveLeaveOnMyDay({

@@ -30,13 +30,23 @@ export async function loadHrNotifyToggles(): Promise<HrNotifyToggles> {
   }
 }
 
-export async function dispatchHrNotify(event: HrNotifyEvent, extraUserIds?: string[]): Promise<number> {
+export async function dispatchHrNotify(
+  event: HrNotifyEvent,
+  extraUserIds?: string[],
+  opts?: {
+    /**
+     * Leave multi-step handoffs reuse the same leave id. Allow a fresh notify to the
+     * next seat (Sr. Site → HoO → HR) instead of dropping after the first submit.
+     */
+    allowRepeat?: boolean;
+  },
+): Promise<number> {
   try {
     const toggles = await loadHrNotifyToggles();
     if (!shouldSendHrNotify(event.kind, toggles)) return 0;
     const payload = mapHrNotifyEvent(event);
     const sourceId = payload.sourceId && UUID_RE.test(payload.sourceId) ? payload.sourceId : null;
-    if (sourceId) {
+    if (sourceId && !opts?.allowRepeat) {
       const { count } = await supabaseAdmin
         .from("notifications")
         .select("id", { count: "exact", head: true })

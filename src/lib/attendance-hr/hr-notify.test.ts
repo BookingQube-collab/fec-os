@@ -42,7 +42,7 @@ describe("mapHrNotifyEvent", () => {
     expect(rejected.severity).toBe("warning");
     expect(rejected.title).toBe("Attendance correction rejected");
   });
-  it("maps leave events to hr_leave category for the line-manager My Day queue", () => {
+  it("maps leave events to hr_leave category for the My Day queue", () => {
     const payload = mapHrNotifyEvent({
       kind: "leave_submitted",
       staffName: "Sara",
@@ -51,8 +51,24 @@ describe("mapHrNotifyEvent", () => {
     expect(payload.category).toBe("hr_leave");
     expect(payload.sourceType).toBe("hr_leave");
     expect(payload.title).toBe("Leave request needs your approval");
-    expect(payload.body).toContain("line manager");
+    expect(payload.body).toContain("their supervisor");
     expect(payload.actionUrl).toBe("/hr/me#me-leave-approvals");
+  });
+
+  it("names the waiting seat on leave handoffs and notes roster update on final approve", () => {
+    const waiting = mapHrNotifyEvent({
+      kind: "leave_submitted",
+      staffName: "Sara",
+      workDate: "2026-09-01",
+      waitingSeat: "Head of Operations",
+    });
+    expect(waiting.body).toContain("Head of Operations");
+    const approved = mapHrNotifyEvent({
+      kind: "leave_approved",
+      staffName: "Sara",
+      workDate: "2026-09-01",
+    });
+    expect(approved.body).toContain("roster was updated");
   });
 
   it("includes leave request numbers in title and body when provided", () => {

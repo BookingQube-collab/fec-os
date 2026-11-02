@@ -30,6 +30,8 @@ export type HrNotifyEvent = {
   sourceId?: string | null;
   /** Human-facing request number (e.g. LV-20261021-0001) when available. */
   requestNumber?: string | null;
+  /** Optional waiting-seat label for leave handoffs (Supervisor / Sr. Site / HoO). */
+  waitingSeat?: string | null;
 };
 
 export type HrNotifyPayload = {
@@ -104,11 +106,13 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
     case "correction_rejected":
       body = `Your correction for ${staff}${date ? ` on ${date}` : ""}${numberSuffix} was rejected.`;
       break;
-    case "leave_submitted":
-      body = `${staff} submitted leave request${numberSuffix}${date ? ` from ${date}` : ""}. It is waiting for their line manager.`;
+    case "leave_submitted": {
+      const seat = (event.waitingSeat ?? "").trim() || "their supervisor";
+      body = `${staff} submitted leave request${numberSuffix}${date ? ` from ${date}` : ""}. It is waiting for ${seat}.`;
       break;
+    }
     case "leave_approved":
-      body = `Leave for ${staff}${numberSuffix}${date ? ` from ${date}` : ""} was approved.`;
+      body = `Leave for ${staff}${numberSuffix}${date ? ` from ${date}` : ""} was approved and the roster was updated.`;
       severity = "info";
       break;
     case "leave_rejected":

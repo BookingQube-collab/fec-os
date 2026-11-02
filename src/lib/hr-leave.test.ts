@@ -9,7 +9,17 @@ import {
   canTransitionLeave,
   countLeaveDays,
   defaultLeaveApprovalSteps,
+  leaveApprovalStepsForRequester,
+  leaveOpeningStepRole,
+  leaveStepSeatLabel,
+  shouldFinalizeLeaveOnApprove,
 } from "./hr-leave";
+import {
+  isLeaveSiteStepActor,
+  leaveApproverUserIdsForStep,
+  resolveLeaveSupervisorRoute,
+} from "./hr-leave-routing";
+import type { ApprovalDirectory } from "./attendance-hr/missed-punch-approval";
 import {
   annualAccrualFromHireDate,
   canUseCompOff,
@@ -33,9 +43,12 @@ describe("leave status transitions", () => {
     expect(canTransitionLeave("approved", "rejected", "hr")).toBe(false);
   });
 
-  it("lets manager/ops reject but not final-approve via transition map", () => {
+  it("lets manager/site/ops reject but not final-approve via transition map", () => {
     expect(canTransitionLeave("pending", "rejected", "manager")).toBe(true);
+    expect(canTransitionLeave("pending", "rejected", "site")).toBe(true);
+    expect(canTransitionLeave("pending", "rejected", "ops")).toBe(true);
     expect(canTransitionLeave("pending", "approved", "manager")).toBe(false);
+    expect(canTransitionLeave("pending", "approved", "site")).toBe(false);
   });
 
   it("throws on an illegal transition", () => {
@@ -48,8 +61,29 @@ describe("leave status transitions", () => {
     expect(countLeaveDays("2026-08-30", "2026-08-28")).toBe(0);
   });
 
-  it("seeds manager → ops → hr approval ladder", () => {
-    expect(defaultLeaveApprovalSteps().map((s) => s.stepRole)).toEqual(["manager", "ops", "hr"]);
+  it("seeds supervisor → Sr. Site → HoO approval ladder", () => {
+    expect(defaultLeaveApprovalSteps().map((s) => s.stepRole)).toEqual(["manager", "site", "ops"]);
+  });
+
+  it("skips the supervisor seat when the named boss is already Sr. Site", () => {
+    expect(leaveOpeningStepRole(true)).toBe("site");
+    expect(leaveApprovalStepsForRequester({ skipManagerSeat: true })).toEqual([
+      { stepOrder: 1, stepRole: "manager", status: "skipped" },
+      { stepOrder: 2, stepRole: "site", status: "pending" },
+      { stepOrder: 3, stepRole: "ops", status: "pending" },
+    ]);
+  });
+
+  it("finalizes leave on HoO/HR approve and labels seats", () => {
+    expect(shouldFinalizeLeaveOnApprove("ops", null)).toBe(true);
+    expect(shouldFinalizeLeaveOnApprove("ops", "hr")).toBe(true);
+    expect(shouldFinalizeLeaveOnApprove("site", "ops")).toBe(false);
+    expect(shouldFinalizeLeaveOnApprove("manager", "site")).toBe(false);
+    expect(leaveStepSeatLabel("site")).toBe("Sr. Site Supervisor");
+    expect(leaveStepSeatLabel("ops")).toBe("Head of Operations");
+    expect(leaveStepSeatLabel("ops", { opsLane: "fnb_manager" })).toBe("F&B Manager");
+    expect(isLeaveSiteStepActor("Sr. Site Supervisor")).toBe(true);
+    expect(isLeaveSiteStepActor("Site Supervisor")).toBe(false);
   });
 
   it("routes Operations leave ops step to Head of Operations and F&B to F&B Manager", () => {
@@ -173,5 +207,63 @@ describe("comp-off expiry", () => {
         hrException: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("leave supervisor → Sr. Site → HoO routing", () => {
+  const SITE = "site-1";
+  const STAFF = "staff-1";
+  const LINE = "line-manager";
+  const SR_SITE = "sr-site-user";
+  const HOO = "hoo-user";
+  const EMPLOYEE = "employee-user";
+
+  function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
+    return {
+      reportingManagerUserIdByStaffId: new Map([[STAFF, LINE]]),
+      siteSupervisorManagerUserIdByStaffId: new Map(),
+      branchGmUserIdsByLocationId: new Map(),
+      siteSupervisorUserIdsByLocationId: new Map([[SITE, [SR_SITE]]]),
+      srSiteSupervisorUserIds: [SR_SITE],
+      headOfOperationsUserIds: [HOO],
+      fnbManagerUserIds: [],
+      fnbStaffIds: new Set(),
+      opsManagerUserIdsByLocationId: new Map(),
+      hrUserIds: ["hr-user"],
+      generalManagerUserIds: [],
+      ...partial,
+    };
+  }
+
+  it("keeps Venue supervisor on manager and Sr. Site on site, then HoO on ops", () => {
+    const dir = directory();
+    const args = {
+      locationId: SITE,
+      staffId: STAFF,
+      requestedBy: EMPLOYEE,
+      requesterStaffId: STAFF,
+    };
+    const route = resolveLeaveSupervisorRoute(dir, args);
+    expect(route.skipManagerSeat).toBe(false);
+    expect(route.openingStep).toBe("manager");
+    expect(route.managerUserIds).toEqual([LINE]);
+    expect(route.siteUserIds).toContain(SR_SITE);
+    expect(leaveApproverUserIdsForStep(dir, "ops", args)).toEqual([HOO]);
+  });
+
+  it("opens on Sr. Site when the named boss already is Sr. Site", () => {
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[STAFF, SR_SITE]]),
+    });
+    const route = resolveLeaveSupervisorRoute(dir, {
+      locationId: SITE,
+      staffId: STAFF,
+      requestedBy: EMPLOYEE,
+      requesterStaffId: STAFF,
+    });
+    expect(route.skipManagerSeat).toBe(true);
+    expect(route.openingStep).toBe("site");
+    expect(route.managerUserIds).toEqual([]);
+    expect(route.siteUserIds).toContain(SR_SITE);
   });
 });

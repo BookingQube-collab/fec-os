@@ -21,13 +21,14 @@ import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
-  requesterLineManagerUserIds,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { loadMissedPunchDirectory } from "@/lib/attendance-hr/missed-punch-approval.server";
 import {
   assertLeaveTransition,
   countLeaveDays,
-  defaultLeaveApprovalSteps,
+  leaveApprovalStepsForRequester,
+  leaveStepSeatLabel,
+  shouldFinalizeLeaveOnApprove,
   HR_COMPASSIONATE_SCOPES,
   HR_EMERGENCY_TREATMENTS,
   HR_LEAVE_STATUSES,
@@ -36,6 +37,12 @@ import {
   type HrLeaveApprovalRole,
   type HrLeaveStatus,
 } from "@/lib/hr-leave";
+import {
+  isLeaveSiteStepActor,
+  leaveApproverUserIdsForStep,
+  resolveLeaveSupervisorRoute,
+} from "@/lib/hr-leave-routing";
+import { findUsersWithCapability } from "@/lib/notifications/action-notify";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   annualAccrualFromHireDate,
@@ -133,9 +140,11 @@ async function syncApprovedLeaveToAttendance(
     dateTo: string;
   },
 ): Promise<{ syncedDays: number; skipped: boolean }> {
+  // Admin after seat auth — title-based HoO / Sr. Site lack role_level ≥ 55 and attendance write RLS.
+  const db = supabaseAdmin;
   let locationId = leave.locationId;
   if (!locationId) {
-    const { data: staffRow } = await context.supabase
+    const { data: staffRow } = await db
       .from("staff")
       .select("location_id")
       .eq("id", leave.staffId)
@@ -143,7 +152,7 @@ async function syncApprovedLeaveToAttendance(
     locationId = (staffRow as { location_id?: string | null } | null)?.location_id ?? null;
   }
   if (!locationId) {
-    const { data: rosterRow } = await context.supabase
+    const { data: rosterRow } = await db
       .from("attendance_roster_assignments")
       .select("location_id")
       .eq("staff_id", leave.staffId)
@@ -167,13 +176,11 @@ async function syncApprovedLeaveToAttendance(
     hr_leave_request_id: leave.id,
     created_by: context.userId,
   }));
-  const { error } = await context.supabase
-    .from("attendance_leave_records")
-    .upsert(rows, { onConflict: "staff_id,leave_date" });
+  const { error } = await db.from("attendance_leave_records").upsert(rows, { onConflict: "staff_id,leave_date" });
   if (error) {
     if (/hr_leave_request_id|schema cache/i.test(error.message)) {
       const fallback = rows.map(({ hr_leave_request_id: _id, ...rest }) => rest);
-      const { error: retryErr } = await context.supabase
+      const { error: retryErr } = await db
         .from("attendance_leave_records")
         .upsert(fallback, { onConflict: "staff_id,leave_date" });
       if (retryErr) throw retryErr;
@@ -182,13 +189,9 @@ async function syncApprovedLeaveToAttendance(
     }
   }
   try {
-    await recalculateAttendanceRange(
-      context.supabase,
-      locationId,
-      leave.dateFrom.slice(0, 10),
-      leave.dateTo.slice(0, 10),
-      { staffIds: [leave.staffId] },
-    );
+    await recalculateAttendanceRange(db, locationId, leave.dateFrom.slice(0, 10), leave.dateTo.slice(0, 10), {
+      staffIds: [leave.staffId],
+    });
   } catch {
     // Leave rows are still stored; recalc can be run later from Attendance.
   }
@@ -257,19 +260,52 @@ async function loadLeaveConflicts(
   });
 }
 
-async function seedLeaveApprovalSteps(context: AuthContext, leaveId: string) {
-  const steps = defaultLeaveApprovalSteps().map((s) => ({
+async function seedLeaveApprovalSteps(
+  context: AuthContext,
+  leaveId: string,
+  opts?: { skipManagerSeat?: boolean },
+) {
+  const skipManagerSeat = Boolean(opts?.skipManagerSeat);
+  const steps = leaveApprovalStepsForRequester({ skipManagerSeat }).map((s) => ({
     leave_id: leaveId,
     step_order: s.stepOrder,
     step_role: s.stepRole,
-    status: "pending",
+    status: s.status,
   }));
   const { error } = await context.supabase.from("hr_leave_approvals").insert(steps);
   if (error && !tableMissing(error.message)) throw error;
+  const opening = skipManagerSeat ? "site" : "manager";
   await context.supabase
     .from("hr_leave_requests")
-    .update({ current_step_role: "manager", updated_at: new Date().toISOString() })
+    .update({ current_step_role: opening, updated_at: new Date().toISOString() })
     .eq("id", leaveId);
+}
+
+async function notifyLeaveWaitingOnStep(input: {
+  leaveId: string;
+  staffName: string;
+  dateFrom: string;
+  locationId: string | null;
+  requestNumber: string | null;
+  stepRole: string;
+  opsLane?: OpsApprovalLane | null;
+  userIds: string[];
+  allowRepeat?: boolean;
+}) {
+  if (!input.userIds.length) return;
+  await dispatchHrNotify(
+    {
+      kind: "leave_submitted",
+      staffName: input.staffName,
+      workDate: input.dateFrom,
+      locationId: input.locationId,
+      sourceId: input.leaveId,
+      requestNumber: input.requestNumber,
+      waitingSeat: leaveStepSeatLabel(input.stepRole, { opsLane: input.opsLane }),
+    },
+    input.userIds,
+    { allowRepeat: input.allowRepeat },
+  );
 }
 
 async function finalizeLeaveApproval(
@@ -286,7 +322,9 @@ async function finalizeLeaveApproval(
   reviewNote: string | null,
   payrollImpact: boolean,
 ): Promise<{ syncedDays: number }> {
-  const { error } = await context.supabase
+  // HoO / F&B title holders are authorized in actOnLeaveApproval but fail RLS updates
+  // (role_level < 55). Write through admin after that seat check.
+  const { error } = await supabaseAdmin
     .from("hr_leave_requests")
     .update({
       status: "approved",
@@ -310,28 +348,43 @@ async function finalizeLeaveApproval(
     dateTo: String(existing.date_to).slice(0, 10),
   });
 
-  await appendEmployeeEvent(context, {
-    staffId: String(existing.staff_id),
-    eventType: "leave_approved",
-    effectiveOn: String(existing.date_from).slice(0, 10),
-    payload: {
-      leave_type: existing.leave_type,
-      date_from: existing.date_from,
-      date_to: existing.date_to,
-      payroll_impact: payrollImpact,
-    },
-    sourceTable: "hr_leave_requests",
-    sourceId: String(existing.id),
-  });
+  try {
+    await appendEmployeeEvent(context, {
+      staffId: String(existing.staff_id),
+      eventType: "leave_approved",
+      effectiveOn: String(existing.date_from).slice(0, 10),
+      payload: {
+        leave_type: existing.leave_type,
+        date_from: existing.date_from,
+        date_to: existing.date_to,
+        payroll_impact: payrollImpact,
+      },
+      sourceTable: "hr_leave_requests",
+      sourceId: String(existing.id),
+    });
+  } catch (error) {
+    console.warn(
+      "[hr-leave] employee event on approve failed",
+      error instanceof Error ? error.message : error,
+    );
+  }
 
-  await dispatchHrNotify({
-    kind: "leave_approved",
-    staffName: (staffRow as { full_name?: string } | null)?.full_name ?? "Staff",
-    workDate: String(existing.date_from).slice(0, 10),
-    locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
-    sourceId: existing.id as string,
-    requestNumber: existing.request_number ?? null,
-  });
+  const locationId = (staffRow as { location_id?: string } | null)?.location_id ?? null;
+  const staffName = (staffRow as { full_name?: string } | null)?.full_name ?? "Staff";
+  // Notify HR (and other leave managers) that ops finalized — always allow after step handoffs.
+  const hrUserIds = await findUsersWithCapability("hr.leave.manage", locationId);
+  await dispatchHrNotify(
+    {
+      kind: "leave_approved",
+      staffName,
+      workDate: String(existing.date_from).slice(0, 10),
+      locationId,
+      sourceId: existing.id as string,
+      requestNumber: existing.request_number ?? null,
+    },
+    hrUserIds,
+    { allowRepeat: true },
+  );
 
   return { syncedDays: sync.syncedDays };
 }
@@ -378,13 +431,15 @@ export const listLeaveRequests = createAuthenticatedAction(
     approvals: z.boolean().optional(),
   }),
   async (data, context) => {
-    const manage =
-      canUserDo(context.roles ?? [], "hr.leave.manage") ||
-      canUserDo(context.roles ?? [], "hr.leave.approve_manager");
+    const hrManage = canUserDo(context.roles ?? [], "hr.leave.manage");
+    const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const staff = await myStaff(context);
     let headOfOperations = false;
     let fnbManager = false;
-    if (data.approvals && !manage && staff?.id) {
+    let srSiteActor = false;
+    // Detect title seats even when the login also has approve_manager — otherwise RLS
+    // (role_level < 55) hides the HoO queue after Sr. Site advances the request.
+    if ((data.approvals || (!hrManage && !managerCap)) && staff?.id) {
       const { data: titled } = await context.supabase
         .from("staff")
         .select("job_title, department")
@@ -394,17 +449,22 @@ export const listLeaveRequests = createAuthenticatedAction(
       const department = (titled as { department?: string | null } | null)?.department;
       headOfOperations = isHeadOfOperationsTitle(title);
       fnbManager = isFnbManager(title, department);
+      srSiteActor = isLeaveSiteStepActor(title);
     }
-    const canReviewCompany = manage || headOfOperations || fnbManager;
+    const titleCompanyReview = headOfOperations || fnbManager;
+    const canReviewCompany = hrManage || titleCompanyReview;
     const teamIds =
       canReviewCompany || data.mineOnly
         ? []
         : (await loadLeaveManagerTeamStaffIds(context.userId)).teamStaffIds;
     const scopedToTeam = !canReviewCompany && !data.mineOnly && teamIds.length > 0;
-    const scopedToSelf = Boolean(data.mineOnly) || (!canReviewCompany && !scopedToTeam);
+    const scopedToSelf =
+      Boolean(data.mineOnly) ||
+      (!canReviewCompany && !scopedToTeam && !(data.approvals && srSiteActor));
     if (scopedToSelf && !staff?.id) return [];
     if (scopedToTeam && data.staffId && !teamIds.includes(data.staffId)) return [];
-    const leaveDb = scopedToTeam ? supabaseAdmin : context.supabase;
+    // Reviewers of other people's leave need admin — title HoO/Sr. Site fail role_level RLS.
+    const leaveDb = scopedToSelf ? context.supabase : supabaseAdmin;
     let query = leaveDb
       .from("hr_leave_requests")
       .select(
@@ -415,16 +475,21 @@ export const listLeaveRequests = createAuthenticatedAction(
     if (scopedToTeam) query = query.in("staff_id", data.staffId ? [data.staffId] : teamIds);
     else if (scopedToSelf && staff?.id) query = query.eq("staff_id", staff.id);
     else if (!scopedToSelf && data.staffId) query = query.eq("staff_id", data.staffId);
-    if (data.approvals) query = query.eq("status", "pending");
-    else if (data.status) query = query.eq("status", data.status);
+    if (data.approvals) {
+      query = query.eq("status", "pending");
+      // Title-based HoO / F&B only act on the ops seat (not supervisor / Sr. Site queues).
+      if (titleCompanyReview && !hrManage) query = query.eq("current_step_role", "ops");
+      // Sr. Site holds the site seat.
+      if (srSiteActor && !hrManage && !titleCompanyReview) query = query.eq("current_step_role", "site");
+    } else if (data.status) query = query.eq("status", data.status);
     const { data: rows, error } = await query;
     if (error) {
       if (tableMissing(error.message)) return [];
       throw error;
     }
     let mapped = (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
-    // Lane-scoped company review: HoO sees Operations; F&B Manager sees F&B. Manage keeps all.
-    if (data.approvals && !manage) {
+    // Lane-scoped company review: HoO sees Operations; F&B Manager sees F&B. HR manage keeps all.
+    if (data.approvals && !hrManage) {
       if (headOfOperations && !fnbManager) {
         mapped = mapped.filter((row) => row.opsLane === "head_of_operations");
       } else if (fnbManager && !headOfOperations) {
@@ -703,6 +768,37 @@ export const submitLeaveRequest = createAuthenticatedAction(
       };
     }
 
+    let route = {
+      managerUserIds: [] as string[],
+      siteUserIds: [] as string[],
+      skipManagerSeat: false,
+      openingStep: "manager" as HrLeaveApprovalRole,
+    };
+    let opsLane: OpsApprovalLane = "head_of_operations";
+    try {
+      const directory = await loadMissedPunchDirectory([staff.id as string]);
+      route = resolveLeaveSupervisorRoute(directory, {
+        locationId: (staff.location_id as string | null) ?? "",
+        staffId: staff.id as string,
+        requestedBy: context.userId,
+        requesterStaffId: staff.id as string,
+      });
+      const { data: titled } = await context.supabase
+        .from("staff")
+        .select("job_title, department")
+        .eq("id", staff.id)
+        .maybeSingle();
+      opsLane = opsApprovalLaneForStaff(
+        (titled as { job_title?: string | null } | null)?.job_title,
+        (titled as { department?: string | null } | null)?.department,
+      );
+    } catch (error) {
+      console.warn(
+        "[hr-leave] supervisor route lookup failed",
+        error instanceof Error ? error.message : error,
+      );
+    }
+
     const requestNumber = await nextLeaveRequestNumber(context);
     const { data: row, error } = await context.supabase
       .from("hr_leave_requests")
@@ -722,7 +818,7 @@ export const submitLeaveRequest = createAuthenticatedAction(
         attach_annual_before: data.attachAnnualBefore ?? 0,
         attach_annual_after: data.attachAnnualAfter ?? 0,
         comp_off_balance_id: data.compOffBalanceId ?? null,
-        current_step_role: "manager",
+        current_step_role: route.openingStep,
         payroll_impact: false,
         request_number: requestNumber,
       })
@@ -730,35 +826,21 @@ export const submitLeaveRequest = createAuthenticatedAction(
       .single();
     if (error) throw error;
 
-    await seedLeaveApprovalSteps(context, row.id as string);
+    await seedLeaveApprovalSteps(context, row.id as string, {
+      skipManagerSeat: route.skipManagerSeat,
+    });
 
-    // Line manager (or site-supervisor fallback) — not attendance.view_all / HR desk.
-    let managerUserIds: string[] = [];
-    try {
-      const directory = await loadMissedPunchDirectory([staff.id as string]);
-      managerUserIds = requesterLineManagerUserIds(directory, {
-        locationId: (staff.location_id as string | null) ?? "",
-        staffId: staff.id as string,
-        requestedBy: context.userId,
-        requesterStaffId: staff.id as string,
-      });
-    } catch (error) {
-      console.warn(
-        "[hr-leave] manager notify lookup failed",
-        error instanceof Error ? error.message : error,
-      );
-    }
-    await dispatchHrNotify(
-      {
-        kind: "leave_submitted",
-        staffName: staff.full_name,
-        workDate: data.dateFrom,
-        locationId: staff.location_id,
-        sourceId: row.id,
-        requestNumber: (row.request_number as string | null) ?? requestNumber,
-      },
-      managerUserIds,
-    );
+    const firstUserIds = route.skipManagerSeat ? route.siteUserIds : route.managerUserIds;
+    await notifyLeaveWaitingOnStep({
+      leaveId: row.id as string,
+      staffName: staff.full_name,
+      dateFrom: data.dateFrom,
+      locationId: staff.location_id,
+      requestNumber: (row.request_number as string | null) ?? requestNumber,
+      stepRole: route.openingStep,
+      opsLane,
+      userIds: firstUserIds,
+    });
     return {
       id: row.id as string,
       requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
@@ -782,13 +864,28 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     const manage = canUserDo(context.roles ?? [], "hr.leave.manage");
     const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const mine = await myStaff(context);
-    const companyReview = manage || managerCap;
-    const teamAccess = companyReview ? null : await loadLeaveManagerTeamStaffIds(context.userId);
-    const leaveDb = teamAccess ? supabaseAdmin : context.supabase;
+    const [{ data: actorRow }, teamAccess] = await Promise.all([
+      context.supabase
+        .from("staff")
+        .select("job_title, department")
+        .eq("user_id", context.userId)
+        .is("deleted_at", null)
+        .maybeSingle(),
+      manage ? Promise.resolve(null) : loadLeaveManagerTeamStaffIds(context.userId),
+    ]);
+    const actorJobTitle = (actorRow as { job_title?: string | null } | null)?.job_title ?? null;
+    const actorDepartment = (actorRow as { department?: string | null } | null)?.department ?? null;
+    const headOfOperations = isHeadOfOperationsTitle(actorJobTitle);
+    const fnbManager = isFnbManager(actorJobTitle, actorDepartment);
+    const srSiteActor = isLeaveSiteStepActor(actorJobTitle);
+    const opsTitleActor = headOfOperations || fnbManager;
+    // Team supervisors, Sr. Site, and title-based HoO/F&B need admin (RLS blocks ops queue).
+    const leaveDb =
+      manage && !teamAccess && !opsTitleActor && !srSiteActor ? context.supabase : supabaseAdmin;
     const { data: existing, error: readErr } = await leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, status, date_from, date_to, current_step_role, request_number, staff(full_name, user_id, location_id)",
+        "id, staff_id, leave_type, status, date_from, date_to, current_step_role, request_number, staff(full_name, user_id, location_id, job_title, department)",
       )
       .eq("id", data.leaveId)
       .maybeSingle();
@@ -797,9 +894,17 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     if (existing.status !== "pending") throw new Error("Leave is not pending approval.");
     const requestStaffId = String(existing.staff_id);
     const inTeam = Boolean(teamAccess?.teamStaffIds.includes(requestStaffId));
-    if (teamAccess && !inTeam && mine?.id !== requestStaffId) {
-      throw new Error("Leave request not found.");
-    }
+    const staffRow = Array.isArray(existing.staff) ? existing.staff[0] : existing.staff;
+    const subjectLane = opsApprovalLaneForStaff(
+      (staffRow as { job_title?: string | null } | null)?.job_title,
+      (staffRow as { department?: string | null } | null)?.department,
+    );
+    const canActOps = canActOnOpsApprovalStep({
+      manage,
+      lane: subjectLane,
+      actorJobTitle,
+      actorDepartment,
+    });
 
     const { data: steps, error: stepErr } = await leaveDb
       .from("hr_leave_approvals")
@@ -821,48 +926,56 @@ export const actOnLeaveApproval = createAuthenticatedAction(
       ?.reporting_manager_staff_id;
     const lineManager = Boolean(mine?.id && (reportingManager === mine.id || inTeam));
 
+    // Scope: team actors must own the staff; HoO/F&B/site/manage may act company-wide for their seat.
+    if (
+      !manage &&
+      !canActOps &&
+      !srSiteActor &&
+      teamAccess &&
+      !inTeam &&
+      mine?.id !== requestStaffId
+    ) {
+      throw new Error("Leave request not found.");
+    }
+
     if (stepRole === "hr" && !manage) {
       throw new ForbiddenError("HR verification requires hr.leave.manage.");
     }
-    if (stepRole === "manager" && !managerCap && !manage && !lineManager) {
-      throw new ForbiddenError("Manager approval required.");
-    }
-    if (stepRole === "ops" && !manage) {
-      const [{ data: actor }, { data: subject }] = await Promise.all([
-        context.supabase
-          .from("staff")
-          .select("job_title, department")
-          .eq("user_id", context.userId)
-          .is("deleted_at", null)
-          .maybeSingle(),
-        leaveDb
-          .from("staff")
-          .select("job_title, department")
-          .eq("id", existing.staff_id)
-          .maybeSingle(),
-      ]);
-      const lane = opsApprovalLaneForStaff(
-        (subject as { job_title?: string | null } | null)?.job_title,
-        (subject as { department?: string | null } | null)?.department,
-      );
-      if (
-        !canActOnOpsApprovalStep({
-          manage: false,
-          lane,
-          actorJobTitle: (actor as { job_title?: string | null } | null)?.job_title,
-          actorDepartment: (actor as { department?: string | null } | null)?.department,
-        })
-      ) {
-        throw new ForbiddenError(
-          lane === "fnb_manager"
-            ? "F&B Manager approval required."
-            : "Head of Operations approval required.",
-        );
+    if (stepRole === "manager") {
+      if (srSiteActor && !manage) {
+        throw new ForbiddenError("Supervisor approval required before Sr. Site Supervisor.");
       }
+      if (!managerCap && !manage && !lineManager) {
+        throw new ForbiddenError("Manager approval required.");
+      }
+    }
+    if (stepRole === "site" && !manage && !srSiteActor) {
+      throw new ForbiddenError("Sr. Site Supervisor approval required.");
+    }
+    if (
+      stepRole === "site" &&
+      !manage &&
+      srSiteActor &&
+      teamAccess &&
+      teamAccess.teamStaffIds.length > 0 &&
+      !inTeam
+    ) {
+      throw new ForbiddenError("Sr. Site Supervisor approval required for your team only.");
+    }
+    if (stepRole === "ops" && !canActOps) {
+      throw new ForbiddenError(
+        subjectLane === "fnb_manager"
+          ? "F&B Manager approval required."
+          : "Head of Operations approval required.",
+      );
     }
 
     if (data.action === "rejected") {
-      assertLeaveTransition("pending", "rejected", stepRole === "hr" ? "hr" : stepRole);
+      const rejectActor: HrLeaveActor =
+        stepRole === "hr" || stepRole === "manager" || stepRole === "site" || stepRole === "ops"
+          ? stepRole
+          : "manager";
+      assertLeaveTransition("pending", "rejected", rejectActor);
       await leaveDb
         .from("hr_leave_approvals")
         .update({
@@ -884,7 +997,6 @@ export const actOnLeaveApproval = createAuthenticatedAction(
         })
         .eq("id", data.leaveId);
 
-      const staffRow = Array.isArray(existing.staff) ? existing.staff[0] : existing.staff;
       await appendEmployeeEvent(context, {
         staffId: String(existing.staff_id),
         eventType: "leave_rejected",
@@ -893,14 +1005,18 @@ export const actOnLeaveApproval = createAuthenticatedAction(
         sourceTable: "hr_leave_requests",
         sourceId: String(existing.id),
       });
-      await dispatchHrNotify({
-        kind: "leave_rejected",
-        staffName: (staffRow as { full_name?: string } | null)?.full_name ?? "Staff",
-        workDate: String(existing.date_from).slice(0, 10),
-        locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
-        sourceId: existing.id as string,
-        requestNumber: (existing.request_number as string | null) ?? null,
-      });
+      await dispatchHrNotify(
+        {
+          kind: "leave_rejected",
+          staffName: (staffRow as { full_name?: string } | null)?.full_name ?? "Staff",
+          workDate: String(existing.date_from).slice(0, 10),
+          locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
+          sourceId: existing.id as string,
+          requestNumber: (existing.request_number as string | null) ?? null,
+        },
+        undefined,
+        { allowRepeat: true },
+      );
       return { ok: true as const, syncedDays: 0, final: true as const };
     }
 
@@ -917,9 +1033,21 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     const next = (steps ?? []).find(
       (s) => Number(s.step_order) > Number(pending.step_order) && s.status === "pending",
     );
+    const nextRole = next ? String(next.step_role) : null;
 
-    // Final attendance sync only on HR step (or last remaining step when HR acts).
-    if (stepRole === "hr" || (!next && manage)) {
+    // Ops (HoO / F&B) is terminal: sync roster leave + notify HR. Legacy hr also finalizes.
+    if (shouldFinalizeLeaveOnApprove(stepRole, nextRole) || (!next && manage)) {
+      if (next && (nextRole === "hr" || nextRole === "gm")) {
+        await leaveDb
+          .from("hr_leave_approvals")
+          .update({
+            status: "skipped",
+            acted_by: context.userId,
+            acted_at: new Date().toISOString(),
+            comments: "Skipped — ops final approval updates the roster",
+          })
+          .eq("id", next.id);
+      }
       const result = await finalizeLeaveApproval(
         context,
         existing as {
@@ -928,6 +1056,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
           leave_type: string;
           date_from: string;
           date_to: string;
+          request_number?: string | null;
           staff?: unknown;
         },
         data.comments ?? null,
@@ -936,7 +1065,6 @@ export const actOnLeaveApproval = createAuthenticatedAction(
       return { ok: true as const, syncedDays: result.syncedDays, final: true as const };
     }
 
-    const nextRole = next ? String(next.step_role) : null;
     await leaveDb
       .from("hr_leave_requests")
       .update({
@@ -944,6 +1072,36 @@ export const actOnLeaveApproval = createAuthenticatedAction(
         updated_at: new Date().toISOString(),
       })
       .eq("id", data.leaveId);
+
+    // Notify the next seat (supervisor → Sr. Site → HoO).
+    if (nextRole) {
+      try {
+        const directory = await loadMissedPunchDirectory([requestStaffId]);
+        const locationId = (staffRow as { location_id?: string | null } | null)?.location_id ?? "";
+        const nextUserIds = leaveApproverUserIdsForStep(directory, nextRole, {
+          locationId,
+          staffId: requestStaffId,
+          requestedBy: context.userId,
+          requesterStaffId: requestStaffId,
+        });
+        await notifyLeaveWaitingOnStep({
+          leaveId: String(existing.id),
+          staffName: (staffRow as { full_name?: string } | null)?.full_name ?? "Staff",
+          dateFrom: String(existing.date_from).slice(0, 10),
+          locationId: locationId || null,
+          requestNumber: (existing.request_number as string | null) ?? null,
+          stepRole: nextRole,
+          opsLane: subjectLane,
+          userIds: nextUserIds,
+          allowRepeat: true,
+        });
+      } catch (error) {
+        console.warn(
+          "[hr-leave] next-step notify failed",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
 
     return { ok: true as const, syncedDays: 0, final: false as const, nextStep: nextRole };
   },

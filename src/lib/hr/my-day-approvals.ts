@@ -11,9 +11,10 @@ import {
   type OpsApprovalLane,
 } from "@/lib/approval-ops-routing";
 import type { HrLeaveApprovalRole } from "@/lib/hr-leave";
+import { isLeaveSiteStepActor } from "@/lib/hr-leave-routing";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 
-const LEAVE_STEPS = new Set<HrLeaveApprovalRole>(["manager", "ops", "hr"]);
+const LEAVE_STEPS = new Set<HrLeaveApprovalRole>(["manager", "site", "ops", "hr"]);
 
 /**
  * Roles that already approve a punch step somewhere in the chain.
@@ -27,9 +28,10 @@ function asRoles(roles: readonly string[]): AppRole[] {
 
 /**
  * My Day leave button. Same seats as actOnLeaveApproval:
- * line manager at the manager step,
- * Head of Operations (Operations) or F&B Manager (F&B) at the ops step,
- * and hr.leave.manage at the HR step. CEO and GM already hold that capability.
+ * line / Venue supervisor at manager,
+ * Sr. Site Supervisor at site,
+ * Head of Operations (Operations) or F&B Manager (F&B) at ops (terminal),
+ * and hr.leave.manage only for legacy hr seats.
  * A person does not approve their own request from this page.
  */
 export function canApproveLeaveOnMyDay(input: {
@@ -48,8 +50,14 @@ export function canApproveLeaveOnMyDay(input: {
   const manage = canUserDo(roles, "hr.leave.manage");
   const managerCap = canUserDo(roles, "hr.leave.approve_manager");
   const step = input.stepRole as HrLeaveApprovalRole;
+  const srSite = isLeaveSiteStepActor(input.jobTitle);
   if (step === "hr") return manage;
-  if (step === "manager") return manage || managerCap || input.isLineManager;
+  if (step === "site") return manage || srSite;
+  if (step === "manager") {
+    // Sr. Site holds the site seat — do not clear the supervisor step.
+    if (srSite) return manage;
+    return manage || managerCap || input.isLineManager;
+  }
   return canActOnOpsApprovalStep({
     manage,
     lane: input.opsLane ?? "head_of_operations",
@@ -67,6 +75,7 @@ export function mayReviewStaffLeaveOnMyDay(input: {
 }): boolean {
   if (isHeadOfOperationsTitle(input.jobTitle)) return true;
   if (isFnbManager(input.jobTitle, input.department)) return true;
+  if (isLeaveSiteStepActor(input.jobTitle)) return true;
   return canApproveLeaveOnMyDay({
     roles: input.roles,
     stepRole: "manager",
