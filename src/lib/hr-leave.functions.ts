@@ -677,8 +677,17 @@ export const listLeaveRequests = createAuthenticatedAction(
         if (srSiteActor && !hrManage && !titleCompanyReview) fallback = fallback.eq("current_step_role", "site");
       } else if (data.status) fallback = fallback.eq("status", data.status);
       const retry = await fallback;
-      rows = retry.data;
-      error = retry.error;
+      if (retry.error) {
+        if (tableMissing(retry.error.message)) return [];
+        throw retry.error;
+      }
+      // Fallback select omits document_id / document join; mapLeaveRow tolerates missing fields.
+      rows = (retry.data ?? []).map((row) => ({
+        ...row,
+        document_id: null,
+        document: null,
+      })) as typeof rows;
+      error = null;
     }
     if (error) {
       if (tableMissing(error.message)) return [];
