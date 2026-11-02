@@ -177,23 +177,76 @@ export function formatFromHeader(fromAddress: string, fromName: string): string 
   return `${name} <${address}>`;
 }
 
-function smtpFromParts(
+export type SmtpMissingReason =
+  | "smtp_host_missing"
+  | "smtp_username_missing"
+  | "smtp_password_missing";
+
+/** Which required SMTP field is still blank after trim. */
+export function smtpMissingReason(
+  host: string,
+  username: string,
+  password: string,
+): SmtpMissingReason | null {
+  if (!host.trim()) return "smtp_host_missing";
+  if (!username.trim()) return "smtp_username_missing";
+  if (!password.trim()) return "smtp_password_missing";
+  return null;
+}
+
+export function smtpFromParts(
   host: string,
   port: number,
   encryption: SmtpEncryption,
   username: string,
   password: string,
 ): OutboundSmtpConfig | null {
-  const h = host.trim();
-  const u = username.trim();
-  const p = password.trim();
-  if (!h || !u || !p) return null;
+  if (smtpMissingReason(host, username, password)) return null;
   return {
-    host: h,
+    host: host.trim(),
     port: parsePort(port, 587),
     encryption,
-    username: u,
-    password: p,
+    username: username.trim(),
+    password: password.trim(),
+  };
+}
+
+/** Draft/UI fields override saved row, which overrides env. Used by Test SMTP. */
+export type SmtpDraftInput = {
+  host?: string;
+  port?: number;
+  encryption?: SmtpEncryption;
+  username?: string;
+  password?: string;
+};
+
+export function resolveSmtpConfig(
+  draft: SmtpDraftInput | null | undefined,
+  row: EmailSettingsRow | null,
+  env: EmailEnv,
+): { smtp: OutboundSmtpConfig | null; reason: SmtpMissingReason | null } {
+  const host = (draft?.host?.trim() || row?.smtp_host?.trim() || env.smtpHost.trim() || "");
+  const username = (
+    draft?.username?.trim() ||
+    row?.smtp_username?.trim() ||
+    env.smtpUsername.trim() ||
+    ""
+  );
+  // Blank draft password keeps saved/env secret (same keepSecret semantics as Save).
+  const password = (
+    draft?.password?.trim() ||
+    row?.smtp_password?.trim() ||
+    env.smtpPassword.trim() ||
+    ""
+  );
+  const port = draft?.port ?? row?.smtp_port ?? env.smtpPort;
+  const encryptionRaw = draft?.encryption ?? row?.smtp_encryption ?? env.smtpEncryption;
+  const encryption = isSmtpEncryption(encryptionRaw) ? encryptionRaw : "tls";
+  const reason = smtpMissingReason(host, username, password);
+  if (reason) return { smtp: null, reason };
+  return {
+    smtp: smtpFromParts(host, port, encryption, username, password),
+    reason: null,
   };
 }
 

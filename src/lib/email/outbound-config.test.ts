@@ -6,7 +6,9 @@ import {
   formatFromHeader,
   keepSecret,
   resolveOutboundEmailConfig,
+  resolveSmtpConfig,
   secretLast4,
+  smtpMissingReason,
   toPublicEmailSettings,
   webhookHostHint,
   type EmailEnv,
@@ -207,6 +209,90 @@ describe("SMTP presets and helpers", () => {
   it("formats From header with sender name", () => {
     expect(formatFromHeader("no-reply@fec.qa", "FEC")).toBe("FEC <no-reply@fec.qa>");
     expect(formatFromHeader("no-reply@fec.qa", "")).toBe("no-reply@fec.qa");
+  });
+});
+
+describe("resolveSmtpConfig (Test SMTP draft)", () => {
+  const emptyEnv: EmailEnv = {
+    resendApiKey: "",
+    webhookUrl: "",
+    fromAddress: "",
+    fromName: "",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpEncryption: "tls",
+    smtpUsername: "",
+    smtpPassword: "",
+  };
+
+  it("reports which field is missing", () => {
+    expect(smtpMissingReason("h", "u", "")).toBe("smtp_password_missing");
+    expect(smtpMissingReason("h", "", "p")).toBe("smtp_username_missing");
+    expect(smtpMissingReason("", "u", "p")).toBe("smtp_host_missing");
+    expect(smtpMissingReason("h", "u", "p")).toBeNull();
+  });
+
+  it("uses form draft password even when DB/env have none", () => {
+    const result = resolveSmtpConfig(
+      {
+        host: "smtp.mailgun.org",
+        port: 587,
+        encryption: "tls",
+        username: "admin@noreply.bookingqube.com",
+        password: "mg-secret",
+      },
+      null,
+      emptyEnv,
+    );
+    expect(result.reason).toBeNull();
+    expect(result.smtp).toEqual({
+      host: "smtp.mailgun.org",
+      port: 587,
+      encryption: "tls",
+      username: "admin@noreply.bookingqube.com",
+      password: "mg-secret",
+    });
+  });
+
+  it("falls back to saved password when draft password is blank", () => {
+    const result = resolveSmtpConfig(
+      {
+        host: "smtp.mailgun.org",
+        username: "admin@noreply.bookingqube.com",
+        password: "",
+      },
+      row({
+        managed: true,
+        enabled: true,
+        provider: "smtp",
+        smtp_host: "smtp.mailgun.org",
+        smtp_username: "admin@noreply.bookingqube.com",
+        smtp_password: "saved-secret",
+      }),
+      emptyEnv,
+    );
+    expect(result.smtp?.password).toBe("saved-secret");
+  });
+
+  it("returns smtp_password_missing when host/user set but no password anywhere", () => {
+    const result = resolveSmtpConfig(
+      {
+        host: "smtp.mailgun.org",
+        username: "admin@noreply.bookingqube.com",
+        password: "",
+      },
+      row({
+        managed: true,
+        enabled: true,
+        provider: "smtp",
+        smtp_host: "smtp.mailgun.org",
+        smtp_username: "admin@noreply.bookingqube.com",
+        smtp_password: "",
+      }),
+      emptyEnv,
+    );
+    expect(result.smtp).toBeNull();
+    expect(result.reason).toBe("smtp_password_missing");
   });
 });
 

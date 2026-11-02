@@ -9,6 +9,7 @@ import {
   keepSecret,
   loadEmailSettingsRow,
   readEmailEnv,
+  resolveSmtpConfig,
   saveEmailSettingsRow,
   toPublicEmailSettings,
   type EmailProvider,
@@ -193,19 +194,48 @@ export const testAppEmailSettings = createSafeAuthenticatedAction(
   { auth: EMAIL_SETTINGS_AUTH },
 );
 
+const smtpTestSchema = z.object({
+  smtpHost: z.string().trim().max(320).optional(),
+  smtpPort: z.number().int().min(1).max(65535).optional(),
+  smtpEncryption: encryptionSchema.optional(),
+  smtpUsername: z.string().trim().max(320).optional(),
+  /** When blank, saved DB password then env SMTP_PASSWORD / GMAIL_APP_PASSWORD are used. */
+  smtpPassword: z.string().max(500).optional(),
+});
+
 export const testAppSmtpConnection = createSafeAuthenticatedAction(
-  z.object({}),
-  async (): Promise<{ ok: boolean; reason?: string; host?: string; port?: number }> => {
-    const config = await getOutboundEmailConfig();
-    if (!config?.smtp) {
-      return { ok: false, reason: "smtp_not_configured" };
+  smtpTestSchema,
+  async (data): Promise<{ ok: boolean; reason?: string; host?: string; port?: number }> => {
+    const env = readEmailEnv();
+    let row = null as Awaited<ReturnType<typeof loadEmailSettingsRow>>;
+    try {
+      row = await loadEmailSettingsRow();
+    } catch {
+      row = null;
     }
-    const verified = await verifySmtpConnection(config.smtp);
+
+    const { smtp, reason } = resolveSmtpConfig(
+      {
+        host: data.smtpHost,
+        port: data.smtpPort,
+        encryption: data.smtpEncryption as SmtpEncryption | undefined,
+        username: data.smtpUsername,
+        password: data.smtpPassword,
+      },
+      row,
+      env,
+    );
+
+    if (!smtp) {
+      return { ok: false, reason: reason ?? "smtp_not_configured" };
+    }
+
+    const verified = await verifySmtpConnection(smtp);
     return {
       ok: verified.ok,
       reason: verified.reason,
-      host: config.smtp.host,
-      port: config.smtp.port,
+      host: smtp.host,
+      port: smtp.port,
     };
   },
   { auth: EMAIL_SETTINGS_AUTH },

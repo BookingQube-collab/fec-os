@@ -166,16 +166,37 @@ function AdminEmailSettingsPage() {
     toast.success(t("emailSettings.testSent"));
   }
 
+  function smtpVerifyErrorMessage(reason: string | undefined): string {
+    switch (reason) {
+      case "smtp_host_missing":
+        return t("emailSettings.smtpHostMissing");
+      case "smtp_username_missing":
+        return t("emailSettings.smtpUsernameMissing");
+      case "smtp_password_missing":
+        return t("emailSettings.smtpPasswordMissing");
+      case "smtp_not_configured":
+        return t("emailSettings.smtpNotConfigured");
+      default:
+        return reason || t("emailSettings.smtpVerifyFailed");
+    }
+  }
+
   async function verifySmtp() {
     setVerifying(true);
-    const result = await testAppSmtpConnection({});
+    const result = await testAppSmtpConnection({
+      smtpHost,
+      smtpPort,
+      smtpEncryption,
+      smtpUsername,
+      smtpPassword,
+    });
     setVerifying(false);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
     if (!result.data.ok) {
-      toast.error(result.data.reason || t("emailSettings.smtpVerifyFailed"));
+      toast.error(smtpVerifyErrorMessage(result.data.reason));
       return;
     }
     toast.success(
