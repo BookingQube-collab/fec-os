@@ -153,43 +153,67 @@ export type LeavePrintSignature = {
   imageUrl?: string | null;
 };
 
+type LeavePrintStepLike = {
+  stepRole: string;
+  status: string;
+  actedByName?: string | null;
+  actedAt?: string | null;
+  actedBySignatureUrl?: string | null;
+};
+
+/**
+ * Pre-site-step leaves only had manager → ops → hr. That first seat was the
+ * Sr. Site Supervisor (same as missed-punch), not a Venue supervisor column.
+ */
+export function leavePrintUsesLegacySiteAsManager(
+  steps: ReadonlyArray<{ stepRole: string }> | null | undefined,
+): boolean {
+  const list = steps ?? [];
+  if (list.length === 0) return false;
+  return !list.some((step) => step.stepRole === "site");
+}
+
 /**
  * Progressive print stamps from approval steps.
  * Only `approved` seats fill (skipped stays blank). HR stamps when leave is
  * finalized (ops already wrote attendance) or a legacy hr seat approved.
+ * Legacy rows without a `site` seat stamp the old manager approval under Sr. Site.
  */
 export function leavePrintSignatureDone(
   status: string | null | undefined,
   steps: ReadonlyArray<{ stepRole: string; status: string }> | null | undefined,
   key: LeavePrintSigKey,
 ): boolean {
-  const byRole = new Map((steps ?? []).map((step) => [step.stepRole, step.status]));
+  const list = steps ?? [];
+  const byRole = new Map(list.map((step) => [step.stepRole, step.status]));
   const seatApproved = (role: string) => byRole.get(role) === "approved";
+  const legacySiteAsManager = leavePrintUsesLegacySiteAsManager(list);
 
-  if (key === "supervisor") return seatApproved("manager");
-  if (key === "site") return seatApproved("site");
+  if (key === "supervisor") {
+    // Never treat the legacy first seat as Supervisor — it maps to Sr. Site.
+    if (legacySiteAsManager) return false;
+    return seatApproved("manager");
+  }
+  if (key === "site") {
+    if (legacySiteAsManager) return seatApproved("manager");
+    return seatApproved("site");
+  }
   if (key === "hoo") {
     if (seatApproved("ops")) return true;
     // Legacy fully-approved rows with no stored ops seat.
-    if (status === "approved" && (steps?.length ?? 0) === 0) return true;
+    if (status === "approved" && list.length === 0) return true;
     return false;
   }
   // HR notify-only after ops finalize — show stamp once leave is approved.
   if (seatApproved("hr")) return true;
-  if (status === "approved" && (seatApproved("ops") || (steps?.length ?? 0) === 0)) return true;
+  if (status === "approved" && (seatApproved("ops") || list.length === 0)) return true;
   return false;
 }
 
 /** Map print seats to people who approved (names + optional digital signature URL). */
 export function leavePrintSignatureActors(args: {
   status?: string | null;
-  steps: ReadonlyArray<{
-    stepRole: string;
-    status: string;
-    actedByName?: string | null;
-    actedAt?: string | null;
-    actedBySignatureUrl?: string | null;
-  }>;
+  steps: ReadonlyArray<LeavePrintStepLike>;
 }): Record<LeavePrintSigKey, LeavePrintSignature> {
   const empty = (): LeavePrintSignature => ({ name: null, at: null, imageUrl: null });
   const pick = (role: string): LeavePrintSignature => {
@@ -201,9 +225,11 @@ export function leavePrintSignatureActors(args: {
       imageUrl: step.actedBySignatureUrl?.trim() || null,
     };
   };
+  const legacySiteAsManager = leavePrintUsesLegacySiteAsManager(args.steps);
   return {
-    supervisor: pick("manager"),
-    site: pick("site"),
+    // Legacy manager stamp belongs in Sr. Site — keep Supervisor empty.
+    supervisor: legacySiteAsManager ? empty() : pick("manager"),
+    site: legacySiteAsManager ? pick("manager") : pick("site"),
     hoo: pick("ops"),
     // HR is notify-only after ops — stamp cell with ✓ via leavePrintSignatureDone; no actor unless legacy hr seat.
     hr: pick("hr"),

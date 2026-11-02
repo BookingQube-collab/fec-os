@@ -15,6 +15,7 @@ import {
   leaveStepSeatLabel,
   leavePrintSignatureActors,
   leavePrintSignatureDone,
+  leavePrintUsesLegacySiteAsManager,
   leaveTeamSubmitOpening,
   shouldFinalizeLeaveOnApprove,
 } from "./hr-leave";
@@ -119,6 +120,33 @@ describe("leave status transitions", () => {
     expect(leavePrintShowsSupervisorSeat("Sr. Site Supervisor")).toBe(false);
   });
 
+  it("hides Supervisor print column unless a real supervisor seat is on the leave", () => {
+    const opensAtSite = [
+      { stepRole: "manager", status: "skipped" },
+      { stepRole: "site", status: "approved" },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leavePrintShowsSupervisorSeat("Crew / Attendant", opensAtSite)).toBe(false);
+
+    const hasSupervisor = [
+      { stepRole: "manager", status: "approved" },
+      { stepRole: "site", status: "pending" },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leavePrintShowsSupervisorSeat("Crew / Attendant", hasSupervisor)).toBe(true);
+
+    const legacyNoSite = [
+      {
+        stepRole: "manager",
+        status: "approved",
+        actedByName: "Mary Wangare Muiruri",
+      },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leavePrintShowsSupervisorSeat("Crew / Attendant", legacyNoSite)).toBe(false);
+    expect(leavePrintUsesLegacySiteAsManager(legacyNoSite)).toBe(true);
+  });
+
   it("stamps print signatures only after each seat actually approves", () => {
     const pending = [
       { stepRole: "manager", status: "pending" },
@@ -173,6 +201,28 @@ describe("leave status transitions", () => {
       imageUrl: "https://signed.example/mary.png",
     });
     expect(actors.hoo.name).toBe("Rajan Pathak");
+    expect(actors.supervisor.name).toBeNull();
+
+    // Legacy manager→ops (no site seat): Mary's stamp belongs under Sr. Site, not Supervisor.
+    const legacyMary = [
+      {
+        stepRole: "manager",
+        status: "approved",
+        actedByName: "Mary Wangare Muiruri",
+        actedAt: "2026-10-30T10:00:00Z",
+        actedBySignatureUrl: "https://signed.example/mary.png",
+      },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leavePrintSignatureDone("pending", legacyMary, "supervisor")).toBe(false);
+    expect(leavePrintSignatureDone("pending", legacyMary, "site")).toBe(true);
+    const legacyActors = leavePrintSignatureActors({ status: "pending", steps: legacyMary });
+    expect(legacyActors.supervisor.name).toBeNull();
+    expect(legacyActors.site).toEqual({
+      name: "Mary Wangare Muiruri",
+      at: "2026-10-30T10:00:00Z",
+      imageUrl: "https://signed.example/mary.png",
+    });
   });
 
   it("routes Operations leave ops step to Head of Operations and F&B to F&B Manager", () => {

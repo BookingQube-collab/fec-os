@@ -44,8 +44,8 @@ export type LeaveRequestPrintPayload = {
   /** Approval trail — drives which signature cells fill after each seat approves. */
   steps?: LeaveRequestPrintStep[];
   /**
-   * When false, hide the Supervisor column (Sr. Site applicant).
-   * Defaults from jobTitle via leavePrintShowsSupervisorSeat.
+   * When false, hide the Supervisor column (no supervisor seat on this leave).
+   * Defaults from approval steps (preferred) or applicant jobTitle.
    */
   showSupervisorSignature?: boolean;
 };
@@ -103,7 +103,8 @@ function LeaveRequestSheet({ payload }: { payload: LeaveRequestPrintPayload }) {
   const sheetNumber = payload.requestNumber?.trim() || null;
   const steps = payload.steps ?? [];
   const showSupervisor =
-    payload.showSupervisorSignature ?? leavePrintShowsSupervisorSeat(payload.jobTitle);
+    payload.showSupervisorSignature ??
+    leavePrintShowsSupervisorSeat(payload.jobTitle, steps);
   const actors = leavePrintSignatureActors({ status: payload.status, steps });
   const done = (key: LeavePrintSigKey) => leavePrintSignatureDone(payload.status, steps, key);
 

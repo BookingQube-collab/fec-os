@@ -123,10 +123,24 @@ export function isLeaveSiteStepActor(jobTitle: string | null | undefined): boole
 }
 
 /**
- * Print form: staff / Venue supervisor applicants show the Supervisor column.
- * Sr. Site applicants hide it (their ladder opens on HoO).
+ * Print form Supervisor column visibility.
+ * Prefer the approval trail: show only when a real supervisor (`manager`) seat
+ * is pending or approved. Skipped / absent manager (chain starts at Sr. Site)
+ * and legacy manager→ops→hr rows (first seat was Sr. Site) hide the column.
+ * When steps are unknown yet, fall back to the applicant title (Sr. Site → hide).
  */
-export function leavePrintShowsSupervisorSeat(jobTitle: string | null | undefined): boolean {
+export function leavePrintShowsSupervisorSeat(
+  jobTitle: string | null | undefined,
+  steps?: ReadonlyArray<{ stepRole: string; status: string }> | null,
+): boolean {
+  const list = steps ?? [];
+  if (list.length > 0) {
+    // Pre-site-step ladder: manager was Sr. Site — no Venue supervisor column.
+    if (!list.some((step) => step.stepRole === "site")) return false;
+    const manager = list.find((step) => step.stepRole === "manager");
+    if (!manager) return false;
+    return manager.status === "approved" || manager.status === "pending";
+  }
   return !isSrSiteSupervisorTitle(jobTitle);
 }
 
