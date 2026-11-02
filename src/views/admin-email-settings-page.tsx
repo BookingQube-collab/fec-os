@@ -16,6 +16,7 @@ import {
   applySmtpPreset,
   isSmtpAuthFailure,
   mailgunRegionHint,
+  mailgunSmtpPasswordHint,
   mailgunUsernameHint,
   type EmailProvider,
   type SmtpAuthDiagnostics,
@@ -252,6 +253,7 @@ function AdminEmailSettingsPage() {
   }
 
   const mailgunUserHintKey = mailgunUsernameHint(smtpUsername, smtpHost);
+  const mailgunPassHintKey = mailgunSmtpPasswordHint(smtpPassword, smtpHost);
 
   return (
     <div className="space-y-5">
@@ -462,6 +464,19 @@ function AdminEmailSettingsPage() {
                         })
                       : t("emailSettings.smtpPasswordEmpty")}
                   </p>
+                  {mailgunPassHintKey === "mailgun_password_looks_like_api_key" ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {t("emailSettings.mailgunPasswordLooksLikeApiKey")}
+                    </p>
+                  ) : mailgunPassHintKey === "mailgun_password_looks_like_pubkey" ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {t("emailSettings.mailgunPasswordLooksLikePubkey")}
+                    </p>
+                  ) : mailgunPassHintKey === "mailgun_password_looks_like_webhook_signing" ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      {t("emailSettings.mailgunPasswordLooksLikeWebhookSigning")}
+                    </p>
+                  ) : null}
                   {settings.data?.smtpPasswordSet ? (
                     <Button
                       type="button"

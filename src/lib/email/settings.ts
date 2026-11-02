@@ -14,6 +14,7 @@ export {
   isSmtpAuthFailure,
   keepSecret,
   mailgunRegionHint,
+  mailgunSmtpPasswordHint,
   mailgunUsernameHint,
   readEmailEnv,
   resolveOutboundEmailConfig,

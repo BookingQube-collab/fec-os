@@ -7,6 +7,7 @@ import {
   isSmtpAuthFailure,
   keepSecret,
   mailgunRegionHint,
+  mailgunSmtpPasswordHint,
   mailgunUsernameHint,
   resolveOutboundEmailConfig,
   resolveSmtpConfig,
@@ -372,5 +373,24 @@ describe("SMTP auth diagnostics helpers", () => {
     expect(mailgunUsernameHint("plainuser", "smtp.mailgun.org")).toBe("mailgun_username_need_at");
     expect(mailgunRegionHint("smtp.eu.mailgun.org")).toBe("eu");
     expect(mailgunRegionHint("smtp.mailgun.org")).toBe("us");
+  });
+
+  it("warns when SMTP password looks like Mailgun API Security secrets", () => {
+    const host = "smtp.eu.mailgun.org";
+    // Prefix-only samples so scanners do not treat fixtures as live credentials.
+    const fakePrivateApiKey = `key-${"0".repeat(32)}`;
+    const fakePubkey = `pubkey-${"a".repeat(32)}`;
+    expect(mailgunSmtpPasswordHint(fakePrivateApiKey, host)).toBe(
+      "mailgun_password_looks_like_api_key",
+    );
+    expect(mailgunSmtpPasswordHint(fakePubkey, host)).toBe("mailgun_password_looks_like_pubkey");
+    expect(
+      mailgunSmtpPasswordHint(`${"a".repeat(32)}-${"b".repeat(8)}-${"c".repeat(8)}`, host),
+    ).toBe("mailgun_password_looks_like_webhook_signing");
+    expect(mailgunSmtpPasswordHint(`${"b".repeat(8)}-${"c".repeat(8)}`, host)).toBe(
+      "mailgun_password_looks_like_webhook_signing",
+    );
+    expect(mailgunSmtpPasswordHint("real-smtp-password-from-domain", host)).toBe("");
+    expect(mailgunSmtpPasswordHint(fakePrivateApiKey, "smtp.gmail.com")).toBe("");
   });
 });

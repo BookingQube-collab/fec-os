@@ -223,6 +223,30 @@ export function mailgunUsernameHint(username: string, host: string): string {
   return "";
 }
 
+/**
+ * Soft warning when the SMTP password field looks like a Mailgun API Security
+ * value (Private API key, webhook signing key, or verification public key).
+ * Those never authenticate SMTP — Domain → SMTP credentials password does.
+ * Empty string = no warning.
+ */
+export function mailgunSmtpPasswordHint(password: string, host: string): string {
+  const pass = password.trim();
+  const h = host.trim().toLowerCase();
+  if (!pass || !h.includes("mailgun")) return "";
+  const lower = pass.toLowerCase();
+  if (lower.startsWith("key-")) return "mailgun_password_looks_like_api_key";
+  if (lower.startsWith("pubkey-")) return "mailgun_password_looks_like_pubkey";
+  // Account webhook signing keys are long hex with hyphens (API Security page).
+  if (/^[a-f0-9]{24,}-[a-f0-9]{6,}-[a-f0-9]{6,}$/i.test(pass)) {
+    return "mailgun_password_looks_like_webhook_signing";
+  }
+  // Short trailing fragment people often copy as "API key" from that same value.
+  if (/^[a-f0-9]{6,12}-[a-f0-9]{6,12}$/i.test(pass) && pass.length <= 24) {
+    return "mailgun_password_looks_like_webhook_signing";
+  }
+  return "";
+}
+
 /** Region mismatch hint when host is a known Mailgun endpoint. */
 export function mailgunRegionHint(host: string): "eu" | "us" | null {
   const h = host.trim().toLowerCase();
