@@ -250,6 +250,19 @@ export function leaveStepSeatLabel(
 }
 
 /**
+ * Trail / badge role for display. Pre-site-step leaves stored Sr. Site on
+ * `manager` — remap that seat to `site` so labels read Sr. Site Supervisor.
+ */
+export function leaveDisplayStepRole(
+  stepRole: string | null | undefined,
+  steps?: ReadonlyArray<{ stepRole: string }> | null,
+): string {
+  const role = stepRole ?? "manager";
+  if (role === "manager" && leavePrintUsesLegacySiteAsManager(steps)) return "site";
+  return role;
+}
+
+/**
  * Approve / Approved queues: unique by leave id, and collapse identical pending
  * retry rows (same staff + type + dates) to the earliest created request.
  */

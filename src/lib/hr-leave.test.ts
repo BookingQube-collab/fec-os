@@ -12,6 +12,7 @@ import {
   defaultLeaveApprovalSteps,
   leaveApprovalStepsForRequester,
   leaveOpeningStepRole,
+  leaveDisplayStepRole,
   leaveStepSeatLabel,
   leavePrintSignatureActors,
   leavePrintSignatureDone,
@@ -101,11 +102,27 @@ describe("leave status transitions", () => {
     expect(shouldFinalizeLeaveOnApprove("ops", "hr")).toBe(true);
     expect(shouldFinalizeLeaveOnApprove("site", "ops")).toBe(false);
     expect(shouldFinalizeLeaveOnApprove("manager", "site")).toBe(false);
+    expect(leaveStepSeatLabel("manager")).toBe("Supervisor");
     expect(leaveStepSeatLabel("site")).toBe("Sr. Site Supervisor");
     expect(leaveStepSeatLabel("ops")).toBe("Head of Operations");
     expect(leaveStepSeatLabel("ops", { opsLane: "fnb_manager" })).toBe("F&B Manager");
+    expect(leaveStepSeatLabel("hr")).toBe("HR");
     expect(isLeaveSiteStepActor("Sr. Site Supervisor")).toBe(true);
     expect(isLeaveSiteStepActor("Site Supervisor")).toBe(false);
+    // Legacy manager→ops: first seat was Sr. Site — trail must not say Supervisor.
+    const legacy = [
+      { stepRole: "manager", status: "approved" },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leaveDisplayStepRole("manager", legacy)).toBe("site");
+    expect(leaveStepSeatLabel(leaveDisplayStepRole("manager", legacy))).toBe("Sr. Site Supervisor");
+    const modern = [
+      { stepRole: "manager", status: "approved" },
+      { stepRole: "site", status: "pending" },
+      { stepRole: "ops", status: "pending" },
+    ];
+    expect(leaveDisplayStepRole("manager", modern)).toBe("manager");
+    expect(leaveDisplayStepRole("site", modern)).toBe("site");
   });
 
   it("skips supervisor + site seats when the leave subject is Sr. Site", () => {

@@ -31,6 +31,7 @@ import {
   type ApprovedHistoryFilters,
   type ApprovedHistoryRowLike,
 } from "@/lib/attendance-hr/missed-punch-approved-history";
+import { leaveDisplayStepRole, leaveStepSeatLabel } from "@/lib/hr-leave";
 import { actOnLeaveApproval, listLeaveRequests } from "@/lib/hr-leave.functions";
 import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
 import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
@@ -88,12 +89,19 @@ function leavePriorApprovalLabel(input: {
   status: string;
   actedByName?: string | null;
   opsLane?: string | null;
+  /** Full trail — used to remap legacy manager→Sr. Site when no site seat exists. */
+  steps?: ReadonlyArray<{ stepRole: string }> | null;
   t: (key: string, opts?: Record<string, unknown>) => string;
 }): string {
+  const displayRole = leaveDisplayStepRole(input.stepRole, input.steps);
   const seat =
-    input.stepRole === "ops" && input.opsLane === "fnb_manager"
+    displayRole === "ops" && input.opsLane === "fnb_manager"
       ? input.t("hr.leave.steps.opsFnb", { defaultValue: "F&B Manager" })
-      : input.t(`hr.leave.steps.${input.stepRole}`, { defaultValue: input.stepRole });
+      : input.t(`hr.leave.steps.${displayRole}`, {
+          defaultValue: leaveStepSeatLabel(displayRole, {
+            opsLane: input.opsLane === "fnb_manager" ? "fnb_manager" : "head_of_operations",
+          }),
+        });
   const name = input.actedByName?.trim();
   if (input.status === "skipped") {
     return name ? `${seat} · skipped · ${name}` : `${seat} · skipped`;
@@ -419,6 +427,7 @@ export function MyDayLeaveApprovals({
                               status: step.status,
                               actedByName: step.actedByName,
                               opsLane: row.opsLane,
+                              steps: row.steps,
                               t,
                             })}
                           </li>
