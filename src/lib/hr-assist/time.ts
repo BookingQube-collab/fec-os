@@ -70,15 +70,39 @@ export function qatarHm24(iso: string | null | undefined): string | null {
   return `${String(q.getUTCHours()).padStart(2, "0")}:${String(q.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-/** 12-hour English label from a 24-hour HH:mm string. */
-export function formatEnglishTime(hm: string): string {
+export type Hm12Parts = {
+  hour12: number;
+  minute: number;
+  period: "AM" | "PM";
+};
+
+/** Split a 24-hour HH:mm string into 12-hour clock parts. */
+export function splitHm12(hm: string | null | undefined): Hm12Parts | null {
   const mins = hmToMinutes(hm);
-  if (mins == null) return hm;
+  if (mins == null) return null;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 || 12;
-  return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
+  return {
+    hour12: h % 12 || 12,
+    minute: m,
+    period: h >= 12 ? "PM" : "AM",
+  };
+}
+
+/** Join 12-hour clock parts into a 24-hour HH:mm string. */
+export function joinHm12(hour12: number, minute: number, period: "AM" | "PM"): string {
+  const h12 = ((Math.trunc(hour12) % 12) + 12) % 12 || 12;
+  const m = Math.min(59, Math.max(0, Math.trunc(minute)));
+  let h24 = h12 % 12;
+  if (period === "PM") h24 += 12;
+  return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** 12-hour English label from a 24-hour HH:mm string. */
+export function formatEnglishTime(hm: string): string {
+  const parts = splitHm12(hm);
+  if (!parts) return hm;
+  return `${parts.hour12}:${String(parts.minute).padStart(2, "0")} ${parts.period}`;
 }
 
 export function shiftSpanMinutes(actualIn: string, actualOut: string): number | null {
