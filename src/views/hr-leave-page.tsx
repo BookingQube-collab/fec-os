@@ -28,6 +28,7 @@ import {
   actOnLeaveApproval,
   bulkReviewLeaveRequests,
   getLeaveBalanceSummary,
+  getLeaveDocumentUrl,
   grantCompOff,
   listLeaveRequests,
   listStaffForLeaveBalances,
@@ -165,6 +166,14 @@ export function HrLeaveWorkspace({
       toast.error(e.message);
     },
     onSettled: () => invalidate(),
+  });
+
+  const openLeaveDoc = useMutation({
+    mutationFn: (leaveId: string) => getLeaveDocumentUrl({ leaveId, purpose: "preview" }),
+    onSuccess: (res) => {
+      window.open(res.url, "_blank", "noopener,noreferrer");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const stepAct = useMutation({
@@ -380,6 +389,9 @@ export function HrLeaveWorkspace({
                             : ""}
                           {row.payrollImpact ? ` · ${t("hr.leave.payrollImpact")}` : ""}
                           {row.reason ? ` · ${row.reason}` : ""}
+                          {row.documentId
+                            ? ` · ${row.documentFileName ?? t("hr.leave.documentAttached")}`
+                            : ""}
                         </p>
                       </div>
                     </div>
@@ -387,6 +399,16 @@ export function HrLeaveWorkspace({
                       <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
                         {t(`hr.leave.status.${row.status}`)}
                       </Badge>
+                      {row.documentId ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={openLeaveDoc.isPending}
+                          onClick={() => openLeaveDoc.mutate(row.id)}
+                        >
+                          {t("hr.leave.viewDocument")}
+                        </Button>
+                      ) : null}
                       <Button size="sm" variant="outline" onClick={() => openLeavePrint(row)}>
                         {t("hr.leave.print.preview")}
                       </Button>

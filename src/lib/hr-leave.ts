@@ -89,23 +89,45 @@ export function defaultLeaveApprovalSteps(): Array<{
 /**
  * When the named boss is already Sr. Site (or missing), skip the supervisor seat
  * and start on `site` so Mary is not asked twice.
+ * Team submit by Sr. Site also skips `site` and opens on `ops` (HoO).
  */
 export function leaveApprovalStepsForRequester(input: {
   skipManagerSeat: boolean;
+  skipSiteSeat?: boolean;
 }): Array<{ stepOrder: number; stepRole: HrLeaveApprovalRole; status: "pending" | "skipped" }> {
-  const steps = defaultLeaveApprovalSteps();
-  if (!input.skipManagerSeat) {
-    return steps.map((step) => ({ ...step, status: "pending" as const }));
-  }
-  return steps.map((step) =>
-    step.stepRole === "manager"
-      ? { ...step, status: "skipped" as const }
-      : { ...step, status: "pending" as const },
-  );
+  const skipManager = Boolean(input.skipManagerSeat || input.skipSiteSeat);
+  const skipSite = Boolean(input.skipSiteSeat);
+  return defaultLeaveApprovalSteps().map((step) => {
+    if (step.stepRole === "manager" && skipManager) {
+      return { ...step, status: "skipped" as const };
+    }
+    if (step.stepRole === "site" && skipSite) {
+      return { ...step, status: "skipped" as const };
+    }
+    return { ...step, status: "pending" as const };
+  });
 }
 
-export function leaveOpeningStepRole(skipManagerSeat: boolean): HrLeaveApprovalRole {
+export function leaveOpeningStepRole(skipManagerSeat: boolean, skipSiteSeat = false): HrLeaveApprovalRole {
+  if (skipSiteSeat) return "ops";
   return skipManagerSeat ? "site" : "manager";
+}
+
+/**
+ * Team leave submit (mirrors missed-punch team corrections):
+ * - Venue / line supervisor → Sr. Site (`site`)
+ * - Sr. Site → HoO (`ops`)
+ * - HoO / F&B Manager → finalize immediately
+ */
+export type LeaveTeamSubmitOpening = "site" | "ops" | "final";
+
+export function leaveTeamSubmitOpening(input: {
+  isSrSite: boolean;
+  isOpsFinalizer: boolean;
+}): LeaveTeamSubmitOpening {
+  if (input.isOpsFinalizer) return "final";
+  if (input.isSrSite) return "ops";
+  return "site";
 }
 
 /**

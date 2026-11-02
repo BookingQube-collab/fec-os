@@ -26,7 +26,11 @@ export function isAttendanceFieldQuery(queryKey: QueryKey): boolean {
 
 export function isLeaveListQuery(queryKey: QueryKey): boolean {
   const view = attendanceHrFilters(queryKey)?.view;
-  return view === "leave" || view === "my-day-leave-approvals";
+  return (
+    view === "leave" ||
+    view === "my-day-leave-approvals" ||
+    view === "my-day-leave-approved"
+  );
 }
 
 export function isOtListOrSummaryQuery(queryKey: QueryKey): boolean {
@@ -75,6 +79,8 @@ export function invalidateLeaveLists(qc: QueryClient) {
   void qc.invalidateQueries({ predicate: (query) => isLeaveListQuery(query.queryKey) });
   void qc.invalidateQueries({ queryKey: queryKeys.people.hrLeaveBalances() });
   void qc.invalidateQueries({ queryKey: queryKeys.people.hrOverview() });
+  // HOO final approve writes attendance_leave_records + roster cells — refresh monthly roster.
+  void qc.invalidateQueries({ predicate: (query) => isRosterQuery(query.queryKey) });
 }
 
 /** OT claim list + monthly summary — skip policy/staff-team refetch on every approve. */

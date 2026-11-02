@@ -22,12 +22,17 @@ import {
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
 } from "@/lib/attendance-hr/missed-punch-approval";
-import { loadMissedPunchDirectory } from "@/lib/attendance-hr/missed-punch-approval.server";
+import {
+  listPunchCorrectionSubjects,
+  loadMissedPunchDirectory,
+} from "@/lib/attendance-hr/missed-punch-approval.server";
 import {
   assertLeaveTransition,
   countLeaveDays,
   leaveApprovalStepsForRequester,
+  leaveOpeningStepRole,
   leaveStepSeatLabel,
+  leaveTeamSubmitOpening,
   shouldFinalizeLeaveOnApprove,
   HR_COMPASSIONATE_SCOPES,
   HR_EMERGENCY_TREATMENTS,
@@ -40,6 +45,7 @@ import {
 import {
   isLeaveSiteStepActor,
   leaveApproverUserIdsForStep,
+  leaveTeamSubmitSkips,
   resolveLeaveSupervisorRoute,
 } from "@/lib/hr-leave-routing";
 import { findUsersWithCapability } from "@/lib/notifications/action-notify";
@@ -59,6 +65,7 @@ import {
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { policyNumber } from "@/lib/hr-policy";
 import { readLeaveAllotmentDefaults, readPolicySection } from "@/lib/hr-policy-read";
+import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 
 async function myStaff(context: AuthContext) {
   const linked = await loadLinkedStaffRecord(context.userId);
@@ -99,11 +106,29 @@ async function nextLeaveRequestNumber(context: AuthContext): Promise<string> {
   return `LV-${day}-${crypto.randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
 }
 
+function mapLeaveDocument(row: Record<string, unknown>) {
+  const linked = row.document ?? row.hr_employee_documents;
+  const doc = Array.isArray(linked) ? linked[0] : linked;
+  if (!doc || typeof doc !== "object") {
+    const documentId = (row.document_id as string | null) ?? null;
+    return {
+      documentId,
+      documentFileName: null as string | null,
+    };
+  }
+  const record = doc as { id?: string; file_name?: string | null };
+  return {
+    documentId: record.id ? String(record.id) : ((row.document_id as string | null) ?? null),
+    documentFileName: (record.file_name as string | null) ?? null,
+  };
+}
+
 function mapLeaveRow(row: Record<string, unknown>) {
   const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
   const jobTitle = (staff as { job_title?: string | null } | null)?.job_title ?? null;
   const department = (staff as { department?: string | null } | null)?.department ?? null;
   const opsLane: OpsApprovalLane = opsApprovalLaneForStaff(jobTitle, department);
+  const document = mapLeaveDocument(row);
   return {
     id: String(row.id),
     staffId: String(row.staff_id),
@@ -125,6 +150,8 @@ function mapLeaveRow(row: Record<string, unknown>) {
     emergencyTreatment: (row.emergency_treatment as string | null) ?? null,
     compassionateScope: (row.compassionate_scope as string | null) ?? null,
     requestNumber: (row.request_number as string | null) ?? null,
+    documentId: document.documentId,
+    documentFileName: document.documentFileName,
     createdAt: String(row.created_at),
   };
 }
@@ -166,6 +193,15 @@ async function syncApprovedLeaveToAttendance(
   const dates = enumerateLeaveDates(leave.dateFrom, leave.dateTo);
   if (dates.length === 0) return { syncedDays: 0, skipped: true };
   const attendanceType = mapHrLeaveTypeToAttendance(leave.leaveType);
+  // Monthly roster paints annual_leave / sick_leave / comp_off only (not unpaid).
+  const resolvedRosterLeave: "annual_leave" | "sick_leave" | "comp_off" | null =
+    leave.leaveType === "sick"
+      ? "sick_leave"
+      : leave.leaveType === "comp_off"
+        ? "comp_off"
+        : attendanceType === "annual_leave"
+          ? "annual_leave"
+          : null;
   const rows = dates.map((leave_date) => ({
     location_id: locationId as string,
     staff_id: leave.staffId,
@@ -188,6 +224,59 @@ async function syncApprovedLeaveToAttendance(
       throw error;
     }
   }
+
+  // Monthly roster reads leave via attendance_leave_records overlay on assignment rows.
+  // Ensure each leave day has a roster cell (and clear shift times so the grid shows AL/SL).
+  if (resolvedRosterLeave) {
+    const { data: existingAssignments, error: assignErr } = await db
+      .from("attendance_roster_assignments")
+      .select("id, work_date, location_id")
+      .eq("staff_id", leave.staffId)
+      .gte("work_date", leave.dateFrom.slice(0, 10))
+      .lte("work_date", leave.dateTo.slice(0, 10));
+    if (assignErr && !tableMissing(assignErr.message)) throw assignErr;
+    const byDate = new Map<string, Array<{ id: string; location_id: string }>>();
+    for (const row of existingAssignments ?? []) {
+      const day = String(row.work_date).slice(0, 10);
+      const list = byDate.get(day) ?? [];
+      list.push({ id: String(row.id), location_id: String(row.location_id) });
+      byDate.set(day, list);
+    }
+    for (const leaveDate of dates) {
+      const dayRows = byDate.get(leaveDate) ?? [];
+      if (dayRows.length > 0) {
+        const { error: clearErr } = await db
+          .from("attendance_roster_assignments")
+          .update({
+            is_week_off: false,
+            shift_template_id: null,
+            shift_start: null,
+            shift_end: null,
+          })
+          .in(
+            "id",
+            dayRows.map((r) => r.id),
+          );
+        if (clearErr && !tableMissing(clearErr.message)) throw clearErr;
+      } else {
+        const { error: insErr } = await db.from("attendance_roster_assignments").insert({
+          location_id: locationId,
+          staff_id: leave.staffId,
+          work_date: leaveDate,
+          is_week_off: false,
+          shift_template_id: null,
+          shift_start: null,
+          shift_end: null,
+          source: "hr_leave",
+          created_by: context.userId,
+        });
+        if (insErr && !tableMissing(insErr.message) && !/duplicate|unique/i.test(insErr.message)) {
+          throw insErr;
+        }
+      }
+    }
+  }
+
   try {
     await recalculateAttendanceRange(db, locationId, leave.dateFrom.slice(0, 10), leave.dateTo.slice(0, 10), {
       staffIds: [leave.staffId],
@@ -263,10 +352,11 @@ async function loadLeaveConflicts(
 async function seedLeaveApprovalSteps(
   context: AuthContext,
   leaveId: string,
-  opts?: { skipManagerSeat?: boolean },
+  opts?: { skipManagerSeat?: boolean; skipSiteSeat?: boolean; openingStep?: HrLeaveApprovalRole | null },
 ) {
   const skipManagerSeat = Boolean(opts?.skipManagerSeat);
-  const steps = leaveApprovalStepsForRequester({ skipManagerSeat }).map((s) => ({
+  const skipSiteSeat = Boolean(opts?.skipSiteSeat);
+  const steps = leaveApprovalStepsForRequester({ skipManagerSeat, skipSiteSeat }).map((s) => ({
     leave_id: leaveId,
     step_order: s.stepOrder,
     step_role: s.stepRole,
@@ -274,11 +364,54 @@ async function seedLeaveApprovalSteps(
   }));
   const { error } = await context.supabase.from("hr_leave_approvals").insert(steps);
   if (error && !tableMissing(error.message)) throw error;
-  const opening = skipManagerSeat ? "site" : "manager";
+  const opening =
+    opts?.openingStep === null
+      ? null
+      : (opts?.openingStep ?? leaveOpeningStepRole(skipManagerSeat, skipSiteSeat));
   await context.supabase
     .from("hr_leave_requests")
     .update({ current_step_role: opening, updated_at: new Date().toISOString() })
     .eq("id", leaveId);
+}
+
+async function uploadLeaveSupportingDocument(
+  context: AuthContext,
+  input: {
+    staffId: string;
+    filename: string;
+    dataBase64: string;
+    contentType: string;
+    dateFrom: string;
+    dateTo: string;
+  },
+): Promise<string> {
+  validateUploadMime(input.contentType, "document");
+  validateBase64Size(input.dataBase64, 10 * 1024 * 1024);
+  const safeName = input.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${input.staffId}/${Date.now()}-${safeName}`;
+  const bytes = Uint8Array.from(atob(input.dataBase64), (c) => c.charCodeAt(0));
+  const { error: upErr } = await supabaseAdmin.storage
+    .from("hr-employee-documents")
+    .upload(path, bytes, { contentType: input.contentType, upsert: false });
+  if (upErr) throw upErr;
+  const { data: row, error } = await supabaseAdmin
+    .from("hr_employee_documents")
+    .insert({
+      staff_id: input.staffId,
+      doc_type: "medical_certificate",
+      title: "Sick leave medical certificate",
+      file_path: path,
+      file_name: input.filename,
+      file_mime: input.contentType,
+      notes: `Sick leave ${input.dateFrom} → ${input.dateTo}`,
+      uploaded_by: context.userId,
+      status: "pending",
+      verification_status: "unverified",
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return row.id as string;
 }
 
 async function notifyLeaveWaitingOnStep(input: {
@@ -429,11 +562,54 @@ export const listLeaveRequests = createAuthenticatedAction(
     staffId: z.string().uuid().nullable().optional(),
     /** My Day: pending leave this login may approve. Own history stays on mineOnly. */
     approvals: z.boolean().optional(),
+    /** My Day Approved tab: leave where this login already acted on a step. */
+    approvalsHistory: z.boolean().optional(),
   }),
   async (data, context) => {
     const hrManage = canUserDo(context.roles ?? [], "hr.leave.manage");
     const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const staff = await myStaff(context);
+
+    if (data.approvalsHistory) {
+      const { data: acted, error: actedErr } = await supabaseAdmin
+        .from("hr_leave_approvals")
+        .select("leave_id, acted_at")
+        .eq("acted_by", context.userId)
+        .eq("status", "approved")
+        .order("acted_at", { ascending: false })
+        .limit(120);
+      if (actedErr) {
+        if (tableMissing(actedErr.message)) return [];
+        throw actedErr;
+      }
+      const leaveIds = [...new Set((acted ?? []).map((row) => String(row.leave_id)).filter(Boolean))];
+      if (leaveIds.length === 0) return [];
+      const { data: rows, error } = await supabaseAdmin
+        .from("hr_leave_requests")
+        .select(
+          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department), document:hr_employee_documents!document_id(id, file_name)",
+        )
+        .in("id", leaveIds)
+        .order("created_at", { ascending: false })
+        .limit(120);
+      if (error) {
+        if (tableMissing(error.message) || /document_id|hr_employee_documents/i.test(error.message)) {
+          const { data: fallback, error: fallbackErr } = await supabaseAdmin
+            .from("hr_leave_requests")
+            .select(
+              "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department)",
+            )
+            .in("id", leaveIds)
+            .order("created_at", { ascending: false })
+            .limit(120);
+          if (fallbackErr) throw fallbackErr;
+          return (fallback ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
+        }
+        throw error;
+      }
+      return (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
+    }
+
     let headOfOperations = false;
     let fnbManager = false;
     let srSiteActor = false;
@@ -468,7 +644,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     let query = leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department)",
+        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department), document:hr_employee_documents!document_id(id, file_name)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -482,7 +658,28 @@ export const listLeaveRequests = createAuthenticatedAction(
       // Sr. Site holds the site seat.
       if (srSiteActor && !hrManage && !titleCompanyReview) query = query.eq("current_step_role", "site");
     } else if (data.status) query = query.eq("status", data.status);
-    const { data: rows, error } = await query;
+    let { data: rows, error } = await query;
+    if (error && /document_id|hr_employee_documents/i.test(error.message)) {
+      // Pre-migration fallback: leave list must not break without document_id.
+      let fallback = leaveDb
+        .from("hr_leave_requests")
+        .select(
+          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department)",
+        )
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (scopedToTeam) fallback = fallback.in("staff_id", data.staffId ? [data.staffId] : teamIds);
+      else if (scopedToSelf && staff?.id) fallback = fallback.eq("staff_id", staff.id);
+      else if (!scopedToSelf && data.staffId) fallback = fallback.eq("staff_id", data.staffId);
+      if (data.approvals) {
+        fallback = fallback.eq("status", "pending");
+        if (titleCompanyReview && !hrManage) fallback = fallback.eq("current_step_role", "ops");
+        if (srSiteActor && !hrManage && !titleCompanyReview) fallback = fallback.eq("current_step_role", "site");
+      } else if (data.status) fallback = fallback.eq("status", data.status);
+      const retry = await fallback;
+      rows = retry.data;
+      error = retry.error;
+    }
     if (error) {
       if (tableMissing(error.message)) return [];
       throw error;
@@ -692,6 +889,11 @@ export const upsertLeaveBalance = createAuthenticatedAction(
   { auth: { anyCapability: ["hr.leave.manage", "hr.manage"] } },
 );
 
+export const listLeaveSubjects = createAuthenticatedActionNoInput(
+  async (context) => listPunchCorrectionSubjects(context.userId),
+  { auth: { capability: "hr.employee_app" } },
+);
+
 export const submitLeaveRequest = createAuthenticatedAction(
   z.object({
     leaveType: z.enum(HR_LEAVE_TYPES).default("annual"),
@@ -705,12 +907,69 @@ export const submitLeaveRequest = createAuthenticatedAction(
     attachAnnualBefore: z.number().min(0).max(60).optional(),
     attachAnnualAfter: z.number().min(0).max(60).optional(),
     compOffBalanceId: z.string().uuid().optional().nullable(),
+    /** Target staff — omit for self. Team submit uses the correction subject directory. */
+    staffId: z.string().uuid().optional().nullable(),
+    /** Supporting document (medical certificate) — typically for sick leave. */
+    documentId: z.string().uuid().optional().nullable(),
+    /** Inline sick document upload (preferred for team submit — supervisors may lack docs.manage). */
+    document: z
+      .object({
+        filename: z.string().min(1).max(200),
+        data_base64: z.string().min(10).max(14_000_000),
+        content_type: z.string().max(100),
+      })
+      .optional()
+      .nullable(),
   }),
   async (data, context) => {
-    const staff = await myStaff(context);
-    if (!staff) throw new ForbiddenError("Your login is not linked to a staff record.");
+    const mine = await myStaff(context);
+    if (!mine) throw new ForbiddenError("Your login is not linked to a staff record.");
     const days = countLeaveDays(data.dateFrom, data.dateTo);
     if (days < 1) throw new Error("Leave end date must be on or after the start date.");
+
+    const requestedStaffId = data.staffId ?? (mine.id as string);
+    const isSelf = requestedStaffId === (mine.id as string);
+    if (!isSelf) {
+      const subjects = await listPunchCorrectionSubjects(context.userId);
+      const allowed = subjects.some((row) => row.staffId === requestedStaffId && !row.self);
+      if (!allowed) {
+        throw new ForbiddenError("You can only request leave for yourself or someone on your team.");
+      }
+    }
+
+    const { data: staff, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name, employee_code, location_id, user_id, hire_date, job_title, department")
+      .eq("id", requestedStaffId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (staffErr) throw staffErr;
+    if (!staff) throw new Error("Staff not found.");
+
+    let documentId: string | null = data.documentId ?? null;
+    if (data.leaveType === "sick" && data.document) {
+      documentId = await uploadLeaveSupportingDocument(context, {
+        staffId: String(staff.id),
+        filename: data.document.filename,
+        dataBase64: data.document.data_base64,
+        contentType: data.document.content_type,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+      });
+    } else if (documentId) {
+      const { data: doc, error: docErr } = await context.supabase
+        .from("hr_employee_documents")
+        .select("id, staff_id, deleted_at")
+        .eq("id", documentId)
+        .maybeSingle();
+      if (docErr) throw docErr;
+      if (!doc || doc.deleted_at || doc.staff_id !== staff.id) {
+        throw new Error("Supporting document not found.");
+      }
+    }
+    if (data.leaveType !== "sick") {
+      documentId = null;
+    }
 
     if (data.leaveType === "emergency") {
       const policy = await readPolicySection(context, "leave").catch(() => ({} as Record<string, unknown>));
@@ -756,6 +1015,8 @@ export const submitLeaveRequest = createAuthenticatedAction(
         conflicts,
         requiresAck: false as const,
         blocked: true as const,
+        finalized: false as const,
+        openingStep: null as string | null,
       };
     }
     if (conflicts.length > 0 && !data.acknowledgeConflicts) {
@@ -765,33 +1026,36 @@ export const submitLeaveRequest = createAuthenticatedAction(
         conflicts,
         requiresAck: true as const,
         blocked: false as const,
+        finalized: false as const,
+        openingStep: null as string | null,
       };
     }
 
-    let route = {
+    const linked = await loadLinkedStaffRecord(context.userId);
+    const actorJobTitle = linked?.jobTitle ?? null;
+    const actorDepartment = linked?.department ?? null;
+    const opsLane = opsApprovalLaneForStaff(
+      (staff as { job_title?: string | null }).job_title,
+      (staff as { department?: string | null }).department,
+    );
+
+    let employeeRoute = {
       managerUserIds: [] as string[],
       siteUserIds: [] as string[],
       skipManagerSeat: false,
       openingStep: "manager" as HrLeaveApprovalRole,
     };
-    let opsLane: OpsApprovalLane = "head_of_operations";
+    let directory = await loadMissedPunchDirectory([staff.id as string, mine.id as string]).catch(
+      () => null,
+    );
     try {
-      const directory = await loadMissedPunchDirectory([staff.id as string]);
-      route = resolveLeaveSupervisorRoute(directory, {
+      if (!directory) directory = await loadMissedPunchDirectory([staff.id as string]);
+      employeeRoute = resolveLeaveSupervisorRoute(directory, {
         locationId: (staff.location_id as string | null) ?? "",
         staffId: staff.id as string,
         requestedBy: context.userId,
         requesterStaffId: staff.id as string,
       });
-      const { data: titled } = await context.supabase
-        .from("staff")
-        .select("job_title, department")
-        .eq("id", staff.id)
-        .maybeSingle();
-      opsLane = opsApprovalLaneForStaff(
-        (titled as { job_title?: string | null } | null)?.job_title,
-        (titled as { department?: string | null } | null)?.department,
-      );
     } catch (error) {
       console.warn(
         "[hr-leave] supervisor route lookup failed",
@@ -799,8 +1063,35 @@ export const submitLeaveRequest = createAuthenticatedAction(
       );
     }
 
+    const submitterIsOpsForTarget = canActOnOpsApprovalStep({
+      manage: false,
+      lane: opsLane,
+      actorJobTitle,
+      actorDepartment,
+    });
+    const teamOpening = isSelf
+      ? null
+      : leaveTeamSubmitOpening({
+          isSrSite: isLeaveSiteStepActor(actorJobTitle),
+          isOpsFinalizer: submitterIsOpsForTarget,
+        });
+    const teamSkips = teamOpening ? leaveTeamSubmitSkips(teamOpening) : null;
+    const skipManagerSeat = teamSkips ? teamSkips.skipManagerSeat : employeeRoute.skipManagerSeat;
+    const skipSiteSeat = teamSkips ? teamSkips.skipSiteSeat : false;
+    const finalizeNow = teamOpening === "final";
+    const openingStep: HrLeaveApprovalRole | null = finalizeNow
+      ? null
+      : leaveOpeningStepRole(skipManagerSeat, skipSiteSeat);
+
+    const submitterName = String(mine.full_name ?? "").trim() || "Supervisor";
+    const teamNote = !isSelf
+      ? `Submitted by ${submitterName} on behalf of staff.`
+      : null;
+    const reason = [data.reason?.trim() || null, teamNote].filter(Boolean).join(" ") || null;
+
     const requestNumber = await nextLeaveRequestNumber(context);
-    const { data: row, error } = await context.supabase
+    const leaveDb = isSelf ? context.supabase : supabaseAdmin;
+    const { data: row, error } = await leaveDb
       .from("hr_leave_requests")
       .insert({
         staff_id: staff.id,
@@ -808,7 +1099,7 @@ export const submitLeaveRequest = createAuthenticatedAction(
         date_from: data.dateFrom,
         date_to: data.dateTo,
         days,
-        reason: data.reason ?? null,
+        reason,
         status: "pending",
         created_by: context.userId,
         emergency_treatment: data.leaveType === "emergency" ? data.emergencyTreatment ?? "unpaid" : null,
@@ -818,7 +1109,8 @@ export const submitLeaveRequest = createAuthenticatedAction(
         attach_annual_before: data.attachAnnualBefore ?? 0,
         attach_annual_after: data.attachAnnualAfter ?? 0,
         comp_off_balance_id: data.compOffBalanceId ?? null,
-        current_step_role: route.openingStep,
+        document_id: documentId,
+        current_step_role: openingStep,
         payroll_impact: false,
         request_number: requestNumber,
       })
@@ -827,17 +1119,73 @@ export const submitLeaveRequest = createAuthenticatedAction(
     if (error) throw error;
 
     await seedLeaveApprovalSteps(context, row.id as string, {
-      skipManagerSeat: route.skipManagerSeat,
+      skipManagerSeat,
+      skipSiteSeat,
+      openingStep,
     });
 
-    const firstUserIds = route.skipManagerSeat ? route.siteUserIds : route.managerUserIds;
+    if (finalizeNow) {
+      await supabaseAdmin
+        .from("hr_leave_approvals")
+        .update({
+          status: "approved",
+          acted_by: context.userId,
+          acted_at: new Date().toISOString(),
+          comments: teamNote,
+        })
+        .eq("leave_id", row.id)
+        .neq("status", "skipped");
+      const synced = await finalizeLeaveApproval(
+        context,
+        {
+          id: String(row.id),
+          staff_id: String(staff.id),
+          leave_type: data.leaveType,
+          date_from: data.dateFrom,
+          date_to: data.dateTo,
+          request_number: (row.request_number as string | null) ?? requestNumber,
+          staff: {
+            full_name: staff.full_name,
+            user_id: staff.user_id,
+            location_id: staff.location_id,
+          },
+        },
+        teamNote,
+        false,
+      );
+      return {
+        id: row.id as string,
+        requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
+        days,
+        conflicts,
+        requiresAck: false as const,
+        blocked: false as const,
+        finalized: true as const,
+        openingStep: null as string | null,
+        syncedDays: synced.syncedDays,
+      };
+    }
+
+    let firstUserIds: string[] = [];
+    if (directory && openingStep) {
+      firstUserIds = leaveApproverUserIdsForStep(directory, openingStep, {
+        locationId: (staff.location_id as string | null) ?? "",
+        staffId: staff.id as string,
+        requestedBy: context.userId,
+        requesterStaffId: staff.id as string,
+      });
+    } else if (openingStep === "site") {
+      firstUserIds = employeeRoute.siteUserIds;
+    } else if (openingStep === "manager") {
+      firstUserIds = employeeRoute.managerUserIds;
+    }
     await notifyLeaveWaitingOnStep({
       leaveId: row.id as string,
       staffName: staff.full_name,
       dateFrom: data.dateFrom,
       locationId: staff.location_id,
       requestNumber: (row.request_number as string | null) ?? requestNumber,
-      stepRole: route.openingStep,
+      stepRole: openingStep ?? "manager",
       opsLane,
       userIds: firstUserIds,
     });
@@ -848,9 +1196,71 @@ export const submitLeaveRequest = createAuthenticatedAction(
       conflicts,
       requiresAck: false as const,
       blocked: false as const,
+      finalized: false as const,
+      openingStep: openingStep as string | null,
     };
   },
   { auth: { capability: "hr.employee_app" } },
+);
+
+/** Signed URL for a leave supporting document (employee + leave approvers). */
+export const getLeaveDocumentUrl = createAuthenticatedAction(
+  z.object({
+    leaveId: z.string().uuid(),
+    purpose: z.enum(["preview", "download"]).optional().default("preview"),
+  }),
+  async (data, context) => {
+    const hrManage = canUserDo(context.roles ?? [], "hr.leave.manage");
+    const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
+    const staff = await myStaff(context);
+    const { data: leave, error } = await supabaseAdmin
+      .from("hr_leave_requests")
+      .select(
+        "id, staff_id, document_id, document:hr_employee_documents!document_id(id, file_path, file_name, deleted_at)",
+      )
+      .eq("id", data.leaveId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!leave?.document_id) throw new Error("No document attached to this leave request.");
+    const linked = (leave as { document?: unknown }).document;
+    const doc = (Array.isArray(linked) ? linked[0] : linked) as
+      | { id?: string; file_path?: string | null; file_name?: string | null; deleted_at?: string | null }
+      | null;
+    if (!doc?.file_path || doc.deleted_at) throw new Error("Document not found.");
+
+    const isSelf = Boolean(staff?.id && staff.id === leave.staff_id);
+    let allowed = hrManage || isSelf;
+    if (!allowed && staff?.id) {
+      const { data: actorRow } = await context.supabase
+        .from("staff")
+        .select("job_title, department")
+        .eq("id", staff.id)
+        .maybeSingle();
+      const title = (actorRow as { job_title?: string | null } | null)?.job_title ?? null;
+      const department = (actorRow as { department?: string | null } | null)?.department ?? null;
+      const titleReviewer =
+        isHeadOfOperationsTitle(title) ||
+        isFnbManager(title, department) ||
+        isLeaveSiteStepActor(title);
+      if (titleReviewer || managerCap) {
+        allowed = true;
+      } else {
+        const team = await loadLeaveManagerTeamStaffIds(context.userId);
+        allowed = team.teamStaffIds.includes(String(leave.staff_id));
+      }
+    }
+    if (!allowed) throw new ForbiddenError("You cannot view this leave document.");
+
+    const { data: signed, error: signErr } = await supabaseAdmin.storage
+      .from("hr-employee-documents")
+      .createSignedUrl(doc.file_path, 600);
+    if (signErr) throw signErr;
+    return {
+      url: signed.signedUrl,
+      fileName: (doc.file_name as string | null) ?? null,
+    };
+  },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.leave.approve_manager", "hr.employee_app"] } },
 );
 
 export const actOnLeaveApproval = createAuthenticatedAction(

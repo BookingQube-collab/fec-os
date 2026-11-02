@@ -12805,6 +12805,7 @@ export type Database = {
           date_from: string
           date_to: string
           days: number
+          document_id: string | null
           emergency_treatment: string | null
           id: string
           leave_type: string
@@ -12830,6 +12831,7 @@ export type Database = {
           date_from: string
           date_to: string
           days?: number
+          document_id?: string | null
           emergency_treatment?: string | null
           id?: string
           leave_type?: string
@@ -12855,6 +12857,7 @@ export type Database = {
           date_from?: string
           date_to?: string
           days?: number
+          document_id?: string | null
           emergency_treatment?: string | null
           id?: string
           leave_type?: string
@@ -12875,6 +12878,13 @@ export type Database = {
             columns: ["comp_off_balance_id"]
             isOneToOne: false
             referencedRelation: "hr_comp_off_balances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_requests_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "hr_employee_documents"
             referencedColumns: ["id"]
           },
           {

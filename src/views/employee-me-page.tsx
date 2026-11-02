@@ -11,7 +11,7 @@ import {
   MissedPunchApprovalQueue,
   MyMissedPunchRequests,
 } from "@/components/attendance-hr/missed-punch-approval-queue";
-import { MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
+import { MeLeavePanel } from "@/components/hr/me-leave-panel";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
 import { EmployeeAttendanceCalendar } from "@/components/hr/employee-attendance-calendar";
@@ -49,7 +49,8 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { extractStaffIdentityDocument, getEmployeeDocumentUrl, listEmployeeDocuments, uploadEmployeeDocument } from "@/lib/hr-documents.functions";
 import { fileToBase64, IDENTITY_FILE_ACCEPT, IDENTITY_FILE_MAX_BYTES, identityFileContentType } from "@/lib/hr/identity-file";
 import { applyDocumentEditorExtraction, isIdentityDocType } from "@/lib/hr/identity-document-parse";
-import { reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
+import { getLeaveDocumentUrl, listLeaveSubjects, reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
+import { opsStepApproverLabel } from "@/lib/approval-ops-routing";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
 import { getPayslipPrintPayload, listMyPayslips } from "@/lib/hr-payroll.functions";
@@ -183,6 +184,9 @@ export default function EmployeeMePage() {
   const [leaveFrom, setLeaveFrom] = useState("");
   const [leaveTo, setLeaveTo] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
+  const [leaveStaffId, setLeaveStaffId] = useState("");
+  const [leaveDocFile, setLeaveDocFile] = useState<File | null>(null);
+  const [leaveDocInputKey, setLeaveDocInputKey] = useState(0);
   const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [leavePrintPayload, setLeavePrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
@@ -233,6 +237,12 @@ export default function EmployeeMePage() {
   const roster = useMyRoster(showRoster, tab === "attendance" ? attendanceMonthRange : null);
   const leave = useMyLeaveRequests(tab === "leave");
   const balances = useMyLeaveBalances(showLeave);
+  const leaveSubjects = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "leave-subjects" }),
+    queryFn: () => listLeaveSubjects(),
+    staleTime: STALE.people,
+    enabled: showLeave && linked,
+  });
   const announcements = useQuery({
     queryKey: queryKeys.people.hrAnnouncements({ mine: true }),
     queryFn: () => listAnnouncements({}),
@@ -272,16 +282,68 @@ export default function EmployeeMePage() {
     return () => window.removeEventListener("hashchange", apply);
   }, []);
 
+  const leavePeople = useMemo(() => {
+    const fromApi = leaveSubjects.data ?? [];
+    if (fromApi.length > 0) return fromApi;
+    if (!person) return [];
+    return [
+      {
+        staffId: person.id,
+        fullName: person.fullName,
+        employeeCode: person.employeeCode,
+        jobTitle: person.jobTitle,
+        department: person.department,
+        opsLane: "head_of_operations" as const,
+        self: true,
+      },
+    ];
+  }, [leaveSubjects.data, person]);
+  const leavePersonOptions = useMemo(
+    () =>
+      leavePeople.map((row) => {
+        const code = row.employeeCode?.trim() || "";
+        return {
+          value: row.staffId,
+          label: code ? `${row.fullName} · ${code}` : row.fullName,
+          keywords: `${row.fullName} ${code}`.trim(),
+        };
+      }),
+    [leavePeople],
+  );
+  const selectedLeaveStaffId =
+    leaveStaffId || leavePeople.find((row) => row.self)?.staffId || leavePeople[0]?.staffId || "";
+  const selectedLeavePerson = leavePeople.find((row) => row.staffId === selectedLeaveStaffId);
+  const leaveForTeam = Boolean(selectedLeavePerson && !selectedLeavePerson.self);
+  const leaveOpsLabel = opsStepApproverLabel(selectedLeavePerson?.opsLane ?? "head_of_operations");
+
   const askLeave = useMutation({
-    mutationFn: (acknowledgeConflicts?: boolean) =>
-      submitLeaveRequest({
+    mutationFn: async (acknowledgeConflicts?: boolean) => {
+      let document:
+        | { filename: string; data_base64: string; content_type: string }
+        | null = null;
+      if (leaveType === "sick" && leaveDocFile) {
+        if (leaveDocFile.size > IDENTITY_FILE_MAX_BYTES) {
+          throw new Error(t("hr.leave.documentTooLarge"));
+        }
+        const contentType = identityFileContentType(leaveDocFile);
+        if (!contentType) throw new Error(t("hr.leave.documentTypeInvalid"));
+        document = {
+          filename: leaveDocFile.name,
+          data_base64: await fileToBase64(leaveDocFile),
+          content_type: contentType,
+        };
+      }
+      return submitLeaveRequest({
         leaveType,
         dateFrom: leaveFrom,
         dateTo: leaveTo || leaveFrom,
         reason: leaveReason || null,
         acknowledgeConflicts: acknowledgeConflicts ?? false,
         compassionateScope: leaveType === "compassionate" ? compassionateScope : null,
-      }),
+        staffId: selectedLeaveStaffId || null,
+        document,
+      });
+    },
     onSuccess: (res) => {
       if ("blocked" in res && res.blocked) {
         setLeaveConflicts(res.conflicts);
@@ -295,30 +357,47 @@ export default function EmployeeMePage() {
       }
       const number =
         "requestNumber" in res && typeof res.requestNumber === "string" ? res.requestNumber : null;
-      toast.success(
-        number
-          ? t("hr.leave.submittedWithNumber", { number, defaultValue: `Leave request submitted · ${number}` })
-          : t("hr.leave.submitted"),
-      );
-      if (number && person) {
+      if ("finalized" in res && res.finalized) {
+        toast.success(
+          "syncedDays" in res && (res.syncedDays ?? 0) > 0
+            ? t("hr.leave.synced", { days: res.syncedDays })
+            : t("hr.leave.updated"),
+        );
+      } else if (leaveForTeam) {
+        toast.success(
+          t("hr.leave.submittedForTeam", {
+            step: leaveOpsLabel,
+            defaultValue: `Leave submitted for team · waiting on ${leaveOpsLabel}`,
+          }),
+        );
+      } else {
+        toast.success(
+          number
+            ? t("hr.leave.submittedWithNumber", { number, defaultValue: `Leave request submitted · ${number}` })
+            : t("hr.leave.submitted"),
+        );
+      }
+      if (number && selectedLeavePerson) {
         setLeavePrintPayload({
           requestNumber: number,
           requestDate: leaveFrom,
-          staffName: person.fullName,
-          employeeCode: person.employeeCode,
-          department: person.department,
-          jobTitle: person.jobTitle,
-          phone: person.phone ?? null,
+          staffName: selectedLeavePerson.fullName,
+          employeeCode: selectedLeavePerson.employeeCode,
+          department: selectedLeavePerson.department,
+          jobTitle: selectedLeavePerson.jobTitle,
+          phone: leaveForTeam ? null : (person?.phone ?? null),
           leaveTypeLabel: t(`hr.leave.types.${leaveType}`),
           dateFrom: leaveFrom,
           dateTo: leaveTo || leaveFrom,
           days: res.days,
           reason: leaveReason || null,
-          status: "pending",
+          status: "finalized" in res && res.finalized ? "approved" : "pending",
         });
         setLeavePrintOpen(true);
       }
       setLeaveReason("");
+      setLeaveDocFile(null);
+      setLeaveDocInputKey((key) => key + 1);
       setLeaveConflicts([]);
       invalidateLeaveLists(qc);
     },
@@ -410,6 +489,14 @@ export default function EmployeeMePage() {
 
   const openDoc = useMutation({
     mutationFn: (id: string) => getEmployeeDocumentUrl({ id, purpose: "preview" }),
+    onSuccess: (res) => {
+      window.open(res.url, "_blank", "noopener,noreferrer");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openLeaveDoc = useMutation({
+    mutationFn: (leaveId: string) => getLeaveDocumentUrl({ leaveId, purpose: "preview" }),
     onSuccess: (res) => {
       window.open(res.url, "_blank", "noopener,noreferrer");
     },
@@ -691,12 +778,13 @@ export default function EmployeeMePage() {
 
               {active === "leave" && person ? (
                 <EssPanel id="me-leave" title={t("hr.leave.requestTitle")}>
-                  <MyDayLeaveApprovals
+                  <MeLeavePanel
                     myStaffId={person.id}
                     jobTitle={person.jobTitle}
                     department={person.department}
-                  />
-                  {leaveBalances.length > 0 ? (
+                    requestPanel={
+                      <>
+                  {leaveBalances.length > 0 && !leaveForTeam ? (
                     <div className="hd-chips">
                       {leaveBalances.slice(0, 4).map((b) => (
                         <span key={b.leaveType} className="hd-chip">
@@ -708,6 +796,27 @@ export default function EmployeeMePage() {
                           })}
                         </span>
                       ))}
+                    </div>
+                  ) : null}
+                  {leavePersonOptions.length > 1 ? (
+                    <div className="mb-2 space-y-1">
+                      <Label>{t("hr.leave.person")}</Label>
+                      <SearchableSelect
+                        value={selectedLeaveStaffId}
+                        onValueChange={setLeaveStaffId}
+                        aria-label={t("hr.leave.person")}
+                        placeholder={
+                          leaveSubjects.isPending
+                            ? t("common.loading", { defaultValue: "Loading…" })
+                            : t("hr.leave.personSearch")
+                        }
+                        options={leavePersonOptions}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {leaveForTeam
+                          ? t("hr.leave.teamHint", { step: leaveOpsLabel })
+                          : t("hr.leave.selfHint")}
+                      </p>
                     </div>
                   ) : null}
                   <div className="hd-fields hd-fields--split">
@@ -723,7 +832,14 @@ export default function EmployeeMePage() {
                   <SearchableSelect
                     className="mt-2"
                     value={leaveType}
-                    onValueChange={(value) => setLeaveType(value as (typeof HR_LEAVE_TYPES)[number])}
+                    onValueChange={(value) => {
+                      const next = value as (typeof HR_LEAVE_TYPES)[number];
+                      setLeaveType(next);
+                      if (next !== "sick") {
+                        setLeaveDocFile(null);
+                        setLeaveDocInputKey((key) => key + 1);
+                      }
+                    }}
                     aria-label={t("hr.leave.type")}
                     options={HR_LEAVE_TYPES.map((value) => ({
                       value,
@@ -741,6 +857,22 @@ export default function EmployeeMePage() {
                         { value: "outside_qatar", label: t("hr.leave.compassionateOutside") },
                       ]}
                     />
+                  ) : null}
+                  {leaveType === "sick" ? (
+                    <div className="mt-2 space-y-1">
+                      <Label htmlFor="leave-sick-doc">{t("hr.leave.sickDocument")}</Label>
+                      <Input
+                        id="leave-sick-doc"
+                        key={leaveDocInputKey}
+                        type="file"
+                        accept={IDENTITY_FILE_ACCEPT}
+                        onChange={(e) => setLeaveDocFile(e.target.files?.[0] ?? null)}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("hr.leave.sickDocumentHint")}</p>
+                      {leaveDocFile ? (
+                        <p className="text-xs text-muted-foreground">{leaveDocFile.name}</p>
+                      ) : null}
+                    </div>
                   ) : null}
                   <Input
                     className="mt-2"
@@ -770,7 +902,7 @@ export default function EmployeeMePage() {
                     </div>
                   ) : null}
                   <Button className="mt-3 min-h-11" disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate(false)}>
-                    {t("hr.leave.submit")}
+                    {leaveForTeam ? t("hr.leave.submitForTeam") : t("hr.leave.submit")}
                   </Button>
                   <h3 className="mb-2 mt-4 text-sm font-semibold">{t("hr.leave.history")}</h3>
                   {(leave.data ?? []).length === 0 && !leave.isLoading ? <EssEmpty>{t("hr.me.leaveEmpty")}</EssEmpty> : null}
@@ -790,12 +922,25 @@ export default function EmployeeMePage() {
                               </p>
                               <p className="hd-row__meta">
                                 {row.dateFrom} → {row.dateTo} · {row.days}d
+                                {row.documentId
+                                  ? ` · ${row.documentFileName ?? t("hr.leave.documentAttached")}`
+                                  : ""}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
                                 {t(`hr.leave.status.${row.status}`)}
                               </Badge>
+                              {row.documentId ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={openLeaveDoc.isPending}
+                                  onClick={() => openLeaveDoc.mutate(row.id)}
+                                >
+                                  {t("hr.leave.viewDocument")}
+                                </Button>
+                              ) : null}
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -832,6 +977,9 @@ export default function EmployeeMePage() {
                       ))}
                     </ul>
                   ) : null}
+                      </>
+                    }
+                  />
                 </EssPanel>
               ) : null}
 

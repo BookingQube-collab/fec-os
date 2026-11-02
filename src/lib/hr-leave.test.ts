@@ -12,11 +12,13 @@ import {
   leaveApprovalStepsForRequester,
   leaveOpeningStepRole,
   leaveStepSeatLabel,
+  leaveTeamSubmitOpening,
   shouldFinalizeLeaveOnApprove,
 } from "./hr-leave";
 import {
   isLeaveSiteStepActor,
   leaveApproverUserIdsForStep,
+  leaveTeamSubmitSkips,
   resolveLeaveSupervisorRoute,
 } from "./hr-leave-routing";
 import type { ApprovalDirectory } from "./attendance-hr/missed-punch-approval";
@@ -70,6 +72,20 @@ describe("leave status transitions", () => {
     expect(leaveApprovalStepsForRequester({ skipManagerSeat: true })).toEqual([
       { stepOrder: 1, stepRole: "manager", status: "skipped" },
       { stepOrder: 2, stepRole: "site", status: "pending" },
+      { stepOrder: 3, stepRole: "ops", status: "pending" },
+    ]);
+  });
+
+  it("skips manager and site for Sr. Site / HoO team leave submit", () => {
+    expect(leaveTeamSubmitOpening({ isSrSite: false, isOpsFinalizer: false })).toBe("site");
+    expect(leaveTeamSubmitOpening({ isSrSite: true, isOpsFinalizer: false })).toBe("ops");
+    expect(leaveTeamSubmitOpening({ isSrSite: false, isOpsFinalizer: true })).toBe("final");
+    expect(leaveTeamSubmitSkips("site")).toEqual({ skipManagerSeat: true, skipSiteSeat: false });
+    expect(leaveTeamSubmitSkips("ops")).toEqual({ skipManagerSeat: true, skipSiteSeat: true });
+    expect(leaveOpeningStepRole(true, true)).toBe("ops");
+    expect(leaveApprovalStepsForRequester({ skipManagerSeat: true, skipSiteSeat: true })).toEqual([
+      { stepOrder: 1, stepRole: "manager", status: "skipped" },
+      { stepOrder: 2, stepRole: "site", status: "skipped" },
       { stepOrder: 3, stepRole: "ops", status: "pending" },
     ]);
   });

@@ -121,3 +121,17 @@ export function leaveOpsLaneForDirectoryStaff(
 export function isLeaveSiteStepActor(jobTitle: string | null | undefined): boolean {
   return isSrSiteSupervisorTitle(jobTitle);
 }
+
+/**
+ * When a supervisor / Sr. Site / HoO applies leave for a team member, skip seats
+ * they already hold so the request does not return to the same actor.
+ */
+export function leaveTeamSubmitSkips(opening: "site" | "ops" | "final"): {
+  skipManagerSeat: boolean;
+  skipSiteSeat: boolean;
+} {
+  if (opening === "final" || opening === "ops") {
+    return { skipManagerSeat: true, skipSiteSeat: true };
+  }
+  return { skipManagerSeat: true, skipSiteSeat: false };
+}
