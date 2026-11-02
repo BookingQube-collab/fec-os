@@ -349,7 +349,6 @@ async function loadLeaveConflicts(
 }
 
 async function seedLeaveApprovalSteps(
-  context: AuthContext,
   leaveId: string,
   opts?: { skipManagerSeat?: boolean; skipSiteSeat?: boolean; openingStep?: HrLeaveApprovalRole | null },
 ) {
@@ -361,13 +360,15 @@ async function seedLeaveApprovalSteps(
     step_role: s.stepRole,
     status: s.status,
   }));
-  const { error } = await context.supabase.from("hr_leave_approvals").insert(steps);
+  // Caller already authenticated + capability-checked. Seed via service role — RLS write
+  // on hr_leave_approvals is role_level >= 55 only (same pattern as missed-punch step seed).
+  const { error } = await supabaseAdmin.from("hr_leave_approvals").insert(steps);
   if (error && !tableMissing(error.message)) throw error;
   const opening =
     opts?.openingStep === null
       ? null
       : (opts?.openingStep ?? leaveOpeningStepRole(skipManagerSeat, skipSiteSeat));
-  await context.supabase
+  await supabaseAdmin
     .from("hr_leave_requests")
     .update({ current_step_role: opening, updated_at: new Date().toISOString() })
     .eq("id", leaveId);
@@ -1125,7 +1126,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       .single();
     if (error) throw error;
 
-    await seedLeaveApprovalSteps(context, row.id as string, {
+    await seedLeaveApprovalSteps(row.id as string, {
       skipManagerSeat,
       skipSiteSeat,
       openingStep,
@@ -1736,7 +1737,7 @@ export const recordLeaveForStaff = createAuthenticatedAction(
       .single();
     if (error) throw error;
 
-    await seedLeaveApprovalSteps(context, row.id as string);
+    await seedLeaveApprovalSteps(row.id as string);
     // Skip manager/ops — HR recorded leave is final immediately.
     await context.supabase
       .from("hr_leave_approvals")
