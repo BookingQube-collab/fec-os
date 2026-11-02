@@ -15,21 +15,34 @@ import {
 
 const ALL = "__all__";
 
+const CORRECTION_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
+const LEAVE_STEP_ROLES = ["manager", "site", "ops", "hr"] as const;
+
 export function MissedPunchApprovedHistoryFilters({
   filters,
   onChange,
   departments,
   locations,
   resultCount,
+  /** Correction (default) vs leave copy + seat options. */
+  variant = "correction",
+  idPrefix = "approved-history",
 }: {
   filters: ApprovedHistoryFilters;
   onChange: (next: ApprovedHistoryFilters) => void;
   departments: string[];
   locations: Array<{ id: string; label: string }>;
   resultCount: number;
+  variant?: "correction" | "leave";
+  idPrefix?: string;
 }) {
   const { t } = useTranslation();
-  const stepLabel = (step: string) => t(`hr.me.step.${step}`);
+  const copyKey = variant === "leave" ? "hr.me.leaveApprovedHistory" : "hr.me.approvedHistory";
+  const stepRoles = variant === "leave" ? LEAVE_STEP_ROLES : CORRECTION_STEP_ROLES;
+  const stepLabel = (step: string) =>
+    variant === "leave"
+      ? t(`hr.leave.steps.${step}`, { defaultValue: t(`hr.me.step.${step}`, { defaultValue: step }) })
+      : t(`hr.me.step.${step}`);
   const active = approvedHistoryHasActiveFilters(filters);
 
   function patch(partial: Partial<ApprovedHistoryFilters>) {
@@ -42,7 +55,10 @@ export function MissedPunchApprovedHistoryFilters({
         <div>
           <h3 className="text-sm font-semibold">{t("common.filters")}</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {t("hr.me.approvedHistory.filterHint", { count: resultCount })}
+            {t(`${copyKey}.filterHint`, {
+              count: resultCount,
+              defaultValue: t("hr.me.approvedHistory.filterHint", { count: resultCount }),
+            })}
           </p>
         </div>
         {active ? (
@@ -60,24 +76,26 @@ export function MissedPunchApprovedHistoryFilters({
 
       <div className="grid min-w-0 grid-cols-1 gap-3 overflow-x-clip sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <div className="min-w-0 space-y-1 sm:col-span-2 lg:col-span-1 xl:col-span-2">
-          <Label className="text-xs" htmlFor="approved-history-search">
-            {t("hr.me.approvedHistory.staffSearch")}
+          <Label className="text-xs" htmlFor={`${idPrefix}-search`}>
+            {t(`${copyKey}.staffSearch`, { defaultValue: t("hr.me.approvedHistory.staffSearch") })}
           </Label>
           <Input
-            id="approved-history-search"
+            id={`${idPrefix}-search`}
             value={filters.staffQuery}
             onChange={(event) => patch({ staffQuery: event.target.value })}
-            placeholder={t("hr.me.approvedHistory.staffSearchPlaceholder")}
+            placeholder={t(`${copyKey}.staffSearchPlaceholder`, {
+              defaultValue: t("hr.me.approvedHistory.staffSearchPlaceholder"),
+            })}
             className="min-h-11"
           />
         </div>
 
         <div className="min-w-0 space-y-1">
-          <Label className="text-xs" htmlFor="approved-history-from">
-            {t("hr.me.approvedHistory.dateFrom")}
+          <Label className="text-xs" htmlFor={`${idPrefix}-from`}>
+            {t(`${copyKey}.dateFrom`, { defaultValue: t("hr.me.approvedHistory.dateFrom") })}
           </Label>
           <Input
-            id="approved-history-from"
+            id={`${idPrefix}-from`}
             type="date"
             value={filters.dateFrom}
             onChange={(event) => patch({ dateFrom: event.target.value })}
@@ -86,11 +104,11 @@ export function MissedPunchApprovedHistoryFilters({
         </div>
 
         <div className="min-w-0 space-y-1">
-          <Label className="text-xs" htmlFor="approved-history-to">
-            {t("hr.me.approvedHistory.dateTo")}
+          <Label className="text-xs" htmlFor={`${idPrefix}-to`}>
+            {t(`${copyKey}.dateTo`, { defaultValue: t("hr.me.approvedHistory.dateTo") })}
           </Label>
           <Input
-            id="approved-history-to"
+            id={`${idPrefix}-to`}
             type="date"
             value={filters.dateTo}
             onChange={(event) => patch({ dateTo: event.target.value })}
@@ -149,27 +167,42 @@ export function MissedPunchApprovedHistoryFilters({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t("common.all")}</SelectItem>
-              <SelectItem value="approved">{t("hr.me.punchApproved")}</SelectItem>
-              <SelectItem value="in_progress">{t("hr.me.approvedHistory.statusInProgress")}</SelectItem>
+              <SelectItem value="approved">
+                {variant === "leave"
+                  ? t("hr.leave.status.approved")
+                  : t("hr.me.punchApproved")}
+              </SelectItem>
+              <SelectItem value="in_progress">
+                {t(`${copyKey}.statusInProgress`, {
+                  defaultValue: t("hr.me.approvedHistory.statusInProgress"),
+                })}
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-1">
-          <Label className="text-xs">{t("hr.me.approvedHistory.approverSeat")}</Label>
+          <Label className="text-xs">
+            {t(`${copyKey}.approverSeat`, { defaultValue: t("hr.me.approvedHistory.approverSeat") })}
+          </Label>
           <Select
             value={filters.stepRole || ALL}
             onValueChange={(value) => patch({ stepRole: value === ALL ? "" : value })}
           >
-            <SelectTrigger aria-label={t("hr.me.approvedHistory.approverSeat")}>
+            <SelectTrigger
+              aria-label={t(`${copyKey}.approverSeat`, {
+                defaultValue: t("hr.me.approvedHistory.approverSeat"),
+              })}
+            >
               <SelectValue placeholder={t("common.all")} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>{t("common.all")}</SelectItem>
-              <SelectItem value="manager">{stepLabel("manager")}</SelectItem>
-              <SelectItem value="ops">{stepLabel("ops")}</SelectItem>
-              <SelectItem value="hr">{stepLabel("hr")}</SelectItem>
-              <SelectItem value="gm">{stepLabel("gm")}</SelectItem>
+              {stepRoles.map((role) => (
+                <SelectItem key={role} value={role}>
+                  {stepLabel(role)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

@@ -17,6 +17,7 @@ function row(
 ): ApprovedHistoryRowLike {
   return {
     workDate: partial.workDate ?? "2026-10-01",
+    dateTo: partial.dateTo,
     locationId: partial.locationId,
     department: partial.department ?? null,
     staffName: partial.staffName ?? "Alex",
@@ -80,6 +81,32 @@ describe("filterApprovedHistoryRows", () => {
         staffQuery: "ak1",
       }).map((r) => r.employeeCode),
     ).toEqual(["AK1"]);
+  });
+
+  it("filters leave-style date ranges by overlap", () => {
+    const leaveRows = [
+      row({
+        locationId: "loc-a",
+        workDate: "2026-09-28",
+        dateTo: "2026-10-02",
+        employeeCode: "LV1",
+        status: "approved",
+      }),
+      row({
+        locationId: "loc-a",
+        workDate: "2026-10-10",
+        dateTo: "2026-10-12",
+        employeeCode: "LV2",
+        status: "approved",
+      }),
+    ];
+    expect(
+      filterApprovedHistoryRows(leaveRows, {
+        ...EMPTY_APPROVED_HISTORY_FILTERS,
+        dateFrom: "2026-10-01",
+        dateTo: "2026-10-05",
+      }).map((r) => r.employeeCode),
+    ).toEqual(["LV1"]);
   });
 
   it("filters by status and approver seat", () => {

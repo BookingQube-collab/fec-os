@@ -2,22 +2,38 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { MissedPunchApprovedHistoryCharts } from "@/components/attendance-hr/missed-punch-approved-history-charts";
+import { MissedPunchApprovedHistoryFilters } from "@/components/attendance-hr/missed-punch-approved-history-filters";
 import { MissedPunchApprovalQueue } from "@/components/attendance-hr/missed-punch-approval-queue";
 import {
   LeaveDocumentLightbox,
   type LeaveDocumentPreviewTarget,
 } from "@/components/hr/leave-document-preview";
+import {
+  LeaveRequestPrintDialog,
+  type LeaveRequestPrintPayload,
+} from "@/components/hr/leave-request-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useSites } from "@/hooks/queries/useSites";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useMyDirectReports } from "@/hooks/use-my-direct-reports";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
+import {
+  EMPTY_APPROVED_HISTORY_FILTERS,
+  filterApprovedHistoryRows,
+  uniqueApprovedHistoryDepartments,
+  uniqueApprovedHistoryLocationIds,
+  type ApprovedHistoryFilters,
+  type ApprovedHistoryRowLike,
+} from "@/lib/attendance-hr/missed-punch-approved-history";
 import { actOnLeaveApproval, listLeaveRequests } from "@/lib/hr-leave.functions";
 import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
+import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 import { invalidateLeaveLists, isLeaveListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -52,6 +68,39 @@ export function MyDayCorrectionApprovals({
   );
 }
 
+type LeaveListRow = Awaited<ReturnType<typeof listLeaveRequests>>[number];
+
+function leaveHistoryRowLike(row: LeaveListRow): ApprovedHistoryRowLike {
+  return {
+    workDate: row.dateFrom,
+    dateTo: row.dateTo,
+    locationId: row.locationId ?? "",
+    department: row.department,
+    staffName: row.staffName,
+    employeeCode: row.employeeCode,
+    status: row.status,
+    steps: row.steps ?? [],
+  };
+}
+
+function leavePriorApprovalLabel(input: {
+  stepRole: string;
+  status: string;
+  actedByName?: string | null;
+  opsLane?: string | null;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}): string {
+  const seat =
+    input.stepRole === "ops" && input.opsLane === "fnb_manager"
+      ? input.t("hr.leave.steps.opsFnb", { defaultValue: "F&B Manager" })
+      : input.t(`hr.leave.steps.${input.stepRole}`, { defaultValue: input.stepRole });
+  const name = input.actedByName?.trim();
+  if (input.status === "skipped") {
+    return name ? `${seat} · skipped · ${name}` : `${seat} · skipped`;
+  }
+  return name ? `${seat} · ${name}` : seat;
+}
+
 export function MyDayLeaveApprovals({
   myStaffId,
   jobTitle,
@@ -73,7 +122,10 @@ export function MyDayLeaveApprovals({
   const show = mayReviewStaffLeaveOnMyDay({ roles, hasDirectReports, jobTitle, department });
   const qc = useQueryClient();
   const historyOnly = mode === "approved";
-  type LeaveListRow = Awaited<ReturnType<typeof listLeaveRequests>>[number];
+  const { data: sites } = useSites({ enabled: historyOnly });
+  const [historyFilters, setHistoryFilters] = useState<ApprovedHistoryFilters>(
+    EMPTY_APPROVED_HISTORY_FILTERS,
+  );
   const listQueryKey = queryKeys.people.attendanceHr({
     view: historyOnly ? "my-day-leave-approved" : "my-day-leave-approvals",
   });
@@ -120,30 +172,98 @@ export function MyDayLeaveApprovals({
     onSettled: () => invalidateLeaveLists(qc),
   });
   const [previewDoc, setPreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
+  const [printPayload, setPrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
+
+  const directIds = useMemo(
+    () => new Set(reports.data?.directReportStaffIds ?? []),
+    [reports.data?.directReportStaffIds],
+  );
+  const rawRows = useMemo(() => {
+    if (!show || reports.isPending) return [] as LeaveListRow[];
+    return (list.data ?? [])
+      .map((row) => {
+        const canAct = canApproveLeaveOnMyDay({
+          roles,
+          stepRole: row.currentStepRole,
+          isOwnRequest: row.staffId === myStaffId,
+          isLineManager: directIds.has(row.staffId),
+          jobTitle,
+          department,
+          opsLane: row.opsLane,
+        });
+        return { row, canAct };
+      })
+      .filter(({ canAct }) => historyOnly || canAct)
+      .map(({ row }) => row);
+  }, [
+    department,
+    directIds,
+    historyOnly,
+    jobTitle,
+    list.data,
+    myStaffId,
+    reports.isPending,
+    roles,
+    show,
+  ]);
+
+  const displayRows = useMemo(() => {
+    if (!historyOnly) return rawRows;
+    return rawRows.filter(
+      (row) => filterApprovedHistoryRows([leaveHistoryRowLike(row)], historyFilters).length === 1,
+    );
+  }, [historyFilters, historyOnly, rawRows]);
+
+  const siteById = useMemo(() => new Map((sites ?? []).map((site) => [site.id, site])), [sites]);
+  const locationLabel = useMemo(() => {
+    return (locationId: string) => {
+      const site = siteById.get(locationId);
+      if (!site) return locationId.slice(0, 8) || t("hr.me.leaveApprovedHistory.unassignedDept");
+      return formatLocationLabel(site.code, rosterSheetLabel(site.code, site.name));
+    };
+  }, [siteById, t]);
+  const historyDepartments = useMemo(
+    () => (historyOnly ? uniqueApprovedHistoryDepartments(rawRows.map(leaveHistoryRowLike)) : []),
+    [historyOnly, rawRows],
+  );
+  const historyLocations = useMemo(() => {
+    if (!historyOnly) return [];
+    return uniqueApprovedHistoryLocationIds(rawRows.map(leaveHistoryRowLike)).map((id) => ({
+      id,
+      label: locationLabel(id),
+    }));
+  }, [historyOnly, locationLabel, rawRows]);
+  const chartRows = useMemo(
+    () => (historyOnly ? displayRows.map(leaveHistoryRowLike) : []),
+    [displayRows, historyOnly],
+  );
 
   if (reports.isPending || !show) return null;
-
-  const directIds = new Set(reports.data?.directReportStaffIds ?? []);
-  const rows = (list.data ?? [])
-    .map((row) => {
-      const canAct = canApproveLeaveOnMyDay({
-        roles,
-        stepRole: row.currentStepRole,
-        isOwnRequest: row.staffId === myStaffId,
-        isLineManager: directIds.has(row.staffId),
-        jobTitle,
-        department,
-        opsLane: row.opsLane,
-      });
-      return { row, canAct };
-    })
-    .filter(({ canAct }) => historyOnly || canAct);
 
   function leaveStepLabel(stepRole: string | null | undefined, opsLane: string | null | undefined): string {
     if (stepRole === "ops" && opsLane === "fnb_manager") {
       return t("hr.leave.steps.opsFnb", { defaultValue: "F&B Manager" });
     }
     return t(`hr.leave.steps.${stepRole ?? "manager"}`);
+  }
+
+  function toPrintPayload(row: LeaveListRow): LeaveRequestPrintPayload {
+    return {
+      requestNumber: row.requestNumber,
+      requestDate: row.createdAt.slice(0, 10),
+      staffName: row.staffName ?? "—",
+      employeeCode: row.employeeCode,
+      department: row.department,
+      jobTitle: row.jobTitle,
+      phone: row.phone,
+      leaveTypeLabel: t(`hr.leave.types.${row.leaveType}`),
+      dateFrom: row.dateFrom,
+      dateTo: row.dateTo,
+      days: row.days,
+      reason: row.reason,
+      status: row.status,
+    };
   }
 
   return (
@@ -155,24 +275,68 @@ export function MyDayLeaveApprovals({
             : t("hr.me.leaveApprovalsTitle")}
         </h3>
       ) : null}
+      {historyOnly ? (
+        <MissedPunchApprovedHistoryFilters
+          filters={historyFilters}
+          onChange={setHistoryFilters}
+          departments={historyDepartments}
+          locations={historyLocations}
+          resultCount={displayRows.length}
+          variant="leave"
+          idPrefix="leave-approved-history"
+        />
+      ) : null}
+      {historyOnly && chartRows.length > 0 ? (
+        <MissedPunchApprovedHistoryCharts
+          rows={chartRows}
+          locationLabel={locationLabel}
+          variant="leave"
+        />
+      ) : null}
       {list.isPending ? (
         <p className="text-sm text-muted-foreground">{t("common.loading", { defaultValue: "Loading…" })}</p>
       ) : null}
       {list.isError ? <p className="text-sm text-destructive">{list.error.message}</p> : null}
-      {!list.isPending && !list.isError && rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {historyOnly
-            ? t("hr.me.leaveApprovedEmpty", { defaultValue: "No leave approvals from you yet." })
-            : t("hr.me.leaveApprovalsEmpty")}
-        </p>
+      {!list.isPending && !list.isError && displayRows.length === 0 ? (
+        <div className="space-y-2 text-sm">
+          {historyOnly ? (
+            <p className="font-medium">
+              {rawRows.length === 0
+                ? t("hr.me.leaveApprovedEmpty", { defaultValue: "No leave approvals from you yet." })
+                : t("hr.me.leaveApprovedHistory.noFilterMatches", {
+                    defaultValue: t("hr.me.approvedHistory.noFilterMatches"),
+                  })}
+            </p>
+          ) : (
+            <p className="text-muted-foreground">{t("hr.me.leaveApprovalsEmpty")}</p>
+          )}
+        </div>
       ) : null}
-      {rows.length > 0 ? (
+      {displayRows.length > 0 ? (
         <ul className="hd-approval-list">
-          {rows.map(({ row, canAct }) => {
+          {displayRows.map((row) => {
             const busy = act.isPending && act.variables?.leaveId === row.id;
             const name = row.staffName ?? "Staff";
+            const canAct = canApproveLeaveOnMyDay({
+              roles,
+              stepRole: row.currentStepRole,
+              isOwnRequest: row.staffId === myStaffId,
+              isLineManager: directIds.has(row.staffId),
+              jobTitle,
+              department,
+              opsLane: row.opsLane,
+            });
             // Mirror corrections: actions only when this login can act on the current seat.
             const showActions = !historyOnly && row.status === "pending" && canAct;
+            const priorSteps = (row.steps ?? []).filter(
+              (step) => step.status === "approved" || step.status === "skipped",
+            );
+            const showApproved =
+              historyOnly ||
+              row.status === "approved" ||
+              (row.status === "pending" &&
+                !canAct &&
+                (row.steps ?? []).some((step) => step.status === "approved"));
             return (
               <li key={row.id}>
                 <article
@@ -237,51 +401,101 @@ export function MyDayLeaveApprovals({
                       </Button>
                     </div>
                   ) : null}
-                  <div className="hd-approval__step">
-                    {historyOnly ? (
-                      <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
-                        {row.status === "pending" && row.currentStepRole
-                          ? t("hr.leave.waitingStep", {
-                              step: leaveStepLabel(row.currentStepRole, row.opsLane),
-                            })
-                          : t(`hr.leave.status.${row.status}`)}
-                      </Badge>
-                    ) : row.currentStepRole ? (
-                      <>
+                  {priorSteps.length > 0 ? (
+                    <div className="hd-approval__block">
+                      <p className="hd-approval__label">{t("hr.me.priorApprovals")}</p>
+                      <ul className="hd-approval__trail">
+                        {priorSteps.map((step) => (
+                          <li key={`${step.stepRole}-${step.status}-${step.actedAt ?? ""}`}>
+                            {leavePriorApprovalLabel({
+                              stepRole: step.stepRole,
+                              status: step.status,
+                              actedByName: step.actedByName,
+                              opsLane: row.opsLane,
+                              t,
+                            })}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {showActions || showApproved || (historyOnly && row.status === "pending") ? (
+                    <div className="hd-approval__step">
+                      {showActions || (historyOnly && row.status === "pending" && row.currentStepRole) ? (
                         <p className="hd-approval__waiting">
                           {t("hr.leave.waitingStep", {
                             step: leaveStepLabel(row.currentStepRole, row.opsLane),
                           })}
                         </p>
+                      ) : null}
+                      {showActions || (historyOnly && row.status === "pending" && row.currentStepRole) ? (
                         <Badge variant="warning">{leaveStepLabel(row.currentStepRole, row.opsLane)}</Badge>
-                      </>
-                    ) : (
-                      <span />
-                    )}
-                  </div>
-                  {showActions ? (
-                    <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="min-h-11"
-                        disabled={busy}
-                        onClick={() => act.mutate({ leaveId: row.id, action: "approved" })}
-                      >
-                        {t("hr.leave.approveStep")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="min-h-11"
-                        disabled={busy}
-                        onClick={() => act.mutate({ leaveId: row.id, action: "rejected" })}
-                      >
-                        {t("hr.leave.reject")}
-                      </Button>
+                      ) : null}
+                      {showApproved && !(historyOnly && row.status === "pending") ? (
+                        <p className="hd-approval__status hd-approval__status--ok">
+                          {t("hr.leave.status.approved")}
+                        </p>
+                      ) : null}
+                      {historyOnly && row.status === "pending" ? (
+                        <p className="hd-approval__status hd-approval__status--ok">
+                          {t("hr.leave.status.approved")}
+                        </p>
+                      ) : null}
+                      {historyOnly && row.status === "rejected" ? (
+                        <p className="hd-approval__status hd-approval__status--no">
+                          {t("hr.leave.status.rejected")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : row.currentStepRole ? (
+                    <div className="hd-approval__step">
+                      <p className="hd-approval__waiting">
+                        {t("hr.leave.waitingStep", {
+                          step: leaveStepLabel(row.currentStepRole, row.opsLane),
+                        })}
+                      </p>
+                      <Badge variant="warning">{leaveStepLabel(row.currentStepRole, row.opsLane)}</Badge>
                     </div>
                   ) : null}
+                  <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setPrintPayload(toPrintPayload(row));
+                        setPrintOpen(true);
+                      }}
+                    >
+                      {t("hr.leave.print.preview")}
+                    </Button>
+                    {showActions ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="min-h-11"
+                          disabled={busy}
+                          onClick={() => act.mutate({ leaveId: row.id, action: "approved" })}
+                        >
+                          {t("hr.leave.approveStep")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="min-h-11"
+                          disabled={busy}
+                          onClick={() => act.mutate({ leaveId: row.id, action: "rejected" })}
+                        >
+                          {t("hr.leave.reject")}
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
                 </article>
               </li>
             );
@@ -295,6 +509,7 @@ export function MyDayLeaveApprovals({
           if (!next) setPreviewDoc(null);
         }}
       />
+      <LeaveRequestPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
     </div>
   );
 }

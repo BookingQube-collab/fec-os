@@ -131,10 +131,25 @@ function mapLeaveDocument(row: Record<string, unknown>) {
   };
 }
 
-function mapLeaveRow(row: Record<string, unknown>) {
+type LeaveApprovalStepMapped = {
+  stepRole: string;
+  status: string;
+  actedBy: string | null;
+  actedByName: string | null;
+  actedAt: string | null;
+};
+
+function mapLeaveRow(
+  row: Record<string, unknown>,
+  extras?: { steps?: LeaveApprovalStepMapped[] },
+) {
   const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
   const jobTitle = (staff as { job_title?: string | null } | null)?.job_title ?? null;
   const department = (staff as { department?: string | null } | null)?.department ?? null;
+  const locationId =
+    (staff as { location_id?: string | null } | null)?.location_id ??
+    (row.location_id as string | null) ??
+    "";
   const opsLane: OpsApprovalLane = opsApprovalLaneForStaff(jobTitle, department);
   const document = mapLeaveDocument(row);
   return {
@@ -144,6 +159,7 @@ function mapLeaveRow(row: Record<string, unknown>) {
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
     jobTitle,
     department,
+    locationId: locationId ? String(locationId) : "",
     phone: (staff as { phone?: string | null } | null)?.phone ?? null,
     opsLane,
     leaveType: String(row.leave_type),
@@ -161,7 +177,63 @@ function mapLeaveRow(row: Record<string, unknown>) {
     documentId: document.documentId,
     documentFileName: document.documentFileName,
     createdAt: String(row.created_at),
+    steps: extras?.steps ?? ([] as LeaveApprovalStepMapped[]),
   };
+}
+
+async function nameByUserId(userIds: string[]) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const names = new Map<string, string>();
+  if (!ids.length) return names;
+  const [{ data: staff }, { data: profiles }] = await Promise.all([
+    supabaseAdmin.from("staff").select("user_id, full_name").in("user_id", ids),
+    supabaseAdmin.from("profiles").select("id, display_name").in("id", ids),
+  ]);
+  for (const row of profiles ?? []) {
+    if (row.display_name) names.set(row.id as string, String(row.display_name));
+  }
+  for (const row of staff ?? []) {
+    if (row.user_id && row.full_name) names.set(row.user_id as string, String(row.full_name));
+  }
+  return names;
+}
+
+/** Attach approval-step trail (with actor names) for Approved history filters/UI. */
+async function attachLeaveApprovalSteps<
+  T extends { id: string; steps?: LeaveApprovalStepMapped[] },
+>(rows: T[]): Promise<T[]> {
+  if (!rows.length) return rows;
+  const leaveIds = rows.map((row) => row.id);
+  const { data: stepRows, error } = await supabaseAdmin
+    .from("hr_leave_approvals")
+    .select("leave_id, step_order, step_role, status, acted_by, acted_at")
+    .in("leave_id", leaveIds)
+    .order("step_order");
+  if (error) {
+    if (tableMissing(error.message)) return rows;
+    throw error;
+  }
+  const actorNames = await nameByUserId(
+    (stepRows ?? []).map((step) => step.acted_by).filter((id): id is string => Boolean(id)),
+  );
+  const byLeave = new Map<string, LeaveApprovalStepMapped[]>();
+  for (const step of stepRows ?? []) {
+    const leaveId = String(step.leave_id);
+    const actedBy = step.acted_by ? String(step.acted_by) : null;
+    const list = byLeave.get(leaveId) ?? [];
+    list.push({
+      stepRole: String(step.step_role),
+      status: String(step.status),
+      actedBy,
+      actedByName: actedBy ? actorNames.get(actedBy) ?? null : null,
+      actedAt: step.acted_at ? String(step.acted_at) : null,
+    });
+    byLeave.set(leaveId, list);
+  }
+  return rows.map((row) => ({
+    ...row,
+    steps: byLeave.get(row.id) ?? [],
+  }));
 }
 
 async function syncApprovedLeaveToAttendance(
@@ -637,7 +709,7 @@ export const listLeaveRequests = createAuthenticatedAction(
       const { data: rows, error } = await supabaseAdmin
         .from("hr_leave_requests")
         .select(
-          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department), document:hr_employee_documents!document_id(id, file_name)",
+          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
         )
         .in("id", leaveIds)
         .order("created_at", { ascending: false })
@@ -647,20 +719,23 @@ export const listLeaveRequests = createAuthenticatedAction(
           const { data: fallback, error: fallbackErr } = await supabaseAdmin
             .from("hr_leave_requests")
             .select(
-              "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department)",
+              "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
             )
             .in("id", leaveIds)
             .order("created_at", { ascending: false })
             .limit(120);
           if (fallbackErr) throw fallbackErr;
-          return dedupeLeaveApprovalRows(
+          const mappedFallback = dedupeLeaveApprovalRows(
             (fallback ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>)),
           );
+          return attachLeaveApprovalSteps(mappedFallback);
         }
         throw error;
       }
-      const mappedHistory = (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
-      return dedupeLeaveApprovalRows(mappedHistory);
+      const mappedHistory = dedupeLeaveApprovalRows(
+        (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>)),
+      );
+      return attachLeaveApprovalSteps(mappedHistory);
     }
 
     let headOfOperations = false;
@@ -700,7 +775,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     let query = leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department), document:hr_employee_documents!document_id(id, file_name)",
+        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -720,7 +795,7 @@ export const listLeaveRequests = createAuthenticatedAction(
       let fallback = leaveDb
         .from("hr_leave_requests")
         .select(
-          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department)",
+          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
         )
         .order("created_at", { ascending: false })
         .limit(200);

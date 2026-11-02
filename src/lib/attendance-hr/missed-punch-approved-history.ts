@@ -24,7 +24,10 @@ export const EMPTY_APPROVED_HISTORY_FILTERS: ApprovedHistoryFilters = {
 };
 
 export type ApprovedHistoryRowLike = {
+  /** Primary date (correction work day, or leave start). */
   workDate: string | null;
+  /** Optional end date (leave range). When set, date filters use overlap. */
+  dateTo?: string | null;
   locationId: string;
   department: string | null;
   staffName: string | null;
@@ -74,9 +77,11 @@ export function filterApprovedHistoryRows<T extends ApprovedHistoryRowLike>(
   const from = filters.dateFrom.trim();
   const to = filters.dateTo.trim();
   return rows.filter((row) => {
-    const workDate = row.workDate?.slice(0, 10) ?? "";
-    if (from && (!workDate || workDate < from)) return false;
-    if (to && (!workDate || workDate > to)) return false;
+    const start = row.workDate?.slice(0, 10) ?? "";
+    const end = (row.dateTo?.slice(0, 10) || start) ?? "";
+    // Single-day rows: start === end. Leave ranges: overlap with [from, to].
+    if (from && (!end || end < from)) return false;
+    if (to && (!start || start > to)) return false;
     if (filters.locationId && row.locationId !== filters.locationId) return false;
     if (filters.department && (row.department ?? "") !== filters.department) return false;
     if (!matchesStaffQuery(row, filters.staffQuery)) return false;

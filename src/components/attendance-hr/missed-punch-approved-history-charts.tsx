@@ -50,23 +50,34 @@ function formatDayTick(ymd: string): string {
 export function MissedPunchApprovedHistoryCharts({
   rows,
   locationLabel,
+  variant = "correction",
 }: {
   rows: readonly ApprovedHistoryRowLike[];
   locationLabel: (locationId: string) => string;
+  /** Correction (default) vs leave chart copy. */
+  variant?: "correction" | "leave";
 }) {
   const { t } = useTranslation();
   const reducedMotion = usePrefersReducedMotion();
-  const empty = t("hr.me.approvedHistory.chartsEmpty");
+  const copyKey = variant === "leave" ? "hr.me.leaveApprovedHistory" : "hr.me.approvedHistory";
+  const empty = t(`${copyKey}.chartsEmpty`, {
+    defaultValue: t("hr.me.approvedHistory.chartsEmpty"),
+  });
+  const countName = t(`${copyKey}.approvedCount`, {
+    defaultValue: t("hr.me.approvedHistory.approvedCount"),
+  });
 
   const volume = buildApprovedHistoryVolumeByDay(rows);
   const byDepartment = buildApprovedHistoryByDepartment(
     rows,
-    t("hr.me.approvedHistory.unassignedDept"),
+    t(`${copyKey}.unassignedDept`, { defaultValue: t("hr.me.approvedHistory.unassignedDept") }),
   );
   const byLocation = buildApprovedHistoryByLocation(rows, locationLabel);
   const byStatus = buildApprovedHistoryByStatus(rows, {
-    approved: t("hr.me.punchApproved"),
-    inProgress: t("hr.me.approvedHistory.statusInProgress"),
+    approved: variant === "leave" ? t("hr.leave.status.approved") : t("hr.me.punchApproved"),
+    inProgress: t(`${copyKey}.statusInProgress`, {
+      defaultValue: t("hr.me.approvedHistory.statusInProgress"),
+    }),
   });
 
   const hasVolume = volume.some((point) => point.count > 0);
@@ -75,8 +86,8 @@ export function MissedPunchApprovedHistoryCharts({
     <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
       <ChartCard
         className="min-w-0 overflow-hidden xl:col-span-2"
-        title={t("hr.me.approvedHistory.volumeTitle")}
-        subtitle={t("hr.me.approvedHistory.volumeHint")}
+        title={t(`${copyKey}.volumeTitle`, { defaultValue: t("hr.me.approvedHistory.volumeTitle") })}
+        subtitle={t(`${copyKey}.volumeHint`, { defaultValue: t("hr.me.approvedHistory.volumeHint") })}
       >
         {!hasVolume ? (
           <ChartEmpty label={empty} />
@@ -101,7 +112,7 @@ export function MissedPunchApprovedHistoryCharts({
                 <Line
                   type="monotone"
                   dataKey="count"
-                  name={t("hr.me.approvedHistory.approvedCount")}
+                  name={countName}
                   stroke={CHART.ink}
                   strokeWidth={2}
                   dot={false}
@@ -115,8 +126,12 @@ export function MissedPunchApprovedHistoryCharts({
 
       <ChartCard
         className="min-w-0 overflow-hidden"
-        title={t("hr.me.approvedHistory.byLocationTitle")}
-        subtitle={t("hr.me.approvedHistory.byLocationHint")}
+        title={t(`${copyKey}.byLocationTitle`, {
+          defaultValue: t("hr.me.approvedHistory.byLocationTitle"),
+        })}
+        subtitle={t(`${copyKey}.byLocationHint`, {
+          defaultValue: t("hr.me.approvedHistory.byLocationHint"),
+        })}
       >
         {byLocation.length === 0 ? (
           <ChartEmpty label={empty} />
@@ -141,7 +156,7 @@ export function MissedPunchApprovedHistoryCharts({
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
                 <Bar
                   dataKey="count"
-                  name={t("hr.me.approvedHistory.approvedCount")}
+                  name={countName}
                   radius={chartBarRadiusH}
                   isAnimationActive={!reducedMotion}
                 >
@@ -157,8 +172,12 @@ export function MissedPunchApprovedHistoryCharts({
 
       <ChartCard
         className="min-w-0 overflow-hidden"
-        title={t("hr.me.approvedHistory.byDepartmentTitle")}
-        subtitle={t("hr.me.approvedHistory.byDepartmentHint")}
+        title={t(`${copyKey}.byDepartmentTitle`, {
+          defaultValue: t("hr.me.approvedHistory.byDepartmentTitle"),
+        })}
+        subtitle={t(`${copyKey}.byDepartmentHint`, {
+          defaultValue: t("hr.me.approvedHistory.byDepartmentHint"),
+        })}
       >
         {byDepartment.length === 0 ? (
           <ChartEmpty label={empty} />
@@ -178,7 +197,7 @@ export function MissedPunchApprovedHistoryCharts({
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
                 <Bar
                   dataKey="count"
-                  name={t("hr.me.approvedHistory.approvedCount")}
+                  name={countName}
                   fill={CHART.teal}
                   radius={chartBarRadius}
                   isAnimationActive={!reducedMotion}
@@ -191,8 +210,12 @@ export function MissedPunchApprovedHistoryCharts({
 
       <ChartCard
         className="min-w-0 overflow-hidden xl:col-span-2"
-        title={t("hr.me.approvedHistory.byStatusTitle")}
-        subtitle={t("hr.me.approvedHistory.byStatusHint")}
+        title={t(`${copyKey}.byStatusTitle`, {
+          defaultValue: t("hr.me.approvedHistory.byStatusTitle"),
+        })}
+        subtitle={t(`${copyKey}.byStatusHint`, {
+          defaultValue: t("hr.me.approvedHistory.byStatusHint"),
+        })}
       >
         {byStatus.length === 0 ? (
           <ChartEmpty label={empty} />
@@ -206,7 +229,7 @@ export function MissedPunchApprovedHistoryCharts({
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
                 <Bar
                   dataKey="count"
-                  name={t("hr.me.approvedHistory.approvedCount")}
+                  name={countName}
                   radius={chartBarRadius}
                   isAnimationActive={!reducedMotion}
                 >
