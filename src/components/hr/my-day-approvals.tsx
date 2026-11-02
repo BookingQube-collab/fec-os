@@ -1,16 +1,22 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileText } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { MissedPunchApprovalQueue } from "@/components/attendance-hr/missed-punch-approval-queue";
+import {
+  LeaveDocumentLightbox,
+  type LeaveDocumentPreviewTarget,
+} from "@/components/hr/leave-document-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useMyDirectReports } from "@/hooks/use-my-direct-reports";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
-import { actOnLeaveApproval, getLeaveDocumentUrl, listLeaveRequests } from "@/lib/hr-leave.functions";
+import { actOnLeaveApproval, listLeaveRequests } from "@/lib/hr-leave.functions";
 import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
 import { invalidateLeaveLists, isLeaveListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
@@ -109,13 +115,7 @@ export function MyDayLeaveApprovals({
     },
     onSettled: () => invalidateLeaveLists(qc),
   });
-  const openLeaveDoc = useMutation({
-    mutationFn: (leaveId: string) => getLeaveDocumentUrl({ leaveId, purpose: "preview" }),
-    onSuccess: (res) => {
-      window.open(res.url, "_blank", "noopener,noreferrer");
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+  const [previewDoc, setPreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
 
   if (reports.isPending || !show) return null;
 
@@ -214,11 +214,19 @@ export function MyDayLeaveApprovals({
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="mt-1 min-h-11"
-                        disabled={openLeaveDoc.isPending}
-                        onClick={() => openLeaveDoc.mutate(row.id)}
+                        className="mt-1 min-h-11 max-w-full gap-2"
+                        onClick={() =>
+                          setPreviewDoc({
+                            leaveId: row.id,
+                            fileName: row.documentFileName,
+                            title: `${name} · ${t("hr.leave.sickDocument")}`,
+                          })
+                        }
                       >
-                        {row.documentFileName ?? t("hr.leave.viewDocument")}
+                        <FileText className="h-4 w-4 shrink-0" aria-hidden />
+                        <span className="truncate">
+                          {row.documentFileName ?? t("hr.leave.viewDocument")}
+                        </span>
                       </Button>
                     </div>
                   ) : null}
@@ -269,6 +277,13 @@ export function MyDayLeaveApprovals({
           })}
         </ul>
       ) : null}
+      <LeaveDocumentLightbox
+        doc={previewDoc}
+        open={Boolean(previewDoc)}
+        onOpenChange={(next) => {
+          if (!next) setPreviewDoc(null);
+        }}
+      />
     </div>
   );
 }

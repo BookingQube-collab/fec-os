@@ -2,7 +2,12 @@
 
 import { z } from "zod";
 
-import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
+  type AuthContext,
+} from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -903,7 +908,8 @@ export const listLeaveSubjects = createAuthenticatedActionNoInput(
   { auth: { capability: "hr.employee_app" } },
 );
 
-export const submitLeaveRequest = createAuthenticatedAction(
+/** Safe result envelope — avoids production React #441 digests when leave submit fails. */
+export const submitLeaveRequest = createSafeAuthenticatedAction(
   z.object({
     leaveType: z.enum(HR_LEAVE_TYPES).default("annual"),
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -954,31 +960,6 @@ export const submitLeaveRequest = createAuthenticatedAction(
       .maybeSingle();
     if (staffErr) throw staffErr;
     if (!staff) throw new Error("Staff not found.");
-
-    let documentId: string | null = data.documentId ?? null;
-    if (data.leaveType === "sick" && data.document) {
-      documentId = await uploadLeaveSupportingDocument(context, {
-        staffId: String(staff.id),
-        filename: data.document.filename,
-        dataBase64: data.document.data_base64,
-        contentType: data.document.content_type,
-        dateFrom: data.dateFrom,
-        dateTo: data.dateTo,
-      });
-    } else if (documentId) {
-      const { data: doc, error: docErr } = await context.supabase
-        .from("hr_employee_documents")
-        .select("id, staff_id, deleted_at")
-        .eq("id", documentId)
-        .maybeSingle();
-      if (docErr) throw docErr;
-      if (!doc || doc.deleted_at || doc.staff_id !== staff.id) {
-        throw new Error("Supporting document not found.");
-      }
-    }
-    if (data.leaveType !== "sick") {
-      documentId = null;
-    }
 
     if (data.leaveType === "emergency") {
       const policy = await readPolicySection(context, "leave").catch(() => ({} as Record<string, unknown>));
@@ -1038,6 +1019,29 @@ export const submitLeaveRequest = createAuthenticatedAction(
         finalized: false as const,
         openingStep: null as string | null,
       };
+    }
+
+    // Upload medical docs only after soft conflicts are acknowledged (avoids orphan uploads + re-upload on Submit anyway).
+    let documentId: string | null = data.leaveType === "sick" ? (data.documentId ?? null) : null;
+    if (data.leaveType === "sick" && data.document) {
+      documentId = await uploadLeaveSupportingDocument(context, {
+        staffId: String(staff.id),
+        filename: data.document.filename,
+        dataBase64: data.document.data_base64,
+        contentType: data.document.content_type,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+      });
+    } else if (documentId) {
+      const { data: doc, error: docErr } = await context.supabase
+        .from("hr_employee_documents")
+        .select("id, staff_id, deleted_at")
+        .eq("id", documentId)
+        .maybeSingle();
+      if (docErr) throw docErr;
+      if (!doc || doc.deleted_at || doc.staff_id !== staff.id) {
+        throw new Error("Supporting document not found.");
+      }
     }
 
     const linked = await loadLinkedStaffRecord(context.userId);
@@ -1213,7 +1217,7 @@ export const submitLeaveRequest = createAuthenticatedAction(
 );
 
 /** Signed URL for a leave supporting document (employee + leave approvers). */
-export const getLeaveDocumentUrl = createAuthenticatedAction(
+export const getLeaveDocumentUrl = createSafeAuthenticatedAction(
   z.object({
     leaveId: z.string().uuid(),
     purpose: z.enum(["preview", "download"]).optional().default("preview"),

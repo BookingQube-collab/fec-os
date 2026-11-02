@@ -11,6 +11,10 @@ import {
   MissedPunchApprovalQueue,
   MyMissedPunchRequests,
 } from "@/components/attendance-hr/missed-punch-approval-queue";
+import {
+  LeaveDocumentLightbox,
+  type LeaveDocumentPreviewTarget,
+} from "@/components/hr/leave-document-preview";
 import { MeLeavePanel } from "@/components/hr/me-leave-panel";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
@@ -49,7 +53,8 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { extractStaffIdentityDocument, getEmployeeDocumentUrl, listEmployeeDocuments, uploadEmployeeDocument } from "@/lib/hr-documents.functions";
 import { fileToBase64, IDENTITY_FILE_ACCEPT, IDENTITY_FILE_MAX_BYTES, identityFileContentType } from "@/lib/hr/identity-file";
 import { applyDocumentEditorExtraction, isIdentityDocType } from "@/lib/hr/identity-document-parse";
-import { getLeaveDocumentUrl, listLeaveSubjects, reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
+import { listLeaveSubjects, reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 import { opsStepApproverLabel } from "@/lib/approval-ops-routing";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
@@ -189,6 +194,7 @@ export default function EmployeeMePage() {
   const [leaveDocInputKey, setLeaveDocInputKey] = useState(0);
   const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
+  const [leavePreviewDoc, setLeavePreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
   const [leavePrintPayload, setLeavePrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
   const [leavePrintOpen, setLeavePrintOpen] = useState(false);
   const [payslipPrintPayload, setPayslipPrintPayload] = useState<PayslipPrintPayload | null>(null);
@@ -333,7 +339,7 @@ export default function EmployeeMePage() {
           content_type: contentType,
         };
       }
-      return submitLeaveRequest({
+      const result = await submitLeaveRequest({
         leaveType,
         dateFrom: leaveFrom,
         dateTo: leaveTo || leaveFrom,
@@ -343,6 +349,8 @@ export default function EmployeeMePage() {
         staffId: selectedLeaveStaffId || null,
         document,
       });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
     },
     onSuccess: (res) => {
       if ("blocked" in res && res.blocked) {
@@ -401,7 +409,13 @@ export default function EmployeeMePage() {
       setLeaveConflicts([]);
       invalidateLeaveLists(qc);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(
+        userFacingActionError(
+          e,
+          t("hr.leave.submitFailed", { defaultValue: "Could not submit leave. Try again." }),
+        ),
+      ),
   });
 
   const cancelLeave = useMutation({
@@ -489,14 +503,6 @@ export default function EmployeeMePage() {
 
   const openDoc = useMutation({
     mutationFn: (id: string) => getEmployeeDocumentUrl({ id, purpose: "preview" }),
-    onSuccess: (res) => {
-      window.open(res.url, "_blank", "noopener,noreferrer");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const openLeaveDoc = useMutation({
-    mutationFn: (leaveId: string) => getLeaveDocumentUrl({ leaveId, purpose: "preview" }),
     onSuccess: (res) => {
       window.open(res.url, "_blank", "noopener,noreferrer");
     },
@@ -935,8 +941,13 @@ export default function EmployeeMePage() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  disabled={openLeaveDoc.isPending}
-                                  onClick={() => openLeaveDoc.mutate(row.id)}
+                                  onClick={() =>
+                                    setLeavePreviewDoc({
+                                      leaveId: row.id,
+                                      fileName: row.documentFileName,
+                                      title: t("hr.leave.sickDocument"),
+                                    })
+                                  }
                                 >
                                   {t("hr.leave.viewDocument")}
                                 </Button>
@@ -1224,6 +1235,13 @@ export default function EmployeeMePage() {
         open={leavePrintOpen}
         onOpenChange={setLeavePrintOpen}
         payload={leavePrintPayload}
+      />
+      <LeaveDocumentLightbox
+        doc={leavePreviewDoc}
+        open={Boolean(leavePreviewDoc)}
+        onOpenChange={(next) => {
+          if (!next) setLeavePreviewDoc(null);
+        }}
       />
       <PayslipPrintDialog
         open={payslipPrintOpen}

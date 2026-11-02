@@ -1,6 +1,6 @@
 export type DocumentPreviewKind = "image" | "pdf" | "file";
 
-const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
+const IMAGE_EXT = new Set(["jpg", "jpeg", "jfif", "png", "webp", "gif"]);
 
 function extensionOf(fileName: string | null | undefined) {
   const base = (fileName ?? "").split(/[/\\]/).pop() ?? "";

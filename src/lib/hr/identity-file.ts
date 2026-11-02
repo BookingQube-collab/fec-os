@@ -15,7 +15,8 @@ const MIME_ALIASES: Record<string, string> = {
   "image/jfif": "image/jpeg",
 };
 
-export const IDENTITY_FILE_ACCEPT = "application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp";
+export const IDENTITY_FILE_ACCEPT =
+  "application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.jfif,.png,.webp";
 
 export function identityFileContentType(file: { name: string; type: string }): string | null {
   const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);

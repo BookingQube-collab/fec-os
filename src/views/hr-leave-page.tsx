@@ -15,6 +15,10 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import {
+  LeaveDocumentLightbox,
+  type LeaveDocumentPreviewTarget,
+} from "@/components/hr/leave-document-preview";
+import {
   LeaveRequestPrintDialog,
   type LeaveRequestPrintPayload,
 } from "@/components/hr/leave-request-print-form";
@@ -28,7 +32,6 @@ import {
   actOnLeaveApproval,
   bulkReviewLeaveRequests,
   getLeaveBalanceSummary,
-  getLeaveDocumentUrl,
   grantCompOff,
   listLeaveRequests,
   listStaffForLeaveBalances,
@@ -74,6 +77,7 @@ export function HrLeaveWorkspace({
   const [recordAck, setRecordAck] = useState(false);
   const [printPayload, setPrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
   const effectiveRecordStaffId = lockedStaffId || recordStaffId;
   const effectiveBalanceStaffId = lockedStaffId || balanceStaffId;
 
@@ -166,14 +170,6 @@ export function HrLeaveWorkspace({
       toast.error(e.message);
     },
     onSettled: () => invalidate(),
-  });
-
-  const openLeaveDoc = useMutation({
-    mutationFn: (leaveId: string) => getLeaveDocumentUrl({ leaveId, purpose: "preview" }),
-    onSuccess: (res) => {
-      window.open(res.url, "_blank", "noopener,noreferrer");
-    },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   const stepAct = useMutation({
@@ -403,8 +399,13 @@ export function HrLeaveWorkspace({
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={openLeaveDoc.isPending}
-                          onClick={() => openLeaveDoc.mutate(row.id)}
+                          onClick={() =>
+                            setPreviewDoc({
+                              leaveId: row.id,
+                              fileName: row.documentFileName,
+                              title: `${row.staffName ?? "Staff"} · ${t("hr.leave.sickDocument")}`,
+                            })
+                          }
                         >
                           {t("hr.leave.viewDocument")}
                         </Button>
@@ -648,6 +649,13 @@ export function HrLeaveWorkspace({
           ) : null}
       </HrEmbedFrame>
       <LeaveRequestPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
+      <LeaveDocumentLightbox
+        doc={previewDoc}
+        open={Boolean(previewDoc)}
+        onOpenChange={(next) => {
+          if (!next) setPreviewDoc(null);
+        }}
+      />
     </CapabilityGate>
   );
 }

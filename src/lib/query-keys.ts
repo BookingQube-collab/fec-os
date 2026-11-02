@@ -213,6 +213,7 @@ export const queryKeys = {
     hrDocs: (filters?: object) => [...queryKeys.people.all, "hr-docs", filters ?? {}] as const,
     hrContracts: () => [...queryKeys.people.all, "hr-contracts"] as const,
     hrDocPreview: (id: string) => [...queryKeys.people.all, "hr-doc-preview", id] as const,
+    leaveDocPreview: (leaveId: string) => [...queryKeys.people.all, "leave-doc-preview", leaveId] as const,
     hrChecklists: (filters?: object) => [...queryKeys.people.all, "hr-checklists", filters ?? {}] as const,
     hrAnnouncements: (filters?: object) => [...queryKeys.people.all, "hr-announcements", filters ?? {}] as const,
     hrSuggestions: (filters?: object) => [...queryKeys.people.all, "hr-suggestions", filters ?? {}] as const,

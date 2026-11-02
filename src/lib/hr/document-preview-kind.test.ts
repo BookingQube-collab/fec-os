@@ -11,6 +11,7 @@ describe("documentPreviewKind", () => {
     expect(documentPreviewKind("IMAGE/JPEG; charset=binary", "qid.jpeg")).toBe("image");
     expect(documentPreviewKind("application/pdf", "contract.pdf")).toBe("pdf");
     expect(documentPreviewKind(null, "qid.JPEG")).toBe("image");
+    expect(documentPreviewKind(null, "sick leave bawa.jfif")).toBe("image");
     expect(documentPreviewKind(null, "folder/contract.PDF")).toBe("pdf");
   });
 
