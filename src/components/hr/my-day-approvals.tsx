@@ -35,7 +35,11 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approved-history";
 import { leaveDisplayStepRole, leaveStepSeatLabel } from "@/lib/hr-leave";
 import { actOnLeaveApproval, listLeaveRequests } from "@/lib/hr-leave.functions";
-import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
+import {
+  leaveWaitingRowsFromApprovalsList,
+  mayReviewStaffCorrectionsOnMyDay,
+  mayReviewStaffLeaveOnMyDay,
+} from "@/lib/hr/my-day-approvals";
 import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 import { invalidateLeaveLists, isLeaveListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
@@ -116,12 +120,14 @@ export function MyDayLeaveApprovals({
   myStaffId,
   jobTitle,
   department,
+  staffRole,
   showTitle = true,
   mode = "waiting",
 }: {
   myStaffId: string;
   jobTitle?: string | null;
   department?: string | null;
+  staffRole?: string | null;
   showTitle?: boolean;
   /** Waiting = Approve tab; approved = history of steps this login already took. */
   mode?: "waiting" | "approved";
@@ -130,7 +136,13 @@ export function MyDayLeaveApprovals({
   const roles = useUserRoles();
   const reports = useMyDirectReports();
   const hasDirectReports = (reports.data?.directReportStaffIds.length ?? 0) > 0;
-  const show = mayReviewStaffLeaveOnMyDay({ roles, hasDirectReports, jobTitle, department });
+  const show = mayReviewStaffLeaveOnMyDay({
+    roles,
+    hasDirectReports,
+    jobTitle,
+    department,
+    staffRole,
+  });
   const qc = useQueryClient();
   const historyOnly = mode === "approved";
   const { data: sites } = useSites({ enabled: historyOnly });
@@ -188,38 +200,14 @@ export function MyDayLeaveApprovals({
   >(null);
   const [printOpen, setPrintOpen] = useState(false);
 
-  const directIds = useMemo(
-    () => new Set(reports.data?.directReportStaffIds ?? []),
-    [reports.data?.directReportStaffIds],
-  );
   const rawRows = useMemo(() => {
     if (!show || reports.isPending) return [] as LeaveListRow[];
-    return (list.data ?? [])
-      .map((row) => {
-        const canAct = canApproveLeaveOnMyDay({
-          roles,
-          stepRole: row.currentStepRole,
-          isOwnRequest: row.staffId === myStaffId,
-          isLineManager: directIds.has(row.staffId),
-          jobTitle,
-          department,
-          opsLane: row.opsLane,
-        });
-        return { row, canAct };
-      })
-      .filter(({ canAct }) => historyOnly || canAct)
-      .map(({ row }) => row);
-  }, [
-    department,
-    directIds,
-    historyOnly,
-    jobTitle,
-    list.data,
-    myStaffId,
-    reports.isPending,
-    roles,
-    show,
-  ]);
+    const rows = list.data ?? [];
+    // Waiting: trust server approvals filter (leave team / OT rollup). Do not
+    // re-narrow with directReportStaffIds — badge uses the same query length.
+    if (!historyOnly) return leaveWaitingRowsFromApprovalsList(rows, myStaffId);
+    return rows;
+  }, [historyOnly, list.data, myStaffId, reports.isPending, show]);
 
   const displayRows = useMemo(() => {
     if (!historyOnly) return rawRows;
@@ -360,17 +348,9 @@ export function MyDayLeaveApprovals({
           {displayRows.map((row) => {
             const busy = act.isPending && act.variables?.leaveId === row.id;
             const name = row.staffName ?? "Staff";
-            const canAct = canApproveLeaveOnMyDay({
-              roles,
-              stepRole: row.currentStepRole,
-              isOwnRequest: row.staffId === myStaffId,
-              isLineManager: directIds.has(row.staffId),
-              jobTitle,
-              department,
-              opsLane: row.opsLane,
-            });
-            // Mirror corrections: actions only when this login can act on the current seat.
-            const showActions = !historyOnly && row.status === "pending" && canAct;
+            // Waiting list is already server-gated (leave team scope). History never acts.
+            const canAct = !historyOnly && row.status === "pending" && row.staffId !== myStaffId;
+            const showActions = canAct;
             const priorSteps = (row.steps ?? []).filter(
               (step) => step.status === "approved" || step.status === "skipped",
             );

@@ -10,7 +10,10 @@ import { useUserRoles } from "@/hooks/use-auth";
 import { useHasDirectReports, useMyDirectReports } from "@/hooks/use-my-direct-reports";
 import { useMyLeaveRequests } from "@/hooks/queries/use-employee-self";
 import { listLeaveRequests } from "@/lib/hr-leave.functions";
-import { mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
+import {
+  leaveWaitingRowsFromApprovalsList,
+  mayReviewStaffLeaveOnMyDay,
+} from "@/lib/hr/my-day-approvals";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -40,11 +43,13 @@ export function MeLeavePanel({
   myStaffId,
   jobTitle = null,
   department = null,
+  staffRole = null,
   requestPanel,
 }: {
   myStaffId: string;
   jobTitle?: string | null;
   department?: string | null;
+  staffRole?: string | null;
   /** Leave request form + my history (parent owns the form state). */
   requestPanel: ReactNode;
 }) {
@@ -59,6 +64,7 @@ export function MeLeavePanel({
     hasDirectReports: hasReports,
     jobTitle,
     department,
+    staffRole,
   });
 
   const jobs = useMemo(() => {
@@ -85,7 +91,10 @@ export function MeLeavePanel({
   });
   const mineQ = useMyLeaveRequests(true);
 
-  const pendingCount = pendingQ.isPending ? null : (pendingQ.data?.length ?? 0);
+  // Same filter as MyDayLeaveApprovals waiting list — badge === visible cards.
+  const pendingCount = pendingQ.isPending
+    ? null
+    : leaveWaitingRowsFromApprovalsList(pendingQ.data ?? [], myStaffId).length;
   const approvedCount = approvedQ.isPending ? null : (approvedQ.data?.length ?? 0);
   const requestCount = mineQ.isPending ? null : (mineQ.data?.length ?? 0);
   const tabCount: Record<LeaveJob, number | null> = {
@@ -157,6 +166,7 @@ export function MeLeavePanel({
           myStaffId={myStaffId}
           jobTitle={jobTitle}
           department={department}
+          staffRole={staffRole}
           showTitle={false}
           mode="waiting"
         />
@@ -172,6 +182,7 @@ export function MeLeavePanel({
           myStaffId={myStaffId}
           jobTitle={jobTitle}
           department={department}
+          staffRole={staffRole}
           showTitle={false}
           mode="approved"
         />

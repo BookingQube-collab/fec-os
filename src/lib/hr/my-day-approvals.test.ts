@@ -8,6 +8,8 @@ import {
 import {
   canApproveCorrectionOnMyDay,
   canApproveLeaveOnMyDay,
+  leaveApproveTabCountMatchesList,
+  leaveWaitingRowsFromApprovalsList,
   mayReviewStaffCorrectionsOnMyDay,
   mayReviewStaffLeaveOnMyDay,
 } from "@/lib/hr/my-day-approvals";
@@ -408,5 +410,58 @@ describe("who may approve from My Day", () => {
     expect(canApproveCorrectionOnMyDay(directory(), CASHIER, correction({ currentStepRole: "ops" }))).toBe(false);
     expect(mayReviewStaffLeaveOnMyDay({ roles: ["duty_manager"], hasDirectReports: false })).toBe(true);
     expect(mayReviewStaffCorrectionsOnMyDay({ roles: ["branch_gm"], hasDirectReports: false })).toBe(true);
+  });
+
+  it("lets Venue Supervisor review/act on Waiting: Supervisor for leave-team staff (not direct-only)", () => {
+    // Ashfaq: Venue Supervisor — no approve_manager role; team includes crew under TLs.
+    expect(
+      mayReviewStaffLeaveOnMyDay({
+        roles: ["cashier_host"],
+        hasDirectReports: false,
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      }),
+    ).toBe(true);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["cashier_host"],
+        stepRole: "manager",
+        isOwnRequest: false,
+        isLineManager: true,
+        jobTitle: "Venue Supervisor",
+      }),
+    ).toBe(true);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["cashier_host"],
+        stepRole: "manager",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "Venue Supervisor",
+      }),
+    ).toBe(false);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["cashier_host"],
+        stepRole: "ops",
+        isOwnRequest: false,
+        isLineManager: true,
+        jobTitle: "Venue Supervisor",
+        opsLane: "head_of_operations",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps Approve badge count equal to the visible waiting list (no direct-report re-narrow)", () => {
+    const serverRows = [
+      { id: "lv-philis", staffId: "philis" },
+      { id: "lv-self", staffId: "ashfaq" },
+    ];
+    // Direct-report-only would drop Philis (reports via TL); waiting list trusts server team.
+    const visible = leaveWaitingRowsFromApprovalsList(serverRows, "ashfaq");
+    expect(visible.map((row) => row.id)).toEqual(["lv-philis"]);
+    expect(leaveApproveTabCountMatchesList(serverRows.length - 1, visible)).toBe(true);
+    expect(leaveApproveTabCountMatchesList(1, visible)).toBe(true);
+    expect(leaveApproveTabCountMatchesList(0, visible)).toBe(false);
   });
 });

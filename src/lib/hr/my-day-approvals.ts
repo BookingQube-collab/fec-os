@@ -11,7 +11,11 @@ import {
   type OpsApprovalLane,
 } from "@/lib/approval-ops-routing";
 import type { HrLeaveApprovalRole } from "@/lib/hr-leave";
-import { isLeaveOpsStepActor, isLeaveSiteStepActor } from "@/lib/hr-leave-routing";
+import {
+  isLeaveLineSupervisorTitle,
+  isLeaveOpsStepActor,
+  isLeaveSiteStepActor,
+} from "@/lib/hr-leave-routing";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 
 const LEAVE_STEPS = new Set<HrLeaveApprovalRole>(["manager", "site", "ops", "hr"]);
@@ -88,10 +92,13 @@ export function mayReviewStaffLeaveOnMyDay(input: {
   hasDirectReports: boolean;
   jobTitle?: string | null;
   department?: string | null;
+  staffRole?: string | null;
 }): boolean {
   if (isHeadOfOperationsTitle(input.jobTitle)) return true;
   if (isFnbManager(input.jobTitle, input.department)) return true;
   if (isLeaveSiteStepActor(input.jobTitle)) return true;
+  // Venue / line Supervisor holds the manager seat (team may be under Team Leads).
+  if (isLeaveLineSupervisorTitle(input.jobTitle, input.staffRole)) return true;
   return canApproveLeaveOnMyDay({
     roles: input.roles,
     stepRole: "manager",
@@ -100,6 +107,27 @@ export function mayReviewStaffLeaveOnMyDay(input: {
     jobTitle: input.jobTitle,
     department: input.department,
   });
+}
+
+/**
+ * Waiting Approve rows for My Day. `listLeaveRequests({ approvals: true })` already
+ * applies `canApproveLeaveOnMyDay` with the leave team scope (Venue Supervisor OT /
+ * chart rollup, not direct reports only). Re-filtering with direct-report IDs drops
+ * crew under Team Leads while the tab badge still counts them — keep badge === list.
+ */
+export function leaveWaitingRowsFromApprovalsList<T extends { staffId: string }>(
+  rows: readonly T[],
+  myStaffId: string,
+): T[] {
+  return rows.filter((row) => row.staffId !== myStaffId);
+}
+
+/** Badge count must match the visible Waiting Approve list length. */
+export function leaveApproveTabCountMatchesList(
+  badgeCount: number,
+  visibleRows: readonly unknown[],
+): boolean {
+  return badgeCount === visibleRows.length;
 }
 
 /** Whether the Correction tab should show punch requests waiting on this login. */

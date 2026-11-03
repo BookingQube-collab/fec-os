@@ -614,6 +614,85 @@ async function notifyLeaveWaitingOnStep(input: {
   );
 }
 
+/**
+ * In-flight Waiting: Supervisor leaves may have notified TL / nobody before Venue
+ * Supervisor routing. When the Approve list returns manager-step rows this viewer
+ * can act on, ensure they have an in-app notification (no resubmit required).
+ */
+async function repairLeaveManagerSeatNotifyForViewer(input: {
+  viewerUserId: string;
+  leaves: ReadonlyArray<{
+    id: string;
+    staffId: string;
+    staffName: string | null;
+    dateFrom: string;
+    locationId: string;
+    requestNumber: string | null;
+    currentStepRole: string | null;
+    opsLane: OpsApprovalLane | null;
+  }>;
+}): Promise<void> {
+  const managerLeaves = input.leaves.filter((row) => row.currentStepRole === "manager");
+  if (!managerLeaves.length) return;
+
+  const leaveIds = managerLeaves.map((row) => row.id);
+  const { data: existing, error } = await supabaseAdmin
+    .from("notifications")
+    .select("source_id")
+    .eq("user_id", input.viewerUserId)
+    .eq("source_type", "hr_leave")
+    .in("source_id", leaveIds);
+  if (error) {
+    console.warn("[hr-leave] manager-seat notify repair lookup failed", error.message);
+    return;
+  }
+  const already = new Set(
+    (existing ?? []).map((row) => String((row as { source_id?: string | null }).source_id ?? "")),
+  );
+  const missing = managerLeaves.filter((row) => !already.has(row.id));
+  if (!missing.length) return;
+
+  let directory: Awaited<ReturnType<typeof loadMissedPunchDirectory>> | null = null;
+  try {
+    directory = await loadMissedPunchDirectory(missing.map((row) => row.staffId));
+  } catch (err) {
+    console.warn(
+      "[hr-leave] manager-seat notify repair directory failed",
+      err instanceof Error ? err.message : err,
+    );
+    return;
+  }
+
+  for (const leave of missing) {
+    const assignees = leaveApproverUserIdsForStep(directory, "manager", {
+      locationId: leave.locationId,
+      staffId: leave.staffId,
+      requestedBy: "",
+      requesterStaffId: leave.staffId,
+    });
+    if (!assignees.includes(input.viewerUserId)) continue;
+    try {
+      await notifyLeaveWaitingOnStep({
+        leaveId: leave.id,
+        staffName: leave.staffName ?? "Staff",
+        dateFrom: leave.dateFrom,
+        locationId: leave.locationId || null,
+        requestNumber: leave.requestNumber,
+        stepRole: "manager",
+        opsLane: leave.opsLane,
+        userIds: [input.viewerUserId],
+        allowRepeat: true,
+      });
+    } catch (err) {
+      console.warn(
+        "[hr-leave] manager-seat notify repair failed",
+        leave.id,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+}
+
 async function finalizeLeaveApproval(
   context: AuthContext,
   existing: {
@@ -937,6 +1016,17 @@ export const listLeaveRequests = createAuthenticatedAction(
           department: actorDepartment,
           opsLane: row.opsLane,
         }),
+      );
+      // Repair: notify this Venue / line Supervisor for in-flight manager-step leaves
+      // they can act on but never received (pre-routing / TL notify). Fire-and-forget.
+      void repairLeaveManagerSeatNotifyForViewer({
+        viewerUserId: context.userId,
+        leaves: mapped,
+      }).catch((err) =>
+        console.warn(
+          "[hr-leave] manager-seat notify repair",
+          err instanceof Error ? err.message : err,
+        ),
       );
     }
     // Dedupe by id; Approve tab also collapses identical pending retry rows.

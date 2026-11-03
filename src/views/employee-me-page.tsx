@@ -791,6 +791,7 @@ export default function EmployeeMePage() {
                     myStaffId={person.id}
                     jobTitle={person.jobTitle}
                     department={person.department}
+                    staffRole={sessionProfile?.staff_role ?? null}
                     requestPanel={
                       <>
                   {leaveBalances.length > 0 && !leaveForTeam ? (
