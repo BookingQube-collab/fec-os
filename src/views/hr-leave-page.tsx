@@ -75,36 +75,39 @@ export function HrLeaveWorkspace({
   const [recordTo, setRecordTo] = useState("");
   const [recordReason, setRecordReason] = useState("");
   const [recordAck, setRecordAck] = useState(false);
-  const [printPayload, setPrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
+  const [printPayload, setPrintPayload] = useState<
+    LeaveRequestPrintPayload | LeaveRequestPrintPayload[] | null
+  >(null);
   const [printOpen, setPrintOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
   const effectiveRecordStaffId = lockedStaffId || recordStaffId;
   const effectiveBalanceStaffId = lockedStaffId || balanceStaffId;
 
   type LeaveListRow = Awaited<ReturnType<typeof listLeaveRequests>>[number];
+  const toLeavePrintPayload = (row: LeaveListRow): LeaveRequestPrintPayload => ({
+    requestNumber: row.requestNumber,
+    requestDate: row.createdAt.slice(0, 10),
+    staffName: row.staffName ?? "—",
+    employeeCode: row.employeeCode,
+    department: row.department,
+    jobTitle: row.jobTitle,
+    phone: row.phone,
+    leaveTypeLabel: t(`hr.leave.types.${row.leaveType}`),
+    dateFrom: row.dateFrom,
+    dateTo: row.dateTo,
+    days: row.days,
+    reason: row.reason,
+    status: row.status,
+    steps: (row.steps ?? []).map((step) => ({
+      stepRole: step.stepRole,
+      status: step.status,
+      actedByName: step.actedByName,
+      actedAt: step.actedAt,
+      actedBySignatureUrl: step.actedBySignatureUrl ?? null,
+    })),
+  });
   const openLeavePrint = (row: LeaveListRow) => {
-    setPrintPayload({
-      requestNumber: row.requestNumber,
-      requestDate: row.createdAt.slice(0, 10),
-      staffName: row.staffName ?? "—",
-      employeeCode: row.employeeCode,
-      department: row.department,
-      jobTitle: row.jobTitle,
-      phone: row.phone,
-      leaveTypeLabel: t(`hr.leave.types.${row.leaveType}`),
-      dateFrom: row.dateFrom,
-      dateTo: row.dateTo,
-      days: row.days,
-      reason: row.reason,
-      status: row.status,
-      steps: (row.steps ?? []).map((step) => ({
-        stepRole: step.stepRole,
-        status: step.status,
-        actedByName: step.actedByName,
-        actedAt: step.actedAt,
-        actedBySignatureUrl: step.actedBySignatureUrl ?? null,
-      })),
-    });
+    setPrintPayload(toLeavePrintPayload(row));
     setPrintOpen(true);
   };
 
@@ -316,7 +319,7 @@ export function HrLeaveWorkspace({
         title={t("hr.leave.title")}
         subtitle={t("hr.leave.subtitle")}
       >
-          <div className="hr-filter-bar hr-enter">
+          <div className="hr-filter-bar hr-enter flex flex-wrap items-center gap-2">
             {(["pending", "approved", "rejected", "cancelled", "all"] as const).map((value) => (
               <button
                 key={value}
@@ -327,6 +330,21 @@ export function HrLeaveWorkspace({
                 {t(`hr.leave.status.${value}`)}
               </button>
             ))}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-9 ms-auto"
+              disabled={(list.data ?? []).length === 0}
+              onClick={() => {
+                const rows = list.data ?? [];
+                if (!rows.length) return;
+                setPrintPayload(rows.map((row) => toLeavePrintPayload(row)));
+                setPrintOpen(true);
+              }}
+            >
+              {t("hr.leave.print.printAll", { defaultValue: "Print all" })}
+            </Button>
           </div>
 
           {canManage && status === "pending" && pendingIds.length > 0 ? (

@@ -197,22 +197,49 @@ export function MissedPunchPrintDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  payload: MissedPunchPrintPayload | null;
+  /** One form, or several forms printed as consecutive A4 pages. */
+  payload: MissedPunchPrintPayload | MissedPunchPrintPayload[] | null;
 }) {
   const { t } = useTranslation();
-  if (!payload) return null;
+  const sheets = !payload ? [] : Array.isArray(payload) ? payload : [payload];
+  if (sheets.length === 0) return null;
+  const batch = sheets.length > 1;
 
   return (
     <HrLetterheadPrintDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={t("hr.missedPunch.print.dialogTitle")}
-      hint={t("hr.missedPunch.print.dialogHint")}
-      requestNumber={payload.requestNumber}
+      title={
+        batch
+          ? t("hr.missedPunch.print.dialogTitleAll", {
+              defaultValue: t("hr.missedPunch.print.dialogTitle"),
+            })
+          : t("hr.missedPunch.print.dialogTitle")
+      }
+      hint={
+        batch
+          ? t("hr.missedPunch.print.dialogHintAll", {
+              count: sheets.length,
+              defaultValue: t("hr.missedPunch.print.dialogHint"),
+            })
+          : t("hr.missedPunch.print.dialogHint")
+      }
+      requestNumber={batch ? null : sheets[0]?.requestNumber}
       cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-      printLabel={t("hr.missedPunch.print.printButton")}
+      printLabel={
+        batch
+          ? t("hr.missedPunch.print.printAllButton", {
+              defaultValue: t("hr.missedPunch.print.printButton"),
+            })
+          : t("hr.missedPunch.print.printButton")
+      }
     >
-      <MissedPunchSheet payload={payload} />
+      {sheets.map((item, index) => (
+        <MissedPunchSheet
+          key={`${item.requestNumber?.trim() || "sheet"}-${item.workDate ?? ""}-${index}`}
+          payload={item}
+        />
+      ))}
     </HrLetterheadPrintDialog>
   );
 }

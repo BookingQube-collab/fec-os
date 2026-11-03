@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,8 @@ export function MissedPunchApprovedHistoryFilters({
   /** Correction (default) vs leave copy + seat options. */
   variant = "correction",
   idPrefix = "approved-history",
+  /** e.g. Print all — shown beside Clear in the filter header. */
+  extraActions,
 }: {
   filters: ApprovedHistoryFilters;
   onChange: (next: ApprovedHistoryFilters) => void;
@@ -36,6 +39,7 @@ export function MissedPunchApprovedHistoryFilters({
   resultCount: number;
   variant?: "correction" | "leave";
   idPrefix?: string;
+  extraActions?: ReactNode;
 }) {
   const { t } = useTranslation();
   const copyKey = variant === "leave" ? "hr.me.leaveApprovedHistory" : "hr.me.approvedHistory";
@@ -62,16 +66,21 @@ export function MissedPunchApprovedHistoryFilters({
             })}
           </p>
         </div>
-        {active ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="min-h-9"
-            onClick={() => onChange({ ...EMPTY_APPROVED_HISTORY_FILTERS })}
-          >
-            {t("common.clear")}
-          </Button>
+        {extraActions || active ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {extraActions}
+            {active ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="min-h-9"
+                onClick={() => onChange({ ...EMPTY_APPROVED_HISTORY_FILTERS })}
+              >
+                {t("common.clear")}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

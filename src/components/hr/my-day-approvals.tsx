@@ -183,7 +183,9 @@ export function MyDayLeaveApprovals({
     onSettled: () => invalidateLeaveLists(qc),
   });
   const [previewDoc, setPreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
-  const [printPayload, setPrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
+  const [printPayload, setPrintPayload] = useState<
+    LeaveRequestPrintPayload | LeaveRequestPrintPayload[] | null
+  >(null);
   const [printOpen, setPrintOpen] = useState(false);
 
   const directIds = useMemo(
@@ -309,6 +311,22 @@ export function MyDayLeaveApprovals({
           resultCount={displayRows.length}
           variant="leave"
           idPrefix="leave-approved-history"
+          extraActions={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-9"
+              disabled={displayRows.length === 0}
+              onClick={() => {
+                if (displayRows.length === 0) return;
+                setPrintPayload(displayRows.map((row) => toPrintPayload(row)));
+                setPrintOpen(true);
+              }}
+            >
+              {t("hr.leave.print.printAll", { defaultValue: "Print all" })}
+            </Button>
+          }
         />
       ) : null}
       {historyOnly && chartRows.length > 0 ? (

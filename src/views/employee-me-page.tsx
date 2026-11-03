@@ -195,7 +195,9 @@ export default function EmployeeMePage() {
   const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [leavePreviewDoc, setLeavePreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
-  const [leavePrintPayload, setLeavePrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
+  const [leavePrintPayload, setLeavePrintPayload] = useState<
+    LeaveRequestPrintPayload | LeaveRequestPrintPayload[] | null
+  >(null);
   const [leavePrintOpen, setLeavePrintOpen] = useState(false);
   const [payslipPrintPayload, setPayslipPrintPayload] = useState<PayslipPrintPayload | null>(null);
   const [payslipPrintOpen, setPayslipPrintOpen] = useState(false);
@@ -911,7 +913,48 @@ export default function EmployeeMePage() {
                   <Button className="mt-3 min-h-11" disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate(false)}>
                     {leaveForTeam ? t("hr.leave.submitForTeam") : t("hr.leave.submit")}
                   </Button>
-                  <h3 className="mb-2 mt-4 text-sm font-semibold">{t("hr.leave.history")}</h3>
+                  <div className="mb-2 mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{t("hr.leave.history")}</h3>
+                    {(leave.data ?? []).length > 0 ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="min-h-9"
+                        onClick={() => {
+                          if (!person) return;
+                          const rows = (leave.data ?? []).slice(0, 12);
+                          setLeavePrintPayload(
+                            rows.map((row) => ({
+                              requestNumber: row.requestNumber,
+                              requestDate: row.createdAt.slice(0, 10),
+                              staffName: person.fullName,
+                              employeeCode: person.employeeCode,
+                              department: person.department,
+                              jobTitle: person.jobTitle,
+                              phone: person.phone ?? null,
+                              leaveTypeLabel: t(`hr.leave.types.${row.leaveType}`),
+                              dateFrom: row.dateFrom,
+                              dateTo: row.dateTo,
+                              days: row.days,
+                              reason: row.reason,
+                              status: row.status,
+                              steps: (row.steps ?? []).map((step) => ({
+                                stepRole: step.stepRole,
+                                status: step.status,
+                                actedByName: step.actedByName,
+                                actedAt: step.actedAt,
+                                actedBySignatureUrl: step.actedBySignatureUrl ?? null,
+                              })),
+                            })),
+                          );
+                          setLeavePrintOpen(true);
+                        }}
+                      >
+                        {t("hr.leave.print.printAll", { defaultValue: "Print all" })}
+                      </Button>
+                    ) : null}
+                  </div>
                   {(leave.data ?? []).length === 0 && !leave.isLoading ? <EssEmpty>{t("hr.me.leaveEmpty")}</EssEmpty> : null}
                   {(leave.data ?? []).length > 0 ? (
                     <ul>

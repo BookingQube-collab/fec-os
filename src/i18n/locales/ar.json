@@ -9568,9 +9568,13 @@
       "submittedWithNumber": "تم إرسال طلب الإجازة · {{number}}",
       "print": {
         "preview": "معاينة / طباعة",
+        "printAll": "طباعة الكل",
         "dialogTitle": "نموذج طلب إجازة",
+        "dialogTitleAll": "نماذج طلبات الإجازة",
         "dialogHint": "اطبع طلب الإجازة على ورق إلكتروني E3 الرسمي.",
+        "dialogHintAll": "اطبع {{count}} نموذج إجازة على ورق E3 الرسمي كملف PDF واحد.",
         "printButton": "طباعة النموذج",
+        "printAllButton": "طباعة الكل / حفظ PDF",
         "title": "نموذج طلب إجازة",
         "requestNumber": "رقم الطلب",
         "employeeName": "اسم الموظف",
@@ -9596,9 +9600,13 @@
     "missedPunch": {
       "print": {
         "preview": "معاينة / طباعة",
+        "printAll": "طباعة الكل",
         "dialogTitle": "نموذج طلب بصمة فائتة",
+        "dialogTitleAll": "نماذج طلبات البصمة الفائتة",
         "dialogHint": "اطبع طلب تصحيح البصمة على ورق إلكتروني E3 الرسمي.",
+        "dialogHintAll": "اطبع {{count}} نموذج تصحيح على ورق E3 الرسمي كملف PDF واحد.",
         "printButton": "طباعة النموذج",
+        "printAllButton": "طباعة الكل / حفظ PDF",
         "title": "نموذج طلب بصمة فائتة",
         "requestNumber": "رقم الطلب",
         "employeeName": "اسم الموظف",

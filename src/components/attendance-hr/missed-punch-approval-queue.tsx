@@ -196,7 +196,9 @@ export function MissedPunchApprovalQueue({
       }),
     staleTime: STALE.people,
   });
-  const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
+  const [printPayload, setPrintPayload] = useState<
+    MissedPunchPrintPayload | MissedPunchPrintPayload[] | null
+  >(null);
   const [printOpen, setPrintOpen] = useState(false);
   const listQueryKey = queryKeys.people.attendanceHr({
     view: historyOnly
@@ -278,6 +280,40 @@ export function MissedPunchApprovalQueue({
           departments={historyDepartments}
           locations={historyLocations}
           resultCount={cards.length}
+          extraActions={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="min-h-9"
+              disabled={cards.length === 0}
+              onClick={() => {
+                if (cards.length === 0) return;
+                setPrintPayload(
+                  cards.map((card) => {
+                    const row = card.primary;
+                    const displayType = card.punchType ?? row.punchType;
+                    const numberLabel = card.requestNumbers.length
+                      ? card.requestNumbers.join(" · ")
+                      : row.requestNumber;
+                    return toMissedPunchPrintPayload(
+                      {
+                        ...row,
+                        punchType: displayType,
+                        punchInAt: card.punchInAt,
+                        punchOutAt: card.punchOutAt,
+                        requestNumber: numberLabel,
+                      },
+                      t,
+                    );
+                  }),
+                );
+                setPrintOpen(true);
+              }}
+            >
+              {t("hr.missedPunch.print.printAll", { defaultValue: "Print all" })}
+            </Button>
+          }
         />
       ) : null}
       {historyOnly && filteredRows.length > 0 ? (
@@ -532,7 +568,9 @@ export function MyMissedPunchRequests() {
   const [punchInTime, setPunchInTime] = useState("");
   const [punchOutTime, setPunchOutTime] = useState("");
   const [reason, setReason] = useState("");
-  const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
+  const [printPayload, setPrintPayload] = useState<
+    MissedPunchPrintPayload | MissedPunchPrintPayload[] | null
+  >(null);
   const [printOpen, setPrintOpen] = useState(false);
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-mine" }),
@@ -567,7 +605,41 @@ export function MyMissedPunchRequests() {
   if (!cards.length) return null;
   return (
     <div className="mt-4 space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("hr.me.yourPunchRequests")}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t("hr.me.yourPunchRequests")}
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="min-h-9"
+          onClick={() => {
+            setPrintPayload(
+              cards.map((card) => {
+                const row = card.primary;
+                const displayType = card.punchType ?? row.punchType;
+                const numberLabel = card.requestNumbers.length
+                  ? card.requestNumbers.join(" · ")
+                  : row.requestNumber;
+                return toMissedPunchPrintPayload(
+                  {
+                    ...row,
+                    punchType: displayType,
+                    punchInAt: card.punchInAt,
+                    punchOutAt: card.punchOutAt,
+                    requestNumber: numberLabel,
+                  },
+                  t,
+                );
+              }),
+            );
+            setPrintOpen(true);
+          }}
+        >
+          {t("hr.missedPunch.print.printAll", { defaultValue: "Print all" })}
+        </Button>
+      </div>
       {cards.map((card) => {
         const row = card.primary;
         const clocks = correctionCardClocks(card.punchType, row.punchAt, {

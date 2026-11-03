@@ -9710,9 +9710,13 @@
       "submittedWithNumber": "Leave request submitted · {{number}}",
       "print": {
         "preview": "Preview / Print",
+        "printAll": "Print all",
         "dialogTitle": "Leave request form",
+        "dialogTitleAll": "Leave request forms",
         "dialogHint": "Print the leave request on E3 letterhead.",
+        "dialogHintAll": "Print {{count}} leave forms on E3 letterhead as one PDF.",
         "printButton": "Print form",
+        "printAllButton": "Print all / Save PDF",
         "title": "Leave request form",
         "requestNumber": "Request No.",
         "employeeName": "Employee name",
@@ -9738,9 +9742,13 @@
     "missedPunch": {
       "print": {
         "preview": "Preview / Print",
+        "printAll": "Print all",
         "dialogTitle": "Missed punch request form",
+        "dialogTitleAll": "Missed punch request forms",
         "dialogHint": "Print the missed punch / correction request on E3 letterhead.",
+        "dialogHintAll": "Print {{count}} correction forms on E3 letterhead as one PDF.",
         "printButton": "Print form",
+        "printAllButton": "Print all / Save PDF",
         "title": "Missed punch request form",
         "requestNumber": "Request No.",
         "employeeName": "Employee name",

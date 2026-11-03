@@ -207,22 +207,49 @@ export function LeaveRequestPrintDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  payload: LeaveRequestPrintPayload | null;
+  /** One form, or several forms printed as consecutive A4 pages. */
+  payload: LeaveRequestPrintPayload | LeaveRequestPrintPayload[] | null;
 }) {
   const { t } = useTranslation();
-  if (!payload) return null;
+  const sheets = !payload ? [] : Array.isArray(payload) ? payload : [payload];
+  if (sheets.length === 0) return null;
+  const batch = sheets.length > 1;
 
   return (
     <HrLetterheadPrintDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={t("hr.leave.print.dialogTitle")}
-      hint={t("hr.leave.print.dialogHint")}
-      requestNumber={payload.requestNumber}
+      title={
+        batch
+          ? t("hr.leave.print.dialogTitleAll", {
+              defaultValue: t("hr.leave.print.dialogTitle"),
+            })
+          : t("hr.leave.print.dialogTitle")
+      }
+      hint={
+        batch
+          ? t("hr.leave.print.dialogHintAll", {
+              count: sheets.length,
+              defaultValue: t("hr.leave.print.dialogHint"),
+            })
+          : t("hr.leave.print.dialogHint")
+      }
+      requestNumber={batch ? null : sheets[0]?.requestNumber}
       cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-      printLabel={t("hr.leave.print.printButton")}
+      printLabel={
+        batch
+          ? t("hr.leave.print.printAllButton", {
+              defaultValue: t("hr.leave.print.printButton"),
+            })
+          : t("hr.leave.print.printButton")
+      }
     >
-      <LeaveRequestSheet payload={payload} />
+      {sheets.map((item, index) => (
+        <LeaveRequestSheet
+          key={`${item.requestNumber?.trim() || "sheet"}-${item.dateFrom}-${index}`}
+          payload={item}
+        />
+      ))}
     </HrLetterheadPrintDialog>
   );
 }
