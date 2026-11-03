@@ -8,6 +8,7 @@ import {
   buildApprovedHistoryVolumeByDay,
   EMPTY_APPROVED_HISTORY_FILTERS,
   filterApprovedHistoryRows,
+  summarizeApprovedHistory,
   uniqueApprovedHistoryDepartments,
   type ApprovedHistoryRowLike,
 } from "@/lib/attendance-hr/missed-punch-approved-history";
@@ -23,6 +24,7 @@ function row(
     staffName: partial.staffName ?? "Alex",
     employeeCode: partial.employeeCode ?? "E1",
     status: partial.status,
+    leaveType: partial.leaveType,
     steps: partial.steps ?? [{ stepRole: "ops", status: "approved", actedByName: "Ops" }],
   };
 }
@@ -131,6 +133,29 @@ describe("filterApprovedHistoryRows", () => {
       }).map((r) => r.employeeCode),
     ).toEqual(["SL2"]);
   });
+
+  it("filters leave rows by leave type", () => {
+    const leaveRows = [
+      row({
+        locationId: "loc-a",
+        leaveType: "annual",
+        employeeCode: "AN1",
+        status: "approved",
+      }),
+      row({
+        locationId: "loc-a",
+        leaveType: "sick",
+        employeeCode: "SK1",
+        status: "approved",
+      }),
+    ];
+    expect(
+      filterApprovedHistoryRows(leaveRows, {
+        ...EMPTY_APPROVED_HISTORY_FILTERS,
+        leaveType: "sick",
+      }).map((r) => r.employeeCode),
+    ).toEqual(["SK1"]);
+  });
 });
 
 describe("approved history chart builders", () => {
@@ -167,5 +192,16 @@ describe("approved history chart builders", () => {
     expect(
       approvedHistoryHasActiveFilters({ ...EMPTY_APPROVED_HISTORY_FILTERS, staffQuery: "a" }),
     ).toBe(true);
+    expect(
+      approvedHistoryHasActiveFilters({ ...EMPTY_APPROVED_HISTORY_FILTERS, leaveType: "annual" }),
+    ).toBe(true);
+  });
+
+  it("summarizes total / approved / in-progress KPIs", () => {
+    expect(summarizeApprovedHistory(rows)).toEqual({
+      total: 3,
+      approved: 2,
+      inProgress: 1,
+    });
   });
 });

@@ -12,6 +12,7 @@ import {
   type ApprovedHistoryFilters,
   type ApprovedHistoryStatusFilter,
 } from "@/lib/attendance-hr/missed-punch-approved-history";
+import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
 
 const ALL = "__all__";
 
@@ -155,6 +156,28 @@ export function MissedPunchApprovedHistoryFilters({
             </SelectContent>
           </Select>
         </div>
+
+        {variant === "leave" ? (
+          <div className="space-y-1">
+            <Label className="text-xs">{t("hr.leave.type")}</Label>
+            <Select
+              value={filters.leaveType || ALL}
+              onValueChange={(value) => patch({ leaveType: value === ALL ? "" : value })}
+            >
+              <SelectTrigger aria-label={t("hr.leave.type")}>
+                <SelectValue placeholder={t("common.all")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>{t("common.all")}</SelectItem>
+                {HR_LEAVE_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {t(`hr.leave.types.${type}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
         <div className="space-y-1">
           <Label className="text-xs">{t("common.status")}</Label>

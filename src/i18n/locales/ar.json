@@ -11186,7 +11186,11 @@
         "byStatusTitle": "حسب الحالة",
         "byStatusHint": "المعتمد بالكامل مقابل ما زال يتحرك في السلسلة بعد اعتمادك.",
         "approvedCount": "التصحيحات",
-        "unassignedDept": "غير معيّن"
+        "unassignedDept": "غير معيّن",
+        "kpiStrip": "ملخص التصحيحات المعتمدة",
+        "kpiTotal": "إجمالي المستلم",
+        "kpiApproved": "معتمد بالكامل",
+        "kpiInProgress": "ما زال في السلسلة"
       },
       "leaveApprovedHistory": {
         "filterHint": "{{count}} طلبات إجازة تطابق هذه الفلاتر.",
@@ -11207,7 +11211,11 @@
         "byStatusTitle": "حسب الحالة",
         "byStatusHint": "المعتمد بالكامل مقابل ما زال يتحرك في السلسلة بعد اعتمادك.",
         "approvedCount": "الإجازات",
-        "unassignedDept": "غير معيّن"
+        "unassignedDept": "غير معيّن",
+        "kpiStrip": "ملخص الإجازات المعتمدة",
+        "kpiTotal": "إجمالي المستلم",
+        "kpiApproved": "معتمد بالكامل",
+        "kpiInProgress": "ما زال في السلسلة"
       },
       "correctionTabFillHint": "انسخ أوقات المناوبة من الجدول إلى الأيام بلا بصمة جهاز.",
       "correctionTabRequestHint": "اطلب تصحيح بصمة دخول أو خروج خاطئة لك أو لفريقك.",

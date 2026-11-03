@@ -11,6 +11,8 @@ export type ApprovedHistoryFilters = {
   status: ApprovedHistoryStatusFilter;
   /** Approved seat role: manager | ops | hr | gm, or "" for any. */
   stepRole: string;
+  /** Leave type code (annual, sick, …), or "" for any. Correction ignores this. */
+  leaveType: string;
 };
 
 export const EMPTY_APPROVED_HISTORY_FILTERS: ApprovedHistoryFilters = {
@@ -21,6 +23,7 @@ export const EMPTY_APPROVED_HISTORY_FILTERS: ApprovedHistoryFilters = {
   staffQuery: "",
   status: "all",
   stepRole: "",
+  leaveType: "",
 };
 
 export type ApprovedHistoryRowLike = {
@@ -33,6 +36,8 @@ export type ApprovedHistoryRowLike = {
   staffName: string | null;
   employeeCode: string | null;
   status: string;
+  /** Leave type code when filtering leave history. */
+  leaveType?: string | null;
   steps: ReadonlyArray<{ stepRole: string; status: string; actedByName?: string | null }>;
 };
 
@@ -44,7 +49,8 @@ export function approvedHistoryHasActiveFilters(filters: ApprovedHistoryFilters)
       filters.department ||
       filters.staffQuery.trim() ||
       filters.status !== "all" ||
-      filters.stepRole,
+      filters.stepRole ||
+      filters.leaveType,
   );
 }
 
@@ -87,8 +93,24 @@ export function filterApprovedHistoryRows<T extends ApprovedHistoryRowLike>(
     if (!matchesStaffQuery(row, filters.staffQuery)) return false;
     if (!matchesStatus(row, filters.status)) return false;
     if (!matchesStepRole(row, filters.stepRole)) return false;
+    if (filters.leaveType && (row.leaveType ?? "") !== filters.leaveType) return false;
     return true;
   });
+}
+
+/** KPI totals for Approved history (unfiltered or filtered row set). */
+export function summarizeApprovedHistory(rows: readonly ApprovedHistoryRowLike[]): {
+  total: number;
+  approved: number;
+  inProgress: number;
+} {
+  let approved = 0;
+  let inProgress = 0;
+  for (const row of rows) {
+    if (row.status === "approved") approved += 1;
+    else if (row.status === "pending") inProgress += 1;
+  }
+  return { total: rows.length, approved, inProgress };
 }
 
 export function uniqueApprovedHistoryDepartments(rows: readonly ApprovedHistoryRowLike[]): string[] {

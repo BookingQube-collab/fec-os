@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { ApprovedHistoryKpiStrip } from "@/components/attendance-hr/approved-history-kpi-strip";
 import { MissedPunchApprovedHistoryCharts } from "@/components/attendance-hr/missed-punch-approved-history-charts";
 import { MissedPunchApprovedHistoryFilters } from "@/components/attendance-hr/missed-punch-approved-history-filters";
 import {
@@ -26,6 +27,7 @@ import {
 import {
   EMPTY_APPROVED_HISTORY_FILTERS,
   filterApprovedHistoryRows,
+  summarizeApprovedHistory,
   uniqueApprovedHistoryDepartments,
   uniqueApprovedHistoryLocationIds,
   type ApprovedHistoryFilters,
@@ -257,11 +259,18 @@ export function MissedPunchApprovalQueue({
       label: locationLabel(id),
     }));
   }, [historyOnly, rows, locationLabel]);
+  const historySummary = useMemo(
+    () => (historyOnly ? summarizeApprovedHistory(filteredRows) : null),
+    [filteredRows, historyOnly],
+  );
   if (hideWhenEmpty && cards.length === 0 && !historyOnly) return null;
 
   return (
     <div className="space-y-3">
       {title && cards.length > 0 ? <h3 className="text-sm font-semibold">{title}</h3> : null}
+      {historyOnly && historySummary ? (
+        <ApprovedHistoryKpiStrip summary={historySummary} variant="correction" />
+      ) : null}
       {historyOnly ? (
         <MissedPunchApprovedHistoryFilters
           filters={historyFilters}

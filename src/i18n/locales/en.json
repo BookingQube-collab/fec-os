@@ -11419,7 +11419,11 @@
         "byStatusTitle": "By status",
         "byStatusHint": "Fully approved versus still moving through the chain after your approval.",
         "approvedCount": "Corrections",
-        "unassignedDept": "Unassigned"
+        "unassignedDept": "Unassigned",
+        "kpiStrip": "Approved correction summary",
+        "kpiTotal": "Total received",
+        "kpiApproved": "Fully approved",
+        "kpiInProgress": "Still in chain"
       },
       "leaveApprovedHistory": {
         "filterHint": "{{count}} leave requests match these filters.",
@@ -11440,7 +11444,11 @@
         "byStatusTitle": "By status",
         "byStatusHint": "Fully approved versus still moving through the chain after your approval.",
         "approvedCount": "Leave",
-        "unassignedDept": "Unassigned"
+        "unassignedDept": "Unassigned",
+        "kpiStrip": "Approved leave summary",
+        "kpiTotal": "Total received",
+        "kpiApproved": "Fully approved",
+        "kpiInProgress": "Still in chain"
       },
       "correctionTabFillHint": "Copy roster shift times onto days with no device punch.",
       "correctionTabRequestHint": "Ask to fix a wrong punch-in or punch-out for yourself or your team.",

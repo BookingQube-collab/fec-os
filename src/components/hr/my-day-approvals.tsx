@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { ApprovedHistoryKpiStrip } from "@/components/attendance-hr/approved-history-kpi-strip";
 import { MissedPunchApprovedHistoryCharts } from "@/components/attendance-hr/missed-punch-approved-history-charts";
 import { MissedPunchApprovedHistoryFilters } from "@/components/attendance-hr/missed-punch-approved-history-filters";
 import { MissedPunchApprovalQueue } from "@/components/attendance-hr/missed-punch-approval-queue";
@@ -26,6 +27,7 @@ import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import {
   EMPTY_APPROVED_HISTORY_FILTERS,
   filterApprovedHistoryRows,
+  summarizeApprovedHistory,
   uniqueApprovedHistoryDepartments,
   uniqueApprovedHistoryLocationIds,
   type ApprovedHistoryFilters,
@@ -80,6 +82,7 @@ function leaveHistoryRowLike(row: LeaveListRow): ApprovedHistoryRowLike {
     staffName: row.staffName,
     employeeCode: row.employeeCode,
     status: row.status,
+    leaveType: row.leaveType,
     steps: row.steps ?? [],
   };
 }
@@ -246,6 +249,10 @@ export function MyDayLeaveApprovals({
     () => (historyOnly ? displayRows.map(leaveHistoryRowLike) : []),
     [displayRows, historyOnly],
   );
+  const historySummary = useMemo(
+    () => (historyOnly ? summarizeApprovedHistory(displayRows.map(leaveHistoryRowLike)) : null),
+    [displayRows, historyOnly],
+  );
 
   if (reports.isPending || !show) return null;
 
@@ -289,6 +296,9 @@ export function MyDayLeaveApprovals({
             ? t("hr.me.leaveApprovedTitle", { defaultValue: "Leave you already handled" })
             : t("hr.me.leaveApprovalsTitle")}
         </h3>
+      ) : null}
+      {historyOnly && historySummary ? (
+        <ApprovedHistoryKpiStrip summary={historySummary} variant="leave" />
       ) : null}
       {historyOnly ? (
         <MissedPunchApprovedHistoryFilters

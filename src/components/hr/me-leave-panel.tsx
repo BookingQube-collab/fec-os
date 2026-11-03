@@ -8,6 +8,7 @@ import { MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useHasDirectReports, useMyDirectReports } from "@/hooks/use-my-direct-reports";
+import { useMyLeaveRequests } from "@/hooks/queries/use-employee-self";
 import { listLeaveRequests } from "@/lib/hr-leave.functions";
 import { mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
 import { queryKeys } from "@/lib/query-keys";
@@ -24,6 +25,15 @@ function hashPrefersLeaveApprove(): boolean {
   if (typeof window === "undefined") return false;
   const hash = window.location.hash.replace(/^#/, "");
   return hash === "me-leave-approvals" || hash === "me-leave";
+}
+
+function TabCount({ count }: { count: number | null }) {
+  if (count == null) return null;
+  return (
+    <span className="ms-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary/15 px-1.5 text-[0.65rem] font-semibold tabular-nums text-primary">
+      {count}
+    </span>
+  );
 }
 
 export function MeLeavePanel({
@@ -67,7 +77,22 @@ export function MeLeavePanel({
     enabled: showApprove && !reports.isPending,
     staleTime: STALE.people,
   });
-  const pendingCount = pendingQ.data?.length ?? 0;
+  const approvedQ = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "my-day-leave-approved" }),
+    queryFn: () => listLeaveRequests({ approvalsHistory: true }),
+    enabled: showApprove && !reports.isPending,
+    staleTime: STALE.people,
+  });
+  const mineQ = useMyLeaveRequests(true);
+
+  const pendingCount = pendingQ.isPending ? null : (pendingQ.data?.length ?? 0);
+  const approvedCount = approvedQ.isPending ? null : (approvedQ.data?.length ?? 0);
+  const requestCount = mineQ.isPending ? null : (mineQ.data?.length ?? 0);
+  const tabCount: Record<LeaveJob, number | null> = {
+    approve: pendingCount,
+    approved: approvedCount,
+    request: requestCount,
+  };
 
   const [job, setJob] = useState<LeaveJob | null>(null);
   const pickedDefault = useRef(false);
@@ -77,7 +102,7 @@ export function MeLeavePanel({
     if (showApprove && !reports.isPending && pendingQ.isPending) return;
     if (reportsPending) return;
 
-    const preferApprove = hashPrefersLeaveApprove() || pendingCount > 0;
+    const preferApprove = hashPrefersLeaveApprove() || (pendingCount ?? 0) > 0;
     if (pickedDefault.current) {
       if (hashIsLeaveApproveDeepLink() && jobs.includes("approve") && job !== "approve") {
         setJob("approve");
@@ -176,11 +201,7 @@ export function MeLeavePanel({
         {jobs.map((id) => (
           <TabsTrigger key={id} value={id} className="shrink-0">
             {jobMeta[id].label}
-            {id === "approve" && pendingCount > 0 ? (
-              <span className="ms-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary/15 px-1.5 text-[0.65rem] font-semibold tabular-nums text-primary">
-                {pendingCount}
-              </span>
-            ) : null}
+            <TabCount count={tabCount[id]} />
           </TabsTrigger>
         ))}
       </TabsList>

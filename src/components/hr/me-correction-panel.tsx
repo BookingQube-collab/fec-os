@@ -79,7 +79,26 @@ export function MeCorrectionPanel({
     enabled: showApprove && !reports.isPending,
     staleTime: STALE.people,
   });
-  const pendingCount = pendingQ.data?.length ?? 0;
+  const approvedQ = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-approved" }),
+    queryFn: () => listAttendanceCorrections({ queue: "approved" }),
+    enabled: showApprove && !reports.isPending,
+    staleTime: STALE.people,
+  });
+  const mineQ = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-mine" }),
+    queryFn: () => listAttendanceCorrections({ queue: "mine" }),
+    enabled: showRequest && !reportsPending,
+    staleTime: STALE.people,
+  });
+  const pendingCount = pendingQ.isPending ? null : (pendingQ.data?.length ?? 0);
+  const approvedCount = approvedQ.isPending ? null : (approvedQ.data?.length ?? 0);
+  const requestCount = mineQ.isPending ? null : (mineQ.data?.length ?? 0);
+  const tabCount: Partial<Record<CorrectionJob, number | null>> = {
+    approve: pendingCount,
+    approved: approvedCount,
+    request: requestCount,
+  };
 
   const [job, setJob] = useState<CorrectionJob | null>(null);
   const pickedDefault = useRef(false);
@@ -89,7 +108,7 @@ export function MeCorrectionPanel({
     if (showApprove && !reports.isPending && pendingQ.isPending) return;
     if (showRequest && reportsPending) return;
 
-    const preferApprove = hashPrefersApprove() || pendingCount > 0;
+    const preferApprove = hashPrefersApprove() || (pendingCount ?? 0) > 0;
     // Only the Approve deep link re-selects after the first pick (not #me-correction).
     if (pickedDefault.current) {
       if (hashIsApproveDeepLink() && jobs.includes("approve") && job !== "approve") {
@@ -186,16 +205,19 @@ export function MeCorrectionPanel({
       className="space-y-1"
     >
       <TabsList className="ess-tabs w-full justify-start" aria-label={t("hr.me.correction")}>
-        {jobs.map((id) => (
-          <TabsTrigger key={id} value={id} className="shrink-0">
-            {jobMeta[id].label}
-            {id === "approve" && pendingCount > 0 ? (
-              <span className="ms-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary/15 px-1.5 text-[0.65rem] font-semibold tabular-nums text-primary">
-                {pendingCount}
-              </span>
-            ) : null}
-          </TabsTrigger>
-        ))}
+        {jobs.map((id) => {
+          const count = tabCount[id];
+          return (
+            <TabsTrigger key={id} value={id} className="shrink-0">
+              {jobMeta[id].label}
+              {count != null ? (
+                <span className="ms-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary/15 px-1.5 text-[0.65rem] font-semibold tabular-nums text-primary">
+                  {count}
+                </span>
+              ) : null}
+            </TabsTrigger>
+          );
+        })}
       </TabsList>
       {jobs.map((id) => (
         <TabsContent key={id} value={id} className="space-y-3">
