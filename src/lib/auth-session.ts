@@ -157,7 +157,11 @@ export async function fetchAuthSession(
           throw new Error("Auth session user mismatch");
         }
       }
-      if (data.user?.id) writeSessionCache(queryClient, data.user.id, data);
+      // Never hydrate a sticky empty role cache — that becomes Access pending for everyone
+      // when /api/auth/session briefly returns []. Callers retry until roles appear.
+      if (data.user?.id && Array.isArray(data.roles) && data.roles.length > 0) {
+        writeSessionCache(queryClient, data.user.id, data);
+      }
       return data;
     })
     .catch((error) => {

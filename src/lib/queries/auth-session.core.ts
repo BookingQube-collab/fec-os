@@ -44,11 +44,18 @@ type ProfileDbRow = {
  * Prefer service-role reads (same as getUserRoles). Cookie-scoped PostgREST
  * sometimes returns zero rows under RLS even when auth.uid() matches — that
  * surfaces as "Access pending" while capability APIs still work.
+ *
+ * Inverse failure mode: a misconfigured service key (anon/publishable) runs
+ * without auth.uid(), RLS returns [], and every login gets Access pending.
+ * Never trust an empty admin role list without verifying the user client.
  */
 async function loadProfileAndRoles(
   userClient: SupabaseClient,
   userId: string,
 ): Promise<{ profile: ProfileDbRow | null; roles: RoleAssignment[] }> {
+  let adminProfile: ProfileDbRow | null = null;
+  let adminRoles: RoleAssignment[] | null = null;
+
   try {
     const [{ data: profile, error: profileErr }, { data: rolesData, error: rolesErr }] =
       await Promise.all([
@@ -63,10 +70,11 @@ async function loadProfileAndRoles(
           .eq("user_id", userId),
       ]);
     if (!profileErr && !rolesErr) {
-      return {
-        profile: (profile as ProfileDbRow) ?? null,
-        roles: (rolesData ?? []) as RoleAssignment[],
-      };
+      adminProfile = (profile as ProfileDbRow) ?? null;
+      adminRoles = (rolesData ?? []) as RoleAssignment[];
+      if (adminRoles.length > 0) {
+        return { profile: adminProfile, roles: adminRoles };
+      }
     }
   } catch {
     /* service role missing — fall back to the user-scoped client */
@@ -88,9 +96,25 @@ async function loadProfileAndRoles(
   if (profileErr) throw profileErr;
   if (rolesErr) throw rolesErr;
 
+  const userRoles = (rolesData ?? []) as RoleAssignment[];
+  const userProfile = (profile as ProfileDbRow) ?? null;
+
+  if (userRoles.length > 0) {
+    if (adminRoles && adminRoles.length === 0) {
+      console.warn(
+        "[auth/session] user_roles empty via admin but present via user client — check SUPABASE_SERVICE_ROLE_KEY",
+        userId,
+      );
+    }
+    return {
+      profile: userProfile ?? adminProfile,
+      roles: userRoles,
+    };
+  }
+
   return {
-    profile: (profile as ProfileDbRow) ?? null,
-    roles: (rolesData ?? []) as RoleAssignment[],
+    profile: adminProfile ?? userProfile,
+    roles: adminRoles ?? userRoles,
   };
 }
 

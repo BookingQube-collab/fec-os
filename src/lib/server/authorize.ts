@@ -38,15 +38,20 @@ export async function getUserRoles(
 
   const task = (async () => {
     const timer = createTimer("getUserRoles", "user_roles.select");
+    // Admin empty-without-error is NOT authoritative: a mis-set service key (anon)
+    // hits RLS with no auth.uid() and returns [] for every user → Access pending.
+    let adminRoles: AppRole[] | null = null;
     try {
       const { data, error } = await supabaseAdmin
         .from("user_roles")
         .select("role")
         .eq("user_id", userId);
       if (!error) {
-        const roles = (data ?? []).map((r) => r.role as AppRole);
-        timer.end({ rowCount: roles.length });
-        return roles;
+        adminRoles = (data ?? []).map((r) => r.role as AppRole);
+        if (adminRoles.length > 0) {
+          timer.end({ rowCount: adminRoles.length });
+          return adminRoles;
+        }
       }
     } catch {
       /* service role missing — fall back to the user-scoped client */
@@ -60,8 +65,13 @@ export async function getUserRoles(
       throw error;
     }
     const roles = (data ?? []).map((r) => r.role as AppRole);
+    if (roles.length === 0 && adminRoles && adminRoles.length === 0) {
+      console.warn("[auth] user_roles empty via admin and user client", userId);
+    } else if (roles.length > 0 && adminRoles && adminRoles.length === 0) {
+      console.warn("[auth] user_roles empty via admin but present via user client", userId);
+    }
     timer.end({ rowCount: roles.length });
-    return roles;
+    return roles.length > 0 ? roles : (adminRoles ?? roles);
   })();
 
   rolesInflight.set(inflightKey, task);

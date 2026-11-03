@@ -29,7 +29,7 @@ function AuthShellSkeleton() {
 
 export function ProtectedGate({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
-  const { user, loading, roles, rolesSettled } = useAuth();
+  const { user, loading, roles, rolesSettled, refreshProfile } = useAuth();
   const catalog = useEnglishCatalog();
   const router = useRouter();
   const shellReady = useRef(false);
@@ -60,6 +60,13 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
         <div className="max-w-md rounded-lg border border-border bg-card p-8 text-center">
           <h2 className="text-lg font-semibold">{t("auth.accessPending")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{t("auth.accessPendingBody")}</p>
+          <button
+            type="button"
+            className="mt-4 text-sm font-medium text-foreground underline"
+            onClick={() => void refreshProfile()}
+          >
+            {t("common.tryAgain")}
+          </button>
         </div>
       </div>
     );

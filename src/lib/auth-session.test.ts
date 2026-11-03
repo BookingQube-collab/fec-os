@@ -82,6 +82,37 @@ describe("auth-session hydration", () => {
     expect(qc.getQueryData(queryKeys.auth.roles(uid))).toBeUndefined();
   });
 
+  it("does not hydrate Access-pending when session returns empty roles", async () => {
+    const qc = new QueryClient();
+    const uid = "user-hoo";
+    const payload = {
+      user: { id: uid, email: "hoo@example.com" },
+      profile: {
+        id: uid,
+        display_name: "HoO",
+        employee_code: null,
+        preferred_language: "en",
+        avatar_url: null,
+        reports_to_head_of_operations: false,
+      },
+      roles: [] as { role: string; role_level: null; location_ids: null }[],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const data = await fetchAuthSession(uid, qc);
+    expect(data.roles).toHaveLength(0);
+    expect(isAuthSessionHydrated(uid, qc)).toBe(false);
+    expect(qc.getQueryData(queryKeys.auth.roles(uid))).toBeUndefined();
+  });
+
   it("refetches when cached profile lacks reports_to_head_of_operations", async () => {
     const qc = new QueryClient();
     const uid = "user-russell";

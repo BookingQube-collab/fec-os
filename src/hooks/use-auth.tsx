@@ -11,6 +11,7 @@ import {
   isAuthSessionHydrated,
   shouldHardResetAuthSession,
   type AuthProfile,
+  type AuthSessionPayload,
 } from "@/lib/auth-session";
 import { listCapabilityGrants } from "@/lib/admin.functions";
 import {
@@ -121,17 +122,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const loadUserData = async (uid: string) => {
       let lastError: unknown;
+      let lastEmpty: AuthSessionPayload | null = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const data = await fetchAuthSession(uid, queryClient);
           if (!mounted) return;
           setProfile(data.profile);
           setRoles(data.roles);
-          setRolesSettled(true);
-          await hydrateCapabilityGrants(
-            data.capabilityGrants ? { fromSession: data.capabilityGrants } : undefined,
-          );
-          return;
+          if (data.roles.length > 0) {
+            setRolesSettled(true);
+            await hydrateCapabilityGrants(
+              data.capabilityGrants ? { fromSession: data.capabilityGrants } : undefined,
+            );
+            return;
+          }
+          // Empty roles: keep retrying — do not settle Access pending on a transient miss.
+          lastEmpty = data;
+          lastError = new Error("Auth session returned no roles");
+          if (attempt < 2) {
+            clearAuthSessionCache(queryClient);
+            await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+          }
         } catch (error) {
           lastError = error;
           if (attempt < 2) {
@@ -143,7 +154,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       // Prefer cached roles over a false "no role" settlement.
       if (!applyUserData(uid)) {
-        setRolesSettled(false);
+        if (lastEmpty) {
+          setProfile(lastEmpty.profile);
+          setRoles(lastEmpty.roles);
+          setRolesSettled(true);
+        } else {
+          setRolesSettled(false);
+        }
       }
     };
 
@@ -221,8 +238,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [queryClient]);
 
-  // Soft recovery: user present but roles never settled (cookie lag / transient 401).
-  // Retry a few times; stay on skeleton rather than a false "Access pending".
+  // Soft recovery while roles are unknown (cookie lag / transient 401 / empty miss during load).
+  // Settled empty uses Access pending + Retry — do not loop forever for true no-role accounts.
   useEffect(() => {
     if (!user || rolesSettled || loading) return;
     let cancelled = false;
@@ -236,9 +253,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setProfile(data.profile);
         setRoles(data.roles);
-        setRolesSettled(true);
+        if (data.roles.length > 0) {
+          setRolesSettled(true);
+          return;
+        }
+        if (attempts >= 5) setRolesSettled(true);
       } catch (error) {
         console.warn("[auth] Retry session profile/roles failed", error);
+        if (attempts >= 5) setRolesSettled(true);
       }
     };
     const timer = window.setInterval(() => void tick(), 1500);
@@ -267,7 +289,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await fetchAuthSession(user.id, queryClient);
       setProfile(data.profile);
       setRoles(data.roles);
+      // Only settle empty after an explicit refresh attempt (Retry on Access pending).
       setRolesSettled(true);
+      if (data.roles.length > 0) {
+        await hydrateCapabilityGrants(
+          data.capabilityGrants ? { fromSession: data.capabilityGrants } : undefined,
+        );
+      }
       return data.profile;
     } catch (error) {
       console.warn("[auth] Failed to refresh profile", error);
