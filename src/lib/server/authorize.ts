@@ -75,7 +75,8 @@ export async function getUserRoles(
 const rolesInflight = new Map<string, Promise<AppRole[]>>();
 
 async function ensureUserRoles(context: AuthContext): Promise<AppRole[]> {
-  if (context.roles) return context.roles;
+  // [] is truthy — never trust an empty cache/cookie or every route 403s until TTL.
+  if (context.roles && context.roles.length > 0) return context.roles;
   context.roles = await getUserRoles(context.supabase, context.userId);
   updateAuthRolesCache(context.userId, context.roles);
   try {

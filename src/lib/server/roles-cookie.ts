@@ -50,6 +50,8 @@ export function readRolesCookie(cookieStore: CookieStore, userId: string): AppRo
     if (payload.u !== userId) return null;
     if (typeof payload.e !== "number" || Date.now() > payload.e) return null;
     if (!Array.isArray(payload.r)) return null;
+    // Empty must not stick — a bad write used to 403 every API for ~5 minutes.
+    if (payload.r.length === 0) return null;
     return payload.r;
   } catch {
     return null;
@@ -59,13 +61,18 @@ export function readRolesCookie(cookieStore: CookieStore, userId: string): AppRo
 export function writeRolesCookie(cookieStore: CookieStore, userId: string, roles: AppRole[]): void {
   const secret = signingSecret();
   if (!secret) return;
-  const payload: RolesCookiePayload = {
-    u: userId,
-    r: roles,
-    e: Date.now() + ROLES_COOKIE_TTL_SEC * 1000,
-  };
-  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   try {
+    // Never persist an empty role set; force the next request to re-query user_roles.
+    if (roles.length === 0) {
+      cookieStore.delete(ROLES_COOKIE_NAME);
+      return;
+    }
+    const payload: RolesCookiePayload = {
+      u: userId,
+      r: roles,
+      e: Date.now() + ROLES_COOKIE_TTL_SEC * 1000,
+    };
+    const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
     cookieStore.set(ROLES_COOKIE_NAME, `${body}.${sign(body, secret)}`, {
       httpOnly: true,
       sameSite: "lax",
