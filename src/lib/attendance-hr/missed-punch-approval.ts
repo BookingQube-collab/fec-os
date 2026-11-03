@@ -79,6 +79,11 @@ export type ApprovalDirectory = {
    * so Mary holds the Sr. Site seat (Ashfaq stays on the supervisor submit seat).
    */
   siteSupervisorManagerUserIdByStaffId: ReadonlyMap<string, string>;
+  /**
+   * Nearest Venue / Site / line Supervisor up the reporting chain (leave manager seat).
+   * Walks past Team Leaders; never Sr. Site or HoO / F&B (those are later seats).
+   */
+  leaveSupervisorManagerUserIdByStaffId?: ReadonlyMap<string, string>;
   branchGmUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   siteSupervisorUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   /**

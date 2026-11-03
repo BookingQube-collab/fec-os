@@ -67,6 +67,7 @@ import {
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
+import { nearestLeaveSupervisorUserId } from "@/lib/hr-leave-routing";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
   loadAttendanceListingReportingTreeStaffIds,
@@ -375,11 +376,20 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     opsManagerUserIdsByLocationId.set(locationId, list);
   }
 
-  const siteSupervisorManagerUserIdByStaffId = await loadSiteSupervisorManagerUserIds(uniqueStaff);
+  const reportingChain = await loadReportingManagerChain(uniqueStaff);
+  const siteSupervisorManagerUserIdByStaffId = mapSiteSupervisorManagerUserIds(
+    uniqueStaff,
+    reportingChain,
+  );
+  const leaveSupervisorManagerUserIdByStaffId = mapLeaveSupervisorManagerUserIds(
+    uniqueStaff,
+    reportingChain,
+  );
 
   return {
     reportingManagerUserIdByStaffId,
     siteSupervisorManagerUserIdByStaffId,
+    leaveSupervisorManagerUserIdByStaffId,
     branchGmUserIdsByLocationId,
     siteSupervisorUserIdsByLocationId,
     srSiteSupervisorUserIds: [...srSiteSupervisorUserIds],
@@ -393,15 +403,17 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
 }
 
 /**
- * Nearest Sr. Site Supervisor login for each staff id (Mary). Venue supervisors are skipped.
+ * Shared reporting-chain walk used by Sr. Site and leave Supervisor lookups.
  */
-async function loadSiteSupervisorManagerUserIds(staffIds: string[]): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
-  const unique = [...new Set(staffIds.filter(Boolean))];
-  if (!unique.length) return result;
-
+async function loadReportingManagerChain(staffIds: string[]): Promise<{
+  managerOf: Map<string, string>;
+  managerByStaffId: Map<
+    string,
+    { userId: string | null; jobTitle: string | null; staffRole: string | null }
+  >;
+}> {
   const managerOf = new Map<string, string>();
-  let frontier = unique;
+  let frontier = staffIds;
   const seen = new Set<string>();
   for (let depth = 0; depth < 25 && frontier.length > 0; depth += 1) {
     const need = frontier.filter((id) => !seen.has(id));
@@ -447,12 +459,39 @@ async function loadSiteSupervisorManagerUserIds(staffIds: string[]): Promise<Map
       });
     }
   }
+  return { managerOf, managerByStaffId };
+}
 
-  for (const staffId of unique) {
+type ReportingManagerChain = Awaited<ReturnType<typeof loadReportingManagerChain>>;
+
+/** Nearest Sr. Site Supervisor login for each staff id (Mary). Venue supervisors are skipped. */
+function mapSiteSupervisorManagerUserIds(
+  staffIds: readonly string[],
+  chain: ReportingManagerChain,
+): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const staffId of staffIds) {
     const userId = nearestSiteSupervisorUserId({
       staffId,
-      reportingManagerStaffIdByStaffId: managerOf,
-      managerByStaffId,
+      reportingManagerStaffIdByStaffId: chain.managerOf,
+      managerByStaffId: chain.managerByStaffId,
+    });
+    if (userId) result.set(staffId, userId);
+  }
+  return result;
+}
+
+/** Nearest Venue / line Supervisor login for leave manager seat (walks past Team Leaders). */
+function mapLeaveSupervisorManagerUserIds(
+  staffIds: readonly string[],
+  chain: ReportingManagerChain,
+): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const staffId of staffIds) {
+    const userId = nearestLeaveSupervisorUserId({
+      staffId,
+      reportingManagerStaffIdByStaffId: chain.managerOf,
+      managerByStaffId: chain.managerByStaffId,
     });
     if (userId) result.set(staffId, userId);
   }

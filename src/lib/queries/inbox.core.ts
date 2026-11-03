@@ -395,63 +395,103 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
 }
 
 async function fetchLeaveApprovalItems(context: AuthContext, roles: AppRole[]): Promise<InboxItem[]> {
-  const manage = canUserDo(roles, "hr.leave.manage");
-  const managerCap = canUserDo(roles, "hr.leave.approve_manager");
+  // Match Leave Approve queue: only seats this login can act on (HoO must not see
+  // Waiting: Supervisor as actionable — same canApproveLeaveOnMyDay seat-gate).
   try {
     const { loadManagerTeamStaffIds, loadSupervisorOtTeamStaffIds } = await import(
       "@/lib/reporting-manager-access.server"
     );
     const { loadLinkedStaffRecord } = await import("@/lib/linked-staff-job-title.server");
-    const { isSiteSupervisorTitle } = await import("@/lib/attendance-hr/missed-punch-approval");
+    const { isHeadOfOperationsTitle, isSiteSupervisorTitle } = await import(
+      "@/lib/attendance-hr/missed-punch-approval"
+    );
+    const { isFnbManager } = await import("@/lib/arcade/access");
+    const { isLeaveSiteStepActor } = await import("@/lib/hr-leave-routing");
+    const { canApproveLeaveOnMyDay } = await import("@/lib/hr/my-day-approvals");
+    const { leaveStepSeatLabel } = await import("@/lib/hr-leave");
+    const { opsApprovalLaneForStaff } = await import("@/lib/approval-ops-routing");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
     const linked = await loadLinkedStaffRecord(context.userId);
-    const teamStaffIds =
-      linked?.id && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole)
+    const jobTitle = linked?.jobTitle ?? null;
+    const department = linked?.department ?? null;
+    const staffRole = linked?.staffRole ?? null;
+    const myStaffId = linked?.id ?? null;
+    const headOfOperations = isHeadOfOperationsTitle(jobTitle);
+    const fnbManager = isFnbManager(jobTitle, department);
+    const srSiteActor = isLeaveSiteStepActor(jobTitle);
+    const titleCompanyReview = headOfOperations || fnbManager;
+    const manage = canUserDo(roles, "hr.leave.manage");
+    const canReviewCompany =
+      (manage && !srSiteActor && !titleCompanyReview) || titleCompanyReview || srSiteActor;
+
+    const teamStaffIds = canReviewCompany
+      ? []
+      : linked?.id && isSiteSupervisorTitle(jobTitle, staffRole)
         ? (await loadSupervisorOtTeamStaffIds(context.userId)).teamStaffIds
         : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
-    if (!manage && !managerCap && teamStaffIds.length === 0) return [];
+    if (!canReviewCompany && teamStaffIds.length === 0) return [];
 
-    const leaveDb = !manage && !managerCap ? supabaseAdmin : context.supabase;
-    let query = leaveDb
+    let query = supabaseAdmin
       .from("hr_leave_requests")
-      .select("id, staff_id, leave_type, date_from, current_step_role, created_at, updated_at")
+      .select(
+        "id, staff_id, leave_type, date_from, current_step_role, created_at, updated_at, staff(full_name, job_title, department)",
+      )
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(40);
-    if (!manage && !managerCap) {
+    if (titleCompanyReview) query = query.eq("current_step_role", "ops");
+    else if (srSiteActor) query = query.eq("current_step_role", "site");
+    else if (!canReviewCompany) {
       query = query.in("staff_id", teamStaffIds).eq("current_step_role", "manager");
     }
     const { data, error } = await query;
     if (error) throw error;
-    const rows = (data ?? []).slice(0, 12);
-    const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
-    const names = new Map<string, string>();
-    if (staffIds.length) {
-      const { data: staff } = await context.supabase.from("staff").select("id, full_name").in("id", staffIds);
-      for (const person of staff ?? []) {
-        if (person.full_name) names.set(person.id as string, String(person.full_name));
-      }
-    }
-    return rows.map((row) => {
-      const who = (row.staff_id && names.get(row.staff_id)) || "Staff";
-      const date = row.date_from ? String(row.date_from).slice(0, 10) : "";
-      const step = row.current_step_role ? String(row.current_step_role) : "manager";
-      return item({
-        id: `leave:${row.id}`,
-        kind: "notification",
-        category: "hr_leave",
-        title: "Leave request needs your approval",
-        titleKey: null,
-        body: `${who} submitted a leave request${date ? ` from ${date}` : ""}. Waiting on ${step}.`,
-        severity: "warning",
-        actionUrl: "/hr/me#me-leave-approvals",
-        readAt: null,
-        createdAt: asIso(row.updated_at ?? row.created_at),
-        sourceType: "hr_leave",
-        sourceId: row.id,
-        persisted: false,
+
+    const teamSet = new Set(teamStaffIds);
+    return (data ?? [])
+      .filter((row) => {
+        const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
+        const subjectTitle = (staff as { job_title?: string | null } | null)?.job_title ?? null;
+        const subjectDept = (staff as { department?: string | null } | null)?.department ?? null;
+        const opsLane = opsApprovalLaneForStaff(subjectTitle, subjectDept);
+        return canApproveLeaveOnMyDay({
+          roles,
+          stepRole: (row.current_step_role as string | null) ?? null,
+          isOwnRequest: Boolean(myStaffId && row.staff_id === myStaffId),
+          isLineManager: Boolean(row.staff_id && teamSet.has(String(row.staff_id))),
+          jobTitle,
+          department,
+          opsLane,
+        });
+      })
+      .slice(0, 12)
+      .map((row) => {
+        const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
+        const who =
+          (staff as { full_name?: string | null } | null)?.full_name?.trim() || "Staff";
+        const date = row.date_from ? String(row.date_from).slice(0, 10) : "";
+        const subjectTitle = (staff as { job_title?: string | null } | null)?.job_title ?? null;
+        const subjectDept = (staff as { department?: string | null } | null)?.department ?? null;
+        const seat = leaveStepSeatLabel(row.current_step_role, {
+          opsLane: opsApprovalLaneForStaff(subjectTitle, subjectDept),
+        });
+        return item({
+          id: `leave:${row.id}`,
+          kind: "notification",
+          category: "hr_leave",
+          title: "Leave request needs your approval",
+          titleKey: null,
+          body: `${who} submitted a leave request${date ? ` from ${date}` : ""}. Waiting on ${seat}.`,
+          severity: "warning",
+          actionUrl: "/hr/me#me-leave-approvals",
+          readAt: null,
+          createdAt: asIso(row.updated_at ?? row.created_at),
+          sourceType: "hr_leave",
+          sourceId: row.id,
+          persisted: false,
+        });
       });
-    });
   } catch {
     return [];
   }

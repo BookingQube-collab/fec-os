@@ -11,7 +11,7 @@ import {
   type OpsApprovalLane,
 } from "@/lib/approval-ops-routing";
 import type { HrLeaveApprovalRole } from "@/lib/hr-leave";
-import { isLeaveSiteStepActor } from "@/lib/hr-leave-routing";
+import { isLeaveOpsStepActor, isLeaveSiteStepActor } from "@/lib/hr-leave-routing";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 
 const LEAVE_STEPS = new Set<HrLeaveApprovalRole>(["manager", "site", "ops", "hr"]);
@@ -35,8 +35,8 @@ function asRoles(roles: readonly string[]): AppRole[] {
  * A person does not approve their own request from this page.
  *
  * Title seats win over manage: Sr. Site with branch_gm (hr.leave.manage) still
- * only acts on the site step — manage must not clear HoO, legacy HR, or the
- * supervisor seat.
+ * only acts on the site step; HoO / F&B with regional_ops manage only act on ops —
+ * manage must not clear Supervisor, Sr. Site, or the wrong ops lane.
  */
 export function canApproveLeaveOnMyDay(input: {
   roles: readonly string[];
@@ -55,17 +55,27 @@ export function canApproveLeaveOnMyDay(input: {
   const managerCap = canUserDo(roles, "hr.leave.approve_manager");
   const step = input.stepRole as HrLeaveApprovalRole;
   const srSite = isLeaveSiteStepActor(input.jobTitle);
-  // Sr. Site holds only the site seat — manage must not unlock legacy HR either.
-  if (step === "hr") return manage && !srSite;
-  if (step === "site") return manage || srSite;
+  const opsTitle = isLeaveOpsStepActor(input.jobTitle, input.department);
+  // Title seats are exclusive — manage / approve_manager must not unlock other seats.
+  if (srSite) {
+    return step === "site";
+  }
+  if (opsTitle) {
+    if (step !== "ops") return false;
+    return canActOnOpsApprovalStep({
+      manage: false,
+      lane: input.opsLane ?? "head_of_operations",
+      actorJobTitle: input.jobTitle,
+      actorDepartment: input.department,
+    });
+  }
+  if (step === "hr") return manage;
+  if (step === "site") return manage;
   if (step === "manager") {
-    // Sr. Site holds the site seat — do not clear the supervisor step.
-    if (srSite) return false;
     return manage || managerCap || input.isLineManager;
   }
-  // Sr. Site manage (e.g. branch_gm) must not unlock the HoO / F&B seat.
   return canActOnOpsApprovalStep({
-    manage: manage && !srSite,
+    manage,
     lane: input.opsLane ?? "head_of_operations",
     actorJobTitle: input.jobTitle,
     actorDepartment: input.department,

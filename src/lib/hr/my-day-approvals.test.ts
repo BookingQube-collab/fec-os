@@ -89,7 +89,7 @@ describe("who may approve from My Day", () => {
     expect(canRequestAttendanceCorrection({ roles: ["cashier_host"], hasDirectReports: false })).toBe(true);
   });
 
-  it("lets a GM approve leave through the steps their role already holds, and site punches only at the line-manager step", () => {
+  it("lets a GM (no ops title) approve leave through the steps their role already holds, and site punches only at the line-manager step", () => {
     for (const step of ["manager", "ops", "hr"] as const) {
       expect(
         canApproveLeaveOnMyDay({
@@ -285,6 +285,49 @@ describe("who may approve from My Day", () => {
         jobTitle: "Head of Operations",
       }),
     ).toBe(true);
+  });
+
+  it("keeps HoO on the ops seat even with hr.leave.manage / approve_manager (regional_ops)", () => {
+    // Rajan: HoO title + regional_ops — manage must not unlock Waiting: Supervisor.
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["regional_ops"],
+        stepRole: "manager",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "Head of Operations",
+        opsLane: "head_of_operations",
+      }),
+    ).toBe(false);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["regional_ops"],
+        stepRole: "site",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "Head of Operations",
+        opsLane: "head_of_operations",
+      }),
+    ).toBe(false);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["regional_ops"],
+        stepRole: "ops",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "Head of Operations",
+        opsLane: "head_of_operations",
+      }),
+    ).toBe(true);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["regional_ops"],
+        stepRole: "hr",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "Head of Operations",
+      }),
+    ).toBe(false);
   });
 
   it("lets F&B Manager approve the ops step for F&B leave only, not Operations", () => {

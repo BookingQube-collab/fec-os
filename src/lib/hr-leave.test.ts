@@ -21,11 +21,13 @@ import {
   shouldFinalizeLeaveOnApprove,
 } from "./hr-leave";
 import {
+  isLeaveLineSupervisorTitle,
   isLeaveSiteStepActor,
   leaveApproverUserIdsForStep,
   leavePrintShowsSupervisorSeat,
   leaveSubjectSeatSkips,
   leaveTeamSubmitSkips,
+  nearestLeaveSupervisorUserId,
   resolveLeaveSupervisorRoute,
 } from "./hr-leave-routing";
 import type { ApprovalDirectory } from "./attendance-hr/missed-punch-approval";
@@ -135,6 +137,22 @@ describe("leave status transitions", () => {
     expect(leavePrintShowsSupervisorSeat("Crew / Attendant")).toBe(true);
     expect(leavePrintShowsSupervisorSeat("Supervisor")).toBe(true);
     expect(leavePrintShowsSupervisorSeat("Sr. Site Supervisor")).toBe(false);
+  });
+
+  it("opens Venue Supervisor / Supervisor own leave on Sr. Site (not Supervisor seat, no TL)", () => {
+    expect(leaveSubjectSeatSkips("Venue Supervisor", "venue_supervisor")).toEqual({
+      skipManagerSeat: true,
+      skipSiteSeat: false,
+    });
+    expect(leaveSubjectSeatSkips("Supervisor")).toEqual({
+      skipManagerSeat: true,
+      skipSiteSeat: false,
+    });
+    expect(leaveSubjectSeatSkips("Team Leader")).toBeNull();
+    expect(isLeaveLineSupervisorTitle("Venue Supervisor", "venue_supervisor")).toBe(true);
+    expect(isLeaveLineSupervisorTitle("Team Leader", "shift_lead")).toBe(false);
+    expect(isLeaveLineSupervisorTitle("Sr. Site Supervisor")).toBe(false);
+    expect(leaveOpeningStepRole(true, false)).toBe("site");
   });
 
   it("hides Supervisor print column unless a real supervisor seat is on the leave", () => {
@@ -419,13 +437,16 @@ describe("leave supervisor → Sr. Site → HoO routing", () => {
   const SR_SITE = "sr-site-user";
   const HOO = "hoo-user";
   const EMPLOYEE = "employee-user";
+  const TL = "team-leader-user";
+  const VENUE = "venue-supervisor-user";
 
   function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
     return {
       reportingManagerUserIdByStaffId: new Map([[STAFF, LINE]]),
-      siteSupervisorManagerUserIdByStaffId: new Map(),
+      siteSupervisorManagerUserIdByStaffId: new Map([[STAFF, SR_SITE]]),
+      leaveSupervisorManagerUserIdByStaffId: new Map([[STAFF, LINE]]),
       branchGmUserIdsByLocationId: new Map(),
-      siteSupervisorUserIdsByLocationId: new Map([[SITE, [SR_SITE]]]),
+      siteSupervisorUserIdsByLocationId: new Map([[SITE, [LINE, SR_SITE]]]),
       srSiteSupervisorUserIds: [SR_SITE],
       headOfOperationsUserIds: [HOO],
       fnbManagerUserIds: [],
@@ -437,7 +458,7 @@ describe("leave supervisor → Sr. Site → HoO routing", () => {
     };
   }
 
-  it("keeps Venue supervisor on manager and Sr. Site on site, then HoO on ops", () => {
+  it("employee leave: Venue supervisor on manager → Sr. Site on site → HoO on ops (no TL)", () => {
     const dir = directory();
     const args = {
       locationId: SITE,
@@ -451,11 +472,29 @@ describe("leave supervisor → Sr. Site → HoO routing", () => {
     expect(route.managerUserIds).toEqual([LINE]);
     expect(route.siteUserIds).toContain(SR_SITE);
     expect(leaveApproverUserIdsForStep(dir, "ops", args)).toEqual([HOO]);
+    expect(leaveApprovalStepsForRequester({ skipManagerSeat: false }).map((s) => s.stepRole)).toEqual([
+      "manager",
+      "site",
+      "ops",
+    ]);
+  });
+
+  it("supervisor leave: skips manager and opens on Sr. Site then HoO", () => {
+    expect(leaveSubjectSeatSkips("Venue Supervisor", "venue_supervisor")).toEqual({
+      skipManagerSeat: true,
+      skipSiteSeat: false,
+    });
+    expect(leaveApprovalStepsForRequester({ skipManagerSeat: true, skipSiteSeat: false })).toEqual([
+      { stepOrder: 1, stepRole: "manager", status: "skipped" },
+      { stepOrder: 2, stepRole: "site", status: "pending" },
+      { stepOrder: 3, stepRole: "ops", status: "pending" },
+    ]);
   });
 
   it("opens on Sr. Site when the named boss already is Sr. Site", () => {
     const dir = directory({
       reportingManagerUserIdByStaffId: new Map([[STAFF, SR_SITE]]),
+      leaveSupervisorManagerUserIdByStaffId: new Map(),
     });
     const route = resolveLeaveSupervisorRoute(dir, {
       locationId: SITE,
@@ -467,5 +506,67 @@ describe("leave supervisor → Sr. Site → HoO routing", () => {
     expect(route.openingStep).toBe("site");
     expect(route.managerUserIds).toEqual([]);
     expect(route.siteUserIds).toContain(SR_SITE);
+  });
+
+  it("does not assign Team Leader the manager seat — walks to Venue Supervisor", () => {
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[STAFF, TL]]),
+      leaveSupervisorManagerUserIdByStaffId: new Map([[STAFF, VENUE]]),
+      siteSupervisorUserIdsByLocationId: new Map([[SITE, [VENUE, SR_SITE]]]),
+    });
+    const route = resolveLeaveSupervisorRoute(dir, {
+      locationId: SITE,
+      staffId: STAFF,
+      requestedBy: EMPLOYEE,
+      requesterStaffId: STAFF,
+    });
+    expect(route.managerUserIds).toEqual([VENUE]);
+    expect(route.managerUserIds).not.toContain(TL);
+    expect(route.skipManagerSeat).toBe(false);
+    expect(route.openingStep).toBe("manager");
+  });
+
+  it("skips manager when only a Team Leader is named (no Venue Supervisor on the walk)", () => {
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[STAFF, TL]]),
+      leaveSupervisorManagerUserIdByStaffId: new Map(),
+      siteSupervisorUserIdsByLocationId: new Map([[SITE, [SR_SITE]]]),
+    });
+    const route = resolveLeaveSupervisorRoute(dir, {
+      locationId: SITE,
+      staffId: STAFF,
+      requestedBy: EMPLOYEE,
+      requesterStaffId: STAFF,
+    });
+    expect(route.managerUserIds).toEqual([]);
+    expect(route.skipManagerSeat).toBe(true);
+    expect(route.openingStep).toBe("site");
+  });
+
+  it("walks past Team Leader to Venue Supervisor for notify assignees", () => {
+    expect(
+      nearestLeaveSupervisorUserId({
+        staffId: STAFF,
+        reportingManagerStaffIdByStaffId: new Map([
+          [STAFF, "tl-staff"],
+          ["tl-staff", "venue-staff"],
+          ["venue-staff", "sr-staff"],
+        ]),
+        managerByStaffId: new Map([
+          [
+            "tl-staff",
+            { userId: TL, jobTitle: "Team Leader", staffRole: "shift_lead" },
+          ],
+          [
+            "venue-staff",
+            { userId: VENUE, jobTitle: "Venue Supervisor", staffRole: "venue_supervisor" },
+          ],
+          [
+            "sr-staff",
+            { userId: SR_SITE, jobTitle: "Sr. Site Supervisor", staffRole: "venue_supervisor" },
+          ],
+        ]),
+      }),
+    ).toBe(VENUE);
   });
 });

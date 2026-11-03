@@ -50,6 +50,7 @@ import {
 } from "@/lib/hr-leave";
 import { STAFF_SIGNATURES_BUCKET } from "@/lib/digital-signature";
 import {
+  isLeaveOpsStepActor,
   isLeaveSiteStepActor,
   leaveApproverUserIdsForStep,
   leaveSubjectSeatSkips,
@@ -846,8 +847,10 @@ export const listLeaveRequests = createAuthenticatedAction(
       srSiteActor = isLeaveSiteStepActor(actorJobTitle);
     }
     const titleCompanyReview = headOfOperations || fnbManager;
-    // Sr. Site with branch_gm still holds only the site seat on My Day — not company manage.
-    const canReviewCompany = (hrManage && !srSiteActor) || titleCompanyReview;
+    // Title seats win: Sr. Site / HoO / F&B keep company review for their seat only —
+    // hr.leave.manage on those titles must not unlock every pending leave.
+    const canReviewCompany =
+      (hrManage && !srSiteActor && !titleCompanyReview) || titleCompanyReview || srSiteActor;
     const teamIds =
       canReviewCompany || data.mineOnly
         ? []
@@ -855,7 +858,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     const scopedToTeam = !canReviewCompany && !data.mineOnly && teamIds.length > 0;
     const scopedToSelf =
       Boolean(data.mineOnly) ||
-      (!canReviewCompany && !scopedToTeam && !(data.approvals && srSiteActor));
+      (!canReviewCompany && !scopedToTeam && !(data.approvals && (srSiteActor || titleCompanyReview)));
     if (scopedToSelf && !staff?.id) return [];
     if (scopedToTeam && data.staffId && !teamIds.includes(data.staffId)) return [];
     // Reviewers of other people's leave need admin — title HoO/Sr. Site fail role_level RLS.
@@ -872,10 +875,10 @@ export const listLeaveRequests = createAuthenticatedAction(
     else if (!scopedToSelf && data.staffId) query = query.eq("staff_id", data.staffId);
     if (data.approvals) {
       query = query.eq("status", "pending");
-      // Title-based HoO / F&B only act on the ops seat (not supervisor / Sr. Site queues).
-      if (titleCompanyReview && !(hrManage && !srSiteActor)) query = query.eq("current_step_role", "ops");
+      // Title-based HoO / F&B only act on the ops seat (even with hr.leave.manage).
+      if (titleCompanyReview) query = query.eq("current_step_role", "ops");
       // Sr. Site holds the site seat — even when login also has hr.leave.manage (branch_gm).
-      if (srSiteActor && !titleCompanyReview) query = query.eq("current_step_role", "site");
+      else if (srSiteActor) query = query.eq("current_step_role", "site");
     } else if (data.status) query = query.eq("status", data.status);
     let { data: rows, error } = await query;
     if (error && /document_id|hr_employee_documents/i.test(error.message)) {
@@ -892,8 +895,8 @@ export const listLeaveRequests = createAuthenticatedAction(
       else if (!scopedToSelf && data.staffId) fallback = fallback.eq("staff_id", data.staffId);
       if (data.approvals) {
         fallback = fallback.eq("status", "pending");
-        if (titleCompanyReview && !(hrManage && !srSiteActor)) fallback = fallback.eq("current_step_role", "ops");
-        if (srSiteActor && !titleCompanyReview) fallback = fallback.eq("current_step_role", "site");
+        if (titleCompanyReview) fallback = fallback.eq("current_step_role", "ops");
+        else if (srSiteActor) fallback = fallback.eq("current_step_role", "site");
       } else if (data.status) fallback = fallback.eq("status", data.status);
       const retry = await fallback;
       if (retry.error) {
@@ -913,8 +916,9 @@ export const listLeaveRequests = createAuthenticatedAction(
       throw error;
     }
     let mapped = (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
-    // Lane-scoped company review: HoO sees Operations; F&B Manager sees F&B. HR manage keeps all.
-    if (data.approvals && !(hrManage && !srSiteActor)) {
+    // Lane-scoped company review: HoO sees Operations; F&B Manager sees F&B.
+    // Pure HR manage (no ops title) keeps all lanes; title seats stay lane-bound even with manage.
+    if (data.approvals && (titleCompanyReview || !(hrManage && !srSiteActor))) {
       if (headOfOperations && !fnbManager) {
         mapped = mapped.filter((row) => row.opsLane === "head_of_operations");
       } else if (fnbManager && !headOfOperations) {
@@ -1185,7 +1189,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
 
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, employee_code, location_id, user_id, hire_date, job_title, department")
+      .select("id, full_name, employee_code, location_id, user_id, hire_date, job_title, department, staff_role")
       .eq("id", requestedStaffId)
       .is("deleted_at", null)
       .maybeSingle();
@@ -1320,9 +1324,11 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           isOpsFinalizer: submitterIsOpsForTarget,
         });
     const teamSkips = teamOpening ? leaveTeamSubmitSkips(teamOpening) : null;
-    // Sr. Site's own leave (self or recorded): skip Supervisor + Sr. Site → open on HoO.
+    // Supervisor / Venue Supervisor own leave → Sr. Site then HoO.
+    // Sr. Site's own leave: skip Supervisor + Sr. Site → open on HoO.
     const subjectSkips = leaveSubjectSeatSkips(
       (staff as { job_title?: string | null }).job_title,
+      (staff as { staff_role?: string | null }).staff_role,
     );
     const skipManagerSeat = teamSkips
       ? teamSkips.skipManagerSeat
@@ -1546,6 +1552,7 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
     const actorJobTitle = (actorRow as { job_title?: string | null } | null)?.job_title ?? null;
     const actorDepartment = (actorRow as { department?: string | null } | null)?.department ?? null;
     const srSiteActor = isLeaveSiteStepActor(actorJobTitle);
+    const opsTitleActor = isLeaveOpsStepActor(actorJobTitle, actorDepartment);
     // Seat auth already checked below. Always admin — hr_leave_approvals write + leave update
     // require role_level >= 55 (Sr. Site / title HoO fail user-client RLS).
     const leaveDb = supabaseAdmin;
@@ -1566,9 +1573,10 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
       (staffRow as { job_title?: string | null } | null)?.job_title,
       (staffRow as { department?: string | null } | null)?.department,
     );
-    // Sr. Site with branch_gm (hr.leave.manage) must not clear the HoO / F&B seat.
+    // Title seats win: Sr. Site / HoO / F&B must not clear other seats via manage.
+    // Ops titles use title+lane only (manage would unlock the wrong ops lane).
     const canActOps = canActOnOpsApprovalStep({
-      manage: manage && !srSiteActor,
+      manage: manage && !srSiteActor && !opsTitleActor,
       lane: subjectLane,
       actorJobTitle,
       actorDepartment,
@@ -1605,26 +1613,37 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
     }
 
     if (stepRole === "hr") {
-      // Sr. Site with branch_gm (hr.leave.manage) must not clear the legacy HR seat.
-      if (srSiteActor || !manage) {
+      // Title seats (Sr. Site / HoO / F&B) must not clear the legacy HR seat via manage.
+      if (srSiteActor || opsTitleActor || !manage) {
         throw new ForbiddenError(
           srSiteActor
             ? "HR verification is not available to Sr. Site Supervisor."
-            : "HR verification requires hr.leave.manage.",
+            : opsTitleActor
+              ? "HR verification is not available to Head of Operations or F&B Manager."
+              : "HR verification requires hr.leave.manage.",
         );
       }
     }
     if (stepRole === "manager") {
-      // Sr. Site title is the site seat only — never the supervisor seat (even with manage).
+      // Title seats win — Sr. Site / HoO / F&B never clear the supervisor seat (even with manage).
       if (srSiteActor) {
         throw new ForbiddenError("Supervisor approval required before Sr. Site Supervisor.");
+      }
+      if (opsTitleActor) {
+        throw new ForbiddenError("Supervisor approval required before Head of Operations.");
       }
       if (!managerCap && !manage && !lineManager) {
         throw new ForbiddenError("Manager approval required.");
       }
     }
-    if (stepRole === "site" && !manage && !srSiteActor) {
-      throw new ForbiddenError("Sr. Site Supervisor approval required.");
+    if (stepRole === "site") {
+      // HoO / F&B never clear Sr. Site (even with manage). Pure HR manage still may.
+      if (opsTitleActor) {
+        throw new ForbiddenError("Sr. Site Supervisor approval required before Head of Operations.");
+      }
+      if (!manage && !srSiteActor) {
+        throw new ForbiddenError("Sr. Site Supervisor approval required.");
+      }
     }
     // Sr. Site holds a location seat — do not block on direct-report team membership.
     if (stepRole === "ops" && !canActOps) {
