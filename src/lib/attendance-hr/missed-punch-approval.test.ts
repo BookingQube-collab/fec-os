@@ -1068,6 +1068,49 @@ describe("missed punch approval chain", () => {
     ).toBe(false);
   });
 
+  it("keeps a Supervisor / Venue Supervisor own correction on Sr. Site even when the chart lists HoO as boss", () => {
+    const romelStaff = "romel-staff";
+    const romelUser = "romel-user";
+    const dir = directory({
+      // Broken / flat chart: Supervisor reports to HoO, but Mary is estate Sr. Site.
+      reportingManagerUserIdByStaffId: new Map([[romelStaff, RAJAN]]),
+      siteSupervisorManagerUserIdByStaffId: new Map(),
+      srSiteSupervisorUserIds: [MARY],
+      siteSupervisorUserIdsByLocationId: new Map([
+        [INF, [MARY]],
+        [KDS, [ASHFAQ]],
+      ]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      requesterLineManagerUserIds(dir, {
+        locationId: INF,
+        staffId: romelStaff,
+        requestedBy: romelUser,
+        requesterStaffId: romelStaff,
+      }),
+    ).toEqual([MARY]);
+    expect(
+      ownCorrectionRouteAfterLineManagerCheck(dir, {
+        locationId: INF,
+        staffId: romelStaff,
+        requestedBy: romelUser,
+        requesterStaffId: romelStaff,
+      }),
+    ).toBe("line_manager");
+    expect(correctionWaitingStep("line_manager")).toBe("manager");
+    const request = row({
+      staffId: romelStaff,
+      requestedBy: romelUser,
+      requesterStaffId: romelStaff,
+      currentStepRole: "manager",
+    });
+    expect(canUserActOnCorrection(dir, MARY, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
+    expect(canUserActOnCorrection(dir, romelUser, request)).toBe(false);
+    expect(shouldHealOwnCorrectionToOpsFirst(dir, request)).toBe(false);
+  });
+
   it("keeps crew under a site supervisor on the manager → HoO → HR ladder", () => {
     const dir = directory({
       reportingManagerUserIdByStaffId: new Map([[STAFF, MARY]]),
@@ -1178,16 +1221,47 @@ describe("missed punch approval chain", () => {
     ).toBe(false);
   });
 
-  it("sends an F&B peer who reports to the F&B Manager straight to the F&B ops seat", () => {
+  it("sends an F&B peer to Sr. Site first when Mary exists, else straight to the F&B ops seat", () => {
     const peerStaff = "fnb-supervisor-staff";
-    const dir = directory({
+    const withMary = directory({
       reportingManagerUserIdByStaffId: new Map([[peerStaff, RUBEN]]),
       fnbStaffIds: new Set([peerStaff]),
       fnbManagerUserIds: [RUBEN],
       headOfOperationsUserIds: [RAJAN],
     });
+    // Same rule as Operations supervisors: self → Sr. Site → F&B Manager when Mary is available.
     expect(
-      ownCorrectionRouteAfterLineManagerCheck(dir, {
+      ownCorrectionRouteAfterLineManagerCheck(withMary, {
+        locationId: INF,
+        staffId: peerStaff,
+        requestedBy: "fnb-peer-user",
+        requesterStaffId: peerStaff,
+      }),
+    ).toBe("line_manager");
+    expect(
+      canUserActOnCorrection(
+        withMary,
+        MARY,
+        row({
+          staffId: peerStaff,
+          requestedBy: "fnb-peer-user",
+          requesterStaffId: peerStaff,
+          currentStepRole: "manager",
+        }),
+      ),
+    ).toBe(true);
+
+    const noSrSite = directory({
+      reportingManagerUserIdByStaffId: new Map([[peerStaff, RUBEN]]),
+      fnbStaffIds: new Set([peerStaff]),
+      fnbManagerUserIds: [RUBEN],
+      headOfOperationsUserIds: [RAJAN],
+      srSiteSupervisorUserIds: [],
+      siteSupervisorUserIdsByLocationId: new Map(),
+      branchGmUserIdsByLocationId: new Map(),
+    });
+    expect(
+      ownCorrectionRouteAfterLineManagerCheck(noSrSite, {
         locationId: INF,
         staffId: peerStaff,
         requestedBy: "fnb-peer-user",
@@ -1200,8 +1274,8 @@ describe("missed punch approval chain", () => {
       requesterStaffId: peerStaff,
       currentStepRole: "ops",
     });
-    expect(canUserActOnCorrection(dir, RUBEN, request)).toBe(true);
-    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
+    expect(canUserActOnCorrection(noSrSite, RUBEN, request)).toBe(true);
+    expect(canUserActOnCorrection(noSrSite, RAJAN, request)).toBe(false);
   });
 
   it("finalizes an F&B Manager / HoO team correction at ops (no HR seat)", () => {

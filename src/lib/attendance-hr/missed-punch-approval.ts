@@ -422,9 +422,12 @@ export function punchCorrectionRoute(input: {
 }
 
 /**
- * Own punch corrections skip the manager step when the reporting manager already is the
- * ops seat (Head of Operations for Operations staff, F&B Manager for F&B). That avoids a
- * fake "site supervisor" wait and a double approve by the same person.
+ * Own punch corrections skip the manager step when there is no Sr. Site seat to wait on
+ * and the reporting manager already is the ops seat (Head of Operations / F&B Manager).
+ * That covers Mary (Sr. Site) reporting to HoO, and F&B peers reporting to the F&B Manager.
+ *
+ * Venue / Site / regular supervisors still wait on Sr. Site even when their named boss in
+ * the org chart is HoO — never notify HoO on submit for those requesters.
  */
 export function ownCorrectionRouteAfterLineManagerCheck(
   directory: ApprovalDirectory,
@@ -436,16 +439,18 @@ export function ownCorrectionRouteAfterLineManagerCheck(
   },
 ): "line_manager" | "ops_first" {
   const opsIds = new Set(approverUserIdsForStep(directory, "ops", args.locationId, args.staffId));
+  // Prefer a real Sr. Site seat (Mary) before any ops-first short-circuit. A Supervisor
+  // whose chart lists HoO as boss must still wait on Sr. Site when one exists.
+  const managers = requesterLineManagerUserIds(directory, args);
+  if (managers.length) {
+    if (managers.every((id) => opsIds.has(id))) return "ops_first";
+    return "line_manager";
+  }
   const lookupId = args.requesterStaffId ?? args.staffId;
-  // Mary (Sr. Site) reporting to HoO: named boss is ops, so skip the manager seat.
-  // Do this before Sr-Site-only manager resolution, which intentionally excludes HoO.
   if (lookupId) {
     const named = directory.reportingManagerUserIdByStaffId.get(lookupId);
     if (named && named !== args.requestedBy && opsIds.has(named)) return "ops_first";
   }
-  const managers = requesterLineManagerUserIds(directory, args);
-  if (!managers.length) return "line_manager";
-  if (managers.every((id) => opsIds.has(id))) return "ops_first";
   return "line_manager";
 }
 

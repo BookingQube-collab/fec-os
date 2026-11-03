@@ -1040,15 +1040,17 @@ async function healMisroutedTeamCorrectionsToManager(
       console.warn("[missed-punch] heal team manager step failed", stepErr.message);
     }
 
-    // Re-notify Sr. Site Supervisor; dismiss stale HoO notice for this id.
+    // Re-notify Sr. Site Supervisor; dismiss stale HoO + executive notices for this id.
     try {
-      await dismissExecutiveMissedPunchNotices(row.id);
+      await dismissMissedPunchNotices(row.id);
+      const staffId = row.staff_id ? String(row.staff_id) : null;
       const managers = requesterLineManagerUserIds(directory, {
         locationId: String(row.location_id),
-        staffId: row.staff_id ? String(row.staff_id) : null,
+        staffId,
         requestedBy: String(row.requested_by),
         requesterStaffId: requesterId ?? null,
       }).filter((id) => id !== String(row.requested_by) && id !== managerStep?.actedBy);
+      const opsIds = approverUserIdsForStep(directory, "ops", String(row.location_id), staffId);
       const when = row.work_date ? String(row.work_date).slice(0, 10) : "";
       const number = row.request_number ? ` (${row.request_number})` : "";
       await notifyApprovers({
@@ -1066,6 +1068,7 @@ async function healMisroutedTeamCorrectionsToManager(
         body: `A punch correction${when ? ` for ${when}` : ""}${number} was re-routed to the Sr. Site Supervisor.`,
         correctionId: row.id,
         excludeUserId: String(row.requested_by),
+        excludeUserIds: opsIds,
       });
     } catch (notifyError) {
       console.warn(
@@ -1085,7 +1088,13 @@ async function healMisroutedTeamCorrectionsToManager(
   return healed;
 }
 
-const EXECUTIVE_NOTICE_SOURCE = "attendance_corrections";
+/** Approver "Needs your action" rows (Sr. Site / HoO / F&B). */
+const APPROVER_NOTICE_SOURCE = "attendance_corrections";
+/**
+ * CEO/Admin observer copies. Must stay distinct from {@link APPROVER_NOTICE_SOURCE}
+ * so dismissing executive copies never wipes the seat-holder's actionable notify.
+ */
+const EXECUTIVE_NOTICE_SOURCE = "attendance_corrections_executive";
 
 async function loadCeoUserIds(): Promise<string[]> {
   const { data, error } = await supabaseAdmin.from("user_roles").select("user_id").eq("role", "ceo");
@@ -1096,15 +1105,26 @@ async function loadCeoUserIds(): Promise<string[]> {
   return [...new Set((data ?? []).map((row) => row.user_id as string).filter(Boolean))];
 }
 
+async function dismissMissedPunchNotices(
+  correctionId: string,
+  sources: readonly string[] = [APPROVER_NOTICE_SOURCE, EXECUTIVE_NOTICE_SOURCE],
+) {
+  const now = new Date().toISOString();
+  for (const sourceType of sources) {
+    const { error } = await supabaseAdmin
+      .from("notifications")
+      .update({ dismissed_at: now })
+      .eq("source_type", sourceType)
+      .eq("source_id", correctionId)
+      .eq("category", "people")
+      .is("dismissed_at", null);
+    if (error) console.warn("[missed-punch] dismiss notices failed", sourceType, error.message);
+  }
+}
+
+/** @deprecated Prefer {@link dismissMissedPunchNotices} — kept name for call-site clarity on close/heal. */
 async function dismissExecutiveMissedPunchNotices(correctionId: string) {
-  const { error } = await supabaseAdmin
-    .from("notifications")
-    .update({ dismissed_at: new Date().toISOString() })
-    .eq("source_type", EXECUTIVE_NOTICE_SOURCE)
-    .eq("source_id", correctionId)
-    .eq("category", "people")
-    .is("dismissed_at", null);
-  if (error) console.warn("[missed-punch] dismiss executive notices failed", error.message);
+  await dismissMissedPunchNotices(correctionId);
 }
 
 async function notifyApprovers(args: {
@@ -1127,7 +1147,7 @@ async function notifyApprovers(args: {
       body: args.body,
       severity: args.severity ?? "warning",
       actionUrl: args.actionUrl ?? ME_PUNCH_APPROVALS_HREF,
-      sourceType: "attendance_corrections",
+      sourceType: APPROVER_NOTICE_SOURCE,
       sourceId: args.sourceId,
     });
   } catch (error) {
@@ -1169,16 +1189,25 @@ async function notifyExecutiveObservers(args: {
   body: string;
   correctionId: string;
   excludeUserId?: string | null;
+  /**
+   * Extra exclusions — pass ops-seat holders on the manager step so HoO / F&B Manager
+   * (who may also hold ceo) are not notified until their seat is next.
+   */
+  excludeUserIds?: readonly string[];
 }) {
   try {
     if (!missedPunchCopiesExecutives(args.step)) {
-      await dismissExecutiveMissedPunchNotices(args.correctionId);
+      // Drop observer copies only; keep the current seat-holder's actionable notify.
+      await dismissMissedPunchNotices(args.correctionId, [EXECUTIVE_NOTICE_SOURCE]);
       return;
     }
-    const userIds = (await loadCeoUserIds()).filter(
-      (id) => !args.approverIds.includes(id) && id !== args.excludeUserId,
-    );
-    await dismissExecutiveMissedPunchNotices(args.correctionId);
+    const exclude = new Set<string>([
+      ...args.approverIds,
+      ...(args.excludeUserId ? [args.excludeUserId] : []),
+      ...(args.excludeUserIds ?? []),
+    ]);
+    const userIds = (await loadCeoUserIds()).filter((id) => !exclude.has(id));
+    await dismissMissedPunchNotices(args.correctionId, [EXECUTIVE_NOTICE_SOURCE]);
     if (userIds.length === 0) return;
     await notifyUsers({
       userIds,
@@ -1186,8 +1215,9 @@ async function notifyExecutiveObservers(args: {
       category: "people",
       title: args.title,
       body: args.body,
-      severity: "warning",
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      // Info copy for pure Admin/CEO observers — not an actionable Approve seat.
+      severity: "info",
+      actionUrl: ME_CORRECTION_HREF,
       sourceType: EXECUTIVE_NOTICE_SOURCE,
       sourceId: args.correctionId,
     });
@@ -1564,6 +1594,12 @@ export async function submitMissedPunchRequest(args: {
     requestedBy: args.userId,
     requesterStaffId: staff.id as string,
   });
+  const opsIdsForManagerStep = approverUserIdsForStep(
+    directory,
+    "ops",
+    summary.location_id as string,
+    targetStaffId,
+  );
   const replacing = hasIn && hasOut;
   const managerTitle = replacing
     ? `Punch correction request · ${requestNumber}`
@@ -1588,6 +1624,7 @@ export async function submitMissedPunchRequest(args: {
     body: managerBody,
     correctionId: created.id as string,
     excludeUserId: args.userId,
+    excludeUserIds: opsIdsForManagerStep,
   });
   return {
     id: created.id as string,
@@ -2477,6 +2514,12 @@ export async function resubmitMissedPunchRequest(args: {
     requestedBy: args.userId,
     requesterStaffId,
   });
+  const opsIdsForManagerStep = approverUserIdsForStep(
+    directory,
+    "ops",
+    String(row.location_id),
+    row.staff_id ? String(row.staff_id) : null,
+  );
   const managerTitle = wasChangeRequired ? "Missed punch request" : "Missed punch updated";
   const managerBody =
     !isSelf && wasChangeRequired
@@ -2497,6 +2540,7 @@ export async function resubmitMissedPunchRequest(args: {
     body: managerBody,
     correctionId: args.correctionId,
     excludeUserId: args.userId,
+    excludeUserIds: opsIdsForManagerStep,
   });
   return {
     id: args.correctionId,

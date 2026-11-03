@@ -1,7 +1,4 @@
-import {
-  ME_PUNCH_APPROVALS_HREF,
-  punchApprovalInboxActionUrl,
-} from "@/lib/attendance-hr/missed-punch-approval";
+import { punchApprovalInboxActionUrl } from "@/lib/attendance-hr/missed-punch-approval";
 import { CLOSED_TASK_STATUSES } from "@/lib/events/constants";
 import {
   inboxUnreadCount,
@@ -363,41 +360,9 @@ function mapPunchInboxRow(
 }
 
 async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Promise<InboxItem[]> {
-  // Estate-wide copy for Admin/CEO observers.
-  if (roles.includes("ceo")) {
-    const { data, error } = await context.supabase
-      .from("attendance_corrections")
-      .select("id, staff_id, work_date, current_step_role, requested_at")
-      .eq("status", "pending")
-      .in("current_step_role", ["manager", "ops"])
-      .order("requested_at", { ascending: false })
-      .limit(20);
-    if (error) throw error;
-    const rows = data ?? [];
-    const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
-    const names = new Map<string, string>();
-    if (staffIds.length) {
-      const { data: staff } = await context.supabase.from("staff").select("id, full_name").in("id", staffIds);
-      for (const person of staff ?? []) {
-        if (person.full_name) names.set(person.id as string, String(person.full_name));
-      }
-    }
-    return rows.slice(0, 12).map((row) =>
-      mapPunchInboxRow(
-        {
-          id: row.id,
-          staff_id: row.staff_id ?? null,
-          work_date: row.work_date ?? null,
-          current_step_role: row.current_step_role ?? null,
-          requested_at: row.requested_at ?? null,
-          staffName: (row.staff_id && names.get(row.staff_id)) || "Staff",
-        },
-        ME_PUNCH_APPROVALS_HREF,
-      ),
-    );
-  }
-
-  // Line managers / site supervisors / ops: only corrections they can act on.
+  // "Needs your action" must match the Approve queue: only seats this login can act on.
+  // CEO/Admin still get optional info copies via executive notifies — not actionable
+  // derived rows for Sr. Site seats they cannot approve (e.g. HoO who also has ceo).
   try {
     const { listMissedPunchCorrections } = await import(
       "@/lib/attendance-hr/missed-punch-approval.server"
