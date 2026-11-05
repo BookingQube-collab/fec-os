@@ -1,4 +1,7 @@
-/** Phase 3 — event schedule / attendance helpers (pure). */
+/** Phase 3–5 — event schedule / attendance helpers (pure). */
+
+import { computeLatePunchMinutes, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
+import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
 
 export type EventScheduleSlotLike = {
   id?: string;
@@ -8,6 +11,15 @@ export type EventScheduleSlotLike = {
   scheduled_in: string; // HH:MM or HH:MM:SS
   scheduled_out: string;
 };
+
+/** Asia/Qatar wall-clock minutes from an ISO punch (UTC+3). */
+export function qatarClockMinutesFromIso(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  const qatarHour = (d.getUTCHours() + 3 + 24) % 24;
+  return qatarHour * 60 + d.getUTCMinutes();
+}
 
 export function normalizeTimeHHMM(value: string): string {
   const raw = (value ?? "").trim();
@@ -105,8 +117,8 @@ export function minutesBetweenIso(a: string | null, b: string | null): number {
 }
 
 /**
- * Derive a simple daily status from punches vs scheduled times (shift_punch style).
- * Late if first punch > scheduled_in + graceMinutes.
+ * Derive daily status from punches vs event schedule (shift_punch style).
+ * Late/OT use Asia/Qatar wall clock via scheduledIsoFromHm + site grace/buffer.
  */
 export function deriveEventDayStatus(input: {
   actualIn: string | null;
@@ -114,35 +126,74 @@ export function deriveEventDayStatus(input: {
   workDate: string;
   scheduledIn: string;
   scheduledOut: string;
-  timezoneOffsetMinutes?: number;
+  /** Minutes from schedule start to on-time cutoff (site buffer / grace). Default 10. */
   graceMinutes?: number;
-}): { status: string; lateMinutes: number; workedMinutes: number; missedPunch: boolean } {
-  const grace = input.graceMinutes ?? 15;
+}): {
+  status: string;
+  lateMinutes: number;
+  workedMinutes: number;
+  overtimeMinutes: number;
+  missedPunch: boolean;
+  scheduledInIso: string;
+  scheduledOutIso: string;
+} {
+  const grace = input.graceMinutes ?? 10;
+  const scheduledInHm = normalizeTimeHHMM(input.scheduledIn);
+  const scheduledOutHm = normalizeTimeHHMM(input.scheduledOut);
+  const overnight = scheduledOutHm <= scheduledInHm;
+  const scheduledInIso = scheduledIsoFromHm(input.workDate, scheduledInHm);
+  const scheduledOutIso = scheduledIsoFromHm(input.workDate, scheduledOutHm, overnight ? 1 : 0);
+
   const { actualIn, actualOut } = input;
   if (!actualIn && !actualOut) {
-    return { status: "absent", lateMinutes: 0, workedMinutes: 0, missedPunch: false };
+    return {
+      status: "absent",
+      lateMinutes: 0,
+      workedMinutes: 0,
+      overtimeMinutes: 0,
+      missedPunch: false,
+      scheduledInIso,
+      scheduledOutIso,
+    };
   }
   if (!actualIn || !actualOut) {
     return {
       status: "missed_punch",
       lateMinutes: 0,
       workedMinutes: minutesBetweenIso(actualIn, actualOut),
+      overtimeMinutes: 0,
       missedPunch: true,
+      scheduledInIso,
+      scheduledOutIso,
     };
   }
+
   const workedMinutes = minutesBetweenIso(actualIn, actualOut);
-  // Compare wall-clock HH:MM only (avoid TZ skew between punch ISO and scheduled local).
-  const punchClock = (() => {
-    const d = new Date(actualIn);
-    if (!Number.isFinite(d.getTime())) return null;
-    return d.getUTCHours() * 60 + d.getUTCMinutes();
-  })();
-  const schedParts = normalizeTimeHHMM(input.scheduledIn).split(":").map(Number);
-  const schedClock = schedParts[0] * 60 + schedParts[1];
-  let lateMinutes = 0;
-  if (punchClock != null && punchClock > schedClock + grace) {
-    lateMinutes = punchClock - schedClock - grace;
-  }
-  const status = lateMinutes > 0 ? "late" : "present";
-  return { status, lateMinutes: Math.max(0, lateMinutes), workedMinutes, missedPunch: false };
+  const lateRaw = computeLatePunchMinutes({
+    actualIn,
+    scheduledIn: scheduledInIso,
+    graceMinutes: grace,
+  });
+  // Event payroll / daily summary store whole minutes (same as site late column rounding).
+  const lateMinutes = Math.max(0, Math.round(lateRaw));
+  const overtimeMinutes = computeAttendanceOvertimeMinutes({
+    workedMinutes,
+    actualOut,
+    scheduledIn: scheduledInIso,
+    scheduledOut: scheduledOutIso,
+  });
+
+  let status = "present";
+  if (lateMinutes > 0) status = "late";
+  else if (overtimeMinutes > 0) status = "overtime";
+
+  return {
+    status,
+    lateMinutes,
+    workedMinutes,
+    overtimeMinutes,
+    missedPunch: false,
+    scheduledInIso,
+    scheduledOutIso,
+  };
 }

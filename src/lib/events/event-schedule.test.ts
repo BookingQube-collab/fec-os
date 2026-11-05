@@ -5,6 +5,7 @@ import {
   enumerateDatesInclusive,
   normalizeTimeHHMM,
   pairPunchTimes,
+  qatarClockMinutesFromIso,
   seedSlotsFromAssignments,
   validateScheduleSlotTimes,
 } from "@/lib/events/event-schedule";
@@ -39,23 +40,31 @@ describe("event schedule helpers", () => {
     expect(rows[1].work_date).toBe("2026-11-02");
   });
 
-  it("pairs punches and derives status", () => {
-    expect(pairPunchTimes(["2026-11-01T08:00:00Z", "2026-11-01T17:00:00Z"])).toEqual({
-      actualIn: "2026-11-01T08:00:00Z",
-      actualOut: "2026-11-01T17:00:00Z",
+  it("reads Asia/Qatar wall clock from ISO punches", () => {
+    // 06:05Z = 09:05 Qatar
+    expect(qatarClockMinutesFromIso("2026-11-01T06:05:00.000Z")).toBe(9 * 60 + 5);
+  });
+
+  it("pairs punches and derives status in Asia/Qatar (not UTC HH:MM)", () => {
+    expect(pairPunchTimes(["2026-11-01T05:00:00Z", "2026-11-01T14:00:00Z"])).toEqual({
+      actualIn: "2026-11-01T05:00:00Z",
+      actualOut: "2026-11-01T14:00:00Z",
     });
+    // 09:05 Qatar (=06:05Z) vs 09:00 schedule, grace 15 → present
     const present = deriveEventDayStatus({
-      actualIn: "2026-11-01T09:05:00.000Z",
-      actualOut: "2026-11-01T18:00:00.000Z",
+      actualIn: "2026-11-01T06:05:00.000Z",
+      actualOut: "2026-11-01T15:00:00.000Z",
       workDate: "2026-11-01",
       scheduledIn: "09:00",
       scheduledOut: "18:00",
       graceMinutes: 15,
     });
     expect(present.status).toBe("present");
+    expect(present.lateMinutes).toBe(0);
+    // 09:30 Qatar (=06:30Z) → late 15 after grace 15
     const late = deriveEventDayStatus({
-      actualIn: "2026-11-01T09:30:00.000Z",
-      actualOut: "2026-11-01T18:00:00.000Z",
+      actualIn: "2026-11-01T06:30:00.000Z",
+      actualOut: "2026-11-01T15:00:00.000Z",
       workDate: "2026-11-01",
       scheduledIn: "09:00",
       scheduledOut: "18:00",
@@ -63,8 +72,19 @@ describe("event schedule helpers", () => {
     });
     expect(late.status).toBe("late");
     expect(late.lateMinutes).toBe(15);
+    // Stay past 18:00 Qatar (=15:00Z) → OT
+    const ot = deriveEventDayStatus({
+      actualIn: "2026-11-01T06:00:00.000Z",
+      actualOut: "2026-11-01T16:00:00.000Z",
+      workDate: "2026-11-01",
+      scheduledIn: "09:00",
+      scheduledOut: "18:00",
+      graceMinutes: 15,
+    });
+    expect(ot.overtimeMinutes).toBe(60);
+    expect(ot.status).toBe("overtime");
     const missed = deriveEventDayStatus({
-      actualIn: "2026-11-01T09:00:00.000Z",
+      actualIn: "2026-11-01T06:00:00.000Z",
       actualOut: null,
       workDate: "2026-11-01",
       scheduledIn: "09:00",

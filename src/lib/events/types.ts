@@ -368,6 +368,8 @@ export interface EventStaffAssignmentRow {
   date_to: string;
   pay_on_event_run: boolean;
   notes: string | null;
+  status: "active" | "closed";
+  closed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -408,6 +410,7 @@ export interface EventScheduleAttendanceRow {
   actual_out: string | null;
   late_minutes: number;
   worked_minutes: number;
+  overtime_minutes: number;
   missed_punch: boolean;
 }
 
@@ -415,6 +418,33 @@ export interface EventSchedulePayload {
   slots: EventScheduleSlotRow[];
   attendance: EventScheduleAttendanceRow[];
   locationId: string | null;
+  crewClosed: boolean;
+}
+
+export interface EventMissedPunchDayRow {
+  summaryId: string;
+  staff_id: string;
+  staff_name: string | null;
+  work_date: string;
+  status: string;
+  actual_in: string | null;
+  actual_out: string | null;
+  late_minutes: number;
+  missed_punch: boolean;
+  openCorrectionId: string | null;
+  openCorrectionStatus: string | null;
+}
+
+export interface EventCorrectionRow {
+  id: string;
+  staff_id: string | null;
+  staff_name: string | null;
+  work_date: string | null;
+  status: string;
+  reason: string;
+  request_number: string | null;
+  requested_at: string;
+  kind: string;
 }
 
 export interface EventStaffCapacityRow {

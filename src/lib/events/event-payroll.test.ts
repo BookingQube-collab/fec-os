@@ -4,9 +4,11 @@ import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
 import {
   collectEventPaidDays,
   eventPaidDayKey,
+  eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
   excludeEventPaidDaysFromMonthly,
   isEventPayrollPeriod,
+  payrollExportMonthLabel,
   staffIdsForEventPayRun,
 } from "@/lib/events/event-payroll";
 
@@ -70,4 +72,18 @@ describe("event payroll helpers", () => {
     expect(isEventPayrollPeriod({ periodKind: "event" })).toBe(true);
     expect(isEventPayrollPeriod({ period_kind: "monthly" })).toBe(false);
   });
+
+  it("labels event WPS batches without breaking monthly months", () => {
+    expect(eventPayrollBatchLabel("InflataRun")).toBe("Event: InflataRun");
+    expect(eventPayrollBatchLabel("Event: Lego")).toBe("Event: Lego");
+    expect(
+      payrollExportMonthLabel({
+        periodKind: "event",
+        month: "2026-11",
+        displayName: "InflataCity",
+      }),
+    ).toBe("Event: InflataCity");
+    expect(payrollExportMonthLabel({ periodKind: "monthly", month: "2026-11" })).toBe("2026-11");
+  });
 });
+

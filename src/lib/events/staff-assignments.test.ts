@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   assignmentRangesOverlap,
   assignmentTypeLabel,
+  closeAssignmentStampNote,
   defaultPayOnEventRun,
   eventCrewReadinessMet,
   eventHireEmploymentDefaults,
+  eventHireParkStatus,
   findOverlappingAssignment,
+  isEventAssignmentClosed,
   isEventStaffAssignmentType,
   looksLikeLabourPoolStaff,
   validateAssignmentDates,
@@ -114,5 +117,12 @@ describe("event staff assignments", () => {
     expect(looksLikeLabourPoolStaff({ employment_type: "permanent", status: "active" })).toBe(
       false,
     );
+  });
+
+  it("closes and parks event hires clearly", () => {
+    expect(isEventAssignmentClosed({ status: "closed" })).toBe(true);
+    expect(isEventAssignmentClosed({ status: "active" })).toBe(false);
+    expect(eventHireParkStatus()).toBe("contract_finished");
+    expect(closeAssignmentStampNote("2026-11-05", "abcd1234-xxxx")).toMatch(/Closed via event/);
   });
 });

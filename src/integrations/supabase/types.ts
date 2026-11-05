@@ -9442,6 +9442,8 @@ export type Database = {
       event_staff_assignments: {
         Row: {
           assignment_type: string
+          closed_at: string | null
+          closed_by: string | null
           created_at: string
           created_by: string | null
           date_from: string
@@ -9452,11 +9454,14 @@ export type Database = {
           pay_on_event_run: boolean
           role_label: string
           staff_id: string
+          status: string
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           assignment_type: string
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string
           created_by?: string | null
           date_from: string
@@ -9467,11 +9472,14 @@ export type Database = {
           pay_on_event_run?: boolean
           role_label?: string
           staff_id: string
+          status?: string
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           assignment_type?: string
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string
           created_by?: string | null
           date_from?: string
@@ -9482,6 +9490,7 @@ export type Database = {
           pay_on_event_run?: boolean
           role_label?: string
           staff_id?: string
+          status?: string
           updated_at?: string
           updated_by?: string | null
         }

@@ -77,3 +77,33 @@ export function isEventPayrollPeriod(period: { periodKind?: string | null; perio
   const kind = period.periodKind ?? period.period_kind ?? "monthly";
   return kind === "event";
 }
+
+/**
+ * Distinct WPS / export batch label for event pay runs.
+ * Keeps monthly exports on YYYY-MM; event runs become "Event: …".
+ */
+export function eventPayrollBatchLabel(
+  displayName: string | null | undefined,
+  fallback = "Event payroll",
+): string {
+  const raw = (displayName ?? "").trim() || fallback;
+  if (/^event\s*:/i.test(raw)) return raw;
+  return `Event: ${raw}`;
+}
+
+/**
+ * Salary Month / batch column for payroll CSV export.
+ * Monthly periods keep YYYY-MM; event periods use Event: label.
+ */
+export function payrollExportMonthLabel(period: {
+  periodKind?: string | null;
+  period_kind?: string | null;
+  month?: string | null;
+  displayName?: string | null;
+  display_name?: string | null;
+}): string {
+  if (isEventPayrollPeriod(period)) {
+    return eventPayrollBatchLabel(period.displayName ?? period.display_name ?? period.month);
+  }
+  return String(period.month ?? "");
+}

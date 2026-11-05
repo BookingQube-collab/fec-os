@@ -16,9 +16,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useEvent } from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
 import {
+  closeEventCrew,
   createEventPayrollPeriod,
   getEventPayrollPeriod,
-  noteEventAssignmentsClosed,
 } from "@/lib/event-payroll.functions";
 import { generatePayrollLines } from "@/lib/hr-payroll.functions";
 import { queryKeys } from "@/lib/query-keys";
@@ -78,12 +78,21 @@ export default function EventPayrollPage() {
     }
   }
 
-  async function closeNotes() {
-    if (!period?.id) return;
+  async function closeCrew() {
     setBusy(true);
     try {
-      const res = await noteEventAssignmentsClosed({ eventId: id, periodId: period.id });
-      toast.success(t("events.payroll.toasts.closed", { n: res.updated }));
+      const res = await closeEventCrew({
+        eventId: id,
+        periodId: period?.id ?? null,
+        parkEventHires: true,
+      });
+      await qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id)] });
+      toast.success(
+        t("events.payroll.toasts.closed", {
+          n: res.closedAssignments,
+          parked: res.parkedHires,
+        }),
+      );
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -110,6 +119,7 @@ export default function EventPayrollPage() {
       ) : (
         <section className="space-y-3 rounded-2xl border border-border/40 bg-card p-4">
           <p className="text-sm text-muted-foreground">{t("events.payroll.hint")}</p>
+          <p className="text-xs text-muted-foreground">{t("events.payroll.wpsGap")}</p>
           {period ? (
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">{period.status}</Badge>
@@ -131,11 +141,9 @@ export default function EventPayrollPage() {
               <Button size="sm" disabled={busy} onClick={() => void generate()}>
                 {t("events.payroll.generate")}
               </Button>
-              {period ? (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => void closeNotes()}>
-                  {t("events.payroll.closeAssignments")}
-                </Button>
-              ) : null}
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void closeCrew()}>
+                {t("events.payroll.closeAssignments")}
+              </Button>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">{t("events.payroll.needsGenerate")}</p>

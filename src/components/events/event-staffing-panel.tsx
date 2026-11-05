@@ -186,7 +186,12 @@ export function EventStaffingPanel({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{assignmentTypeLabel(row.assignment_type)}</Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="secondary">{assignmentTypeLabel(row.assignment_type)}</Badge>
+                      {row.status === "closed" ? (
+                        <Badge variant="outline">{t("events.staffing.closedBadge")}</Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>{row.role_label}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">

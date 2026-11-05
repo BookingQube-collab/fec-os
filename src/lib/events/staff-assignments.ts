@@ -113,3 +113,20 @@ export function looksLikeLabourPoolStaff(staff: {
   const status = (staff.status ?? "").trim().toLowerCase();
   return emp === "joker" || status === "joker";
 }
+
+export const EVENT_ASSIGNMENT_STATUSES = ["active", "closed"] as const;
+export type EventAssignmentStatus = (typeof EVENT_ASSIGNMENT_STATUSES)[number];
+
+export function isEventAssignmentClosed(row: { status?: string | null }): boolean {
+  return String(row.status ?? "active").toLowerCase() === "closed";
+}
+
+/** Event-only hires are parked as contract_finished after close (not terminated). */
+export function eventHireParkStatus(): "contract_finished" {
+  return "contract_finished";
+}
+
+export function closeAssignmentStampNote(closedOn: string, periodId?: string | null): string {
+  const periodBit = periodId ? ` period ${periodId.slice(0, 8)}` : "";
+  return `Closed via event workflow${periodBit} on ${closedOn}`;
+}

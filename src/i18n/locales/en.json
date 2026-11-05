@@ -5862,17 +5862,21 @@
       "schedule": "Schedule",
       "staffing": "Staffing",
       "crewSchedule": "Crew schedule",
+      "corrections": "Corrections",
       "pay": "Event pay",
       "budget": "Budget"
     },
     "schedule": {
       "title": "Event shift schedule",
-      "hint": "Date + start/end per crew member. Not the monthly site roster. Process attendance uses venue device punches.",
+      "hint": "Date + start/end per crew member. Not the monthly site roster. Process attendance uses venue device punches (Asia/Qatar, site grace).",
       "empty": "No shifts yet — seed from Staffing crew or add a slot.",
       "seedFromCrew": "Seed from crew",
       "processAttendance": "Process attendance",
       "addSlot": "Add shift",
-      "correctionsHint": "Missed punches still use the existing My Day / corrections flow for the crew member.",
+      "correctionsHint": "Missed punches for this crew:",
+      "openCorrections": "Open event corrections",
+      "fixLink": "Fix",
+      "crewClosed": "Crew is closed — schedule edits are blocked. Re-open requires a new assignment if needed.",
       "columns": {
         "person": "Person",
         "date": "Date",
@@ -5885,20 +5889,36 @@
         "saved": "Shift saved"
       }
     },
+    "corrections": {
+      "missedTitle": "Event missed punches",
+      "missedHint": "Scoped to event crew assignments. Submits into the existing missed-punch approval chain.",
+      "missedEmpty": "No open missed punches for this event.",
+      "form": "Correction",
+      "submit": "Submit MP",
+      "needTimes": "Enter punch-in, punch-out, or both.",
+      "approvalHint": "Approvals continue on My Day for the usual seats.",
+      "myDayLink": "Open My Day",
+      "queueTitle": "Crew corrections in event window",
+      "queueEmpty": "No corrections filed for this crew yet.",
+      "toasts": {
+        "submitted": "Missed-punch request submitted"
+      }
+    },
     "payroll": {
-      "hint": "Event pay run is separate from the monthly FEC 28–27 cycle. Loaned staff event days are excluded from monthly generate.",
+      "hint": "Event pay run is separate from the monthly FEC 28–27 cycle. Loaned staff event days are excluded from monthly generate. WPS Salary Month uses “Event: …” batch labeling.",
+      "wpsGap": "WPS CSV remains SIF-like for Finance validation only — not bank-certified (no MOL establishment number, gateway header/trailer, or QCB checksum).",
       "noneYet": "No event payroll period yet.",
       "createPeriod": "Create event period",
       "generate": "Generate lines",
       "openPeriod": "Open period detail",
-      "closeAssignments": "Stamp crew closed (notes)",
+      "closeAssignments": "Close crew & park event hires",
       "noAccess": "Payroll view permission required.",
       "needsGenerate": "Creating/generating requires payroll.generate.",
       "toasts": {
         "created": "Event payroll period created",
         "exists": "Using existing event payroll period",
         "generated": "Generated {{n}} payroll line(s)",
-        "closed": "Noted close on {{n}} assignment(s)"
+        "closed": "Closed {{n}} assignment(s); parked {{parked}} event hire(s)"
       }
     },
     "staffing": {
@@ -5916,6 +5936,7 @@
       "createHire": "Create & assign",
       "hireNeedsPeople": "Event-only hire also needs People → edit roster permission.",
       "eventHireBadge": "Event hire",
+      "closedBadge": "Closed",
       "payOn": "Event pay run",
       "payOff": "Excluded",
       "crewReady": "Crew readiness met",

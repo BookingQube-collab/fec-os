@@ -89,14 +89,47 @@ async function listAssignmentRows(
   context: AuthContext,
   eventId: string,
 ): Promise<EventStaffAssignmentRow[]> {
-  const { data: rows, error } = await context.supabase
-    .from("event_staff_assignments")
-    .select(
-      "id, event_id, staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run, notes, created_at, updated_at",
-    )
-    .eq("event_id", eventId)
-    .order("date_from", { ascending: true })
-    .order("created_at", { ascending: true });
+  type AssignmentSelectRow = {
+    id: string;
+    event_id: string;
+    staff_id: string;
+    assignment_type: string;
+    role_label: string;
+    date_from: string;
+    date_to: string;
+    pay_on_event_run: boolean;
+    notes: string | null;
+    status?: string | null;
+    closed_at?: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  let rows: AssignmentSelectRow[] | null = null;
+  let error: { message: string } | null = null;
+  {
+    const res = await context.supabase
+      .from("event_staff_assignments")
+      .select(
+        "id, event_id, staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run, notes, status, closed_at, created_at, updated_at",
+      )
+      .eq("event_id", eventId)
+      .order("date_from", { ascending: true })
+      .order("created_at", { ascending: true });
+    error = res.error;
+    rows = (res.data as AssignmentSelectRow[] | null) ?? null;
+  }
+  if (error && /status|closed_at|schema cache/i.test(error.message)) {
+    const fallback = await context.supabase
+      .from("event_staff_assignments")
+      .select(
+        "id, event_id, staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run, notes, created_at, updated_at",
+      )
+      .eq("event_id", eventId)
+      .order("date_from", { ascending: true })
+      .order("created_at", { ascending: true });
+    rows = (fallback.data as AssignmentSelectRow[] | null) ?? null;
+    error = fallback.error;
+  }
   if (error) {
     if (/event_staff_assignments|schema cache/i.test(error.message)) return [];
     throw error;
@@ -132,6 +165,7 @@ async function listAssignmentRows(
 
   return (rows ?? []).map((r) => {
     const s = staffMap.get(r.staff_id as string);
+    const statusRaw = String((r as { status?: string }).status ?? "active").toLowerCase();
     return {
       id: r.id as string,
       event_id: r.event_id as string,
@@ -147,6 +181,8 @@ async function listAssignmentRows(
       date_to: r.date_to as string,
       pay_on_event_run: Boolean(r.pay_on_event_run),
       notes: (r.notes as string | null) ?? null,
+      status: statusRaw === "closed" ? ("closed" as const) : ("active" as const),
+      closed_at: ((r as { closed_at?: string | null }).closed_at as string | null) ?? null,
       created_at: r.created_at as string,
       updated_at: r.updated_at as string,
     };

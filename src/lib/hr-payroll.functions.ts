@@ -55,6 +55,7 @@ import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
 import {
   collectEventPaidDays,
   excludeEventPaidDaysFromMonthly,
+  payrollExportMonthLabel,
   staffIdsForEventPayRun,
 } from "@/lib/events/event-payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
@@ -1558,8 +1559,14 @@ async function exportRowsForPeriod(
   context: AuthContext,
   periodId: string,
   method: HrPayrollPaymentMethod,
-): Promise<{ month: string; rows: PayrollExportRow[] }> {
+): Promise<{ month: string; rows: PayrollExportRow[]; periodKind: string }> {
   const period = await loadPeriod(context, periodId);
+  const mappedPeriod = mapPeriod(period);
+  const batchMonth = payrollExportMonthLabel({
+    periodKind: mappedPeriod.periodKind,
+    month: mappedPeriod.month,
+    displayName: mappedPeriod.displayName,
+  });
   const { data: lines, error } = await context.supabase
     .from("hr_payroll_lines")
     .select("*, staff(full_name, employee_code, qid)")
@@ -1587,7 +1594,7 @@ async function exportRowsForPeriod(
       iban: e?.iban ?? null,
       bankName: e?.bank_name ?? null,
       wpsEmployeeId: e?.wps_employee_id ?? null,
-      month: String(period.month),
+      month: batchMonth,
       fixedIncome,
       variableIncome,
       deductions: ded,
@@ -1595,7 +1602,7 @@ async function exportRowsForPeriod(
       paymentMethod: line.paymentMethod,
     };
   });
-  return { month: String(period.month), rows };
+  return { month: batchMonth, rows, periodKind: mappedPeriod.periodKind ?? "monthly" };
 }
 
 export const getPayrollExportMatrix = createAuthenticatedAction(
@@ -1605,7 +1612,11 @@ export const getPayrollExportMatrix = createAuthenticatedAction(
   }),
   async (data, context) => {
     requireCap(context, "payroll.export_wps");
-    const { month, rows } = await exportRowsForPeriod(context, data.periodId, data.method);
+    const { month, rows, periodKind } = await exportRowsForPeriod(
+      context,
+      data.periodId,
+      data.method,
+    );
     const matrix =
       data.method === "wps"
         ? buildWpsExportRows(rows)
@@ -1614,14 +1625,20 @@ export const getPayrollExportMatrix = createAuthenticatedAction(
           : buildBankTransferExportRows(rows);
     await auditPayroll(context, `hr.payroll.export.${data.method}`, data.periodId, {
       rows: rows.length,
+      periodKind,
     });
+    const wpsGaps =
+      "SIF-like columns for Finance validation — not bank-certified WPS SIF submission. Remaining gaps: no MOL employer establishment number, no bank-gateway file header/trailer, no QCB checksum/record-count controls, IBAN/QID not validated against bank master.";
     return {
       month,
       method: data.method,
       matrix,
+      periodKind,
       note:
         data.method === "wps"
-          ? "SIF-like columns for Finance validation — not bank-certified WPS SIF submission."
+          ? periodKind === "event"
+            ? `Event batch "${month}". ${wpsGaps}`
+            : wpsGaps
           : null,
     };
   },

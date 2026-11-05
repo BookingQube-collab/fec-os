@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
+import { bufferMinutesForLocation } from "@/lib/attendance-hr/shift-policy";
 import {
   deriveEventDayStatus,
   normalizeTimeHHMM,
@@ -11,6 +12,7 @@ import {
   seedSlotsFromAssignments,
   validateScheduleSlotTimes,
 } from "@/lib/events/event-schedule";
+import { isEventAssignmentClosed } from "@/lib/events/staff-assignments";
 import type { EventScheduleSlotRow, EventSchedulePayload } from "@/lib/events/types";
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
@@ -56,6 +58,31 @@ async function loadEventOrThrow(context: AuthContext, eventId: string) {
   return data;
 }
 
+async function assertEventCrewOpenForSchedule(context: AuthContext, eventId: string) {
+  const { data, error } = await context.supabase
+    .from("event_staff_assignments")
+    .select("id, status")
+    .eq("event_id", eventId)
+    .eq("status", "closed")
+    .limit(1);
+  if (error) {
+    if (/status|schema cache/i.test(error.message)) return;
+    throw error;
+  }
+  if ((data ?? []).length > 0) {
+    throw new Error("Event crew is closed — reopen or undo close before changing the schedule.");
+  }
+}
+
+async function loadEventGraceMinutes(context: AuthContext, locationId: string): Promise<number> {
+  const { data } = await context.supabase
+    .from("attendance_site_settings")
+    .select("buffer_minutes")
+    .eq("location_id", locationId)
+    .maybeSingle();
+  return bufferMinutesForLocation(data?.buffer_minutes ?? null);
+}
+
 function mapSlot(row: Record<string, unknown>, staffName?: string | null): EventScheduleSlotRow {
   return {
     id: String(row.id),
@@ -86,7 +113,12 @@ export const getEventSchedule = createAuthenticatedAction(
       .order("scheduled_in", { ascending: true });
     if (error) {
       if (/event_schedule_slots|schema cache/i.test(error.message)) {
-        return { slots: [], attendance: [], locationId: event.location_id as string };
+        return {
+          slots: [],
+          attendance: [],
+          locationId: event.location_id as string,
+          crewClosed: false,
+        };
       }
       throw error;
     }
@@ -102,10 +134,17 @@ export const getEventSchedule = createAuthenticatedAction(
     const { data: att } = await context.supabase
       .from("attendance_daily_summary")
       .select(
-        "id, staff_id, work_date, status, actual_in, actual_out, late_minutes, worked_minutes, missed_punch, event_id",
+        "id, staff_id, work_date, status, actual_in, actual_out, late_minutes, worked_minutes, overtime_minutes, missed_punch, event_id",
       )
       .eq("event_id", data.eventId)
       .order("work_date", { ascending: true });
+
+    const { data: closedRows } = await context.supabase
+      .from("event_staff_assignments")
+      .select("id")
+      .eq("event_id", data.eventId)
+      .eq("status", "closed")
+      .limit(1);
 
     return {
       slots: mapped,
@@ -119,9 +158,11 @@ export const getEventSchedule = createAuthenticatedAction(
         actual_out: (a.actual_out as string | null) ?? null,
         late_minutes: Number(a.late_minutes ?? 0),
         worked_minutes: Number(a.worked_minutes ?? 0),
+        overtime_minutes: Number(a.overtime_minutes ?? 0),
         missed_punch: Boolean(a.missed_punch),
       })),
       locationId: (event.location_id as string) ?? null,
+      crewClosed: (closedRows ?? []).length > 0,
     };
   },
   { auth: { capability: "events.view" } },
@@ -141,6 +182,7 @@ export const upsertEventScheduleSlot = createAuthenticatedAction(
   }),
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
+    await assertEventCrewOpenForSchedule(context, data.eventId);
     const timeErr = validateScheduleSlotTimes(data.scheduled_in, data.scheduled_out);
     if (timeErr) throw new Error(timeErr);
     const payload = {
@@ -215,16 +257,19 @@ export const seedEventScheduleFromCrew = createAuthenticatedAction(
   }),
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
+    await assertEventCrewOpenForSchedule(context, data.eventId);
     const { data: assignments, error } = await context.supabase
       .from("event_staff_assignments")
-      .select("id, staff_id, date_from, date_to, role_label")
+      .select("id, staff_id, date_from, date_to, role_label, status")
       .eq("event_id", data.eventId);
     if (error) throw error;
     if (!assignments?.length) throw new Error("Add event crew on the Staffing tab first.");
+    const open = (assignments ?? []).filter((a) => !isEventAssignmentClosed(a));
+    if (!open.length) throw new Error("All crew assignments are closed — cannot seed schedule.");
 
     const seeds = seedSlotsFromAssignments(
       data.eventId,
-      assignments.map((a) => ({
+      open.map((a) => ({
         id: a.id as string,
         staff_id: a.staff_id as string,
         date_from: String(a.date_from).slice(0, 10),
@@ -284,6 +329,7 @@ export const processEventAttendance = createAuthenticatedAction(
     const dateFrom = dates[0];
     const dateTo = dates[dates.length - 1];
     const staffIds = [...new Set(slots.map((s) => s.staff_id as string))];
+    const graceMinutes = await loadEventGraceMinutes(context, locationId);
 
     const { data: punches, error: punchErr } = await supabaseAdmin
       .from("attendance_logs")
@@ -295,12 +341,15 @@ export const processEventAttendance = createAuthenticatedAction(
       .order("punch_at", { ascending: true });
     if (punchErr) throw punchErr;
 
-    // Tag matching punches with event_id (nullable bridge).
+    // Tag matching punches with event_id + keep location_id (venue attribution).
     const punchIds = (punches ?? []).map((p) => p.id as string);
     if (punchIds.length) {
       for (let i = 0; i < punchIds.length; i += 200) {
         const chunk = punchIds.slice(i, i + 200);
-        await supabaseAdmin.from("attendance_logs").update({ event_id: data.eventId }).in("id", chunk);
+        await supabaseAdmin
+          .from("attendance_logs")
+          .update({ event_id: data.eventId })
+          .in("id", chunk);
       }
     }
 
@@ -329,12 +378,11 @@ export const processEventAttendance = createAuthenticatedAction(
         workDate,
         scheduledIn,
         scheduledOut,
+        graceMinutes,
       });
 
       // Same subject as site recalc so we don't violate staff+location+date uniqueness.
       const subjectKey = `staff:${staffId}`;
-      const scheduledInTs = `${workDate}T${scheduledIn}:00`;
-      const scheduledOutTs = `${workDate}T${scheduledOut}:00`;
 
       const row = {
         location_id: locationId,
@@ -343,12 +391,13 @@ export const processEventAttendance = createAuthenticatedAction(
         subject_key: subjectKey,
         event_id: data.eventId,
         status: derived.status,
-        scheduled_in: scheduledInTs,
-        scheduled_out: scheduledOutTs,
+        scheduled_in: derived.scheduledInIso,
+        scheduled_out: derived.scheduledOutIso,
         actual_in: actualIn,
         actual_out: actualOut,
         late_minutes: derived.lateMinutes,
         worked_minutes: derived.workedMinutes,
+        overtime_minutes: derived.overtimeMinutes,
         missed_punch: derived.missedPunch,
         punch_count: punchTimes.length,
         updated_at: new Date().toISOString(),
