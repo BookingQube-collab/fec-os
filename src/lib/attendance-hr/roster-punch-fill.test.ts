@@ -4,7 +4,6 @@ import { scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
 import {
   isRosterPunchFillListableRow,
   isRosterPunchFillSubjectRow,
-  isRosterPunchFillTerminatedStatus,
   matchesRosterPunchFillStaffStatusFilter,
   mayFillRosterDevicePunches,
   mergeRosterPunchFillStaffIds,
@@ -80,30 +79,40 @@ describe("who may fill missed device punches from the roster", () => {
     ).toBe(false);
   });
 
-  it("lists exited people for All / Terminated while Active stays current roster", () => {
-    expect(ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS).toBe("all");
-    expect([...ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS]).toEqual(["all", "active", "terminated"]);
+  it("lists exited people for Fill missed punches and filters Active / Terminated / Resigned / All", () => {
+    expect(ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS).toBe("active");
+    expect([...ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS]).toEqual([
+      "active",
+      "terminated",
+      "resigned",
+      "all",
+    ]);
 
     expect(isRosterPunchFillListableRow({ status: "terminated" })).toBe(true);
     expect(isRosterPunchFillListableRow({ status: "resigned" })).toBe(true);
     expect(isRosterPunchFillListableRow({ status: "contract_finished" })).toBe(true);
     expect(isRosterPunchFillListableRow({ status: "active" })).toBe(true);
     expect(isRosterPunchFillListableRow({ status: "terminated", deleted_at: "2026-01-01" })).toBe(false);
-    expect(isRosterPunchFillTerminatedStatus("terminated")).toBe(true);
-    expect(isRosterPunchFillTerminatedStatus("resigned")).toBe(true);
-    expect(isRosterPunchFillTerminatedStatus("contract_finished")).toBe(true);
-    expect(isRosterPunchFillTerminatedStatus("active")).toBe(false);
 
-    expect(matchesRosterPunchFillStaffStatusFilter({ status: "active" }, "all")).toBe(true);
-    expect(matchesRosterPunchFillStaffStatusFilter({ status: "terminated" }, "all")).toBe(true);
     expect(matchesRosterPunchFillStaffStatusFilter({ status: "active" }, "active")).toBe(true);
     expect(matchesRosterPunchFillStaffStatusFilter({ status: "serving_notice" }, "active")).toBe(true);
     expect(matchesRosterPunchFillStaffStatusFilter({ status: "terminated" }, "active")).toBe(false);
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "resigned" }, "active")).toBe(false);
+
     expect(matchesRosterPunchFillStaffStatusFilter({ status: "terminated" }, "terminated")).toBe(true);
     expect(matchesRosterPunchFillStaffStatusFilter({ status: "released" }, "terminated")).toBe(true);
-    expect(matchesRosterPunchFillStaffStatusFilter({ status: "resigned" }, "terminated")).toBe(true);
-    expect(matchesRosterPunchFillStaffStatusFilter({ status: "contract_finished" }, "terminated")).toBe(true);
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "resigned" }, "terminated")).toBe(false);
     expect(matchesRosterPunchFillStaffStatusFilter({ status: "active" }, "terminated")).toBe(false);
+
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "resigned" }, "resigned")).toBe(true);
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "terminated" }, "resigned")).toBe(false);
+
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "terminated" }, "all")).toBe(true);
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "resigned" }, "all")).toBe(true);
+    expect(matchesRosterPunchFillStaffStatusFilter({ status: "contract_finished" }, "all")).toBe(true);
+    expect(
+      matchesRosterPunchFillStaffStatusFilter({ status: "joker", employment_type: "joker" }, "all"),
+    ).toBe(true);
     expect(
       matchesRosterPunchFillStaffStatusFilter({ status: "joker", employment_type: "joker" }, "active"),
     ).toBe(true);

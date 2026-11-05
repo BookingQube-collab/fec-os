@@ -7,7 +7,6 @@ import {
 } from "@/lib/attendance-listing-access";
 import { isAdminPeopleDirectoryRow } from "@/lib/people-directory-access";
 import {
-  isContractFinishedStaffStatus,
   isJokerStaffStatus,
   isResignedStaffStatus,
   isTerminatedStaffStatus,
@@ -24,11 +23,17 @@ export const ROSTER_FILL_MAX_DAYS = 366;
 
 /**
  * Staff status filter on Fill missed punches (HOO / ops).
- * Default All so exited people are reachable without an extra click.
+ * Default Active so the picker stays on the live roster until HOO asks for
+ * Terminated / Resigned / All backfill.
  */
-export const ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS = ["all", "active", "terminated"] as const;
+export const ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS = [
+  "active",
+  "terminated",
+  "resigned",
+  "all",
+] as const;
 export type RosterPunchFillStaffStatusFilter = (typeof ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS)[number];
-export const ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS: RosterPunchFillStaffStatusFilter = "all";
+export const ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS: RosterPunchFillStaffStatusFilter = "active";
 
 /**
  * Punches that came from the biometric device or a device import.
@@ -123,16 +128,6 @@ export function isRosterPunchFillListableRow(input: {
   return isAttendanceListingTreeStaffStatus(input.status);
 }
 
-/** Exited bucket for the Terminated chip (same exited set as Attendance listing). */
-export function isRosterPunchFillTerminatedStatus(status: string | null | undefined): boolean {
-  if (isJokerStaffStatus(status)) return false;
-  return (
-    isTerminatedStaffStatus(status) ||
-    isResignedStaffStatus(status) ||
-    isContractFinishedStaffStatus(status)
-  );
-}
-
 /** Client filter for the Fill missed punches staff status control. */
 export function matchesRosterPunchFillStaffStatusFilter(
   input: {
@@ -147,7 +142,13 @@ export function matchesRosterPunchFillStaffStatusFilter(
   if (!isRosterPunchFillListableRow(input)) return false;
   if (filter === "all") return true;
   if (filter === "active") return isRosterPunchFillSubjectRow(input);
-  return isRosterPunchFillTerminatedStatus(input.status);
+  if (filter === "terminated") {
+    return !isJokerStaffStatus(input.status) && isTerminatedStaffStatus(input.status);
+  }
+  if (filter === "resigned") {
+    return !isJokerStaffStatus(input.status) && isResignedStaffStatus(input.status);
+  }
+  return false;
 }
 
 export function isGeneralManagerTitle(jobTitle: string | null | undefined): boolean {
