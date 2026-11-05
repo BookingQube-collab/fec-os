@@ -11484,6 +11484,57 @@
       "incompletePunchRosterSaved": "Saved roster for {{date}}.",
       "leaveApply": "Leave apply",
       "myAttendance": "My attendance",
+      "attendanceLeaveCalendar": "Attendance & Leave Calendar",
+      "calendarHint": "Team attendance and approved leave for your scoped locations. Past days show actuals; future days show rostered schedule and approved leave only.",
+      "calendarUnavailable": "Could not load the attendance calendar.",
+      "calendarLastSync": "Last biometric sync {{time}} (Asia/Qatar)",
+      "calendarView": {
+        "month": "Month",
+        "week": "Week",
+        "day": "Day"
+      },
+      "calendarKpi": {
+        "scheduled": "Total scheduled",
+        "present": "Present",
+        "absent": "Absent",
+        "leave": "On leave",
+        "late": "Late",
+        "weekOff": "Weekly OFF"
+      },
+      "calendarFilter": {
+        "location": "Location",
+        "department": "Department",
+        "designation": "Designation",
+        "status": "Status",
+        "search": "Search employee",
+        "allLocations": "All locations",
+        "allDepartments": "All departments",
+        "allDesignations": "All designations",
+        "allStatuses": "All statuses"
+      },
+      "calendarLegend": {
+        "title": "Legend",
+        "holiday": "Holiday",
+        "scheduled": "Scheduled"
+      },
+      "calendarLocationToday": "Location-wise (today)",
+      "calendarNoLocations": "No location rows for today with the current filters.",
+      "calendarShortage": "Coverage shortage hints",
+      "calendarOnLeaveToday": "Employees on leave (today)",
+      "calendarNoLeaveToday": "Nobody on leave today in this scope.",
+      "calendarExceptions": "Attendance exceptions (today)",
+      "calendarNoExceptions": "No absences, late arrivals, or missed punches in this scope today.",
+      "calendarOpenCorrection": "Open Correction",
+      "calendarException": {
+        "absent": "Absent",
+        "late": "Late",
+        "missedPunch": "Missed punch"
+      },
+      "calendarUpcomingLeaves": "Upcoming leaves (next 7 days)",
+      "calendarNoUpcomingLeaves": "No approved leave in the next 7 days.",
+      "calendarOpenDetail": "Employee detail",
+      "calendarDayDetail": "Day detail · {{date}}",
+      "calendarNoDayRows": "No employees for this day with the current filters.",
       "attendanceUnavailable": "Could not load attendance.",
       "attendanceToday": "Today",
       "attendanceLegendCurrentWeek": "Current week",

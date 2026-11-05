@@ -76,6 +76,21 @@ export function canSeeAttendanceListing(
   return roles.some((role) => (MANAGER_SUPERVISOR_ROLES as readonly AppRole[]).includes(role));
 }
 
+/**
+ * My Day Attendance & Leave Calendar for HR / HoO / GM / Sr. Site (and other
+ * management seats that already see Attendance listing). Same gate as listing so
+ * Sr. Site stays location-scoped via existing team helpers.
+ */
+export function canSeeAttendanceLeaveCalendar(
+  roles: readonly AppRole[],
+  hasDirectReports: boolean,
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): boolean {
+  return canSeeAttendanceListing(roles, hasDirectReports, jobTitle, department, staffRole);
+}
+
 /** HR, CEO, and COO already map every employee. GM keeps that same company-wide mapper. */
 export function attendanceMappingIsCompanyWide(roles: readonly AppRole[]): boolean {
   const list = roles as AppRole[];

@@ -8,6 +8,7 @@ import {
   attendanceMappingRowAllowed,
   attendanceMappingStaffAllowed,
   canMergeAttendanceMappings,
+  canSeeAttendanceLeaveCalendar,
   canSeeAttendanceListing,
   canSeeAttendanceMapping,
   isAttendanceListingScopedJoker,
@@ -51,6 +52,16 @@ describe("attendance listing access", () => {
     expect(canSeeAttendanceListing(["technician"], false)).toBe(false);
     expect(attendanceListingIsCompanyWide(["cashier_host"])).toBe(false);
     expect(attendanceListingIsCompanyWide(["duty_manager"])).toBe(true);
+  });
+
+  it("shows Attendance & Leave Calendar for HR, HoO, GM, and Sr. Site seats", () => {
+    expect(canSeeAttendanceLeaveCalendar(["hr"], false)).toBe(true);
+    expect(canSeeAttendanceLeaveCalendar(["regional_ops"], false)).toBe(true);
+    expect(canSeeAttendanceLeaveCalendar(["branch_gm"], false)).toBe(true);
+    expect(
+      canSeeAttendanceLeaveCalendar(["branch_gm"], true, "Sr. Site Supervisor", null, "venue_supervisor"),
+    ).toBe(true);
+    expect(canSeeAttendanceLeaveCalendar(["cashier_host"], false)).toBe(false);
   });
 
   it("adds listing and mapping without import or device admin", () => {

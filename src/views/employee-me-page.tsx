@@ -18,11 +18,14 @@ import {
 import { MeLeavePanel } from "@/components/hr/me-leave-panel";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
+import { MeAttendanceLeaveCalendar } from "@/components/hr/me-attendance-leave-calendar";
 import { EmployeeAttendanceCalendar } from "@/components/hr/employee-attendance-calendar";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
 import { MySuggestionsPanel } from "@/components/hr/my-suggestions-panel";
 import { SelfCheckCard } from "@/components/hr/self-check-card";
 import { HrShell } from "@/components/hr/hr-shell";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
+import { canSeeAttendanceLeaveCalendar } from "@/lib/attendance-listing-access";
 import {
   LeaveRequestPrintDialog,
   type LeaveRequestPrintPayload,
@@ -95,6 +98,7 @@ type MeTab =
   | "profile"
   | "correction"
   | "attendance"
+  | "calendar"
   | "roster"
   | "leave"
   | "issues"
@@ -110,6 +114,7 @@ const TAB_HASH: Record<MeTab, string> = {
   profile: "#me-profile",
   correction: "#me-correction",
   attendance: "#me-attendance",
+  calendar: "#me-calendar",
   roster: "#me-roster",
   leave: "#me-leave",
   issues: "#me-issues",
@@ -185,6 +190,14 @@ export default function EmployeeMePage() {
     showsSupervisorTeamToday(roleList, sessionProfile?.job_title, sessionProfile?.staff_role);
   const qc = useQueryClient();
   const canIssues = usePermission("issues.view");
+  const { hasDirectReports } = useHasDirectReports();
+  const showAttendanceLeaveCalendar = canSeeAttendanceLeaveCalendar(
+    roleList,
+    hasDirectReports,
+    sessionProfile?.job_title,
+    sessionProfile?.department,
+    sessionProfile?.staff_role,
+  );
   const [leaveType, setLeaveType] = useState<(typeof HR_LEAVE_TYPES)[number]>("annual");
   const [leaveFrom, setLeaveFrom] = useState("");
   const [leaveTo, setLeaveTo] = useState("");
@@ -549,6 +562,9 @@ export default function EmployeeMePage() {
         ]
       : []),
     { id: "attendance", label: t("hr.me.myAttendance") },
+    ...(showAttendanceLeaveCalendar
+      ? [{ id: "calendar" as const, label: t("hr.me.attendanceLeaveCalendar") }]
+      : []),
     { id: "roster", label: t("hr.me.myRoster") },
     ...(person
       ? [
@@ -773,6 +789,12 @@ export default function EmployeeMePage() {
                     <EssEmpty>{t("hr.me.noStatus")}</EssEmpty>
                   ) : null}
                   <MyMissedPunchRequests />
+                </EssPanel>
+              ) : null}
+
+              {active === "calendar" && showAttendanceLeaveCalendar ? (
+                <EssPanel id="me-calendar" title={t("hr.me.attendanceLeaveCalendar")}>
+                  <MeAttendanceLeaveCalendar />
                 </EssPanel>
               ) : null}
 
