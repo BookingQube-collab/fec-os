@@ -9,6 +9,15 @@ describe("punch-driven attendance (portal check-in / no roster)", () => {
     expect(staffUsesPunchDrivenAttendance({ canSelfCheckIn: null })).toBe(false);
     expect(staffUsesPunchDrivenAttendance({})).toBe(false);
   });
+
+  it("also treats location shift_punch mode as punch-driven (Phase 1 HO)", () => {
+    expect(
+      staffUsesPunchDrivenAttendance({ canSelfCheckIn: false, attendanceMode: "shift_punch" }),
+    ).toBe(true);
+    expect(staffUsesPunchDrivenAttendance({ canSelfCheckIn: false, attendanceMode: "roster" })).toBe(
+      false,
+    );
+  });
 });
 
 describe("self check-in allow/deny", () => {

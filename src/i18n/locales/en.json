@@ -11265,11 +11265,15 @@
     "shiftPolicy": {
       "kicker": "HR admin",
       "title": "Site working hours",
-      "subtitle": "Set Permanent, Secondment, and Joker expected daily hours plus break, reporting, and buffer minutes for each location.",
+      "subtitle": "Set attendance mode, Permanent / Secondment / Joker hours, plus break, reporting, and buffer minutes for each location.",
       "noAccess": "Site working hours are limited to HR managers.",
-      "help": "Defaults: Permanent {{permanentHours}}h · Secondment & Joker {{extendedHours}}h. Break {{defaultBreak}} min most sites · Urban Arena {{uaBreak}} min. Reporting time is minutes before roster start for the reporting clock; buffer is extra grace after that clock. Staff employment type on the directory picks which hours apply.",
+      "help": "Defaults: Permanent {{permanentHours}}h · Secondment & Joker {{extendedHours}}h. Break {{defaultBreak}} min most sites · Urban Arena {{uaBreak}} min. Reporting time is minutes before roster start for the reporting clock; buffer is extra grace after that clock. Staff employment type on the directory picks which hours apply. Attendance mode: Head Office defaults to Shift / punch; other sites to Roster. Payroll cut-off stays 28–27 for all locations in Phase 1.",
       "location": "Location",
       "selectLocation": "Select location",
+      "attendanceMode": "Attendance mode",
+      "attendanceModeRoster": "Roster (monthly roster + punches)",
+      "attendanceModeShiftPunch": "Shift / punch (no monthly roster required)",
+      "attendanceModeHelp": "Roster sites invent Absent for on-duty no-punch days. Shift / punch sites (HO) only show days with punches, leave, or week-off — same idea as staff self check-in.",
       "role": "Employment type",
       "expectedHours": "Expected daily hours",
       "defaultHours": "Default {{hours}}h",
@@ -11286,8 +11290,8 @@
       "needLocation": "Select a location first.",
       "saved": "Site working hours saved",
       "applyAll": "Apply to all locations",
-      "applyAllConfirm": "Apply {{location}} hours, break, reporting, and buffer to all locations?",
-      "applyAllHelp": "Copies the values currently shown for this location (hours, break, reporting, and buffer) to every site. Save this location first if you just edited it.",
+      "applyAllConfirm": "Apply {{location}} hours, break, reporting, and buffer to all locations? (Attendance mode is not copied — each site keeps its own.)",
+      "applyAllHelp": "Copies the values currently shown for this location (hours, break, reporting, and buffer) to every site. Attendance mode is not copied. Save this location first if you just edited it.",
       "appliedAll": "Applied to {{count}} locations"
     },
     "reports": {

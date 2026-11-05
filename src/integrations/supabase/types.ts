@@ -4213,6 +4213,7 @@ export type Database = {
       attendance_site_settings: {
         Row: {
           attendance_enabled: boolean
+          attendance_mode: string
           break_minutes: number | null
           buffer_minutes: number | null
           company_id: string
@@ -4228,6 +4229,7 @@ export type Database = {
         }
         Insert: {
           attendance_enabled?: boolean
+          attendance_mode?: string
           break_minutes?: number | null
           buffer_minutes?: number | null
           company_id: string
@@ -4243,6 +4245,7 @@ export type Database = {
         }
         Update: {
           attendance_enabled?: boolean
+          attendance_mode?: string
           break_minutes?: number | null
           buffer_minutes?: number | null
           company_id?: string

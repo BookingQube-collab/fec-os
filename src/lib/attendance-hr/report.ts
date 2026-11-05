@@ -878,6 +878,12 @@ export function appendMissingRosterAndPunchSummaryRows(input: {
   punchDays: ListingGapPunchDay[];
   leaveDays?: ListingGapLeaveDay[];
   locationId?: string | null;
+  /**
+   * When true (or location id is listed), skip synthesizing punch-less Absent shells
+   * from roster gaps — shift_punch / HO sites are punch-driven.
+   */
+  shiftPunchLocationIds?: ReadonlySet<string> | null;
+  shiftPunchSite?: boolean | null;
 }): Array<Record<string, unknown>> {
   const seen = new Set<string>();
   for (const row of input.rows) {
@@ -971,11 +977,25 @@ export function appendMissingRosterAndPunchSummaryRows(input: {
 
   if (pending.size === 0) return input.rows;
 
+  const shiftPunchIds = input.shiftPunchLocationIds ?? null;
+  const siteIsShiftPunch = Boolean(input.shiftPunchSite);
+  const isShiftPunchLoc = (locId: string) =>
+    siteIsShiftPunch || (shiftPunchIds != null && shiftPunchIds.has(locId));
+
   const extras: Array<Record<string, unknown>> = [];
   for (const [key, meta] of pending) {
     const sep = key.lastIndexOf("|");
     const staffId = key.slice(0, sep);
     const workDate = key.slice(sep + 1);
+    // shift_punch sites: keep leave / week-off / punch shells; do not invent roster Absent.
+    if (
+      !meta.leave_type &&
+      !meta.is_week_off &&
+      !meta.from_punch &&
+      isShiftPunchLoc(meta.location_id)
+    ) {
+      continue;
+    }
     const status = meta.leave_type
       ? meta.leave_type
       : meta.is_week_off

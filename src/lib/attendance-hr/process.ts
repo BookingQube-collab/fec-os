@@ -3,6 +3,11 @@ import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { isActiveRosterStaff, isJokerStaff } from "@/lib/staff-status";
 import { shouldSuppressPunchlessJokerAbsent } from "@/lib/attendance-hr/joker-attendance";
+import {
+  normalizeAttendanceMode,
+  siteUsesShiftPunchAttendance,
+  usesPunchDrivenAttendance,
+} from "@/lib/attendance-hr/attendance-mode";
 
 import {
   calculateDailyAttendance,
@@ -346,7 +351,9 @@ export async function recalculateAttendanceRange(
       supabase.from("locations").select("id, code").eq("id", locationId).maybeSingle(),
       supabase
         .from("attendance_site_settings")
-        .select("break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours")
+        .select(
+          "break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours, attendance_mode",
+        )
         .eq("location_id", locationId)
         .maybeSingle(),
     ]);
@@ -368,7 +375,11 @@ export async function recalculateAttendanceRange(
     permanent_hours?: number | null;
     secondment_hours?: number | null;
     joker_hours?: number | null;
+    attendance_mode?: string | null;
   } | null;
+  // Phase 1: HO defaults to shift_punch (punch-driven); sites stay roster.
+  const siteAttendanceMode = normalizeAttendanceMode(sitePolicy?.attendance_mode);
+  const shiftPunchSite = siteUsesShiftPunchAttendance(siteAttendanceMode);
   const breakMinutesOverride =
     sitePolicy?.break_minutes != null ? Number(sitePolicy.break_minutes) : null;
   const reportingTimeMinutesOverride =
@@ -402,9 +413,12 @@ export async function recalculateAttendanceRange(
         reporting_time_minutes?: number | null;
         buffer_minutes?: number | null;
       };
-      // Portal check-in / punch-driven staff: incomplete day closes at Qatar day end
+      // Portal check-in / site shift_punch: incomplete day closes at Qatar day end
       // (same as flexible), so My Day Check in without a roster does not miss-punch mid-shift.
-      const punchDriven = Boolean(r.can_self_check_in);
+      const punchDriven = usesPunchDrivenAttendance({
+        canSelfCheckIn: r.can_self_check_in,
+        attendanceMode: siteAttendanceMode,
+      });
       return [
         String(row.id),
         {
@@ -1340,23 +1354,25 @@ export async function recalculateAttendanceRange(
   }
   const workIdSet = new Set(workStaffIds);
   // Staff-scoped confirm must not expand to the whole site directory.
-  const fallbackStaffIds = staffScope
-    ? []
-    : (staffRows ?? [])
-      .filter((row) => {
-        if (!isActiveRosterStaff(row.status)) return false;
-        // Active Jokers must not fill every home-site day as Absent when they have no punches.
-        if (
-          isJokerStaff({
-            status: row.status,
-            employment_type: (row as { employment_type?: string | null }).employment_type,
+  // shift_punch sites (HO): never invent directory-based Absent shells — punch-driven only.
+  const fallbackStaffIds =
+    staffScope || shiftPunchSite
+      ? []
+      : (staffRows ?? [])
+          .filter((row) => {
+            if (!isActiveRosterStaff(row.status)) return false;
+            // Active Jokers must not fill every home-site day as Absent when they have no punches.
+            if (
+              isJokerStaff({
+                status: row.status,
+                employment_type: (row as { employment_type?: string | null }).employment_type,
+              })
+            ) {
+              return false;
+            }
+            return row.location_id === locationId || workIdSet.has(row.id);
           })
-        ) {
-          return false;
-        }
-        return row.location_id === locationId || workIdSet.has(row.id);
-      })
-      .map((row) => row.id);
+          .map((row) => row.id);
   const covered = new Set<string>();
   for (const [key, punches] of groups) {
     const workDate = key.split("|").at(-1) ?? "";
@@ -1606,9 +1622,15 @@ export async function recalculateAttendanceRange(
         covered.add(`${staffId}|${workDate}`);
         continue;
       }
+      // shift_punch (HO): leave / week-off / holiday still write; no roster-Absent for no-punch days.
+      if (shiftPunchSite && !hasLeave && !isWeekOff && !holidayName) {
+        queueSummaryDelete(locationId, staffId, workDate);
+        covered.add(`${staffId}|${workDate}`);
+        continue;
+      }
       const calc = calculateDailyAttendance([], {
         workDate,
-        scheduled: hasRealRosterAssignment && !isWeekOff,
+        scheduled: hasRealRosterAssignment && !isWeekOff && !shiftPunchSite,
         weekOff: isWeekOff,
         holidayName,
         leaveType,

@@ -168,6 +168,17 @@ describe("dayRowsFromPunches", () => {
 });
 
 describe("buildAbsentRowsForPeriod", () => {
+  it("skips Absent fillers for shift_punch sites", () => {
+    const absents = buildAbsentRowsForPeriod({
+      locationId: "ho",
+      dates: ["2026-11-01"],
+      expectedStaffIds: ["s1"],
+      existing: [],
+      shiftPunchSite: true,
+    });
+    expect(absents).toEqual([]);
+  });
+
   it("marks expected staff without punches as absent for each day", () => {
     const existing = dayRowsFromPunches(
       [

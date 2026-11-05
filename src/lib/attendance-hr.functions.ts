@@ -48,6 +48,12 @@ import {
   selectAdmsFetchDevices,
 } from "@/lib/attendance-hr/constants";
 import {
+  defaultAttendanceModeForLocationCode,
+  normalizeAttendanceMode,
+  siteUsesShiftPunchAttendance,
+  type AttendanceMode,
+} from "@/lib/attendance-hr/attendance-mode";
+import {
   defaultSiteShiftPolicy,
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
@@ -202,6 +208,35 @@ async function assertSite(context: AuthContext, locationId: string) {
   await assertLocationAccess(context, locationId);
 }
 
+/** Location ids whose attendance_site_settings.attendance_mode is shift_punch. */
+async function loadShiftPunchLocationIds(
+  context: AuthContext,
+  input: { locationId?: string | null; locationIds?: string[] },
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (input.locationId) ids.add(input.locationId);
+  for (const id of input.locationIds ?? []) {
+    if (id) ids.add(id);
+  }
+  if (ids.size === 0) return new Set();
+  const { data, error } = await context.supabase
+    .from("attendance_site_settings")
+    .select("location_id, attendance_mode")
+    .in("location_id", [...ids]);
+  if (error) {
+    // Pre-migration / missing column: treat as all roster (existing behavior).
+    if (/attendance_mode|schema cache/i.test(error.message)) return new Set();
+    throw error;
+  }
+  const out = new Set<string>();
+  for (const row of data ?? []) {
+    if (siteUsesShiftPunchAttendance((row as { attendance_mode?: string | null }).attendance_mode)) {
+      out.add(String(row.location_id));
+    }
+  }
+  return out;
+}
+
 export const getAttendanceHrBootstrap = createAuthenticatedAction(
   z.object({
     /**
@@ -218,7 +253,9 @@ export const getAttendanceHrBootstrap = createAuthenticatedAction(
         context.supabase
           .from("attendance_site_settings")
           // Locations come from the parallel roster query — skip nested embed (LATERAL/json_build_object tax).
-          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours"),
+          .select(
+            "location_id, company_id, attendance_enabled, timezone, attendance_mode, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+          ),
         context.supabase
           .from("locations")
           .select("id, code, name, region, status")
@@ -866,12 +903,26 @@ async function loadAttendanceHrDailyRows(
             dateFrom: data.dateFrom,
             dateTo: data.dateTo,
           });
+      const shiftPunchLocationIds = await loadShiftPunchLocationIds(readContext, {
+        locationId: data.locationId ?? null,
+        locationIds: [
+          ...new Set(
+            [
+              ...(gapSources.roster ?? []).map((r) => String(r.location_id ?? "").trim()),
+              ...(gapSources.punchDays ?? []).map((p) => String(p.location_id ?? "").trim()),
+              ...(gapSources.leaveDays ?? []).map((l) => String(l.location_id ?? "").trim()),
+            ].filter(Boolean),
+          ),
+        ],
+      });
       rows = appendMissingRosterAndPunchSummaryRows({
         rows,
         roster: gapSources.roster,
         punchDays: gapSources.punchDays,
         leaveDays: gapSources.leaveDays,
         locationId: data.locationId ?? null,
+        shiftPunchLocationIds,
+        shiftPunchSite: data.locationId ? shiftPunchLocationIds.has(data.locationId) : false,
       });
     }
 
@@ -2204,6 +2255,8 @@ export const saveAttendanceLocationBreak = createAuthenticatedAction(
   { auth: { capability: "attendance.configure" } },
 );
 
+const attendanceModeSchema = z.enum(["roster", "shift_punch"]);
+
 const siteShiftPolicySchema = z.object({
   locationId: z.string().uuid(),
   breakMinutes: z.number().int().min(0).max(240),
@@ -2212,6 +2265,8 @@ const siteShiftPolicySchema = z.object({
   permanentHours: z.number().min(1).max(16),
   secondmentHours: z.number().min(1).max(16),
   jokerHours: z.number().min(1).max(16),
+  /** Phase 1: roster (sites) vs shift_punch (HO). Apply-all does not copy this. */
+  attendanceMode: attendanceModeSchema.optional(),
 });
 
 async function ensureE3CompanyId(context: AuthContext): Promise<string> {
@@ -2236,6 +2291,7 @@ async function upsertAttendanceSiteShiftPolicy(
     permanentHours?: number | null;
     secondmentHours?: number | null;
     jokerHours?: number | null;
+    attendanceMode?: AttendanceMode | null;
   },
 ) {
   await assertSite(context, data.locationId);
@@ -2247,6 +2303,9 @@ async function upsertAttendanceSiteShiftPolicy(
   if (data.permanentHours !== undefined) patch.permanent_hours = data.permanentHours;
   if (data.secondmentHours !== undefined) patch.secondment_hours = data.secondmentHours;
   if (data.jokerHours !== undefined) patch.joker_hours = data.jokerHours;
+  if (data.attendanceMode !== undefined && data.attendanceMode !== null) {
+    patch.attendance_mode = normalizeAttendanceMode(data.attendanceMode);
+  }
 
   const { data: existing, error: fetchErr } = await context.supabase
     .from("attendance_site_settings")
@@ -2278,7 +2337,7 @@ async function upsertAttendanceSiteShiftPolicy(
 /** List locations with effective site shift policy (hours + break + reporting + buffer). */
 export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
   async (context) => {
-    const [{ data: locations, error: locErr }, { data: settings, error: setErr }] = await Promise.all([
+    const [{ data: locations, error: locErr }, settingsFirst] = await Promise.all([
       context.supabase
         .from("locations")
         .select("id, code, name, region, status")
@@ -2288,37 +2347,49 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
       context.supabase
         .from("attendance_site_settings")
         .select(
-          "location_id, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+          "location_id, attendance_mode, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
         ),
     ]);
     if (locErr) throw locErr;
-    if (setErr) throw setErr;
+    type SiteSettingsRow = {
+      location_id: string;
+      attendance_mode?: string | null;
+      break_minutes?: number | null;
+      reporting_time_minutes?: number | null;
+      buffer_minutes?: number | null;
+      permanent_hours?: number | null;
+      secondment_hours?: number | null;
+      joker_hours?: number | null;
+    };
+    let settings: SiteSettingsRow[] | null = (settingsFirst.data as SiteSettingsRow[] | null) ?? null;
+    if (settingsFirst.error) {
+      // Pre-migration: fall back without attendance_mode so the page still loads.
+      if (!/attendance_mode|schema cache/i.test(settingsFirst.error.message)) throw settingsFirst.error;
+      const retry = await context.supabase
+        .from("attendance_site_settings")
+        .select(
+          "location_id, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+        );
+      if (retry.error) throw retry.error;
+      settings = (retry.data as SiteSettingsRow[] | null) ?? null;
+    }
 
-    const byId = new Map(
-      (settings ?? []).map((row) => [
-        row.location_id as string,
-        row as {
-          location_id: string;
-          break_minutes?: number | null;
-          reporting_time_minutes?: number | null;
-          buffer_minutes?: number | null;
-          permanent_hours?: number | null;
-          secondment_hours?: number | null;
-          joker_hours?: number | null;
-        },
-      ]),
-    );
+    const byId = new Map((settings ?? []).map((row) => [row.location_id as string, row]));
 
     return {
       sites: (locations ?? []).map((loc) => {
         const stored = byId.get(loc.id);
         const defaults = defaultSiteShiftPolicy(loc.code);
+        const attendanceMode = stored?.attendance_mode
+          ? normalizeAttendanceMode(stored.attendance_mode)
+          : defaultAttendanceModeForLocationCode(loc.code);
         return {
           locationId: loc.id,
           code: loc.code,
           name: loc.name,
           region: loc.region,
           status: loc.status,
+          attendanceMode,
           breakMinutes:
             stored?.break_minutes != null ? Number(stored.break_minutes) : defaults.breakMinutes,
           reportingTimeMinutes:
@@ -2349,7 +2420,7 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
   { auth: { capability: "hr.manage" } },
 );
 
-/** Save permanent / secondment / joker hours + break + reporting + buffer for one location. */
+/** Save permanent / secondment / joker hours + break + reporting + buffer + attendance mode for one location. */
 export const saveAttendanceSiteShiftPolicy = createAuthenticatedAction(
   siteShiftPolicySchema,
   async (data, context) => {
@@ -2361,6 +2432,7 @@ export const saveAttendanceSiteShiftPolicy = createAuthenticatedAction(
       permanentHours: data.permanentHours,
       secondmentHours: data.secondmentHours,
       jokerHours: data.jokerHours,
+      attendanceMode: data.attendanceMode,
     });
     return { ok: true as const };
   },

@@ -1,3 +1,5 @@
+import { usesPunchDrivenAttendance } from "./attendance-mode";
+
 /** Allow or refuse a self check-in / check-out before any attendance row is written. */
 
 export type SelfCheckKind = "in" | "out";
@@ -16,11 +18,15 @@ function punchCount(value: number): number {
  * When `staff.can_self_check_in` is on, attendance comes from punches — no monthly
  * roster is required. Days with no punches stay not-on-site (not roster Absent).
  * Incomplete days use the same missed-punch request path as other staff.
+ *
+ * Prefer `usesPunchDrivenAttendance` when a location `attendance_mode` is known
+ * (Phase 1: HO = shift_punch formalizes the same punch-driven path site-wide).
  */
 export function staffUsesPunchDrivenAttendance(input: {
   canSelfCheckIn?: boolean | null;
+  attendanceMode?: string | null;
 }): boolean {
-  return Boolean(input.canSelfCheckIn);
+  return usesPunchDrivenAttendance(input);
 }
 
 /**

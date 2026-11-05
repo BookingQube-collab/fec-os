@@ -23,6 +23,11 @@ import {
   saveAttendanceSiteShiftPolicy,
 } from "@/lib/attendance-hr.functions";
 import {
+  ATTENDANCE_MODE_ROSTER,
+  ATTENDANCE_MODE_SHIFT_PUNCH,
+  type AttendanceMode,
+} from "@/lib/attendance-hr/attendance-mode";
+import {
   DEFAULT_BREAK_MINUTES,
   DEFAULT_BUFFER_MINUTES,
   DEFAULT_REPORTING_TIME_MINUTES,
@@ -36,6 +41,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
 type Draft = {
+  attendanceMode: AttendanceMode;
   breakMinutes: string;
   reportingTimeMinutes: string;
   bufferMinutes: string;
@@ -60,6 +66,7 @@ export default function HrShiftPolicyPage() {
   const qc = useQueryClient();
   const [locationId, setLocationId] = useState("");
   const [draft, setDraft] = useState<Draft>({
+    attendanceMode: ATTENDANCE_MODE_ROSTER,
     breakMinutes: String(DEFAULT_BREAK_MINUTES),
     reportingTimeMinutes: String(DEFAULT_REPORTING_TIME_MINUTES),
     bufferMinutes: String(DEFAULT_BUFFER_MINUTES),
@@ -82,6 +89,10 @@ export default function HrShiftPolicyPage() {
   useEffect(() => {
     if (!selected) return;
     setDraft({
+      attendanceMode:
+        selected.attendanceMode === ATTENDANCE_MODE_SHIFT_PUNCH
+          ? ATTENDANCE_MODE_SHIFT_PUNCH
+          : ATTENDANCE_MODE_ROSTER,
       breakMinutes: String(selected.breakMinutes),
       reportingTimeMinutes: String(selected.reportingTimeMinutes),
       bufferMinutes: String(selected.bufferMinutes),
@@ -123,6 +134,7 @@ export default function HrShiftPolicyPage() {
     }
     return {
       locationId,
+      attendanceMode: draft.attendanceMode,
       breakMinutes: Math.round(values.breakMinutes),
       reportingTimeMinutes: Math.round(values.reportingTimeMinutes),
       bufferMinutes: Math.round(values.bufferMinutes),
@@ -144,6 +156,7 @@ export default function HrShiftPolicyPage() {
   const applyAll = useMutation({
     mutationFn: () => {
       const values = validateDraft();
+      // Apply-all copies hours/break only — attendance_mode stays per location (HO stays shift_punch).
       return applyDefaultAttendanceSiteShiftPolicies({
         sourceLocationId: values.locationId,
         breakMinutes: values.breakMinutes,
@@ -240,6 +253,36 @@ export default function HrShiftPolicyPage() {
 
               {selected ? (
                 <div className="space-y-4">
+                  <div className="max-w-md space-y-1.5">
+                    <Label htmlFor="hr-shift-attendance-mode">{t("hr.shiftPolicy.attendanceMode")}</Label>
+                    <SearchableSelect
+                      id="hr-shift-attendance-mode"
+                      value={draft.attendanceMode}
+                      onValueChange={(v) =>
+                        setDraft((d) => ({
+                          ...d,
+                          attendanceMode:
+                            v === ATTENDANCE_MODE_SHIFT_PUNCH
+                              ? ATTENDANCE_MODE_SHIFT_PUNCH
+                              : ATTENDANCE_MODE_ROSTER,
+                        }))
+                      }
+                      options={[
+                        {
+                          value: ATTENDANCE_MODE_ROSTER,
+                          label: t("hr.shiftPolicy.attendanceModeRoster"),
+                          keywords: "roster monthly",
+                        },
+                        {
+                          value: ATTENDANCE_MODE_SHIFT_PUNCH,
+                          label: t("hr.shiftPolicy.attendanceModeShiftPunch"),
+                          keywords: "shift punch HO head office",
+                        },
+                      ]}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.attendanceModeHelp")}</p>
+                  </div>
+
                   <div className="overflow-x-auto rounded-xl border border-border/70">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">

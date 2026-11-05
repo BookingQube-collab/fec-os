@@ -53,6 +53,16 @@ export {
   FLEXIBLE_MIN_WORK_MINUTES,
 } from "./shift-policy";
 export {
+  ATTENDANCE_MODES,
+  ATTENDANCE_MODE_ROSTER,
+  ATTENDANCE_MODE_SHIFT_PUNCH,
+  defaultAttendanceModeForLocationCode,
+  normalizeAttendanceMode,
+  siteUsesShiftPunchAttendance,
+  usesPunchDrivenAttendance,
+} from "./attendance-mode";
+export type { AttendanceMode } from "./attendance-mode";
+export {
   staffUsesCrossSiteDayMerge,
   preferCrossSiteWeekOffRoster,
   flexibleDayAnchorLocationId,

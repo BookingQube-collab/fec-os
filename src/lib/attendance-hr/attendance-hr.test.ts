@@ -1703,6 +1703,33 @@ describe("HR report row helpers", () => {
     expect(rosterDay?.status).toBe("absent");
   });
 
+  it("does not invent roster Absent shells for shift_punch sites (HO)", () => {
+    const filled = appendMissingRosterAndPunchSummaryRows({
+      rows: [],
+      roster: [
+        { staff_id: "ho-staff", location_id: "ho", work_date: "2026-11-03", is_week_off: false },
+        { staff_id: "ho-staff", location_id: "ho", work_date: "2026-11-04", is_week_off: true },
+      ],
+      punchDays: [{ staff_id: "ho-staff", location_id: "ho", work_date: "2026-11-05" }],
+      leaveDays: [
+        {
+          staff_id: "ho-staff",
+          location_id: "ho",
+          work_date: "2026-11-06",
+          leave_type: "annual_leave",
+        },
+      ],
+      locationId: "ho",
+      shiftPunchSite: true,
+    });
+    const byDay = Object.fromEntries(filled.map((r) => [String(r.work_date), r.status]));
+    expect(byDay["2026-11-03"]).toBeUndefined();
+    expect(byDay["2026-11-04"]).toBe("weekly_off");
+    expect(byDay["2026-11-05"]).toBe("absent");
+    expect(Number(filled.find((r) => r.work_date === "2026-11-05")?.punch_count)).toBe(1);
+    expect(byDay["2026-11-06"]).toBe("annual_leave");
+  });
+
   it("marks punch-gap shells so suppressAbsentWithoutOnDutyRoster keeps them", () => {
     const filled = appendMissingRosterAndPunchSummaryRows({
       rows: [],

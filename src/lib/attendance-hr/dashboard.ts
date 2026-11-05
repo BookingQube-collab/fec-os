@@ -354,7 +354,10 @@ export function buildAbsentRowsForPeriod(input: {
   dates: string[];
   expectedStaffIds: string[] | ReadonlyMap<string, readonly string[]>;
   existing: AttendanceDashboardDayRow[];
+  /** Phase 1: shift_punch / HO sites skip roster Absent fillers. */
+  shiftPunchSite?: boolean | null;
 }): AttendanceDashboardDayRow[] {
+  if (input.shiftPunchSite) return [];
   const covered = new Set<string>();
   for (const row of input.existing) {
     if (row.location_id !== input.locationId || !row.staff_id) continue;
