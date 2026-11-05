@@ -251,6 +251,9 @@
     "recruitment": "Recruitment",
     "onboardingOffboarding": "Onboarding & offboarding",
     "eventStaff": "Event Staff",
+    "eventCrew": "Event crew",
+    "eventAttendance": "Event attendance",
+    "eventPayroll": "Event payroll",
     "biometricDevices": "Biometric & devices",
     "timesheets": "Timesheets",
     "fnbCafeOt": "F&B Cafe OT",
@@ -5872,6 +5875,8 @@
       "empty": "No shifts yet — seed from Staffing crew or add a slot.",
       "seedFromCrew": "Seed from crew",
       "processAttendance": "Process attendance",
+      "processFrom": "Process from date",
+      "processTo": "Process to date",
       "addSlot": "Add shift",
       "correctionsHint": "Missed punches for this crew:",
       "openCorrections": "Open event corrections",
@@ -5911,6 +5916,7 @@
       "createPeriod": "Create event period",
       "generate": "Generate lines",
       "openPeriod": "Open period detail",
+      "exportLines": "Download lines CSV",
       "closeAssignments": "Close crew & park event hires",
       "noAccess": "Payroll view permission required.",
       "needsGenerate": "Creating/generating requires payroll.generate.",
@@ -5918,7 +5924,8 @@
         "created": "Event payroll period created",
         "exists": "Using existing event payroll period",
         "generated": "Generated {{n}} payroll line(s)",
-        "closed": "Closed {{n}} assignment(s); parked {{parked}} event hire(s)"
+        "closed": "Closed {{n}} assignment(s); parked {{parked}} event hire(s)",
+        "exported": "Payroll lines downloaded"
       }
     },
     "staffing": {
@@ -8958,6 +8965,75 @@
     "unavailable": "Unavailable",
     "remove": "Remove",
     "previewAlt": "Preview"
+  },
+  "peopleEvent": {
+    "kicker": "People & HR",
+    "noAccess": "You do not have access to event workforce modules.",
+    "setupHint": "Events is for setup. Ongoing attendance, crew, and payroll manage live here in People & HR.",
+    "filters": {
+      "event": "Event",
+      "allEvents": "All events",
+      "site": "Site",
+      "from": "From",
+      "to": "To",
+      "search": "Search",
+      "searchPlaceholder": "Name, code, or event…",
+      "type": "Assignment type",
+      "status": "Status"
+    },
+    "columns": {
+      "event": "Event",
+      "person": "Person",
+      "date": "Date",
+      "dates": "Dates",
+      "status": "Status",
+      "shift": "Punch",
+      "type": "Type"
+    },
+    "status": {
+      "active": "Active",
+      "closed": "Closed"
+    },
+    "links": {
+      "openCrew": "Open in People · Event crew",
+      "openAttendance": "Open in People · Event attendance",
+      "openPayroll": "Open in People · Event payroll",
+      "openEventStaffing": "Event staffing (setup)",
+      "openEventSchedule": "Event schedule (setup)",
+      "openEventPay": "Event pay (setup)",
+      "allPayroll": "All payroll periods",
+      "corrections": "Corrections",
+      "setup": "Setup"
+    },
+    "bulk": {
+      "exportCsv": "Export CSV",
+      "selected": "{{n}} selected",
+      "selectAll": "Select all",
+      "close": "Bulk close",
+      "remove": "Bulk remove",
+      "updateDates": "Update dates",
+      "needDates": "Choose from and to dates first.",
+      "closed": "Closed {{n}} assignment(s)",
+      "removed": "Removed {{n}} assignment(s)",
+      "datesUpdated": "Updated dates on {{n}} assignment(s)"
+    },
+    "attendance": {
+      "title": "Event attendance",
+      "subtitle": "Days tagged with an event — filter by event, site, and date range.",
+      "empty": "No event-tagged attendance for these filters."
+    },
+    "crew": {
+      "title": "Event crew",
+      "subtitle": "Assignments across events. Ops edit on Events staffing; HR can review and bulk-manage here when permitted.",
+      "empty": "No crew assignments for these filters.",
+      "viewOnlyHint": "View and export only — Events edit permission is required for bulk close, remove, or date changes. Use Setup to open the event."
+    },
+    "payroll": {
+      "title": "Event payroll",
+      "subtitle": "Event pay periods only (separate from the monthly FEC cycle).",
+      "hint": "Create periods from Events → Event pay. Open a period here to review lines, export, and lock.",
+      "empty": "No event payroll periods yet."
+    }
   },
   "attendanceHr": {
     "title": "Time & Attendance",

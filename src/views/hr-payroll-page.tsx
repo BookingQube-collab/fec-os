@@ -96,6 +96,11 @@ export default function HrPayrollPage() {
     return defaults;
   });
   const [createMonth, setCreateMonth] = useState(month);
+  const [periodKind, setPeriodKind] = useState<"all" | "monthly" | "event">(() => {
+    const raw = searchParams.get("periodKind");
+    if (raw === "monthly" || raw === "event" || raw === "all") return raw;
+    return "all";
+  });
   const [fixRow, setFixRow] = useState<PayrollStaffRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; month: string; status: string } | null>(
     null,
@@ -114,8 +119,8 @@ export default function HrPayrollPage() {
   });
 
   const periods = useQuery({
-    queryKey: queryKeys.people.hrPayrollPeriods(),
-    queryFn: () => listPayrollPeriods({ status: "all" }),
+    queryKey: queryKeys.people.hrPayrollPeriods({ periodKind }),
+    queryFn: () => listPayrollPeriods({ status: "all", periodKind }),
     staleTime: STALE.people,
   });
 
@@ -181,6 +186,24 @@ export default function HrPayrollPage() {
                     {t("hr.payrollRuns.periodsTitle")}
                   </p>
                   <p className="mt-1 hidden text-sm text-muted-foreground sm:block">{t("hr.payrollRuns.periodsHint")}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Select
+                      value={periodKind}
+                      onValueChange={(v) => setPeriodKind(v as "all" | "monthly" | "event")}
+                    >
+                      <SelectTrigger className="h-9 w-[10.5rem]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{t("common.all")}</SelectItem>
+                        <SelectItem value="monthly">{t("hr.payrollRuns.kindMonthly", { defaultValue: "Monthly" })}</SelectItem>
+                        <SelectItem value="event">{t("nav.eventPayroll")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href="/people/event-payroll">{t("nav.eventPayroll")}</Link>
+                    </Button>
+                  </div>
                 </div>
                 {canGenerate ? (
                   <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-end">

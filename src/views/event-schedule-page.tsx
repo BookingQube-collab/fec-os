@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { EventSchedulePanel } from "@/components/events/event-schedule-panel";
+import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEvent, useEventOptions } from "@/hooks/queries/useEvents";
@@ -38,6 +39,7 @@ export default function EventSchedulePage() {
     <div className="space-y-4">
       <FecPageHeader title={t("events.workspace.crewSchedule")} subtitle={title} />
       <EventWorkspaceNav eventId={id} />
+      <EventWorkforcePeopleLinks eventId={id} focus="attendance" />
       {scheduleQ.isLoading ? (
         <Skeleton className="h-64 w-full rounded-2xl" />
       ) : scheduleQ.isError ? (

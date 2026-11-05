@@ -1,6 +1,6 @@
 "use client";
 
-import { FecLoader, FecPageHeader } from "@/components/fec";
+import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -32,6 +32,7 @@ import {
   EventTeamPanel,
 } from "@/components/events/event-phase1-panels";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
+import { RouteLoadingSkeleton } from "@/components/layout/route-loading";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -40,9 +41,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useEvent, useEventBudget, useEventOptions, useEventPlan, useEventScope } from "@/hooks/queries/useEvents";
+import { useEvent, useEventOptions } from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
 import { fmtQar } from "@/lib/currency";
 import type { EventRag } from "@/lib/events/constants";
@@ -64,12 +66,11 @@ export default function EventOverviewPage() {
   const id = params.id;
   const qc = useQueryClient();
   const eventQ = useEvent(id);
-  const scopeQ = useEventScope(id);
-  const planQ = useEventPlan(id);
-  const budgetQ = useEventBudget(id);
-  const options = useEventOptions();
   const inBuilder = search.get("setup") === "1";
   const stepParam = (search.get("step") as EventSetupStepId | null) ?? undefined;
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Staff pickers only needed when expanding More details (or builder loads its own options).
+  const options = useEventOptions({ enabled: moreOpen });
   const canEdit = usePermission("events.edit");
   const canCreatePr = usePermission("procurement.create");
   const canCreateMaint = usePermission("maintenance.request_submit");
@@ -154,16 +155,13 @@ export default function EventOverviewPage() {
   const setup = useMemo(
     () =>
       setupProgressFromOverview(eventQ.data, {
-        scopeSections: scopeQ.data?.versions[0]?.sections,
-        tasks: planQ.data?.tasks,
-        budgetLines: budgetQ.data?.lines,
         forceWizard: inBuilder,
       }),
-    [eventQ.data, scopeQ.data?.versions, planQ.data?.tasks, budgetQ.data?.lines, inBuilder],
+    [eventQ.data, inBuilder],
   );
 
   if (eventQ.isLoading || !d) {
-    return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
+    return <RouteLoadingSkeleton variant="dashboard" />;
   }
 
   if (inBuilder) {
@@ -174,6 +172,7 @@ export default function EventOverviewPage() {
   const next = d.nextStage;
   const missing = d.gates.filter((g) => g.blocking && !g.satisfied);
   const displayName = ev.event_name || ev.name;
+  const staffOptions = (options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }));
 
   return (
     <div className="min-w-0 max-w-full space-y-5">
@@ -205,7 +204,7 @@ export default function EventOverviewPage() {
 
       <EventPlanHome
         overview={d}
-        tasks={planQ.data?.tasks ?? d.overdueActions}
+        tasks={d.homeTasks ?? d.overdueActions}
         canEdit={canEdit}
         canCreatePr={canCreatePr}
         canCreateMaint={canCreateMaint}
@@ -221,7 +220,9 @@ export default function EventOverviewPage() {
         title={t("events.home.moreDetails")}
         kicker={t("events.home.moreDetailsHint")}
         defaultOpen={false}
+        onOpenChange={setMoreOpen}
       >
+      {moreOpen ? (
       <Tabs defaultValue="work" className="space-y-3">
         <TabsList>
           <TabsTrigger value="work"><ClipboardList aria-hidden />{t("events.home.tabWork")}</TabsTrigger>
@@ -239,7 +240,7 @@ export default function EventOverviewPage() {
               risks={d.risks}
               canEdit={canEdit}
               onChanged={invalidate}
-              staff={(options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }))}
+              staff={staffOptions}
               escalations={d.escalations}
             />
           </div>
@@ -247,7 +248,7 @@ export default function EventOverviewPage() {
             <EventTeamPanel
               eventId={id}
               team={d.team}
-              staff={(options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }))}
+              staff={staffOptions}
               canEdit={canEdit}
               onChanged={invalidate}
             />
@@ -363,11 +364,15 @@ export default function EventOverviewPage() {
           <EventSourceBanner />
           <section className="rounded-2xl border border-border/40 bg-card p-4">
             <h2 className="mb-3 text-sm font-semibold">{t("events.collab.title")}</h2>
-            <EventCollaborationPanel
-              eventId={id}
-              staff={(options.data?.staff ?? []).map((s) => ({ id: s.id, full_name: s.full_name }))}
-              canEdit={canEdit}
-            />
+            {options.isLoading && !options.data ? (
+              <Skeleton className="h-32 w-full rounded-xl" />
+            ) : (
+              <EventCollaborationPanel
+                eventId={id}
+                staff={staffOptions}
+                canEdit={canEdit}
+              />
+            )}
           </section>
           <div className="flex flex-wrap gap-2">
             {canManage && ev.status === "active" ? (
@@ -417,6 +422,7 @@ export default function EventOverviewPage() {
           <EventActivityPanel eventId={id} />
         </TabsContent>
       </Tabs>
+      ) : null}
       </CollapsibleSection>
 
       <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>

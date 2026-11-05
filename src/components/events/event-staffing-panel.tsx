@@ -202,6 +202,69 @@ export function EventStaffingPanel({
     ]);
   }
 
+  function toggleAll(on: boolean) {
+    setSelected(on ? new Set(assignments.map((a) => a.id)) : new Set());
+  }
+
+  function toggleOne(id: string, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function bulkClose() {
+    if (!selectedIds.length) return;
+    setBusy(true);
+    try {
+      const res = await bulkCloseEventStaffAssignments({ eventId, ids: selectedIds });
+      setSelected(new Set());
+      onChanged();
+      toast.success(t("peopleEvent.bulk.closed", { n: res.closed }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bulkRemove() {
+    if (!selectedIds.length) return;
+    setBusy(true);
+    try {
+      const res = await bulkDeleteEventStaffAssignments({ eventId, ids: selectedIds });
+      setSelected(new Set());
+      onChanged();
+      toast.success(t("peopleEvent.bulk.removed", { n: res.removed }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bulkDates() {
+    if (!selectedIds.length || !bulkFrom || !bulkTo) return;
+    setBusy(true);
+    try {
+      const res = await bulkUpdateEventStaffAssignmentDates({
+        eventId,
+        ids: selectedIds,
+        date_from: bulkFrom,
+        date_to: bulkTo,
+      });
+      setSelected(new Set());
+      onChanged();
+      toast.success(t("peopleEvent.bulk.datesUpdated", { n: res.updated }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onImportFile(file: File | null) {
     if (!file) return;
     setBusy(true);
@@ -304,12 +367,53 @@ export function EventStaffingPanel({
           </div>
         </div>
         <p className="mb-3 text-xs text-muted-foreground">{t("events.staffing.import.help")}</p>
+        {canEdit && selectedIds.length > 0 ? (
+          <div className="mb-3 flex flex-wrap items-end gap-2 rounded-xl border border-border/40 bg-muted/20 p-2">
+            <span className="text-xs text-muted-foreground">
+              {t("peopleEvent.bulk.selected", { n: selectedIds.length })}
+            </span>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void bulkClose()}>
+              {t("peopleEvent.bulk.close")}
+            </Button>
+            <Button size="sm" variant="destructive" disabled={busy} onClick={() => void bulkRemove()}>
+              {t("peopleEvent.bulk.remove")}
+            </Button>
+            <Input
+              type="date"
+              className="h-8 w-auto"
+              value={bulkFrom}
+              onChange={(e) => setBulkFrom(e.target.value)}
+            />
+            <Input
+              type="date"
+              className="h-8 w-auto"
+              value={bulkTo}
+              onChange={(e) => setBulkTo(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={busy || !bulkFrom || !bulkTo}
+              onClick={() => void bulkDates()}
+            >
+              {t("peopleEvent.bulk.updateDates")}
+            </Button>
+          </div>
+        ) : null}
         {assignments.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("events.staffing.empty")}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
+                {canEdit ? (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={assignments.length > 0 && selected.size === assignments.length}
+                      onCheckedChange={(v) => toggleAll(Boolean(v))}
+                      aria-label={t("peopleEvent.bulk.selectAll")}
+                    />
+                  </TableHead>
+                ) : null}
                 <TableHead>{t("events.staffing.columns.person")}</TableHead>
                 <TableHead>{t("events.staffing.columns.type")}</TableHead>
                 <TableHead>{t("events.staffing.columns.role")}</TableHead>
@@ -321,6 +425,15 @@ export function EventStaffingPanel({
             <TableBody>
               {assignments.map((row) => (
                 <TableRow key={row.id}>
+                  {canEdit ? (
+                    <TableCell>
+                      <Checkbox
+                        checked={selected.has(row.id)}
+                        onCheckedChange={(v) => toggleOne(row.id, Boolean(v))}
+                        aria-label={row.staff_name ?? row.id}
+                      />
+                    </TableCell>
+                  ) : null}
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
                       <span className="font-medium">{row.staff_name ?? "—"}</span>

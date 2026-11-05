@@ -310,20 +310,34 @@ export const seedEventScheduleFromCrew = createAuthenticatedAction(
 /**
  * Process punches at the event venue into attendance_daily_summary tagged with event_id.
  * Reuses host-site biometric logs (location_id = event.location_id) for scheduled crew days.
+ * Optional dateFrom/dateTo limit which schedule slots are processed (bulk range).
  */
 export const processEventAttendance = createAuthenticatedAction(
-  EventIdSchema,
+  z.object({
+    eventId: z.string().uuid(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  }),
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
     const locationId = event.location_id as string;
     if (!locationId) throw new Error("Event has no location — set venue location first.");
 
-    const { data: slots, error: slotErr } = await context.supabase
+    let slotQ = context.supabase
       .from("event_schedule_slots")
       .select("id, staff_id, work_date, scheduled_in, scheduled_out")
       .eq("event_id", data.eventId);
+    if (data.dateFrom) slotQ = slotQ.gte("work_date", data.dateFrom);
+    if (data.dateTo) slotQ = slotQ.lte("work_date", data.dateTo);
+    const { data: slots, error: slotErr } = await slotQ;
     if (slotErr) throw slotErr;
-    if (!slots?.length) throw new Error("No schedule slots — seed from crew or add shifts first.");
+    if (!slots?.length) {
+      throw new Error(
+        data.dateFrom || data.dateTo
+          ? "No schedule slots in that date range — widen the range or seed from crew."
+          : "No schedule slots — seed from crew or add shifts first.",
+      );
+    }
 
     const dates = [...new Set(slots.map((s) => String(s.work_date).slice(0, 10)))].sort();
     const dateFrom = dates[0];

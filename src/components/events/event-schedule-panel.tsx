@@ -49,6 +49,8 @@ export function EventSchedulePanel({
   const [workDate, setWorkDate] = useState(defaultDate);
   const [scheduledIn, setScheduledIn] = useState("09:00");
   const [scheduledOut, setScheduledOut] = useState("18:00");
+  const [processFrom, setProcessFrom] = useState("");
+  const [processTo, setProcessTo] = useState("");
 
   const attByKey = new Map(attendance.map((a) => [`${a.staff_id}|${a.work_date}`, a]));
 
@@ -68,7 +70,11 @@ export function EventSchedulePanel({
   async function process() {
     setBusy(true);
     try {
-      const res = await processEventAttendance({ eventId });
+      const res = await processEventAttendance({
+        eventId,
+        dateFrom: processFrom || null,
+        dateTo: processTo || null,
+      });
       onChanged();
       toast.success(
         t("events.schedule.toasts.processed", { days: res.upserted, punches: res.punches }),
@@ -117,10 +123,24 @@ export function EventSchedulePanel({
             ) : null}
           </div>
           {editAllowed ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-end gap-2">
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void seed()}>
                 {t("events.schedule.seedFromCrew")}
               </Button>
+              <Input
+                type="date"
+                className="h-8 w-auto"
+                value={processFrom}
+                onChange={(e) => setProcessFrom(e.target.value)}
+                aria-label={t("events.schedule.processFrom")}
+              />
+              <Input
+                type="date"
+                className="h-8 w-auto"
+                value={processTo}
+                onChange={(e) => setProcessTo(e.target.value)}
+                aria-label={t("events.schedule.processTo")}
+              />
               <Button size="sm" disabled={busy || slots.length === 0} onClick={() => void process()}>
                 {t("events.schedule.processAttendance")}
               </Button>

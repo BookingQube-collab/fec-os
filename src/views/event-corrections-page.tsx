@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { EventCorrectionsPanel } from "@/components/events/event-corrections-panel";
+import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEvent } from "@/hooks/queries/useEvents";
@@ -50,6 +51,7 @@ export default function EventCorrectionsPage() {
     <div className="space-y-4">
       <FecPageHeader title={t("events.workspace.corrections")} subtitle={title} />
       <EventWorkspaceNav eventId={id} />
+      <EventWorkforcePeopleLinks eventId={id} focus="corrections" />
       {missedQ.isLoading || corrQ.isLoading ? (
         <Skeleton className="h-64 w-full rounded-2xl" />
       ) : missedQ.isError || corrQ.isError ? (

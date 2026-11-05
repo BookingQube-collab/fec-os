@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { EventStaffingPanel } from "@/components/events/event-staffing-panel";
+import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,6 +64,7 @@ export default function EventStaffingPage() {
         }
       />
       <EventWorkspaceNav eventId={id} />
+      <EventWorkforcePeopleLinks eventId={id} focus="crew" />
       {staffingQ.isLoading || eventQ.isLoading ? (
         <Skeleton className="h-64 w-full rounded-2xl" />
       ) : staffingQ.isError ? (

@@ -17,11 +17,13 @@ import { getEventStaffAssignments } from "@/lib/event-staff-assignments.function
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
-export function useEventOptions() {
+export function useEventOptions(opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.events.options(),
     queryFn: () => getEventOptions(),
-    staleTime: STALE.events,
+    // Catalog (locations/staff/masters) — longer stale than event detail graphs.
+    staleTime: STALE.peopleCatalog,
+    enabled: opts?.enabled ?? true,
   });
 }
 

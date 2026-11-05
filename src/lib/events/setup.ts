@@ -114,6 +114,7 @@ export function setupProgressFromOverview(
   },
 ): EventSetupProgress {
   const ev = overview?.event;
+  const slice = overview?.setupFacts;
   const facts = eventSetupFacts({
     name: ev?.name,
     locationId: ev?.location_id,
@@ -121,9 +122,19 @@ export function setupProgressFromOverview(
     eventEnd: ev?.event_end,
     status: ev?.status,
     scopeSections: extras?.scopeSections,
-    tasks: extras?.tasks ?? overview?.overdueActions,
+    tasks: extras?.tasks ?? overview?.homeTasks ?? overview?.overdueActions,
     budgetLines: extras?.budgetLines,
   });
+  // Prefer server slice when Home skipped heavy scope/plan/budget fetches.
+  if (slice) {
+    if (!extras?.scopeSections) facts.hasScope = slice.hasScope;
+    if (!extras?.budgetLines) facts.hasBudget = slice.hasBudget;
+    if (!extras?.tasks) {
+      facts.hasWorkstreamTasks = slice.hasWorkstreamTasks;
+      facts.hasSchedule = slice.hasSchedule;
+      facts.hasOwners = slice.hasOwners;
+    }
+  }
   return computeEventSetupProgress(facts, {
     forceWizard: extras?.forceWizard,
     stageCode: ev?.stage_code,

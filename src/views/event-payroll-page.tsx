@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,9 +21,23 @@ import {
   createEventPayrollPeriod,
   getEventPayrollPeriod,
 } from "@/lib/event-payroll.functions";
-import { generatePayrollLines } from "@/lib/hr-payroll.functions";
+import { generatePayrollLines, getPayrollExportMatrix } from "@/lib/hr-payroll.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { downloadCsvContent } from "@/lib/staff-import";
+
+function matrixToCsv(matrix: string[][]): string {
+  return matrix
+    .map((row) =>
+      row
+        .map((cell) => {
+          const v = String(cell ?? "");
+          return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+        })
+        .join(","),
+    )
+    .join("\n");
+}
 
 export default function EventPayrollPage() {
   const { t } = useTranslation();
@@ -32,6 +47,7 @@ export default function EventPayrollPage() {
   const eventQ = useEvent(id);
   const canGenerate = usePermission("payroll.generate");
   const canView = usePermission("payroll.view");
+  const canExport = usePermission("payroll.export_wps");
   const [busy, setBusy] = useState(false);
 
   const periodQ = useQuery({
@@ -100,6 +116,26 @@ export default function EventPayrollPage() {
     }
   }
 
+  async function exportLines() {
+    if (!period?.id) return;
+    setBusy(true);
+    try {
+      const res = await getPayrollExportMatrix({
+        periodId: period.id,
+        method: "bank_transfer",
+      });
+      downloadCsvContent(
+        matrixToCsv(res.matrix),
+        `event-payroll-${period.month}-${period.id.slice(0, 8)}.csv`,
+      );
+      toast.success(t("events.payroll.toasts.exported"));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!canView) {
     return (
       <div className="space-y-4">
@@ -114,6 +150,7 @@ export default function EventPayrollPage() {
     <div className="space-y-4">
       <FecPageHeader title={t("events.workspace.pay")} subtitle={title} />
       <EventWorkspaceNav eventId={id} />
+      <EventWorkforcePeopleLinks eventId={id} focus="payroll" />
       {periodQ.isLoading ? (
         <Skeleton className="h-40 w-full rounded-2xl" />
       ) : (
@@ -129,6 +166,11 @@ export default function EventPayrollPage() {
               <Button asChild size="sm" variant="outline">
                 <Link href={`/people/payroll/${period.id}`}>{t("events.payroll.openPeriod")}</Link>
               </Button>
+              {canExport ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void exportLines()}>
+                  {t("events.payroll.exportLines")}
+                </Button>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{t("events.payroll.noneYet")}</p>
