@@ -1586,7 +1586,7 @@ export const getEventOptions = createAuthenticatedActionNoInput(
       context.supabase.from("locations").select("id, name, code, region, city, country").eq("status", "active").order("name"),
       context.supabase
         .from("staff")
-        .select("id, full_name, job_title, location_id")
+        .select("id, full_name, job_title, location_id, employment_type, status")
         .is("deleted_at", null)
         .order("full_name")
         .limit(300),

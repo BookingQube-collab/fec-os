@@ -13,6 +13,7 @@ import {
   listEvents,
   listMyEventTasks,
 } from "@/lib/events.functions";
+import { getEventStaffAssignments } from "@/lib/event-staff-assignments.functions";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -87,6 +88,15 @@ export function useEventResources(eventId?: string | null) {
   return useQuery({
     queryKey: queryKeys.events.resources(eventId),
     queryFn: () => getEventResources({ eventId: eventId! }),
+    enabled: Boolean(eventId),
+    staleTime: STALE.events,
+  });
+}
+
+export function useEventStaffAssignments(eventId?: string | null) {
+  return useQuery({
+    queryKey: queryKeys.events.staffing(eventId),
+    queryFn: () => getEventStaffAssignments({ eventId: eventId! }),
     enabled: Boolean(eventId),
     staleTime: STALE.events,
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Home, Target, Wallet } from "lucide-react";
+import { Banknote, CalendarClock, CalendarDays, Home, Target, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -13,6 +13,9 @@ const TABS = [
   { suffix: "", key: "home", icon: Home },
   { suffix: "/scope", key: "scope", icon: Target },
   { suffix: "/plan", key: "schedule", icon: CalendarDays },
+  { suffix: "/staffing", key: "staffing", icon: Users },
+  { suffix: "/schedule", key: "crewSchedule", icon: CalendarClock },
+  { suffix: "/pay", key: "pay", icon: Banknote },
   { suffix: "/budget", key: "budget", icon: Wallet },
 ] as const;
 

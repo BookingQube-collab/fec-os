@@ -3168,6 +3168,7 @@ export type Database = {
           created_at: string
           device_id: string | null
           early_leave_minutes: number
+          event_id: string | null
           exception_reason: string | null
           hr_remarks: string | null
           id: string
@@ -3200,6 +3201,7 @@ export type Database = {
           created_at?: string
           device_id?: string | null
           early_leave_minutes?: number
+          event_id?: string | null
           exception_reason?: string | null
           hr_remarks?: string | null
           id?: string
@@ -9364,6 +9366,142 @@ export type Database = {
           },
         ]
       }
+      event_schedule_slots: {
+        Row: {
+          assignment_id: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          id: string
+          location_id: string | null
+          notes: string | null
+          role_label: string | null
+          scheduled_in: string
+          scheduled_out: string
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+          work_date: string
+        }
+        Insert: {
+          assignment_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          id?: string
+          location_id?: string | null
+          notes?: string | null
+          role_label?: string | null
+          scheduled_in: string
+          scheduled_out: string
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+          work_date: string
+        }
+        Update: {
+          assignment_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          id?: string
+          location_id?: string | null
+          notes?: string | null
+          role_label?: string | null
+          scheduled_in?: string
+          scheduled_out?: string
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_schedule_slots_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "event_staff_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_schedule_slots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_schedule_slots_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_staff_assignments: {
+        Row: {
+          assignment_type: string
+          created_at: string
+          created_by: string | null
+          date_from: string
+          date_to: string
+          event_id: string
+          id: string
+          notes: string | null
+          pay_on_event_run: boolean
+          role_label: string
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          assignment_type: string
+          created_at?: string
+          created_by?: string | null
+          date_from: string
+          date_to: string
+          event_id: string
+          id?: string
+          notes?: string | null
+          pay_on_event_run?: boolean
+          role_label?: string
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          assignment_type?: string
+          created_at?: string
+          created_by?: string | null
+          date_from?: string
+          date_to?: string
+          event_id?: string
+          id?: string
+          notes?: string | null
+          pay_on_event_run?: boolean
+          role_label?: string
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_staff_assignments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_staff_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_staff_capacity: {
         Row: {
           notes: string | null
@@ -13634,10 +13772,12 @@ export type Database = {
           date_from: string
           date_to: string
           display_name: string | null
+          event_id: string | null
           id: string
           import_batch_id: string | null
           month: string
           notes: string | null
+          period_kind: string
           reconciled_at: string | null
           reconciled_by: string | null
           source: string
@@ -13652,10 +13792,12 @@ export type Database = {
           date_from: string
           date_to: string
           display_name?: string | null
+          event_id?: string | null
           id?: string
           import_batch_id?: string | null
           month: string
           notes?: string | null
+          period_kind?: string
           reconciled_at?: string | null
           reconciled_by?: string | null
           source?: string
@@ -13670,10 +13812,12 @@ export type Database = {
           date_from?: string
           date_to?: string
           display_name?: string | null
+          event_id?: string | null
           id?: string
           import_batch_id?: string | null
           month?: string
           notes?: string | null
+          period_kind?: string
           reconciled_at?: string | null
           reconciled_by?: string | null
           source?: string
@@ -13686,6 +13830,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "hr_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_payroll_periods_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {

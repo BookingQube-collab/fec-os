@@ -265,7 +265,12 @@ export default function HrPayrollPage() {
                         <tr key={p.id}>
                           <td className="font-medium">
                             {p.displayName ?? p.month}
-                            {p.source && p.source !== "generated" ? (
+                            {(p as { periodKind?: string }).periodKind === "event" ? (
+                              <Badge variant="outline" className="ms-2 text-[10px]">
+                                Event
+                              </Badge>
+                            ) : null}
+                            {p.source && p.source !== "generated" && p.source !== "event_generated" ? (
                               <span className="ml-2 text-xs text-muted-foreground">({p.source})</span>
                             ) : null}
                           </td>

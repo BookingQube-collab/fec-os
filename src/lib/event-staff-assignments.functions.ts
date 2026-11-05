@@ -1,0 +1,481 @@
+"use server";
+
+import { z } from "zod";
+
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Json } from "@/integrations/supabase/types";
+import {
+  defaultPayOnEventRun,
+  EVENT_CREW_READINESS_CODE,
+  EVENT_STAFF_ASSIGNMENT_TYPES,
+  eventCrewReadinessMet,
+  eventHireEmploymentDefaults,
+  findOverlappingAssignment,
+  type EventStaffAssignmentType,
+  validateAssignmentDates,
+} from "@/lib/events/staff-assignments";
+import type { EventStaffAssignmentRow, EventStaffAssignmentsPayload } from "@/lib/events/types";
+import { resolveNewEmployeeCode } from "@/lib/staff-employee-code";
+import { assertLocationAccess, requireCapability } from "@/lib/server/authorize";
+import {
+  createAuthenticatedAction,
+  type AuthContext,
+} from "@/lib/server/create-action";
+
+const EventIdSchema = z.object({ eventId: z.string().uuid() });
+const IdSchema = z.object({ id: z.string().uuid() });
+
+async function writeEventAudit(
+  context: AuthContext,
+  entry: {
+    action: string;
+    entityType: string;
+    entityId?: string | null;
+    eventId?: string | null;
+    locationId?: string | null;
+    before?: unknown;
+    after?: unknown;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  await context.supabase.from("event_audit_logs").insert({
+    actor_id: context.userId,
+    action: entry.action,
+    entity_type: entry.entityType,
+    entity_id: entry.entityId ?? null,
+    event_id: entry.eventId ?? null,
+    location_id: entry.locationId ?? null,
+    before: (entry.before ?? null) as Json,
+    after: (entry.after ?? null) as Json,
+    metadata: (entry.metadata ?? {}) as Json,
+  });
+}
+
+async function loadEventOrThrow(context: AuthContext, eventId: string) {
+  const { data, error } = await context.supabase
+    .from("events")
+    .select("id, location_id, name, event_name, event_start, event_end, venue_access, setup_start, dismantle_end")
+    .eq("id", eventId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Event not found");
+  await assertLocationAccess(context, data.location_id as string);
+  return data;
+}
+
+function emptyText(v?: string | null) {
+  return v && v.trim() ? v.trim() : null;
+}
+
+function eventWindowDefaults(event: {
+  event_start?: string | null;
+  event_end?: string | null;
+  venue_access?: string | null;
+  setup_start?: string | null;
+  dismantle_end?: string | null;
+}): { dateFrom: string | null; dateTo: string | null } {
+  const dateFrom =
+    (event.venue_access as string | null) ??
+    (event.setup_start as string | null) ??
+    (event.event_start as string | null) ??
+    null;
+  const dateTo =
+    (event.dismantle_end as string | null) ?? (event.event_end as string | null) ?? dateFrom;
+  return { dateFrom, dateTo };
+}
+
+async function listAssignmentRows(
+  context: AuthContext,
+  eventId: string,
+): Promise<EventStaffAssignmentRow[]> {
+  const { data: rows, error } = await context.supabase
+    .from("event_staff_assignments")
+    .select(
+      "id, event_id, staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run, notes, created_at, updated_at",
+    )
+    .eq("event_id", eventId)
+    .order("date_from", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) {
+    if (/event_staff_assignments|schema cache/i.test(error.message)) return [];
+    throw error;
+  }
+
+  const staffIds = [...new Set((rows ?? []).map((r) => r.staff_id as string))];
+  const { data: staff } = staffIds.length
+    ? await context.supabase
+        .from("staff")
+        .select("id, full_name, employment_type, status, job_title, location_id")
+        .in("id", staffIds)
+    : { data: [] as Array<{
+        id: string;
+        full_name: string;
+        employment_type: string | null;
+        status: string;
+        job_title: string | null;
+        location_id: string;
+      }> };
+
+  const staffMap = new Map(
+    (staff ?? []).map((s) => [
+      s.id as string,
+      {
+        name: s.full_name as string,
+        employment_type: (s.employment_type as string | null) ?? null,
+        status: (s.status as string) ?? null,
+        job_title: (s.job_title as string | null) ?? null,
+        location_id: s.location_id as string,
+      },
+    ]),
+  );
+
+  return (rows ?? []).map((r) => {
+    const s = staffMap.get(r.staff_id as string);
+    return {
+      id: r.id as string,
+      event_id: r.event_id as string,
+      staff_id: r.staff_id as string,
+      staff_name: s?.name ?? null,
+      staff_employment_type: s?.employment_type ?? null,
+      staff_status: s?.status ?? null,
+      staff_job_title: s?.job_title ?? null,
+      staff_location_id: s?.location_id ?? null,
+      assignment_type: r.assignment_type as EventStaffAssignmentType,
+      role_label: (r.role_label as string) || "crew",
+      date_from: r.date_from as string,
+      date_to: r.date_to as string,
+      pay_on_event_run: Boolean(r.pay_on_event_run),
+      notes: (r.notes as string | null) ?? null,
+      created_at: r.created_at as string,
+      updated_at: r.updated_at as string,
+    };
+  });
+}
+
+async function syncEventCrewReadiness(
+  context: AuthContext,
+  eventId: string,
+  met: boolean,
+) {
+  const { data: item } = await context.supabase
+    .from("event_readiness_items")
+    .select("id, is_complete")
+    .eq("event_id", eventId)
+    .eq("code", EVENT_CREW_READINESS_CODE)
+    .maybeSingle();
+
+  if (!item) {
+    await context.supabase.from("event_readiness_items").insert({
+      event_id: eventId,
+      code: EVENT_CREW_READINESS_CODE,
+      title: "Event crew assigned",
+      category: "manpower",
+      is_required: true,
+      is_complete: met,
+      completed_at: met ? new Date().toISOString() : null,
+      weight: 8,
+      phase_code: "staffing",
+    });
+    return;
+  }
+
+  if (Boolean(item.is_complete) === met) return;
+  await context.supabase
+    .from("event_readiness_items")
+    .update({
+      is_complete: met,
+      completed_at: met ? new Date().toISOString() : null,
+    })
+    .eq("id", item.id);
+}
+
+export const getEventStaffAssignments = createAuthenticatedAction(
+  EventIdSchema,
+  async (data, context): Promise<EventStaffAssignmentsPayload> => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const assignments = await listAssignmentRows(context, data.eventId);
+    const window = eventWindowDefaults(event);
+    return {
+      assignments,
+      eventWindow: window,
+      crewReadinessMet: eventCrewReadinessMet(assignments),
+      counts: {
+        total: assignments.length,
+        labour: assignments.filter((a) => a.assignment_type === "labour").length,
+        loaned: assignments.filter((a) => a.assignment_type === "loaned").length,
+        event_hire: assignments.filter((a) => a.assignment_type === "event_hire").length,
+      },
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+const UpsertAssignmentSchema = z.object({
+  id: z.string().uuid().optional(),
+  eventId: z.string().uuid(),
+  staff_id: z.string().uuid(),
+  assignment_type: z.enum(EVENT_STAFF_ASSIGNMENT_TYPES),
+  role_label: z.string().min(1).max(120).default("crew"),
+  date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  pay_on_event_run: z.boolean().optional(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export const upsertEventStaffAssignment = createAuthenticatedAction(
+  UpsertAssignmentSchema,
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const dateErr = validateAssignmentDates(data.date_from, data.date_to);
+    if (dateErr) throw new Error(dateErr);
+
+    const existing = await listAssignmentRows(context, data.eventId);
+    const overlap = findOverlappingAssignment(
+      existing,
+      {
+        id: data.id,
+        staff_id: data.staff_id,
+        assignment_type: data.assignment_type,
+        date_from: data.date_from,
+        date_to: data.date_to,
+      },
+      data.id ?? null,
+    );
+    if (overlap) {
+      throw new Error(
+        `Overlapping assignment for this staff (${overlap.date_from}–${overlap.date_to}). Adjust dates or remove the existing row.`,
+      );
+    }
+
+    const payOn =
+      data.pay_on_event_run ?? defaultPayOnEventRun(data.assignment_type);
+    const payload = {
+      event_id: data.eventId,
+      staff_id: data.staff_id,
+      assignment_type: data.assignment_type,
+      role_label: data.role_label.trim() || "crew",
+      date_from: data.date_from,
+      date_to: data.date_to,
+      pay_on_event_run: payOn,
+      notes: emptyText(data.notes),
+      updated_by: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    let assignmentId = data.id ?? null;
+    if (data.id) {
+      const { error } = await context.supabase
+        .from("event_staff_assignments")
+        .update(payload)
+        .eq("id", data.id)
+        .eq("event_id", data.eventId);
+      if (error) throw error;
+    } else {
+      const { data: created, error } = await context.supabase
+        .from("event_staff_assignments")
+        .insert({ ...payload, created_by: context.userId })
+        .select("id")
+        .single();
+      if (error) throw error;
+      assignmentId = created.id as string;
+    }
+
+    const after = await listAssignmentRows(context, data.eventId);
+    await syncEventCrewReadiness(context, data.eventId, eventCrewReadinessMet(after));
+
+    await writeEventAudit(context, {
+      action: data.id ? "crew_update" : "crew_add",
+      entityType: "event_staff_assignment",
+      entityId: assignmentId,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: payload,
+    });
+
+    return { id: assignmentId };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+export const deleteEventStaffAssignment = createAuthenticatedAction(
+  IdSchema,
+  async (data, context) => {
+    const { data: row } = await context.supabase
+      .from("event_staff_assignments")
+      .select("id, event_id, staff_id, assignment_type, role_label, date_from, date_to")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (!row) throw new Error("Assignment not found");
+    const event = await loadEventOrThrow(context, row.event_id as string);
+    const { error } = await context.supabase
+      .from("event_staff_assignments")
+      .delete()
+      .eq("id", data.id);
+    if (error) throw error;
+
+    const after = await listAssignmentRows(context, event.id as string);
+    await syncEventCrewReadiness(context, event.id as string, eventCrewReadinessMet(after));
+
+    await writeEventAudit(context, {
+      action: "crew_remove",
+      entityType: "event_staff_assignment",
+      entityId: data.id,
+      eventId: event.id as string,
+      locationId: event.location_id as string,
+      before: row,
+    });
+    return { ok: true };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+const CreateEventHireSchema = z.object({
+  eventId: z.string().uuid(),
+  fullName: z.string().min(1).max(200),
+  jobTitle: z.string().max(200).optional(),
+  role_label: z.string().min(1).max(120).default("crew"),
+  date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  pay_on_event_run: z.boolean().optional(),
+  notes: z.string().max(2000).optional().nullable(),
+  phone: z.string().max(40).optional(),
+  /** Override location; defaults to event venue location. */
+  locationId: z.string().uuid().optional(),
+});
+
+/**
+ * Create a temporary event-only staff record + assignment.
+ * Requires events.edit (action gate) and people.edit_roster (extra check).
+ * Does not grant site HR events.edit.
+ */
+export const createEventHireAndAssign = createAuthenticatedAction(
+  CreateEventHireSchema,
+  async (data, context) => {
+    await requireCapability(context, "people.edit_roster");
+    const event = await loadEventOrThrow(context, data.eventId);
+    const dateErr = validateAssignmentDates(data.date_from, data.date_to);
+    if (dateErr) throw new Error(dateErr);
+
+    const locationId = data.locationId ?? (event.location_id as string);
+    await assertLocationAccess(context, locationId);
+
+    const defaults = eventHireEmploymentDefaults(data.date_from, data.date_to);
+    const { data: locRow, error: locErr } = await context.supabase
+      .from("locations")
+      .select("code")
+      .eq("id", locationId)
+      .single();
+    if (locErr) throw locErr;
+    const locationCode = String(locRow?.code ?? "").trim().toUpperCase();
+    if (!locationCode) throw new Error("Branch code not found");
+
+    const codeRows = await (async () => {
+      const all: string[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: batch, error } = await supabaseAdmin
+          .from("staff")
+          .select("employee_code")
+          .order("id", { ascending: true })
+          .range(from, from + 999);
+        if (error) throw error;
+        for (const row of batch ?? []) {
+          const c = String(row.employee_code ?? "").trim().toUpperCase();
+          if (c) all.push(c);
+        }
+        if ((batch ?? []).length < 1000) break;
+      }
+      return all;
+    })();
+
+    const employee_code = resolveNewEmployeeCode(locationCode, codeRows, null, {
+      jobTitle: data.jobTitle ?? defaults.jobTitle,
+    });
+
+    const { data: staffRow, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .insert({
+        location_id: locationId,
+        employee_code,
+        full_name: data.fullName.trim(),
+        job_title: (data.jobTitle?.trim() || defaults.jobTitle) + " · Event",
+        department: "Event hire",
+        hire_date: defaults.hireDate,
+        status: defaults.status,
+        phone: data.phone?.trim() || null,
+        employment_type: defaults.employmentType,
+      })
+      .select("id")
+      .single();
+    if (staffErr) throw staffErr;
+    const staffId = staffRow.id as string;
+
+    const { error: extErr } = await supabaseAdmin.from("staff_profile_ext").upsert(
+      {
+        staff_id: staffId,
+        contract_start: defaults.contractStart,
+        contract_end: defaults.contractEnd,
+        updated_by: context.userId,
+      },
+      { onConflict: "staff_id" },
+    );
+    if (extErr) throw extErr;
+
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.created",
+      _table_name: "staff",
+      _row_id: staffId,
+      _after: {
+        employee_code,
+        full_name: data.fullName.trim(),
+        source: "event_hire",
+        event_id: data.eventId,
+      },
+      _location_id: locationId,
+      _metadata: { event_id: data.eventId },
+    });
+
+    const payOn = data.pay_on_event_run ?? defaultPayOnEventRun("event_hire");
+    const hireNote =
+      emptyText(data.notes) ??
+      `Event-only hire for event ${data.eventId.slice(0, 8)}… (${data.date_from}–${data.date_to})`;
+
+    const { data: assignment, error: assignErr } = await context.supabase
+      .from("event_staff_assignments")
+      .insert({
+        event_id: data.eventId,
+        staff_id: staffId,
+        assignment_type: "event_hire",
+        role_label: data.role_label.trim() || "crew",
+        date_from: data.date_from,
+        date_to: data.date_to,
+        pay_on_event_run: payOn,
+        notes: hireNote,
+        created_by: context.userId,
+        updated_by: context.userId,
+      })
+      .select("id")
+      .single();
+    if (assignErr) throw assignErr;
+
+    const after = await listAssignmentRows(context, data.eventId);
+    await syncEventCrewReadiness(context, data.eventId, eventCrewReadinessMet(after));
+
+    await writeEventAudit(context, {
+      action: "crew_event_hire",
+      entityType: "event_staff_assignment",
+      entityId: assignment.id as string,
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: {
+        staff_id: staffId,
+        assignment_id: assignment.id,
+        date_from: data.date_from,
+        date_to: data.date_to,
+      },
+    });
+
+    return { staffId, assignmentId: assignment.id as string };
+  },
+  { auth: { capability: "events.edit" } },
+);

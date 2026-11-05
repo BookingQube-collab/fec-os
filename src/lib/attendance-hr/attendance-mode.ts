@@ -8,7 +8,7 @@
  * - Staff `can_self_check_in` remains a per-person punch-driven override; site mode
  *   formalizes the same path for whole locations (HO).
  *
- * TODO(Phase 2+): event workforce / event schedule / event payroll — not modeled here.
+ * TODO(Phase 3+): event schedule attendance / event payroll — workforce is Phase 2 (event_staff_assignments).
  */
 
 export const ATTENDANCE_MODES = ["roster", "shift_punch"] as const;

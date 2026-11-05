@@ -1,0 +1,79 @@
+/** Phase 4 — event payroll helpers (pure). */
+
+export type EventPayAssignmentLike = {
+  staff_id: string;
+  assignment_type: string;
+  date_from: string;
+  date_to: string;
+  pay_on_event_run: boolean;
+};
+
+export type EventPaidDayKey = `${string}|${string}`; // staffId|YYYY-MM-DD
+
+export function eventPaidDayKey(staffId: string, workDate: string): EventPaidDayKey {
+  return `${staffId}|${workDate.slice(0, 10)}`;
+}
+
+/**
+ * Days that should be paid on an event run (and excluded from monthly for loaned staff).
+ * Only assignments with pay_on_event_run.
+ */
+export function collectEventPaidDays(
+  assignments: EventPayAssignmentLike[],
+  enumerateDates: (from: string, to: string) => string[],
+): Set<EventPaidDayKey> {
+  const keys = new Set<EventPaidDayKey>();
+  for (const a of assignments) {
+    if (!a.pay_on_event_run) continue;
+    for (const d of enumerateDates(a.date_from, a.date_to)) {
+      keys.add(eventPaidDayKey(a.staff_id, d));
+    }
+  }
+  return keys;
+}
+
+/**
+ * Staff included on an event pay run: pay_on_event_run assignments overlapping the period window.
+ */
+export function staffIdsForEventPayRun(
+  assignments: EventPayAssignmentLike[],
+  dateFrom: string,
+  dateTo: string,
+): string[] {
+  const ids = new Set<string>();
+  for (const a of assignments) {
+    if (!a.pay_on_event_run) continue;
+    if (a.date_to < dateFrom || a.date_from > dateTo) continue;
+    ids.add(a.staff_id);
+  }
+  return [...ids];
+}
+
+/**
+ * Filter monthly payroll day inputs: drop days that are covered by event pay for loaned staff.
+ * Labour / event_hire are typically not on monthly at all; still exclude their event days if present.
+ */
+export function excludeEventPaidDaysFromMonthly(
+  dayInputs: Array<{ staff_id: string | null; work_date?: string | null }>,
+  eventPaidDays: Set<EventPaidDayKey>,
+): typeof dayInputs {
+  if (!eventPaidDays.size) return dayInputs;
+  return dayInputs.filter((d) => {
+    const staffId = d.staff_id;
+    const workDate = d.work_date ? String(d.work_date).slice(0, 10) : null;
+    if (!staffId || !workDate) return true;
+    return !eventPaidDays.has(eventPaidDayKey(staffId, workDate));
+  });
+}
+
+/** Synthetic YYYY-MM for event period row (sorting); uniqueness is on event_id. */
+export function eventPeriodMonthAnchor(eventStart: string | null | undefined, fallback = "1970-01"): string {
+  const d = (eventStart ?? "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d.slice(0, 7);
+  return fallback;
+}
+
+export function isEventPayrollPeriod(period: { periodKind?: string | null; period_kind?: string | null }): boolean {
+  const kind = period.periodKind ?? period.period_kind ?? "monthly";
+  return kind === "event";
+}

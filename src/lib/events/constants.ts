@@ -122,6 +122,7 @@ export const DEFAULT_READINESS_ITEMS: Array<{
   { code: "packing", title: "Packing list complete", category: "logistics", weight: 6, phase_code: "pre_production" },
   { code: "kit_list", title: "Kit / inventory list drafted", category: "inventory", weight: 8, phase_code: "pre_production" },
   { code: "manpower_plan", title: "Manpower requirement completed", category: "manpower", weight: 12, phase_code: "staffing" },
+  { code: "event_crew", title: "Event crew assigned", category: "manpower", weight: 8, phase_code: "staffing" },
   { code: "roster", title: "Roster published", category: "manpower", weight: 8, phase_code: "staffing" },
   { code: "uniforms", title: "Uniforms confirmed", category: "manpower", weight: 6, phase_code: "staffing" },
   { code: "training", title: "Staff training complete", category: "manpower", weight: 8, phase_code: "staffing" },

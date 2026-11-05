@@ -443,6 +443,7 @@ export const queryKeys = {
     scope: (id?: string | null) => [...queryKeys.events.all, "scope", id ?? null] as const,
     plan: (id?: string | null) => [...queryKeys.events.all, "plan", id ?? null] as const,
     resources: (id?: string | null) => [...queryKeys.events.all, "resources", id ?? null] as const,
+    staffing: (id?: string | null) => [...queryKeys.events.all, "staffing", id ?? null] as const,
     collaboration: (id?: string | null) =>
       [...queryKeys.events.all, "collaboration", id ?? null] as const,
     budget: (id?: string | null) => [...queryKeys.events.all, "budget", id ?? null] as const,

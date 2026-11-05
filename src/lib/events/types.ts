@@ -352,6 +352,71 @@ export interface EventResourceAllocationRow {
   notes: string | null;
 }
 
+/** Event workforce Phase 2 — operational crew assignment. */
+export interface EventStaffAssignmentRow {
+  id: string;
+  event_id: string;
+  staff_id: string;
+  staff_name: string | null;
+  staff_employment_type: string | null;
+  staff_status: string | null;
+  staff_job_title: string | null;
+  staff_location_id: string | null;
+  assignment_type: "labour" | "loaned" | "event_hire";
+  role_label: string;
+  date_from: string;
+  date_to: string;
+  pay_on_event_run: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventStaffAssignmentsPayload {
+  assignments: EventStaffAssignmentRow[];
+  eventWindow: { dateFrom: string | null; dateTo: string | null };
+  crewReadinessMet: boolean;
+  counts: {
+    total: number;
+    labour: number;
+    loaned: number;
+    event_hire: number;
+  };
+}
+
+export interface EventScheduleSlotRow {
+  id: string;
+  event_id: string;
+  staff_id: string;
+  staff_name: string | null;
+  assignment_id: string | null;
+  work_date: string;
+  scheduled_in: string;
+  scheduled_out: string;
+  location_id: string | null;
+  role_label: string | null;
+  notes: string | null;
+}
+
+export interface EventScheduleAttendanceRow {
+  id: string;
+  staff_id: string;
+  staff_name: string | null;
+  work_date: string;
+  status: string;
+  actual_in: string | null;
+  actual_out: string | null;
+  late_minutes: number;
+  worked_minutes: number;
+  missed_punch: boolean;
+}
+
+export interface EventSchedulePayload {
+  slots: EventScheduleSlotRow[];
+  attendance: EventScheduleAttendanceRow[];
+  locationId: string | null;
+}
+
 export interface EventStaffCapacityRow {
   staff_id: string;
   staff_name: string | null;

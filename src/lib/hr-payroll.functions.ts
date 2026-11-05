@@ -51,6 +51,12 @@ import {
 } from "@/lib/attendance-hr/payroll";
 import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
+import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
+import {
+  collectEventPaidDays,
+  excludeEventPaidDaysFromMonthly,
+  staffIdsForEventPayRun,
+} from "@/lib/events/event-payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import {
   lateDeductPolicyFromSection,
@@ -136,6 +142,8 @@ function mapPeriod(row: Record<string, unknown>) {
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
     reconciledAt: (row.reconciled_at as string | null) ?? null,
+    periodKind: (row.period_kind as string | null) ?? "monthly",
+    eventId: (row.event_id as string | null) ?? null,
   };
 }
 
@@ -168,6 +176,7 @@ function mapLine(row: Record<string, unknown>) {
 export const listPayrollPeriods = createAuthenticatedAction(
   z.object({
     status: z.enum([...HR_PAYROLL_STATUSES, "all"]).optional().nullable(),
+    periodKind: z.enum(["monthly", "event", "all"]).optional().nullable(),
   }),
   async (data, context) => {
     requireCap(context, "payroll.view");
@@ -177,6 +186,7 @@ export const listPayrollPeriods = createAuthenticatedAction(
       .order("month", { ascending: false })
       .limit(48);
     if (data.status && data.status !== "all") q = q.eq("status", data.status);
+    if (data.periodKind && data.periodKind !== "all") q = q.eq("period_kind", data.periodKind);
     const { data: rows, error } = await q;
     if (error && tableMissing(error.message)) return [];
     if (error) throw error;
@@ -203,6 +213,8 @@ export const createPayrollPeriod = createAuthenticatedAction(
         currency: "QAR",
         notes: data.notes ?? null,
         created_by: context.userId,
+        period_kind: "monthly",
+        source: "generated",
       })
       .select("*")
       .single();
@@ -424,8 +436,42 @@ export const generatePayrollLines = createAuthenticatedAction(
 
     const dateFrom = String(periodRow.date_from).slice(0, 10);
     const dateTo = String(periodRow.date_to).slice(0, 10);
+    const periodKind = String(periodRow.period_kind ?? "monthly");
+    const eventId = (periodRow.event_id as string | null) ?? null;
+    const isEventPeriod = periodKind === "event" && Boolean(eventId);
     const defaults = await paymentDefaults(context);
     const lateDeductPolicy = await readLateDeductPolicy(context);
+
+    let eventStaffIds: string[] | null = null;
+    if (isEventPeriod && eventId) {
+      const { data: assignments, error: assignErr } = await supabaseAdmin
+        .from("event_staff_assignments")
+        .select("staff_id, assignment_type, date_from, date_to, pay_on_event_run")
+        .eq("event_id", eventId);
+      if (assignErr && !/event_staff_assignments|schema cache/i.test(assignErr.message)) throw assignErr;
+      eventStaffIds = staffIdsForEventPayRun(
+        (assignments ?? []).map((a) => ({
+          staff_id: a.staff_id as string,
+          assignment_type: String(a.assignment_type),
+          date_from: String(a.date_from).slice(0, 10),
+          date_to: String(a.date_to).slice(0, 10),
+          pay_on_event_run: Boolean(a.pay_on_event_run),
+        })),
+        dateFrom,
+        dateTo,
+      );
+      if (!eventStaffIds.length) {
+        return {
+          inserted: 0,
+          periodId: data.periodId,
+          otConsumed: 0,
+          missingCompensation: 0,
+          attendanceBlocked: 0,
+          dateFrom,
+          dateTo,
+        };
+      }
+    }
 
     let staffQ = context.supabase
       .from("staff")
@@ -433,6 +479,7 @@ export const generatePayrollLines = createAuthenticatedAction(
       .is("deleted_at", null)
       .in("status", ["active", "on_leave", "serving_notice", "joker"]);
     if (data.locationId) staffQ = staffQ.eq("location_id", data.locationId);
+    if (eventStaffIds) staffQ = staffQ.in("id", eventStaffIds);
     const { data: staffRows, error: staffErr } = await staffQ;
     if (staffErr) throw staffErr;
     const staff = (staffRows ?? []) as StaffPayRow[];
@@ -571,6 +618,35 @@ export const generatePayrollLines = createAuthenticatedAction(
         dateTo,
         staffIds,
       });
+
+      // Monthly: exclude days paid on event runs (loaned + event hire/labour with pay_on_event_run).
+      // Event periods: keep only days tagged event_id or within assignment windows (already staff-filtered).
+      if (!isEventPeriod) {
+        const { data: eventAssignRows } = await supabaseAdmin
+          .from("event_staff_assignments")
+          .select("staff_id, assignment_type, date_from, date_to, pay_on_event_run")
+          .eq("pay_on_event_run", true)
+          .lte("date_from", dateTo)
+          .gte("date_to", dateFrom);
+        const paidDays = collectEventPaidDays(
+          (eventAssignRows ?? []).map((a) => ({
+            staff_id: a.staff_id as string,
+            assignment_type: String(a.assignment_type),
+            date_from: String(a.date_from).slice(0, 10),
+            date_to: String(a.date_to).slice(0, 10),
+            pay_on_event_run: Boolean(a.pay_on_event_run),
+          })),
+          enumerateDatesInclusive,
+        );
+        dayInputs = excludeEventPaidDaysFromMonthly(dayInputs, paidDays) as PayrollDayInput[];
+      } else if (eventId) {
+        dayInputs = dayInputs.filter((d) => {
+          const workDate = d.work_date ? String(d.work_date).slice(0, 10) : null;
+          if (!workDate || !d.staff_id) return false;
+          return workDate >= dateFrom && workDate <= dateTo;
+        });
+      }
+
       for (const row of aggregatePayrollRows(dayInputs)) {
         unpaidAttendanceByStaff.set(row.staffId, {
           absent: row.daysAbsent,
