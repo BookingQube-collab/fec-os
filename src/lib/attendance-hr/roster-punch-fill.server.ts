@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { normalizeShiftHm, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
-  isRosterPunchFillSubjectRow,
+  isRosterPunchFillListableRow,
   mergeRosterPunchFillStaffIds,
   planRosterPunchFill,
   ROSTER_PUNCH_FILL_SOURCE,
@@ -15,9 +15,9 @@ import {
 } from "@/lib/attendance-hr/roster-punch-fill";
 import {
   loadActiveJokerStaffIdsAtLocations,
+  loadAttendanceListingReportingTreeStaffIds,
   loadDirectReportStaffIds,
   loadManagerTeamStaffIds,
-  loadReportingTreeStaffIds,
   loadViewerScopedTeamLocations,
 } from "@/lib/reporting-manager-access.server";
 import type { AuthContext } from "@/lib/server/auth";
@@ -27,6 +27,9 @@ export type RosterPunchFillStaff = {
   staffId: string;
   fullName: string;
   employeeCode: string | null;
+  /** Stored staff.status — client filters Active / Terminated / Resigned / All. */
+  status: string | null;
+  employmentType: string | null;
 };
 
 export type RosterPunchFillResult = {
@@ -51,12 +54,14 @@ function callerGate(context: AuthContext) {
 }
 
 async function teamStaffIds(userId: string): Promise<Set<string>> {
-  const [reports, tree, managerTeam] = await Promise.all([
+  // Listing tree keeps exited people (terminated / resigned / contract finished)
+  // so HOO can fill punches for them — same statuses as Request correction.
+  const [reports, listingTree, managerTeam] = await Promise.all([
     loadDirectReportStaffIds(userId),
-    loadReportingTreeStaffIds(userId),
+    loadAttendanceListingReportingTreeStaffIds(userId),
     loadManagerTeamStaffIds(userId),
   ]);
-  const teamIds = [...reports.directReportStaffIds, ...tree, ...managerTeam.teamStaffIds];
+  const teamIds = [...reports.directReportStaffIds, ...listingTree, ...managerTeam.teamStaffIds];
   // Active Jokers are not on the org chart. Union location-scoped jokers so HoO
   // (and any filler) can pick the same people visible on the location roster.
   try {
@@ -77,24 +82,39 @@ async function teamStaffIds(userId: string): Promise<Set<string>> {
   }
 }
 
+function toFillStaff(row: StaffNameRow): RosterPunchFillStaff | null {
+  if (
+    !isRosterPunchFillListableRow({
+      status: row.status,
+      employment_type: row.employment_type,
+    })
+  ) {
+    return null;
+  }
+  return {
+    staffId: String(row.id),
+    fullName: String(row.full_name ?? "Staff"),
+    employeeCode: row.employee_code ? String(row.employee_code) : null,
+    status: row.status ? String(row.status) : null,
+    employmentType: row.employment_type ? String(row.employment_type) : null,
+  };
+}
+
 async function staffNames(ids: readonly string[]): Promise<RosterPunchFillStaff[]> {
   const rows: StaffNameRow[] = [];
   for (let index = 0; index < ids.length; index += 100) {
     const chunk = ids.slice(index, index + 100);
     const { data, error } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, employee_code")
+      .select("id, full_name, employee_code, status, employment_type")
       .in("id", chunk)
       .is("deleted_at", null);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as StaffNameRow[]));
   }
   return rows
-    .map((row) => ({
-      staffId: String(row.id),
-      fullName: String(row.full_name ?? "Staff"),
-      employeeCode: row.employee_code ? String(row.employee_code) : null,
-    }))
+    .map((row) => toFillStaff(row))
+    .filter((row): row is RosterPunchFillStaff => Boolean(row))
     .sort((a, b) => a.fullName.localeCompare(b.fullName) || a.staffId.localeCompare(b.staffId));
 }
 
@@ -113,17 +133,8 @@ async function companyStaff(): Promise<RosterPunchFillStaff[]> {
     if (page.length < 1000) break;
   }
   return rows
-    .filter((row) =>
-      isRosterPunchFillSubjectRow({
-        status: row.status,
-        employment_type: row.employment_type,
-      }),
-    )
-    .map((row) => ({
-      staffId: String(row.id),
-      fullName: String(row.full_name ?? "Staff"),
-      employeeCode: row.employee_code ? String(row.employee_code) : null,
-    }));
+    .map((row) => toFillStaff(row))
+    .filter((row): row is RosterPunchFillStaff => Boolean(row));
 }
 
 export async function loadRosterPunchFillStaff(context: AuthContext): Promise<RosterPunchFillStaff[]> {
@@ -150,7 +161,7 @@ async function assertTargetStaff(context: AuthContext, staffId: string, audience
   if (error) throw new Error(error.message);
   if (
     !data ||
-    !isRosterPunchFillSubjectRow({
+    !isRosterPunchFillListableRow({
       status: data.status as string | null,
       employment_type: data.employment_type as string | null,
       deleted_at: data.deleted_at as string | null,

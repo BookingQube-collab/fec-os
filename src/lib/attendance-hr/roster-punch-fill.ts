@@ -1,8 +1,17 @@
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import { enumerateYmd } from "@/lib/attendance-hr/roster-period";
 import { normalizeShiftHm, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
-import { isAttendanceListingScopedJoker } from "@/lib/attendance-listing-access";
+import {
+  isAttendanceListingScopedJoker,
+  isAttendanceListingTreeStaffStatus,
+} from "@/lib/attendance-listing-access";
 import { isAdminPeopleDirectoryRow } from "@/lib/people-directory-access";
+import {
+  isContractFinishedStaffStatus,
+  isJokerStaffStatus,
+  isResignedStaffStatus,
+  isTerminatedStaffStatus,
+} from "@/lib/staff-status";
 
 /** Written on attendance_logs.source so a roster fill is distinct from a device punch. */
 export const ROSTER_PUNCH_FILL_SOURCE = "roster_fill";
@@ -12,6 +21,14 @@ export const ROSTER_PUNCH_FILL_NOTE = "Filled from roster";
 
 /** Inclusive range an approver can fill in one action. */
 export const ROSTER_FILL_MAX_DAYS = 366;
+
+/**
+ * Staff status filter on Fill missed punches (HOO / ops).
+ * Default All so exited people are reachable without an extra click.
+ */
+export const ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS = ["all", "active", "terminated"] as const;
+export type RosterPunchFillStaffStatusFilter = (typeof ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS)[number];
+export const ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS: RosterPunchFillStaffStatusFilter = "all";
 
 /**
  * Punches that came from the biometric device or a device import.
@@ -58,7 +75,7 @@ export function mergeRosterPunchFillStaffIds(input: {
   return [...ids].sort();
 }
 
-/** Company-wide fill subject: directory-active staff, or a roster-visible joker. */
+/** Active fill subject: directory-active staff, or a roster-visible joker. */
 export function isRosterPunchFillSubjectRow(input: {
   status: string | null | undefined;
   employmentType?: string | null;
@@ -80,6 +97,57 @@ export function isRosterPunchFillSubjectRow(input: {
     status: input.status,
     employmentType: input.employmentType ?? input.employment_type,
   });
+}
+
+/**
+ * Anyone the fill picker may list: active fill subjects, roster-visible jokers,
+ * or exited listing-tree statuses (terminated / resigned / contract finished).
+ */
+export function isRosterPunchFillListableRow(input: {
+  status: string | null | undefined;
+  employmentType?: string | null;
+  employment_type?: string | null;
+  deletedAt?: string | null;
+  deleted_at?: string | null;
+}): boolean {
+  if (input.deletedAt || input.deleted_at) return false;
+  if (
+    isAttendanceListingScopedJoker({
+      status: input.status,
+      employment_type: input.employment_type ?? input.employmentType,
+      deleted_at: input.deleted_at ?? input.deletedAt,
+    })
+  ) {
+    return true;
+  }
+  return isAttendanceListingTreeStaffStatus(input.status);
+}
+
+/** Exited bucket for the Terminated chip (same exited set as Attendance listing). */
+export function isRosterPunchFillTerminatedStatus(status: string | null | undefined): boolean {
+  if (isJokerStaffStatus(status)) return false;
+  return (
+    isTerminatedStaffStatus(status) ||
+    isResignedStaffStatus(status) ||
+    isContractFinishedStaffStatus(status)
+  );
+}
+
+/** Client filter for the Fill missed punches staff status control. */
+export function matchesRosterPunchFillStaffStatusFilter(
+  input: {
+    status: string | null | undefined;
+    employmentType?: string | null;
+    employment_type?: string | null;
+    deletedAt?: string | null;
+    deleted_at?: string | null;
+  },
+  filter: RosterPunchFillStaffStatusFilter,
+): boolean {
+  if (!isRosterPunchFillListableRow(input)) return false;
+  if (filter === "all") return true;
+  if (filter === "active") return isRosterPunchFillSubjectRow(input);
+  return isRosterPunchFillTerminatedStatus(input.status);
 }
 
 export function isGeneralManagerTitle(jobTitle: string | null | undefined): boolean {

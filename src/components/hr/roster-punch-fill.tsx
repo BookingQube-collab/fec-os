@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -9,12 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserRoles } from "@/hooks/use-auth";
 import { approveRosterPunchFill, listRosterPunchFillStaff } from "@/lib/attendance-hr/roster-punch-fill.functions";
-import { mayFillRosterDevicePunches } from "@/lib/attendance-hr/roster-punch-fill";
+import {
+  matchesRosterPunchFillStaffStatusFilter,
+  mayFillRosterDevicePunches,
+  ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS,
+  ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS,
+  type RosterPunchFillStaffStatusFilter,
+} from "@/lib/attendance-hr/roster-punch-fill";
 import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+function isStaffStatusFilter(value: string): value is RosterPunchFillStaffStatusFilter {
+  return (ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS as readonly string[]).includes(value);
+}
 
 export function RosterPunchFill({
   jobTitle,
@@ -28,6 +39,9 @@ export function RosterPunchFill({
   const roles = useUserRoles();
   const allowed = mayFillRosterDevicePunches({ roles, jobTitle });
   const qc = useQueryClient();
+  const [staffStatus, setStaffStatus] = useState<RosterPunchFillStaffStatusFilter>(
+    ROSTER_PUNCH_FILL_DEFAULT_STAFF_STATUS,
+  );
   const [staffId, setStaffId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -39,6 +53,17 @@ export function RosterPunchFill({
     enabled: allowed,
     staleTime: STALE.people,
   });
+
+  const filteredPeople = useMemo(
+    () =>
+      (people.data ?? []).filter((person) =>
+        matchesRosterPunchFillStaffStatusFilter(
+          { status: person.status, employmentType: person.employmentType },
+          staffStatus,
+        ),
+      ),
+    [people.data, staffStatus],
+  );
 
   const approve = useMutation({
     mutationFn: () => approveRosterPunchFill({ staffId, dateFrom, dateTo }),
@@ -52,7 +77,7 @@ export function RosterPunchFill({
 
   if (!allowed) return null;
 
-  const options = (people.data ?? []).map((person) => ({
+  const options = filteredPeople.map((person) => ({
     value: person.staffId,
     label: person.fullName,
     description: person.employeeCode ?? undefined,
@@ -77,6 +102,32 @@ export function RosterPunchFill({
           <p className="mt-1 text-xs text-muted-foreground">{t("hr.me.rosterFillHint")}</p>
         </div>
       ) : null}
+      <div>
+        <Label className="text-xs" htmlFor="roster-fill-staff-status">
+          {t("hr.me.rosterFillStaffStatus")}
+        </Label>
+        <Select
+          value={staffStatus}
+          onValueChange={(value) => {
+            if (!isStaffStatusFilter(value)) return;
+            setStaffStatus(value);
+            setStaffId("");
+          }}
+        >
+          <SelectTrigger id="roster-fill-staff-status" className="mt-1" aria-label={t("hr.me.rosterFillStaffStatus")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ROSTER_PUNCH_FILL_STAFF_STATUS_FILTERS.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value === "all"
+                  ? t("hr.me.rosterFillStaffStatusAll", "All")
+                  : t(`hr.me.staffStatus.${value}`, value.replace(/_/g, " "))}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div>
         <Label className="text-xs">{t("hr.me.rosterFillStaff")}</Label>
         <SearchableSelect

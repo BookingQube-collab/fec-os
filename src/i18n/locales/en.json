@@ -11465,6 +11465,8 @@
       "correctionRequestHintTeam": "This person reports to you. A regular supervisor submit waits on the Sr. Site Supervisor first. Only a Venue / Site / Sr. Site supervisor title completes that seat on submit; then {{ops}}. Attendance updates when {{ops}} approves.",
       "rosterFillTitle": "Fill missed device punches",
       "rosterFillHint": "Choose one person and the dates they never punched on the device. Approve writes punch-in and punch-out from their roster shift. Days off, days with no shift, and days that already have a device punch are skipped.",
+      "rosterFillStaffStatus": "Staff status",
+      "rosterFillStaffStatusAll": "All",
       "rosterFillStaff": "Staff",
       "rosterFillChoose": "Choose a staff member",
       "rosterFillFrom": "From",
