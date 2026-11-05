@@ -16,6 +16,9 @@ import {
   isMissedPunchOpsTerminalStep,
   isPunchCorrectionHistoryViewer,
   missedPunchPrintSignatureActors,
+  missedPunchPrintSeatForActor,
+  missedPunchPrintShowsSupervisorSeat,
+  missedPunchDisplayStepRole,
   punchCorrectionApprovedHistoryRows,
   shouldApplyCorrectionPunchOnApprove,
   shouldFinalizeLegacyHrGmCorrection,
@@ -1596,6 +1599,77 @@ describe("missed punch print signatures", () => {
     expect(seats.site.imageUrl).toBe("https://signed.example/mary.png");
     expect(seats.hoo.userId).toBe("rajan-user");
     expect(seats.hoo.imageUrl).toBe("https://signed.example/rajan.png");
+  });
+
+  it("remaps swapped manager/ops actors onto Sr. Site / HoO by approver title (Ashfaq MP)", () => {
+    // Legacy mis-record: Rajan (HoO) on manager, Mary (Sr. Site) on ops.
+    const swapped = [
+      {
+        stepRole: "manager",
+        status: "approved",
+        actedBy: "rajan-user",
+        actedByName: "Rajan Pathak",
+        actedAt: "2026-09-28T10:00:00Z",
+        actedBySignatureUrl: "https://signed.example/rajan.png",
+        actedByJobTitle: "Head of Operations",
+      },
+      {
+        stepRole: "ops",
+        status: "approved",
+        actedBy: "mary-user",
+        actedByName: "Mary Wangare Muiruri",
+        actedAt: "2026-10-18T10:00:00Z",
+        actedBySignatureUrl: "https://signed.example/mary.png",
+        actedByJobTitle: "Sr. Site Supervisor",
+      },
+    ];
+    expect(missedPunchPrintSeatForActor({ stepRole: "manager", actedByJobTitle: "Head of Operations" })).toBe(
+      "hoo",
+    );
+    expect(
+      missedPunchPrintSeatForActor({ stepRole: "ops", actedByJobTitle: "Sr. Site Supervisor" }),
+    ).toBe("site");
+    expect(missedPunchDisplayStepRole({ stepRole: "manager", actedByJobTitle: "Head of Operations" })).toBe(
+      "ops",
+    );
+    expect(missedPunchDisplayStepRole({ stepRole: "ops", actedByJobTitle: "Sr. Site Supervisor" })).toBe(
+      "manager",
+    );
+    expect(
+      missedPunchPriorApprovalLabel({
+        stepRole: "manager",
+        status: "approved",
+        actedByName: "Rajan Pathak",
+        actedByJobTitle: "Head of Operations",
+      }),
+    ).toBe("Head of Operations approved · Rajan Pathak");
+    expect(
+      missedPunchPriorApprovalLabel({
+        stepRole: "ops",
+        status: "approved",
+        actedByName: "Mary Wangare Muiruri",
+        actedByJobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe("Sr. Site Supervisor approved · Mary Wangare Muiruri");
+
+    const seats = missedPunchPrintSignatureActors({ steps: swapped });
+    expect(seats.site).toEqual({
+      userId: "mary-user",
+      name: "Mary Wangare Muiruri",
+      at: "2026-10-18T10:00:00Z",
+      imageUrl: "https://signed.example/mary.png",
+    });
+    expect(seats.hoo).toEqual({
+      userId: "rajan-user",
+      name: "Rajan Pathak",
+      at: "2026-09-28T10:00:00Z",
+      imageUrl: "https://signed.example/rajan.png",
+    });
+    expect(missedPunchPrintSignatureDone("approved", swapped, "site")).toBe(true);
+    expect(missedPunchPrintSignatureDone("approved", swapped, "hoo")).toBe(true);
+    expect(missedPunchPrintSignatureDone("approved", swapped, "supervisor")).toBe(false);
+    expect(missedPunchPrintShowsSupervisorSeat({ supervisorSubmitOnly: false })).toBe(false);
+    expect(missedPunchPrintShowsSupervisorSeat({ supervisorSubmitOnly: true })).toBe(true);
   });
 
   it("does not invent HR/GM print stamps on ops-final approved rows", () => {

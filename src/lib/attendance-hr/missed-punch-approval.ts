@@ -5,6 +5,13 @@ import {
 } from "@/lib/approval-ops-routing";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
+/** F&B Manager title (ops print seat). Keep local to avoid arcade↔missed-punch cycles. */
+function isFnbManagerPrintTitle(jobTitle: string | null | undefined): boolean {
+  const title = (jobTitle ?? "").trim();
+  if (!title) return false;
+  return /\bmanager\b/i.test(title) && /f\s*&\s*b|f\s+and\s+b|\bfnb\b|food\s*(?:&|and)\s*beverage/i.test(title);
+}
+
 /**
  * Punch-correction ladder (ops-final):
  * supervisor submit → Sr. Site Supervisor → Head of Operations (or F&B Manager).
@@ -118,20 +125,120 @@ export function missedPunchApprovalSteps(): Array<{ stepOrder: number; stepRole:
 /** Print-slip signature columns (supervisor submit + site + HoO). Legacy hr/gm keys stay for older slips. */
 export type MissedPunchPrintSigKey = "supervisor" | "site" | "hoo" | "hr" | "gm";
 
+type MissedPunchPrintStepLike = {
+  stepRole: string;
+  status: string;
+  actedBy?: string | null;
+  actedByName?: string | null;
+  actedAt?: string | null;
+  actedBySignatureUrl?: string | null;
+  /** Approver job title at/near approve time — preferred for seat placement. */
+  actedByJobTitle?: string | null;
+  actedByStaffRole?: string | null;
+};
+
+export type MissedPunchPrintSignatureActor = {
+  userId: string | null;
+  name: string | null;
+  at: string | null;
+  imageUrl: string | null;
+};
+
 /**
- * Progressive print stamps: fill a column once that seat has approved (or was skipped).
+ * Print / trail seat for an approver.
+ * Prefer the actor's real title (HoO stamp stays under HoO even if a legacy row
+ * stored them on `manager`); fall back to the step key (manager → Sr. Site, ops → HoO).
+ */
+export function missedPunchPrintSeatForActor(input: {
+  stepRole: string;
+  actedByJobTitle?: string | null;
+  actedByStaffRole?: string | null;
+}): "supervisor" | "site" | "hoo" | null {
+  const title = input.actedByJobTitle ?? null;
+  const role = input.actedByStaffRole ?? null;
+  if (isSrSiteSupervisorTitle(title)) return "site";
+  if (isHeadOfOperationsTitle(title) || isFnbManagerPrintTitle(title)) return "hoo";
+  // Venue / Site / regular supervisor (not Sr. Site) — Supervisor column.
+  if (isSiteSupervisorTitle(title, role) || /\bsupervisor\b/i.test((title ?? "").trim())) {
+    return "supervisor";
+  }
+  if (input.stepRole === "manager") return "site";
+  if (input.stepRole === "ops") return "hoo";
+  if (input.stepRole === "hr" || input.stepRole === "gm") return null;
+  return null;
+}
+
+/**
+ * Trail / badge step role for display. Remaps by approver title so swapped
+ * manager/ops actors (Rajan on manager, Mary on ops) label as HoO / Sr. Site.
+ */
+export function missedPunchDisplayStepRole(input: {
+  stepRole: string;
+  actedByJobTitle?: string | null;
+  actedByStaffRole?: string | null;
+}): string {
+  const seat = missedPunchPrintSeatForActor(input);
+  if (seat === "site") return "manager";
+  if (seat === "hoo") return "ops";
+  if (seat === "supervisor") return "supervisor";
+  return input.stepRole;
+}
+
+/**
+ * Print form Supervisor column: only when a regular / Venue supervisor filed
+ * for their team (submit stamp). Sr. Site / own requests hide it — same idea as leave.
+ */
+export function missedPunchPrintShowsSupervisorSeat(opts?: {
+  supervisorSubmitOnly?: boolean;
+  teamSubmitted?: boolean;
+}): boolean {
+  if (opts?.supervisorSubmitOnly != null) return Boolean(opts.supervisorSubmitOnly);
+  return Boolean(opts?.teamSubmitted);
+}
+
+function emptyPrintActor(): MissedPunchPrintSignatureActor {
+  return { userId: null, name: null, at: null, imageUrl: null };
+}
+
+function pickApprovedPrintActor(
+  steps: ReadonlyArray<MissedPunchPrintStepLike>,
+  seat: "supervisor" | "site" | "hoo",
+): MissedPunchPrintSignatureActor {
+  const matches = steps
+    .filter((step) => step.status === "approved")
+    .filter(
+      (step) =>
+        missedPunchPrintSeatForActor({
+          stepRole: step.stepRole,
+          actedByJobTitle: step.actedByJobTitle,
+          actedByStaffRole: step.actedByStaffRole,
+        }) === seat,
+    )
+    .sort((a, b) => String(a.actedAt ?? "").localeCompare(String(b.actedAt ?? "")));
+  const step = matches[matches.length - 1];
+  if (!step) return emptyPrintActor();
+  return {
+    userId: step.actedBy ?? null,
+    name: step.actedByName?.trim() || null,
+    at: step.actedAt ?? null,
+    imageUrl: step.actedBySignatureUrl?.trim() || null,
+  };
+}
+
+/**
+ * Progressive print stamps: fill a column once that seat has an approved actor
+ * (by title or step key), or the ladder seat was skipped / legacy-approved.
  * Supervisor column: regular team supervisor filed (submitted, not auto-approved manager seat).
- * Site column: Sr. Site / Venue supervisor seat done (approve or title-matched auto-approve).
- * HoO column: ops seat done. HR/GM columns are unused on the ops-final print slip.
  */
 export function missedPunchPrintSignatureDone(
   status: string | null | undefined,
-  steps: ReadonlyArray<{ stepRole: string; status: string }> | null | undefined,
+  steps: ReadonlyArray<MissedPunchPrintStepLike> | null | undefined,
   key: MissedPunchPrintSigKey,
   opts?: { teamSubmitted?: boolean; supervisorSubmitOnly?: boolean },
 ): boolean {
-  const byRole = new Map((steps ?? []).map((step) => [step.stepRole, step.status]));
-  const seatDone = (role: MissedPunchStepRole) => {
+  const list = steps ?? [];
+  const byRole = new Map(list.map((step) => [step.stepRole, step.status]));
+  const rawSeatDone = (role: MissedPunchStepRole) => {
     const seat = byRole.get(role);
     if (seat === "approved" || seat === "skipped") return true;
     // Legacy fully-approved rows without a stored seat still stamp earlier columns.
@@ -144,69 +251,72 @@ export function missedPunchPrintSignatureDone(
     }
     return false;
   };
+  const hasMappedActor = (seat: "supervisor" | "site" | "hoo") =>
+    list.some(
+      (step) =>
+        step.status === "approved" &&
+        missedPunchPrintSeatForActor({
+          stepRole: step.stepRole,
+          actedByJobTitle: step.actedByJobTitle,
+          actedByStaffRole: step.actedByStaffRole,
+        }) === seat,
+    );
+  /** Ladder seat was skipped (or missing on a fully-approved legacy row) — open empty cell. */
+  const ladderSeatOpenEmpty = (role: MissedPunchStepRole) => {
+    const seat = byRole.get(role);
+    if (seat === "skipped") return true;
+    if (status === "approved" && !seat && (role === "manager" || role === "ops")) return true;
+    return false;
+  };
+
   if (key === "supervisor") {
     // Prefer explicit submit-only flag; legacy team-submit that also completed manager still stamps.
     if (opts?.supervisorSubmitOnly != null) return Boolean(opts.supervisorSubmitOnly);
-    return Boolean(opts?.teamSubmitted) && seatDone("manager");
+    if (hasMappedActor("supervisor")) return true;
+    return Boolean(opts?.teamSubmitted) && rawSeatDone("manager");
   }
-  if (key === "site") return seatDone("manager");
-  if (key === "hoo") return seatDone("ops");
-  if (key === "hr") return seatDone("hr");
-  return seatDone("gm");
+  if (key === "site") return hasMappedActor("site") || ladderSeatOpenEmpty("manager");
+  if (key === "hoo") return hasMappedActor("hoo") || ladderSeatOpenEmpty("ops");
+  if (key === "hr") return rawSeatDone("hr");
+  return rawSeatDone("gm");
 }
 
 /**
  * Map print seats to the people who actually acted (or filed).
- * Supervisor = regular team submitter; site = manager seat actor; hoo = ops seat actor.
+ * Prefer approver title so HoO / Sr. Site stamps land in the matching column
+ * even when a legacy row stored them on the wrong step_role.
+ * Supervisor = regular team submitter (or a title-matched supervisor approve).
  */
 export function missedPunchPrintSignatureActors(args: {
-  steps: ReadonlyArray<{
-    stepRole: string;
-    status: string;
-    actedBy?: string | null;
-    actedByName?: string | null;
-    actedAt?: string | null;
-    actedBySignatureUrl?: string | null;
-  }>;
+  steps: ReadonlyArray<MissedPunchPrintStepLike>;
   supervisorSubmitOnly?: boolean;
   submitterName?: string | null;
   submitterUserId?: string | null;
   submitterSignatureUrl?: string | null;
   requestedAt?: string | null;
 }): {
-  supervisor: { userId: string | null; name: string | null; at: string | null; imageUrl: string | null };
-  site: { userId: string | null; name: string | null; at: string | null; imageUrl: string | null };
-  hoo: { userId: string | null; name: string | null; at: string | null; imageUrl: string | null };
+  supervisor: MissedPunchPrintSignatureActor;
+  site: MissedPunchPrintSignatureActor;
+  hoo: MissedPunchPrintSignatureActor;
 } {
-  const manager = args.steps.find((step) => step.stepRole === "manager");
-  const ops = args.steps.find((step) => step.stepRole === "ops");
-  const managerDone = manager?.status === "approved" || manager?.status === "skipped";
-  const opsDone = ops?.status === "approved" || ops?.status === "skipped";
+  const fromSteps = {
+    supervisor: pickApprovedPrintActor(args.steps, "supervisor"),
+    site: pickApprovedPrintActor(args.steps, "site"),
+    hoo: pickApprovedPrintActor(args.steps, "hoo"),
+  };
+  const submitSupervisor: MissedPunchPrintSignatureActor = args.supervisorSubmitOnly
+    ? {
+        userId: args.submitterUserId ?? null,
+        name: args.submitterName?.trim() || null,
+        at: args.requestedAt ?? null,
+        imageUrl: args.submitterSignatureUrl?.trim() || null,
+      }
+    : emptyPrintActor();
   return {
-    supervisor: args.supervisorSubmitOnly
-      ? {
-          userId: args.submitterUserId ?? null,
-          name: args.submitterName?.trim() || null,
-          at: args.requestedAt ?? null,
-          imageUrl: args.submitterSignatureUrl?.trim() || null,
-        }
-      : { userId: null, name: null, at: null, imageUrl: null },
-    site: managerDone
-      ? {
-          userId: manager?.actedBy ?? null,
-          name: manager?.actedByName ?? null,
-          at: manager?.actedAt ?? null,
-          imageUrl: manager?.actedBySignatureUrl?.trim() || null,
-        }
-      : { userId: null, name: null, at: null, imageUrl: null },
-    hoo: opsDone
-      ? {
-          userId: ops?.actedBy ?? null,
-          name: ops?.actedByName ?? null,
-          at: ops?.actedAt ?? null,
-          imageUrl: ops?.actedBySignatureUrl?.trim() || null,
-        }
-      : { userId: null, name: null, at: null, imageUrl: null },
+    // Team-submit stamp wins when present; otherwise a title-mapped supervisor approve.
+    supervisor: submitSupervisor.name || submitSupervisor.imageUrl ? submitSupervisor : fromSteps.supervisor,
+    site: fromSteps.site,
+    hoo: fromSteps.hoo,
   };
 }
 
@@ -641,6 +751,7 @@ export function missedPunchStepSeatLabel(
   step: MissedPunchStepRole | string | null | undefined,
   opts?: { opsLane?: OpsApprovalLane },
 ): string {
+  if (step === "supervisor") return "Supervisor";
   if (step === "manager") return "Sr. Site Supervisor";
   if (step === "ops") {
     return opts?.opsLane === "fnb_manager" ? "F&B Manager" : "Head of Operations";
@@ -653,23 +764,38 @@ export function missedPunchStepSeatLabel(
 /**
  * "Already approved" trail line for a completed seat.
  * Supervisor team-submit (not Sr. Site) must not read as "Sr. Site Supervisor approved".
+ * When `actedByJobTitle` is known, remap the seat so HoO / Sr. Site names match reality
+ * even if the stored step_role was swapped.
  */
 export function missedPunchPriorApprovalLabel(input: {
   stepRole: string;
   status: string;
   actedByName?: string | null;
+  actedByJobTitle?: string | null;
+  actedByStaffRole?: string | null;
   /** Manager seat was only a regular / Venue supervisor submit stamp. */
   supervisorSubmitOnly?: boolean;
   opsLane?: OpsApprovalLane;
 }): string {
+  const displayRole =
+    input.status === "skipped"
+      ? input.stepRole
+      : missedPunchDisplayStepRole({
+          stepRole: input.stepRole,
+          actedByJobTitle: input.actedByJobTitle,
+          actedByStaffRole: input.actedByStaffRole,
+        });
   if (input.status === "skipped") {
-    return `${missedPunchStepSeatLabel(input.stepRole, { opsLane: input.opsLane })} skipped`;
+    return `${missedPunchStepSeatLabel(displayRole, { opsLane: input.opsLane })} skipped`;
   }
-  if (input.stepRole === "manager" && input.supervisorSubmitOnly) {
+  if (
+    (input.stepRole === "manager" || displayRole === "supervisor") &&
+    input.supervisorSubmitOnly
+  ) {
     const name = input.actedByName?.trim();
     return name ? `Supervisor approved · ${name}` : "Supervisor approved";
   }
-  const seat = missedPunchStepSeatLabel(input.stepRole, { opsLane: input.opsLane });
+  const seat = missedPunchStepSeatLabel(displayRole, { opsLane: input.opsLane });
   const name = input.actedByName?.trim();
   return name ? `${seat} approved · ${name}` : `${seat} approved`;
 }

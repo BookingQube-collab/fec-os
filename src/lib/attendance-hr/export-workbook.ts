@@ -36,6 +36,7 @@ import {
 } from "@/lib/hr-ot";
 import {
   isMissedPunchSupervisorSubmitOnlyNote,
+  missedPunchPrintSignatureActors,
   missedPunchPriorApprovalLabel,
   missedPunchStepSeatLabel,
   missedPunchTeamSubmitterName,
@@ -117,6 +118,8 @@ export type ExportCorrectionStep = {
   status: string;
   actedByName?: string | null;
   actedAt?: string | null;
+  actedByJobTitle?: string | null;
+  actedByStaffRole?: string | null;
 };
 
 export type ExportCorrection = {
@@ -315,6 +318,8 @@ export function formatMissedPunchSupervisorVerification(correction: ExportCorrec
           stepRole: step.stepRole,
           status: step.status,
           actedByName: step.actedByName,
+          actedByJobTitle: step.actedByJobTitle,
+          actedByStaffRole: step.actedByStaffRole,
         }),
       );
       continue;
@@ -324,6 +329,8 @@ export function formatMissedPunchSupervisorVerification(correction: ExportCorrec
         stepRole: step.stepRole,
         status: step.status,
         actedByName: step.actedByName,
+        actedByJobTitle: step.actedByJobTitle,
+        actedByStaffRole: step.actedByStaffRole,
         // Submit line already covers Venue supervisor file; manager approve = Sr. Site.
         supervisorSubmitOnly: false,
       }),
@@ -340,11 +347,15 @@ export function formatMissedPunchSupervisorVerification(correction: ExportCorrec
 export function formatMissedPunchApprovalDecision(correction: ExportCorrection): string {
   const status = blank(correction.status).toLowerCase();
   if (status === "approved") {
+    const seats = missedPunchPrintSignatureActors({ steps: correction.steps ?? [] });
+    const name = blank(seats.hoo.name);
+    if (name) return `Approved · Head of Operations · ${name}`;
+    // Fallback when titles were unavailable and ops was skipped with no actor.
     const ops = (correction.steps ?? []).find(
       (step) => step.stepRole === "ops" && (step.status === "approved" || step.status === "skipped"),
     );
-    const name = blank(ops?.actedByName);
-    if (name) return `Approved · Head of Operations · ${name}`;
+    const opsName = blank(ops?.actedByName);
+    if (opsName) return `Approved · Head of Operations · ${opsName}`;
     return "Approved";
   }
   if (status === "rejected") {

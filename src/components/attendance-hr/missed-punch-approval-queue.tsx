@@ -122,11 +122,13 @@ function toMissedPunchPrintPayload(
     status: row.status,
     teamSubmitted,
     supervisorSubmitOnly,
+    showSupervisorSignature: supervisorSubmitOnly,
     steps: row.steps.map((step) => ({
       stepRole: step.stepRole,
       status: step.status,
       actedByName: step.actedByName,
       actedAt: step.actedAt,
+      actedByJobTitle: step.actedByJobTitle,
     })),
     supervisorSignature: {
       name: seats.supervisor.name,
@@ -438,6 +440,8 @@ export function MissedPunchApprovalQueue({
                               stepRole: step.stepRole,
                               status: step.status,
                               actedByName: step.actedByName,
+                              actedByJobTitle: step.actedByJobTitle,
+                              actedByStaffRole: step.actedByStaffRole,
                               // Manager seat completed by a non–Sr. Site submitter is healed;
                               // keep supervisor-submit trail from the note, not a false Sr. Site line.
                               supervisorSubmitOnly: false,

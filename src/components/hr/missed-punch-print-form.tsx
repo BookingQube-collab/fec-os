@@ -11,6 +11,7 @@ import {
   LetterheadRequestNumber,
 } from "@/components/hr/hr-letterhead-print-shell";
 import {
+  missedPunchPrintShowsSupervisorSeat,
   missedPunchPrintSignatureDone,
   type MissedPunchPrintSigKey,
 } from "@/lib/attendance-hr/missed-punch-approval";
@@ -38,11 +39,17 @@ export type MissedPunchPrintPayload = {
   teamSubmitted?: boolean;
   /** Regular supervisor filed; site seat still needs Sr. Site Supervisor. */
   supervisorSubmitOnly?: boolean;
+  /**
+   * When false, hide the Supervisor column (no supervisor submit seat).
+   * Defaults from supervisorSubmitOnly / teamSubmitted via missedPunchPrintShowsSupervisorSeat.
+   */
+  showSupervisorSignature?: boolean;
   steps?: Array<{
     stepRole: string;
     status: string;
     actedByName?: string | null;
     actedAt?: string | null;
+    actedByJobTitle?: string | null;
   }>;
   supervisorSignature?: MissedPunchPrintSignature | null;
   siteSignature?: MissedPunchPrintSignature | null;
@@ -99,11 +106,30 @@ function MissedPunchSheet({ payload }: { payload: MissedPunchPrintPayload }) {
   const steps = payload.steps ?? [];
   const teamSubmitted = Boolean(payload.teamSubmitted);
   const supervisorSubmitOnly = Boolean(payload.supervisorSubmitOnly);
+  const showSupervisor =
+    payload.showSupervisorSignature ??
+    missedPunchPrintShowsSupervisorSeat({
+      supervisorSubmitOnly: payload.supervisorSubmitOnly,
+      teamSubmitted: payload.teamSubmitted,
+    });
   const done = (key: MissedPunchPrintSigKey) =>
     missedPunchPrintSignatureDone(payload.status, steps, key, {
       teamSubmitted,
       supervisorSubmitOnly: payload.supervisorSubmitOnly != null ? supervisorSubmitOnly : undefined,
     });
+  const sigFor = (key: "supervisor" | "site" | "hoo") =>
+    key === "supervisor"
+      ? payload.supervisorSignature
+      : key === "site"
+        ? payload.siteSignature
+        : payload.hooSignature;
+  const columns: Array<{ key: "supervisor" | "site" | "hoo"; label: string }> = [
+    ...(showSupervisor
+      ? [{ key: "supervisor" as const, label: t("hr.missedPunch.print.sigSupervisor") }]
+      : []),
+    { key: "site", label: t("hr.missedPunch.print.sigSite") },
+    { key: "hoo", label: t("hr.missedPunch.print.sigHoo") },
+  ];
 
   return (
     <article className="hr-letterhead-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-6 pb-6 pt-4 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
@@ -159,28 +185,20 @@ function MissedPunchSheet({ payload }: { payload: MissedPunchPrintPayload }) {
         <table className="w-full border-collapse border border-neutral-800 text-center text-[9px]">
           <thead>
             <tr>
-              <th className="border border-neutral-800 px-1 py-2 font-bold uppercase">
-                {t("hr.missedPunch.print.sigSupervisor")}
-              </th>
-              <th className="border border-neutral-800 px-1 py-2 font-bold uppercase">
-                {t("hr.missedPunch.print.sigSite")}
-              </th>
-              <th className="border border-neutral-800 px-1 py-2 font-bold uppercase">
-                {t("hr.missedPunch.print.sigHoo")}
-              </th>
+              {columns.map((col) => (
+                <th key={col.key} className="border border-neutral-800 px-1 py-2 font-bold uppercase">
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={done("supervisor")} signature={payload.supervisorSignature} />
-              </td>
-              <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={done("site")} signature={payload.siteSignature} />
-              </td>
-              <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={done("hoo")} signature={payload.hooSignature} />
-              </td>
+              {columns.map((col) => (
+                <td key={col.key} className="h-24 border border-neutral-800 align-middle">
+                  <SignatureStamp done={done(col.key)} signature={sigFor(col.key)} />
+                </td>
+              ))}
             </tr>
           </tbody>
         </table>

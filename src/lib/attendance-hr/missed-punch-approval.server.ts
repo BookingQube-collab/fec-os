@@ -131,6 +131,9 @@ export type MissedPunchQueueRow = {
     actedAt: string | null;
     /** Signed URL for the actor's opt-in digital signature when available. */
     actedBySignatureUrl: string | null;
+    /** Approver job title — print/trail remap seats by who actually approved. */
+    actedByJobTitle: string | null;
+    actedByStaffRole: string | null;
   }>;
   /** Signed URL for the requester's opt-in digital signature (supervisor submit stamp). */
   requesterSignatureUrl: string | null;
@@ -560,6 +563,30 @@ async function nameByUserId(userIds: string[]) {
   return names;
 }
 
+/** Job title + staff_role for approver user ids (print seat remap). */
+async function titleByUserId(userIds: string[]) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const titles = new Map<string, { jobTitle: string | null; staffRole: string | null }>();
+  if (!ids.length) return titles;
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .select("user_id, job_title, staff_role")
+    .in("user_id", ids)
+    .is("deleted_at", null);
+  if (error) {
+    console.warn("[missed-punch] actor title lookup failed", error.message);
+    return titles;
+  }
+  for (const row of data ?? []) {
+    if (!row.user_id) continue;
+    titles.set(String(row.user_id), {
+      jobTitle: (row.job_title as string | null) ?? null,
+      staffRole: (row.staff_role as string | null) ?? null,
+    });
+  }
+  return titles;
+}
+
 /** Opt-in auto-apply signature storage paths by profile id. */
 async function signaturePathByUserId(userIds: string[]): Promise<Map<string, string>> {
   const ids = [...new Set(userIds.filter(Boolean))];
@@ -607,6 +634,7 @@ function mapQueueRow(
     { full_name: string | null; employee_code: string | null; department: string | null; job_title: string | null }
   >,
   actorNames: Map<string, string>,
+  actorTitles: Map<string, { jobTitle: string | null; staffRole: string | null }>,
   signaturePaths: Map<string, string>,
   signedUrls: Map<string, string>,
   canAct: boolean,
@@ -646,6 +674,7 @@ function mapQueueRow(
       .map((step) => {
         const actedBy = step.acted_by ? String(step.acted_by) : null;
         const path = actedBy ? signaturePaths.get(actedBy) ?? null : null;
+        const titles = actedBy ? actorTitles.get(actedBy) : undefined;
         return {
           stepRole: step.step_role,
           status: step.status,
@@ -653,6 +682,8 @@ function mapQueueRow(
           actedByName: actedBy ? actorNames.get(actedBy) ?? null : null,
           actedAt: step.acted_at,
           actedBySignatureUrl: path ? signedUrls.get(path) ?? null : null,
+          actedByJobTitle: titles?.jobTitle ?? null,
+          actedByStaffRole: titles?.staffRole ?? null,
         };
       }),
     requesterSignatureUrl: requesterPath ? signedUrls.get(requesterPath) ?? null : null,
@@ -810,7 +841,7 @@ export async function listMissedPunchCorrections(args: {
     ...steps.map((step) => step.acted_by).filter((id): id is string => Boolean(id)),
     ...visible.map((row) => String(row.requested_by)),
   ];
-  const [{ data: staffRows }, actorNames, signaturePaths] = await Promise.all([
+  const [{ data: staffRows }, actorNames, actorTitles, signaturePaths] = await Promise.all([
     staffIds.length
       ? supabaseAdmin
           .from("staff")
@@ -826,6 +857,7 @@ export async function listMissedPunchCorrections(args: {
           }>,
         }),
     nameByUserId(actorIds),
+    titleByUserId(actorIds),
     signaturePathByUserId(actorIds),
   ]);
   const signedUrls = await signedSignatureUrls([...signaturePaths.values()]);
@@ -847,6 +879,7 @@ export async function listMissedPunchCorrections(args: {
       steps,
       staffById,
       actorNames,
+      actorTitles,
       signaturePaths,
       signedUrls,
       canUserActOnCorrectionWithTeam(directory, args.userId, viewOf(row), teamStaffIds),
