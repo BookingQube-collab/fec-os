@@ -51,7 +51,7 @@ export function staffIdsForEventPayRun(
 
 /**
  * Filter monthly payroll day inputs: drop days that are covered by event pay for loaned staff.
- * Labour / event_hire are typically not on monthly at all; still exclude their event days if present.
+ * Joker / event_hire are typically not on monthly at all; still exclude their event days if present.
  */
 export function excludeEventPaidDaysFromMonthly(
   dayInputs: Array<{ staff_id: string | null; work_date?: string | null }>,

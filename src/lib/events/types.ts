@@ -204,6 +204,15 @@ export interface EventDetail extends EventListRow {
   bump_out_end: string | null;
 }
 
+/** Setup-wizard facts computed on the server so Home need not fetch scope/plan/budget graphs. */
+export interface EventSetupFactsSlice {
+  hasScope: boolean;
+  hasWorkstreamTasks: boolean;
+  hasSchedule: boolean;
+  hasBudget: boolean;
+  hasOwners: boolean;
+}
+
 export interface EventOverview {
   event: EventDetail;
   stages: EventStage[];
@@ -229,6 +238,10 @@ export interface EventOverview {
   assets: EventAssetRow[];
   workstreams: EventWorkstreamStatus[];
   overdueActions: EventTaskRow[];
+  /** Slim open-task list for Home priority / AI signals — avoids a full getEventPlan fetch. */
+  homeTasks?: EventTaskRow[];
+  /** Enough for the continue-setup banner without loading Scope/Schedule/Budget tabs. */
+  setupFacts?: EventSetupFactsSlice;
   /** Phase 7 — overdue risks/tasks/gates/issues + escalated items. */
   escalations?: Array<{
     kind: "risk" | "task" | "gate" | "issue";
@@ -362,7 +375,8 @@ export interface EventStaffAssignmentRow {
   staff_status: string | null;
   staff_job_title: string | null;
   staff_location_id: string | null;
-  assignment_type: "labour" | "loaned" | "event_hire";
+  staff_employee_code: string | null;
+  assignment_type: "joker" | "loaned" | "event_hire";
   role_label: string;
   date_from: string;
   date_to: string;
@@ -380,7 +394,7 @@ export interface EventStaffAssignmentsPayload {
   crewReadinessMet: boolean;
   counts: {
     total: number;
-    labour: number;
+    joker: number;
     loaned: number;
     event_hire: number;
   };

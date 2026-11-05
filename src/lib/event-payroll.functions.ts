@@ -289,7 +289,7 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
 
 /**
  * End-of-event close: stamp assignments closed, optionally park event-only hires
- * as contract_finished with contract_end = assignment date_to. Loaned/labour home
+ * as contract_finished with contract_end = assignment date_to. Loaned/joker home
  * employment is left unchanged. Blocks new schedule edits while closed.
  */
 export const closeEventCrew = createAuthenticatedAction(

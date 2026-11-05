@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Download, Upload } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -22,7 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { parseCsv } from "@/lib/csv-parse";
 import {
+  bulkCloseEventStaffAssignments,
+  bulkDeleteEventStaffAssignments,
+  bulkImportEventStaffAssignments,
+  bulkUpdateEventStaffAssignmentDates,
   createEventHireAndAssign,
   deleteEventStaffAssignment,
   upsertEventStaffAssignment,
@@ -30,21 +37,41 @@ import {
 import {
   assignmentTypeLabel,
   EVENT_STAFF_ASSIGNMENT_TYPES,
-  looksLikeLabourPoolStaff,
+  looksLikeJokerPoolStaff,
   type EventStaffAssignmentType,
 } from "@/lib/events/staff-assignments";
+import {
+  buildEventStaffingExportCsv,
+  buildEventStaffingExportMatrix,
+  buildEventStaffingTemplateCsv,
+  parseEventStaffingImportRows,
+  staffingExportFilename,
+} from "@/lib/events/staffing-import";
 import type { EventStaffAssignmentRow } from "@/lib/events/types";
+import { downloadCsvContent } from "@/lib/staff-import";
 
 type StaffOption = {
   id: string;
   full_name: string;
+  employee_code?: string | null;
   employment_type?: string | null;
   status?: string | null;
   job_title?: string | null;
 };
 
+async function readStaffingSpreadsheet(file: File): Promise<Record<string, string>[]> {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "csv" || file.type === "text/csv") return parseCsv(await file.text());
+  if (ext === "xlsx" || ext === "xls") {
+    const { readFirstSheetCsv } = await import("@/lib/spreadsheet/workbook");
+    return parseCsv(await readFirstSheetCsv(await file.arrayBuffer()));
+  }
+  throw new Error("unsupported");
+}
+
 export function EventStaffingPanel({
   eventId,
+  eventName,
   assignments,
   staff,
   canEdit,
@@ -54,6 +81,7 @@ export function EventStaffingPanel({
   onChanged,
 }: {
   eventId: string;
+  eventName?: string;
   assignments: EventStaffAssignmentRow[];
   staff: StaffOption[];
   canEdit: boolean;
@@ -63,6 +91,7 @@ export function EventStaffingPanel({
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
+  const importRef = useRef<HTMLInputElement>(null);
   const [type, setType] = useState<EventStaffAssignmentType>("loaned");
   const [staffId, setStaffId] = useState("");
   const [role, setRole] = useState("Crew");
@@ -76,16 +105,20 @@ export function EventStaffingPanel({
   const [hireFrom, setHireFrom] = useState(defaultFrom);
   const [hireTo, setHireTo] = useState(defaultTo);
   const [hirePhone, setHirePhone] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkFrom, setBulkFrom] = useState(defaultFrom);
+  const [bulkTo, setBulkTo] = useState(defaultTo);
+
+  const selectedIds = useMemo(() => [...selected], [selected]);
 
   const staffOptions = useMemo(() => {
-    if (type !== "labour") return staff;
-    const pool = staff.filter((s) =>
-      looksLikeLabourPoolStaff({
+    if (type !== "joker") return staff;
+    return staff.filter((s) =>
+      looksLikeJokerPoolStaff({
         employment_type: s.employment_type,
         status: s.status,
       }),
     );
-    return pool.length ? pool : staff;
   }, [staff, type]);
 
   async function addAssignment() {
@@ -148,13 +181,129 @@ export function EventStaffingPanel({
     }
   }
 
+  function downloadTemplate() {
+    downloadCsvContent(buildEventStaffingTemplateCsv(), "event-crew-import-template.csv");
+  }
+
+  async function exportCrew(kind: "csv" | "xlsx") {
+    const base = staffingExportFilename(eventName || eventId.slice(0, 8), kind);
+    if (kind === "csv") {
+      downloadCsvContent(buildEventStaffingExportCsv(assignments), base);
+      return;
+    }
+    const { downloadXlsx } = await import("@/lib/spreadsheet/workbook");
+    await downloadXlsx(base, [
+      {
+        name: "Crew",
+        rows: buildEventStaffingExportMatrix(assignments),
+        freezeRows: 1,
+        colWidths: [16, 24, 12, 14, 12, 12, 28, 10, 10],
+      },
+    ]);
+  }
+
+  async function onImportFile(file: File | null) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const preview = parseEventStaffingImportRows(await readStaffingSpreadsheet(file));
+      if (!preview.rows.length) {
+        throw new Error(
+          preview.errors[0]
+            ? t("events.staffing.import.rowError", {
+                row: preview.errors[0].row,
+                message: preview.errors[0].message,
+              })
+            : t("events.staffing.import.noRows"),
+        );
+      }
+      if (preview.errors.length) {
+        toast.error(t("events.staffing.import.parsePartial", { n: preview.errors.length }));
+      }
+      const result = await bulkImportEventStaffAssignments({
+        eventId,
+        rows: preview.rows,
+      });
+      onChanged();
+      if (result.errors.length && result.imported) {
+        toast.error(
+          t("events.staffing.import.importedPartial", {
+            imported: result.imported,
+            errors: result.errors.length,
+          }),
+        );
+      } else if (result.errors.length) {
+        toast.error(
+          t("events.staffing.import.rowError", {
+            row: result.errors[0]!.row,
+            message: result.errors[0]!.message,
+          }),
+        );
+      } else {
+        toast.success(t("events.staffing.import.imported", { count: result.imported }));
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+      if (importRef.current) importRef.current.value = "";
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-border/40 bg-card p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">{t("events.staffing.crewList")}</h2>
-          <p className="text-xs text-muted-foreground">{t("events.staffing.hint")}</p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">{t("events.staffing.crewList")}</h2>
+            <p className="text-xs text-muted-foreground">{t("events.staffing.hint")}</p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              disabled={busy}
+              onClick={downloadTemplate}
+            >
+              <Download className="me-1.5 h-3.5 w-3.5" />
+              {t("events.staffing.import.template")}
+            </Button>
+            {canEdit ? (
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted">
+                <Upload className="h-3.5 w-3.5" />
+                {t("events.staffing.import.upload")}
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => void onImportFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              disabled={busy || assignments.length === 0}
+              onClick={() => void exportCrew("csv")}
+            >
+              {t("events.staffing.export.csv")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              disabled={busy || assignments.length === 0}
+              onClick={() => void exportCrew("xlsx")}
+            >
+              {t("events.staffing.export.xlsx")}
+            </Button>
+          </div>
         </div>
+        <p className="mb-3 text-xs text-muted-foreground">{t("events.staffing.import.help")}</p>
         {assignments.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("events.staffing.empty")}</p>
         ) : (
@@ -176,6 +325,7 @@ export function EventStaffingPanel({
                     <div className="flex flex-col gap-0.5">
                       <span className="font-medium">{row.staff_name ?? "—"}</span>
                       <span className="text-xs text-muted-foreground">
+                        {row.staff_employee_code ? `${row.staff_employee_code} · ` : ""}
                         {row.staff_job_title ?? "—"}
                         {row.assignment_type === "event_hire" ? (
                           <Badge variant="outline" className="ms-2 text-[10px]">
@@ -252,7 +402,7 @@ export function EventStaffingPanel({
                 {staffOptions.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.full_name}
-                    {looksLikeLabourPoolStaff(s) ? " · labour" : ""}
+                    {looksLikeJokerPoolStaff(s) ? ` · ${t("events.staffing.jokerTag")}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>

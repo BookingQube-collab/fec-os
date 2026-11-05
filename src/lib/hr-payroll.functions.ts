@@ -620,7 +620,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         staffIds,
       });
 
-      // Monthly: exclude days paid on event runs (loaned + event hire/labour with pay_on_event_run).
+      // Monthly: exclude days paid on event runs (loaned + event hire/joker with pay_on_event_run).
       // Event periods: keep only days tagged event_id or within assignment windows (already staff-filtered).
       if (!isEventPeriod) {
         const { data: eventAssignRows } = await supabaseAdmin

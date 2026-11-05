@@ -1,7 +1,10 @@
 /** Event workforce Phase 2 — assignment validation & readiness (pure). */
 
-export const EVENT_STAFF_ASSIGNMENT_TYPES = ["labour", "loaned", "event_hire"] as const;
+export const EVENT_STAFF_ASSIGNMENT_TYPES = ["joker", "loaned", "event_hire"] as const;
 export type EventStaffAssignmentType = (typeof EVENT_STAFF_ASSIGNMENT_TYPES)[number];
+
+/** Legacy DB / file value accepted and normalized to `joker`. */
+export const LEGACY_LABOUR_ASSIGNMENT_TYPE = "labour";
 
 export const EVENT_CREW_READINESS_CODE = "event_crew";
 
@@ -20,10 +23,23 @@ export function isEventStaffAssignmentType(value: unknown): value is EventStaffA
   );
 }
 
-/** Default: all types include on event pay run until Phase 4 refinements. */
+/**
+ * Normalize stored / imported assignment types.
+ * Accepts legacy `labour` as an alias for `joker`.
+ */
+export function normalizeAssignmentType(value: unknown): EventStaffAssignmentType | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (v === LEGACY_LABOUR_ASSIGNMENT_TYPE || v === "fec_joker") return "joker";
+  if (v === "eventhire") return "event_hire";
+  if (isEventStaffAssignmentType(v)) return v;
+  return null;
+}
+
+/** Default: all types include on event pay run. */
 export function defaultPayOnEventRun(assignmentType: EventStaffAssignmentType): boolean {
   switch (assignmentType) {
-    case "labour":
+    case "joker":
     case "event_hire":
     case "loaned":
       return true;
@@ -33,9 +49,10 @@ export function defaultPayOnEventRun(assignmentType: EventStaffAssignmentType): 
 }
 
 export function assignmentTypeLabel(type: EventStaffAssignmentType | string): string {
-  switch (type) {
-    case "labour":
-      return "Labour";
+  const normalized = normalizeAssignmentType(type) ?? String(type);
+  switch (normalized) {
+    case "joker":
+      return "Joker";
     case "loaned":
       return "Loaned";
     case "event_hire":
@@ -104,8 +121,8 @@ export function eventHireEmploymentDefaults(dateFrom: string, dateTo: string) {
   };
 }
 
-/** Labour pool hint: joker employment or joker status. */
-export function looksLikeLabourPoolStaff(staff: {
+/** FEC joker pool: joker employment type or joker status. */
+export function looksLikeJokerPoolStaff(staff: {
   employment_type?: string | null;
   status?: string | null;
 }): boolean {
@@ -113,6 +130,9 @@ export function looksLikeLabourPoolStaff(staff: {
   const status = (staff.status ?? "").trim().toLowerCase();
   return emp === "joker" || status === "joker";
 }
+
+/** @deprecated Use looksLikeJokerPoolStaff */
+export const looksLikeLabourPoolStaff = looksLikeJokerPoolStaff;
 
 export const EVENT_ASSIGNMENT_STATUSES = ["active", "closed"] as const;
 export type EventAssignmentStatus = (typeof EVENT_ASSIGNMENT_STATUSES)[number];

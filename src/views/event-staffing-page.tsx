@@ -70,10 +70,12 @@ export default function EventStaffingPage() {
       ) : (
         <EventStaffingPanel
           eventId={id}
+          eventName={title}
           assignments={payload?.assignments ?? []}
           staff={(options.data?.staff as Array<{
             id: string;
             full_name: string;
+            employee_code?: string | null;
             employment_type?: string | null;
             status?: string | null;
             job_title?: string | null;
