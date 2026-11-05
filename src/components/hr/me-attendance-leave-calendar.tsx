@@ -1,11 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import {
+  CalendarCheck2,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Plane,
+  RefreshCw,
+  UserMinus,
+  Users,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,9 +40,10 @@ import {
   addCalendarDays,
   calendarKpiPercent,
   calendarMonthBounds,
-  formatDayCellSummary,
+  dayCellSummaryParts,
   type CalendarDayAggregate,
   type CalendarStatusFilter,
+  type DayCellSummaryPart,
 } from "@/lib/attendance-hr/attendance-leave-calendar";
 import {
   getAttendanceLeaveCalendar,
@@ -42,6 +56,27 @@ import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
 type CalendarView = "month" | "week" | "day";
+type StatusCode = DayCellSummaryPart["code"];
+
+const STATUS_TEXT: Record<StatusCode, string> = {
+  P: "text-emerald-700",
+  A: "text-rose-700",
+  L: "text-amber-700",
+  LT: "text-indigo-700",
+  WO: "text-slate-600",
+  H: "text-[color:var(--hd-accent-deep)]",
+  S: "text-[color:var(--electric)]",
+};
+
+const STATUS_DOT: Record<StatusCode, string> = {
+  P: "bg-emerald-500",
+  A: "bg-rose-500",
+  L: "bg-amber-500",
+  LT: "bg-indigo-500",
+  WO: "bg-slate-400",
+  H: "bg-[color:var(--hd-accent)]",
+  S: "bg-[color:var(--electric)]",
+};
 
 function pctLabel(count: number, total: number): string {
   const pct = calendarKpiPercent(count, total);
@@ -61,6 +96,31 @@ function shiftMonth(ym: string, delta: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function initials(name: string | null | undefined): string {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]!.slice(0, 1)}${parts[1]!.slice(0, 1)}`.toUpperCase();
+}
+
+function emptyAgg(ymd: string, today: string): CalendarDayAggregate {
+  return {
+    workDate: ymd,
+    isToday: ymd === today,
+    isFuture: ymd > today,
+    buckets: {
+      scheduled: 0,
+      present: 0,
+      absent: 0,
+      leave: 0,
+      late: 0,
+      weekOff: 0,
+      holiday: 0,
+      missedPunch: 0,
+    },
+  };
+}
+
 function buildMonthCells(month: string, days: CalendarDayAggregate[], today: string) {
   const { dateFrom, dateTo } = calendarMonthBounds(month);
   const start = new Date(`${dateFrom}T12:00:00.000Z`);
@@ -71,26 +131,29 @@ function buildMonthCells(month: string, days: CalendarDayAggregate[], today: str
   for (let i = 0; i < mondayIndex; i += 1) cells.push({ ymd: null, agg: null });
   let cursor = dateFrom;
   while (cursor <= dateTo) {
-    const agg = byDate.get(cursor) ?? {
-      workDate: cursor,
-      isToday: cursor === today,
-      isFuture: cursor > today,
-      buckets: {
-        scheduled: 0,
-        present: 0,
-        absent: 0,
-        leave: 0,
-        late: 0,
-        weekOff: 0,
-        holiday: 0,
-        missedPunch: 0,
-      },
-    };
-    cells.push({ ymd: cursor, agg });
+    cells.push({ ymd: cursor, agg: byDate.get(cursor) ?? emptyAgg(cursor, today) });
     cursor = addCalendarDays(cursor, 1);
   }
   while (cells.length % 7 !== 0) cells.push({ ymd: null, agg: null });
   return cells;
+}
+
+function StatusParts({ parts, className }: { parts: DayCellSummaryPart[]; className?: string }) {
+  if (parts.length === 0) {
+    return <span className={cn("text-muted-foreground", className)}>—</span>;
+  }
+  return (
+    <span className={cn("inline-flex flex-wrap items-center gap-x-1 gap-y-0.5", className)}>
+      {parts.map((part, idx) => (
+        <span key={part.code} className="inline-flex items-center gap-0.5">
+          {idx > 0 ? <span className="text-muted-foreground/70">|</span> : null}
+          <span className={cn("font-semibold tabular-nums", STATUS_TEXT[part.code])}>
+            {part.code} {part.count}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function KpiCard({
@@ -98,11 +161,13 @@ function KpiCard({
   value,
   pct,
   tone,
+  icon: Icon,
 }: {
   label: string;
   value: number;
   pct?: string;
-  tone: "purple" | "green" | "red" | "amber" | "indigo" | "slate";
+  tone: "purple" | "green" | "red" | "amber" | "indigo";
+  icon: LucideIcon;
 }) {
   const toneClass =
     tone === "green"
@@ -113,16 +178,82 @@ function KpiCard({
           ? "border-amber-200/80 bg-amber-50/70 text-amber-950"
           : tone === "indigo"
             ? "border-indigo-200/80 bg-indigo-50/70 text-indigo-950"
-            : tone === "slate"
-              ? "border-slate-200/80 bg-slate-50/80 text-slate-800"
-              : "border-[color:var(--hd-accent)]/25 bg-[color:var(--hd-wash)] text-[color:var(--hd-accent-deep)]";
+            : "border-[color:var(--hd-accent)]/25 bg-[color:var(--hd-wash)] text-[color:var(--hd-accent-deep)]";
+  const iconClass =
+    tone === "green"
+      ? "bg-emerald-100 text-emerald-700"
+      : tone === "red"
+        ? "bg-rose-100 text-rose-700"
+        : tone === "amber"
+          ? "bg-amber-100 text-amber-800"
+          : tone === "indigo"
+            ? "bg-indigo-100 text-indigo-700"
+            : "bg-[color:var(--hd-accent)]/15 text-[color:var(--hd-accent-deep)]";
   return (
     <div className={cn("rounded-2xl border px-3 py-3 shadow-sm", toneClass)}>
-      <p className="text-[0.7rem] font-medium uppercase tracking-wide opacity-80">{label}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[0.7rem] font-medium uppercase tracking-wide opacity-80">{label}</p>
+        <span className={cn("inline-flex size-7 shrink-0 items-center justify-center rounded-full", iconClass)}>
+          <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
+        </span>
+      </div>
       <p className="mt-1 text-2xl font-semibold tabular-nums">
         {value}
         {pct ? <span className="ms-1 text-sm font-medium opacity-80">{pct}</span> : null}
       </p>
+    </div>
+  );
+}
+
+function SidebarStat({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  icon: LucideIcon;
+  tone: StatusCode;
+}) {
+  return (
+    <li className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-[color:var(--hd-wash)]/40 px-3 py-2">
+      <span className="inline-flex items-center gap-2 text-sm">
+        <span
+          className={cn(
+            "inline-flex size-7 items-center justify-center rounded-full bg-background shadow-sm",
+            STATUS_TEXT[tone],
+          )}
+        >
+          <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
+        </span>
+        {label}
+      </span>
+      <span className={cn("text-sm font-semibold tabular-nums", STATUS_TEXT[tone])}>{value}</span>
+    </li>
+  );
+}
+
+function PanelHead({
+  title,
+  count,
+  action,
+}: {
+  title: string;
+  count?: number;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <h3 className="text-sm font-semibold">
+        {title}
+        {count != null ? (
+          <span className="ms-1.5 rounded-full bg-[color:var(--hd-wash)] px-2 py-0.5 text-xs font-semibold tabular-nums text-[color:var(--hd-accent-deep)]">
+            {count}
+          </span>
+        ) : null}
+      </h3>
+      {action}
     </div>
   );
 }
@@ -183,27 +314,37 @@ export function MeAttendanceLeaveCalendar() {
     const out: CalendarDayAggregate[] = [];
     let cursor = data.dateFrom;
     while (cursor <= data.dateTo) {
-      out.push(
-        byDate.get(cursor) ?? {
-          workDate: cursor,
-          isToday: cursor === data.today,
-          isFuture: cursor > data.today,
-          buckets: {
-            scheduled: 0,
-            present: 0,
-            absent: 0,
-            leave: 0,
-            late: 0,
-            weekOff: 0,
-            holiday: 0,
-            missedPunch: 0,
-          },
-        },
-      );
+      out.push(byDate.get(cursor) ?? emptyAgg(cursor, data.today));
       cursor = addCalendarDays(cursor, 1);
     }
     return out;
   }, [data, view]);
+
+  const upcomingByDay = useMemo(() => {
+    if (!data) return [] as Array<[string, number]>;
+    const start = upcomingFromSafe(data.today);
+    const end = addCalendarDays(data.today, 7);
+    const acc: Record<string, number> = {};
+    for (const leave of data.upcomingLeaves) {
+      let cursor = leave.dateFrom < start ? start : leave.dateFrom;
+      const leaveEnd = leave.dateTo > end ? end : leave.dateTo;
+      while (cursor <= leaveEnd) {
+        acc[cursor] = (acc[cursor] ?? 0) + 1;
+        cursor = addCalendarDays(cursor, 1);
+      }
+    }
+    return Object.entries(acc).sort(([a], [b]) => a.localeCompare(b));
+  }, [data]);
+
+  const legendItems: Array<{ code: StatusCode; label: string }> = [
+    { code: "P", label: t("hr.me.calendarLegend.present") },
+    { code: "A", label: t("hr.me.calendarLegend.absent") },
+    { code: "L", label: t("hr.me.calendarLegend.leave") },
+    { code: "LT", label: t("hr.me.calendarLegend.late") },
+    { code: "WO", label: t("hr.me.calendarLegend.weekOff") },
+    { code: "H", label: t("hr.me.calendarLegend.holiday") },
+    { code: "S", label: t("hr.me.calendarLegend.scheduled") },
+  ];
 
   function openDay(ymd: string) {
     setAnchorDate(ymd);
@@ -227,6 +368,87 @@ export function MeAttendanceLeaveCalendar() {
     setAnchorDate(next);
     setMonth(next.slice(0, 7));
   }
+
+  const calendarBody =
+    query.isError ? (
+      <p className="hd-empty">{t("hr.me.calendarUnavailable")}</p>
+    ) : query.isLoading ? (
+      <Skeleton className="h-72 w-full rounded-2xl" />
+    ) : view === "month" ? (
+      <div className="overflow-x-auto rounded-2xl border border-border/60 bg-background/70 p-2">
+        <div className="grid min-w-[44rem] grid-cols-7 gap-1">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+            <div key={d} className="px-2 py-1 text-center text-[0.7rem] font-semibold uppercase text-muted-foreground">
+              {d}
+            </div>
+          ))}
+          {monthCells.map((cell, idx) =>
+            cell.ymd && cell.agg ? (
+              <button
+                key={cell.ymd}
+                type="button"
+                onClick={() => openDay(cell.ymd!)}
+                className={cn(
+                  "min-h-[5.25rem] rounded-xl border border-transparent bg-[color:var(--hd-wash)]/60 px-2 py-1.5 text-start transition hover:border-[color:var(--hd-accent)]/40",
+                  cell.agg.isToday &&
+                    "border-[color:var(--electric)] bg-[color:var(--hd-wash)] ring-1 ring-[color:var(--electric)]/40",
+                  cell.agg.isFuture && "opacity-80",
+                )}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-sm font-semibold tabular-nums">{Number(cell.ymd.slice(8, 10))}</span>
+                  {cell.agg.isToday ? (
+                    <span className="text-[0.65rem] font-medium text-[color:var(--electric)]">
+                      {t("hr.me.attendanceToday")}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-1 text-[0.68rem] leading-snug">
+                  <StatusParts parts={dayCellSummaryParts(cell.agg)} />
+                </div>
+              </button>
+            ) : (
+              <div key={`empty-${idx}`} className="min-h-[5.25rem] rounded-xl bg-transparent" />
+            ),
+          )}
+        </div>
+      </div>
+    ) : view === "week" ? (
+      <div className="grid gap-2 md:grid-cols-7">
+        {weekDays.map((day) => (
+          <button
+            key={day.workDate}
+            type="button"
+            onClick={() => openDay(day.workDate)}
+            className={cn(
+              "rounded-2xl border border-border/60 bg-background/80 p-3 text-start",
+              day.isToday && "border-[color:var(--electric)] ring-1 ring-[color:var(--electric)]/30",
+            )}
+          >
+            <p className="text-sm font-semibold">{formatWorkDateDdMmYyyy(day.workDate)}</p>
+            <div className="mt-2 text-xs">
+              <StatusParts parts={dayCellSummaryParts(day)} />
+            </div>
+          </button>
+        ))}
+      </div>
+    ) : (
+      <div className="rounded-2xl border border-border/60 bg-background/80 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-base font-semibold">{formatWorkDateDdMmYyyy(anchorDate)}</h3>
+          <Button type="button" size="sm" variant="outline" onClick={() => openDay(anchorDate)}>
+            {t("hr.me.calendarOpenDetail")}
+          </Button>
+        </div>
+        <div className="mt-2 text-sm">
+          <StatusParts
+            parts={dayCellSummaryParts(
+              data?.days.find((d) => d.workDate === anchorDate) ?? emptyAgg(anchorDate, today),
+            )}
+          />
+        </div>
+      </div>
+    );
 
   return (
     <div className="hd-stack gap-4">
@@ -291,41 +513,39 @@ export function MeAttendanceLeaveCalendar() {
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {query.isLoading || !kpis ? (
-          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[4.5rem] rounded-2xl" />)
+          Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[4.5rem] rounded-2xl" />)
         ) : (
           <>
-            <KpiCard label={t("hr.me.calendarKpi.scheduled")} value={kpis.scheduled || total} tone="purple" />
+            <KpiCard label={t("hr.me.calendarKpi.total")} value={kpis.total || kpis.scheduled} tone="purple" icon={Users} />
             <KpiCard
               label={t("hr.me.calendarKpi.present")}
               value={kpis.present}
               pct={pctLabel(kpis.present, total)}
               tone="green"
+              icon={CalendarCheck2}
             />
             <KpiCard
               label={t("hr.me.calendarKpi.absent")}
               value={kpis.absent}
               pct={pctLabel(kpis.absent, total)}
               tone="red"
+              icon={UserMinus}
             />
             <KpiCard
               label={t("hr.me.calendarKpi.leave")}
               value={kpis.leave}
               pct={pctLabel(kpis.leave, total)}
               tone="amber"
+              icon={Plane}
             />
             <KpiCard
               label={t("hr.me.calendarKpi.late")}
               value={kpis.late}
               pct={pctLabel(kpis.late, total)}
               tone="indigo"
-            />
-            <KpiCard
-              label={t("hr.me.calendarKpi.weekOff")}
-              value={kpis.weekOff}
-              pct={pctLabel(kpis.weekOff, total)}
-              tone="slate"
+              icon={Clock3}
             />
           </>
         )}
@@ -378,11 +598,11 @@ export function MeAttendanceLeaveCalendar() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("hr.me.calendarFilter.allStatuses")}</SelectItem>
-            <SelectItem value="present">{t("hr.me.calendarKpi.present")}</SelectItem>
-            <SelectItem value="absent">{t("hr.me.calendarKpi.absent")}</SelectItem>
-            <SelectItem value="leave">{t("hr.me.calendarKpi.leave")}</SelectItem>
-            <SelectItem value="late">{t("hr.me.calendarKpi.late")}</SelectItem>
-            <SelectItem value="week_off">{t("hr.me.calendarKpi.weekOff")}</SelectItem>
+            <SelectItem value="present">{t("hr.me.calendarLegend.present")}</SelectItem>
+            <SelectItem value="absent">{t("hr.me.calendarLegend.absent")}</SelectItem>
+            <SelectItem value="leave">{t("hr.me.calendarLegend.leave")}</SelectItem>
+            <SelectItem value="late">{t("hr.me.calendarLegend.late")}</SelectItem>
+            <SelectItem value="week_off">{t("hr.me.calendarLegend.weekOff")}</SelectItem>
             <SelectItem value="holiday">{t("hr.me.calendarLegend.holiday")}</SelectItem>
             <SelectItem value="missed_punch">{t("hr.me.calendarException.missedPunch")}</SelectItem>
           </SelectContent>
@@ -405,227 +625,226 @@ export function MeAttendanceLeaveCalendar() {
         </form>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
         <span className="font-medium text-foreground">{t("hr.me.calendarLegend.title")}:</span>
-        <span>P {t("hr.me.calendarKpi.present")}</span>
-        <span>A {t("hr.me.calendarKpi.absent")}</span>
-        <span>L {t("hr.me.calendarKpi.leave")}</span>
-        <span>LT {t("hr.me.calendarKpi.late")}</span>
-        <span>WO {t("hr.me.calendarKpi.weekOff")}</span>
-        <span>H {t("hr.me.calendarLegend.holiday")}</span>
-        <span>S {t("hr.me.calendarLegend.scheduled")}</span>
+        {legendItems.map((item) => (
+          <span key={item.code} className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <span className={cn("size-2.5 rounded-full", STATUS_DOT[item.code])} aria-hidden />
+            <span className={cn("font-semibold", STATUS_TEXT[item.code])}>{item.code}</span>
+            <span>{item.label}</span>
+          </span>
+        ))}
       </div>
 
-      {query.isError ? (
-        <p className="hd-empty">{t("hr.me.calendarUnavailable")}</p>
-      ) : query.isLoading ? (
-        <Skeleton className="h-72 w-full rounded-2xl" />
-      ) : view === "month" ? (
-        <div className="overflow-x-auto rounded-2xl border border-border/60 bg-background/70 p-2">
-          <div className="grid min-w-[44rem] grid-cols-7 gap-1">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <div key={d} className="px-2 py-1 text-center text-[0.7rem] font-semibold uppercase text-muted-foreground">
-                {d}
-              </div>
-            ))}
-            {monthCells.map((cell, idx) =>
-              cell.ymd && cell.agg ? (
-                <button
-                  key={cell.ymd}
-                  type="button"
-                  onClick={() => openDay(cell.ymd!)}
-                  className={cn(
-                    "min-h-[5.25rem] rounded-xl border border-transparent bg-[color:var(--hd-wash)]/60 px-2 py-1.5 text-start transition hover:border-[color:var(--hd-accent)]/40",
-                    cell.agg.isToday && "border-[color:var(--electric)] bg-[color:var(--hd-wash)] ring-1 ring-[color:var(--electric)]/40",
-                    cell.agg.isFuture && "opacity-80",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-sm font-semibold tabular-nums">{Number(cell.ymd.slice(8, 10))}</span>
-                    {cell.agg.isToday ? (
-                      <span className="text-[0.65rem] font-medium text-[color:var(--electric)]">
-                        {t("hr.me.attendanceToday")}
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-1 text-[0.68rem] leading-snug text-muted-foreground">
-                    {formatDayCellSummary(cell.agg)}
-                  </p>
-                </button>
-              ) : (
-                <div key={`empty-${idx}`} className="min-h-[5.25rem] rounded-xl bg-transparent" />
-              ),
-            )}
-          </div>
-        </div>
-      ) : view === "week" ? (
-        <div className="grid gap-2 md:grid-cols-7">
-          {weekDays.map((day) => (
-            <button
-              key={day.workDate}
-              type="button"
-              onClick={() => openDay(day.workDate)}
-              className={cn(
-                "rounded-2xl border border-border/60 bg-background/80 p-3 text-start",
-                day.isToday && "border-[color:var(--electric)] ring-1 ring-[color:var(--electric)]/30",
-              )}
-            >
-              <p className="text-sm font-semibold">{formatWorkDateDdMmYyyy(day.workDate)}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{formatDayCellSummary(day)}</p>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-border/60 bg-background/80 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-base font-semibold">{formatWorkDateDdMmYyyy(anchorDate)}</h3>
-            <Button type="button" size="sm" variant="outline" onClick={() => openDay(anchorDate)}>
-              {t("hr.me.calendarOpenDetail")}
-            </Button>
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {formatDayCellSummary(
-              data?.days.find((d) => d.workDate === anchorDate) ?? {
-                workDate: anchorDate,
-                isToday: anchorDate === today,
-                isFuture: anchorDate > today,
-                buckets: {
-                  scheduled: 0,
-                  present: 0,
-                  absent: 0,
-                  leave: 0,
-                  late: 0,
-                  weekOff: 0,
-                  holiday: 0,
-                  missedPunch: 0,
-                },
-              },
-            )}
-          </p>
-        </div>
-      )}
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(16rem,0.85fr)]">
+        <div className="min-w-0">{calendarBody}</div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
-          <h3 className="text-sm font-semibold">{t("hr.me.calendarLocationToday")}</h3>
-          <ul className="mt-3 space-y-2">
-            {(data?.locationBreakdown ?? []).length === 0 ? (
-              <li className="hd-empty">{t("hr.me.calendarNoLocations")}</li>
+        <aside className="grid gap-3 content-start">
+          <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+            <h3 className="text-sm font-semibold">
+              {t("hr.me.calendarTodaySummary", {
+                date: formatWorkDateDdMmYyyy(data?.today ?? today),
+              })}
+            </h3>
+            {query.isLoading || !kpis ? (
+              <div className="mt-3 space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 rounded-xl" />
+                ))}
+              </div>
             ) : (
-              (data?.locationBreakdown ?? []).map((loc) => {
-                const denom = loc.buckets.scheduled || loc.buckets.present + loc.buckets.absent + loc.buckets.leave;
-                const presentPct = calendarKpiPercent(loc.buckets.present, denom) ?? 0;
-                return (
-                  <li key={loc.locationId} className="rounded-xl border border-border/50 px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">
-                        {loc.locationCode}
-                        {loc.locationName ? ` — ${loc.locationName}` : ""}
-                      </p>
-                      <p className="text-xs tabular-nums text-muted-foreground">
-                        P {loc.buckets.present} · A {loc.buckets.absent} · L {loc.buckets.leave}
-                      </p>
-                    </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${Math.min(100, presentPct)}%` }}
-                      />
-                    </div>
-                  </li>
-                );
-              })
+              <ul className="mt-3 space-y-2">
+                <SidebarStat
+                  label={t("hr.me.calendarLegend.present")}
+                  value={kpis.present}
+                  icon={CheckCircle2}
+                  tone="P"
+                />
+                <SidebarStat
+                  label={t("hr.me.calendarLegend.absent")}
+                  value={kpis.absent}
+                  icon={XCircle}
+                  tone="A"
+                />
+                <SidebarStat
+                  label={t("hr.me.calendarLegend.leave")}
+                  value={kpis.leave}
+                  icon={Plane}
+                  tone="L"
+                />
+                <SidebarStat
+                  label={t("hr.me.calendarKpi.lateIn")}
+                  value={kpis.late}
+                  icon={Clock3}
+                  tone="LT"
+                />
+              </ul>
             )}
-          </ul>
-          {(data?.shortageHints.length ?? 0) > 0 ? (
-            <div className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
-              <p className="font-semibold">{t("hr.me.calendarShortage")}</p>
-              <ul className="mt-1 space-y-0.5">
-                {data!.shortageHints.slice(0, 4).map((hint) => (
-                  <li key={hint.locationId}>
-                    {hint.label}: {hint.coveragePct}%
+          </section>
+
+          <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+            <h3 className="text-sm font-semibold">{t("hr.me.calendarLocationToday")}</h3>
+            <ul className="mt-3 space-y-2">
+              {(data?.locationBreakdown ?? []).length === 0 ? (
+                <li className="hd-empty">{t("hr.me.calendarNoLocations")}</li>
+              ) : (
+                (data?.locationBreakdown ?? []).map((loc) => {
+                  const denom =
+                    loc.buckets.scheduled || loc.buckets.present + loc.buckets.absent + loc.buckets.leave;
+                  const presentPct = calendarKpiPercent(loc.buckets.present, denom) ?? 0;
+                  return (
+                    <li key={loc.locationId} className="rounded-xl border border-border/50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">
+                          {loc.locationCode}
+                          {loc.locationName ? ` — ${loc.locationName}` : ""}
+                        </p>
+                        <StatusParts
+                          className="text-[0.7rem]"
+                          parts={[
+                            ...(loc.buckets.present ? [{ code: "P" as const, count: loc.buckets.present }] : []),
+                            ...(loc.buckets.absent ? [{ code: "A" as const, count: loc.buckets.absent }] : []),
+                            ...(loc.buckets.leave ? [{ code: "L" as const, count: loc.buckets.leave }] : []),
+                          ]}
+                        />
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.min(100, presentPct)}%` }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+            {(data?.shortageHints.length ?? 0) > 0 ? (
+              <div className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
+                <p className="font-semibold">{t("hr.me.calendarShortage")}</p>
+                <ul className="mt-1 space-y-0.5">
+                  {data!.shortageHints.slice(0, 4).map((hint) => (
+                    <li key={hint.locationId}>
+                      {hint.label}: {hint.coveragePct}%
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </section>
+        </aside>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+          <PanelHead
+            title={t("hr.me.calendarOnLeaveToday")}
+            count={data?.onLeaveToday.length}
+            action={
+              (data?.onLeaveToday.length ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[color:var(--hd-accent)] underline-offset-2 hover:underline"
+                  onClick={() => openDay(data?.today ?? today)}
+                >
+                  {t("hr.me.calendarViewAll")}
+                </button>
+              ) : null
+            }
+          />
+          {(data?.onLeaveToday ?? []).length === 0 ? (
+            <p className="mt-3 hd-empty">{t("hr.me.calendarNoLeaveToday")}</p>
+          ) : (
+            <>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(data?.onLeaveToday ?? []).slice(0, 6).map((person) => (
+                  <Avatar key={`${person.staffId}-${person.dateFrom}`} className="size-9 border border-border/60">
+                    <AvatarFallback className="bg-[color:var(--hd-wash)] text-[0.65rem] font-semibold text-[color:var(--hd-accent-deep)]">
+                      {initials(person.staffName || person.employeeCode)}
+                    </AvatarFallback>
+                  </Avatar>
+                ))}
+              </div>
+              <ul className="mt-3 space-y-1.5">
+                {(data?.onLeaveToday ?? []).slice(0, 5).map((person) => (
+                  <li key={`${person.staffId}-row-${person.dateFrom}`} className="hd-row !px-0">
+                    <div>
+                      <p className="hd-row__title">{person.staffName || person.employeeCode || "—"}</p>
+                      <p className="hd-row__meta">
+                        {person.leaveType}
+                        {person.locationCode ? ` · ${person.locationCode}` : ""}
+                      </p>
+                    </div>
                   </li>
                 ))}
               </ul>
-            </div>
-          ) : null}
+            </>
+          )}
         </section>
 
-        <div className="grid gap-3">
-          <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
-            <h3 className="text-sm font-semibold">{t("hr.me.calendarOnLeaveToday")}</h3>
-            <ul className="mt-2 space-y-1.5">
-              {(data?.onLeaveToday ?? []).slice(0, 8).map((person) => (
-                <li key={`${person.staffId}-${person.dateFrom}`} className="hd-row !px-0">
-                  <div>
-                    <p className="hd-row__title">{person.staffName || person.employeeCode || "—"}</p>
-                    <p className="hd-row__meta">
-                      {person.leaveType}
-                      {person.locationCode ? ` · ${person.locationCode}` : ""}
-                    </p>
-                  </div>
-                </li>
-              ))}
-              {(data?.onLeaveToday.length ?? 0) === 0 ? (
-                <li className="hd-empty">{t("hr.me.calendarNoLeaveToday")}</li>
-              ) : null}
-            </ul>
-          </section>
-
-          <section className="rounded-2xl border border-rose-200/70 bg-rose-50/50 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-rose-950">{t("hr.me.calendarExceptions")}</h3>
-              <Link href={ME_CORRECTION_HREF} className="text-xs font-medium text-[color:var(--hd-accent)] underline-offset-2 hover:underline">
-                {t("hr.me.calendarOpenCorrection")}
+        <section className="rounded-2xl border border-rose-200/70 bg-rose-50/50 p-4">
+          <PanelHead
+            title={t("hr.me.calendarExceptions")}
+            count={(data?.exceptions ?? []).reduce((sum, g) => sum + g.count, 0)}
+            action={
+              <Link
+                href={ME_CORRECTION_HREF}
+                className="text-xs font-medium text-[color:var(--hd-accent)] underline-offset-2 hover:underline"
+              >
+                {t("hr.me.calendarViewAll")}
               </Link>
-            </div>
-            <ul className="mt-2 space-y-2">
-              {(data?.exceptions ?? []).length === 0 ? (
-                <li className="text-xs text-rose-900/70">{t("hr.me.calendarNoExceptions")}</li>
-              ) : (
-                data!.exceptions.map((group) => (
-                  <li key={group.kind}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-rose-900">
-                      {t(`hr.me.calendarException.${group.kind === "missed_punch" ? "missedPunch" : group.kind}`)} (
-                      {group.count})
-                    </p>
-                    <p className="text-sm text-rose-950/90">{group.names.join(", ")}</p>
-                  </li>
-                ))
-              )}
-            </ul>
-          </section>
+            }
+          />
+          <ul className="mt-3 space-y-2">
+            {(data?.exceptions ?? []).length === 0 ? (
+              <li className="text-xs text-rose-900/70">{t("hr.me.calendarNoExceptions")}</li>
+            ) : (
+              data!.exceptions.map((group) => (
+                <li key={group.kind}>
+                  <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-rose-900">
+                    {group.kind === "absent" ? (
+                      <XCircle className="size-3.5" aria-hidden />
+                    ) : group.kind === "late" ? (
+                      <Clock3 className="size-3.5" aria-hidden />
+                    ) : (
+                      <UserMinus className="size-3.5" aria-hidden />
+                    )}
+                    {t(`hr.me.calendarException.${group.kind === "missed_punch" ? "missedPunch" : group.kind}`)} (
+                    {group.count})
+                  </p>
+                  <p className="mt-0.5 text-sm text-rose-950/90">{group.names.join(", ")}</p>
+                </li>
+              ))
+            )}
+          </ul>
+        </section>
 
-          <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
-            <h3 className="text-sm font-semibold">{t("hr.me.calendarUpcomingLeaves")}</h3>
-            <ul className="mt-2 flex flex-wrap gap-2">
-              {(data?.upcomingLeaves ?? []).length === 0 ? (
-                <li className="hd-empty">{t("hr.me.calendarNoUpcomingLeaves")}</li>
-              ) : (
-                Object.entries(
-                  (data?.upcomingLeaves ?? []).reduce<Record<string, number>>((acc, leave) => {
-                    let cursor = leave.dateFrom < upcomingFromSafe(data!.today) ? upcomingFromSafe(data!.today) : leave.dateFrom;
-                    const end = leave.dateTo > addCalendarDays(data!.today, 7) ? addCalendarDays(data!.today, 7) : leave.dateTo;
-                    while (cursor <= end) {
-                      acc[cursor] = (acc[cursor] ?? 0) + 1;
-                      cursor = addCalendarDays(cursor, 1);
-                    }
-                    return acc;
-                  }, {}),
-                )
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([ymd, count]) => (
-                    <li
-                      key={ymd}
-                      className="rounded-full border border-border/70 bg-[color:var(--hd-wash)] px-3 py-1 text-xs font-medium"
-                    >
-                      {formatWorkDateDdMmYyyy(ymd)} · {count}
-                    </li>
-                  ))
-              )}
-            </ul>
-          </section>
-        </div>
+        <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+          <PanelHead
+            title={t("hr.me.calendarUpcomingLeaves")}
+            count={data?.upcomingLeaves.length}
+          />
+          <ul className="mt-3 space-y-2">
+            {upcomingByDay.length === 0 ? (
+              <li className="hd-empty">{t("hr.me.calendarNoUpcomingLeaves")}</li>
+            ) : (
+              upcomingByDay.map(([ymd, count]) => (
+                <li
+                  key={ymd}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border/50 px-3 py-2"
+                >
+                  <span className="inline-flex items-center gap-2 text-sm font-medium">
+                    <Plane className="size-3.5 text-amber-700" strokeWidth={1.75} aria-hidden />
+                    {formatWorkDateDdMmYyyy(ymd)}
+                  </span>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {t("hr.me.calendarUpcomingCount", { count })}
+                  </span>
+                </li>
+              ))
+            )}
+          </ul>
+        </section>
       </div>
 
       <Sheet open={Boolean(detailDate)} onOpenChange={(open) => !open && setDetailDate(null)}>
@@ -651,7 +870,14 @@ export function MeAttendanceLeaveCalendar() {
                         {[row.employeeCode, row.jobTitle, row.locationCode].filter(Boolean).join(" · ")}
                       </p>
                     </div>
-                    <span className="rounded-full bg-[color:var(--hd-wash)] px-2 py-0.5 text-xs font-semibold">
+                    <span
+                      className={cn(
+                        "rounded-full bg-[color:var(--hd-wash)] px-2 py-0.5 text-xs font-semibold",
+                        row.calendarCode && row.calendarCode in STATUS_TEXT
+                          ? STATUS_TEXT[row.calendarCode as StatusCode]
+                          : null,
+                      )}
+                    >
                       {row.calendarCode || row.status}
                     </span>
                   </div>
@@ -663,7 +889,9 @@ export function MeAttendanceLeaveCalendar() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="font-medium text-foreground">{t("hr.me.attendancePunchIn")} / {t("hr.me.attendancePunchOut")}</dt>
+                      <dt className="font-medium text-foreground">
+                        {t("hr.me.attendancePunchIn")} / {t("hr.me.attendancePunchOut")}
+                      </dt>
                       <dd>
                         {formatReportingTime12h(row.actualIn) || "—"} – {formatReportingTime12h(row.actualOut) || "—"}
                       </dd>
@@ -674,11 +902,15 @@ export function MeAttendanceLeaveCalendar() {
                     </div>
                     <div>
                       <dt className="font-medium text-foreground">{t("hr.me.attendanceLateMinutes")}</dt>
-                      <dd>{row.lateMinutes > 0 ? t("hr.me.attendanceMinutesValue", { minutes: row.lateMinutes }) : "—"}</dd>
+                      <dd>
+                        {row.lateMinutes > 0
+                          ? t("hr.me.attendanceMinutesValue", { minutes: row.lateMinutes })
+                          : "—"}
+                      </dd>
                     </div>
                     {row.leaveType ? (
                       <div className="col-span-2">
-                        <dt className="font-medium text-foreground">{t("hr.me.calendarKpi.leave")}</dt>
+                        <dt className="font-medium text-foreground">{t("hr.me.calendarLegend.leave")}</dt>
                         <dd>{row.leaveType}</dd>
                       </div>
                     ) : null}

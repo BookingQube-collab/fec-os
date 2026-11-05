@@ -11484,7 +11484,7 @@
       "incompletePunchRosterSaved": "Saved roster for {{date}}.",
       "leaveApply": "Leave apply",
       "myAttendance": "My attendance",
-      "attendanceLeaveCalendar": "Attendance & Leave Calendar",
+      "attendanceLeaveCalendar": "Home",
       "calendarHint": "Team attendance and approved leave for your scoped locations. Past days show actuals; future days show rostered schedule and approved leave only.",
       "calendarUnavailable": "Could not load the attendance calendar.",
       "calendarLastSync": "Last biometric sync {{time}} (Asia/Qatar)",
@@ -11494,12 +11494,14 @@
         "day": "Day"
       },
       "calendarKpi": {
-        "scheduled": "Total scheduled",
-        "present": "Present",
-        "absent": "Absent",
-        "leave": "On leave",
-        "late": "Late",
-        "weekOff": "Weekly OFF"
+        "total": "Total employees",
+        "scheduled": "Total employees",
+        "present": "Present today",
+        "absent": "Absent today",
+        "leave": "On leave today",
+        "late": "Late today",
+        "weekOff": "Weekly OFF",
+        "lateIn": "Late In"
       },
       "calendarFilter": {
         "location": "Location",
@@ -11514,9 +11516,15 @@
       },
       "calendarLegend": {
         "title": "Legend",
+        "present": "Present",
+        "absent": "Absent",
+        "leave": "On leave",
+        "late": "Late",
+        "weekOff": "Weekly OFF",
         "holiday": "Holiday",
         "scheduled": "Scheduled"
       },
+      "calendarTodaySummary": "Today · {{date}}",
       "calendarLocationToday": "Location-wise (today)",
       "calendarNoLocations": "No location rows for today with the current filters.",
       "calendarShortage": "Coverage shortage hints",
@@ -11525,6 +11533,7 @@
       "calendarExceptions": "Attendance exceptions (today)",
       "calendarNoExceptions": "No absences, late arrivals, or missed punches in this scope today.",
       "calendarOpenCorrection": "Open Correction",
+      "calendarViewAll": "View all",
       "calendarException": {
         "absent": "Absent",
         "late": "Late",
@@ -11532,6 +11541,7 @@
       },
       "calendarUpcomingLeaves": "Upcoming leaves (next 7 days)",
       "calendarNoUpcomingLeaves": "No approved leave in the next 7 days.",
+      "calendarUpcomingCount": "{{count}} employees",
       "calendarOpenDetail": "Employee detail",
       "calendarDayDetail": "Day detail · {{date}}",
       "calendarNoDayRows": "No employees for this day with the current filters.",

@@ -98,7 +98,6 @@ type MeTab =
   | "profile"
   | "correction"
   | "attendance"
-  | "calendar"
   | "roster"
   | "leave"
   | "issues"
@@ -114,7 +113,6 @@ const TAB_HASH: Record<MeTab, string> = {
   profile: "#me-profile",
   correction: "#me-correction",
   attendance: "#me-attendance",
-  calendar: "#me-calendar",
   roster: "#me-roster",
   leave: "#me-leave",
   issues: "#me-issues",
@@ -129,6 +127,8 @@ const TAB_HASH: Record<MeTab, string> = {
 function tabFromHash(hash: string): MeTab | null {
   const id = hash.replace(/^#/, "");
   if (!id) return "home";
+  // Management Home hosts the attendance calendar; keep old #me-calendar bookmarks working.
+  if (id === "me-calendar" || id === "me-home") return "home";
   if (id === "me-punch-approvals" || id === "me-leave-approvals") {
     return id === "me-leave-approvals" ? "leave" : "correction";
   }
@@ -562,9 +562,6 @@ export default function EmployeeMePage() {
         ]
       : []),
     { id: "attendance", label: t("hr.me.myAttendance") },
-    ...(showAttendanceLeaveCalendar
-      ? [{ id: "calendar" as const, label: t("hr.me.attendanceLeaveCalendar") }]
-      : []),
     { id: "roster", label: t("hr.me.myRoster") },
     ...(person
       ? [
@@ -683,44 +680,55 @@ export default function EmployeeMePage() {
 
             <div role="tabpanel" id={`me-panel-${active}`} aria-labelledby={`me-tab-${active}`}>
               {active === "home" ? (
-                <>
-                  <p className="hd-sub mt-4">{t("hr.me.monthSummary")}</p>
-                  <div className="hd-stats">
-                    <button type="button" className="hd-stat" onClick={() => selectTab("attendance")}>
-                      <span className="hd-stat__value">
-                        {homeAttendance.isLoading || homeAttendance.isError
-                          ? "—"
-                          : String(homeAttendanceRows.length)}
-                      </span>
-                      <span className="hd-stat__label">{t("hr.me.daysThisMonth")}</span>
-                    </button>
-                    <button type="button" className="hd-stat" onClick={() => selectTab(person ? "leave" : "home")}>
-                      <span className="hd-stat__value">
-                        {balances.isLoading ? "—" : primaryLeave ? String(primaryLeave.remainingDays) : "—"}
-                      </span>
-                      <span className="hd-stat__label">
-                        {primaryLeave ? t(`hr.leave.types.${primaryLeave.leaveType}`) : t("hr.me.leaveLeft")}
-                      </span>
-                    </button>
-                    {canIssues ? (
-                      <button type="button" className="hd-stat" onClick={() => selectTab("issues")}>
-                        <span className="hd-stat__value">{issues.isLoading ? "—" : String(openIssueCount)}</span>
-                        <span className="hd-stat__label">{t("hr.me.openIssues")}</span>
+                showAttendanceLeaveCalendar ? (
+                  <>
+                    <EssPanel id="me-calendar" title={t("hr.me.home")}>
+                      <MeAttendanceLeaveCalendar />
+                    </EssPanel>
+                    <div className="hd-stack">
+                      <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="hd-sub mt-4">{t("hr.me.monthSummary")}</p>
+                    <div className="hd-stats">
+                      <button type="button" className="hd-stat" onClick={() => selectTab("attendance")}>
+                        <span className="hd-stat__value">
+                          {homeAttendance.isLoading || homeAttendance.isError
+                            ? "—"
+                            : String(homeAttendanceRows.length)}
+                        </span>
+                        <span className="hd-stat__label">{t("hr.me.daysThisMonth")}</span>
                       </button>
-                    ) : null}
-                    <button type="button" className="hd-stat" onClick={() => selectTab("roster")}>
-                      <span className="hd-stat__value">
-                        {roster.isLoading ? "—" : nextRoster ? formatWorkDateDdMmYyyy(nextRoster.workDate) : "—"}
-                      </span>
-                      <span className="hd-stat__label">{t("hr.me.myRoster")}</span>
-                    </button>
-                  </div>
-                  {!person?.canSelfCheckIn ? <p className="hd-note">{t("hr.me.biometricNote")}</p> : null}
-                  {showTeamToday ? <TeamTodayPanel embedded /> : null}
-                  <div className="hd-stack">
-                    <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
-                  </div>
-                </>
+                      <button type="button" className="hd-stat" onClick={() => selectTab(person ? "leave" : "home")}>
+                        <span className="hd-stat__value">
+                          {balances.isLoading ? "—" : primaryLeave ? String(primaryLeave.remainingDays) : "—"}
+                        </span>
+                        <span className="hd-stat__label">
+                          {primaryLeave ? t(`hr.leave.types.${primaryLeave.leaveType}`) : t("hr.me.leaveLeft")}
+                        </span>
+                      </button>
+                      {canIssues ? (
+                        <button type="button" className="hd-stat" onClick={() => selectTab("issues")}>
+                          <span className="hd-stat__value">{issues.isLoading ? "—" : String(openIssueCount)}</span>
+                          <span className="hd-stat__label">{t("hr.me.openIssues")}</span>
+                        </button>
+                      ) : null}
+                      <button type="button" className="hd-stat" onClick={() => selectTab("roster")}>
+                        <span className="hd-stat__value">
+                          {roster.isLoading ? "—" : nextRoster ? formatWorkDateDdMmYyyy(nextRoster.workDate) : "—"}
+                        </span>
+                        <span className="hd-stat__label">{t("hr.me.myRoster")}</span>
+                      </button>
+                    </div>
+                    {!person?.canSelfCheckIn ? <p className="hd-note">{t("hr.me.biometricNote")}</p> : null}
+                    {showTeamToday ? <TeamTodayPanel embedded /> : null}
+                    <div className="hd-stack">
+                      <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
+                    </div>
+                  </>
+                )
               ) : null}
 
               {active === "profile" && person ? (
@@ -789,12 +797,6 @@ export default function EmployeeMePage() {
                     <EssEmpty>{t("hr.me.noStatus")}</EssEmpty>
                   ) : null}
                   <MyMissedPunchRequests />
-                </EssPanel>
-              ) : null}
-
-              {active === "calendar" && showAttendanceLeaveCalendar ? (
-                <EssPanel id="me-calendar" title={t("hr.me.attendanceLeaveCalendar")}>
-                  <MeAttendanceLeaveCalendar />
                 </EssPanel>
               ) : null}
 

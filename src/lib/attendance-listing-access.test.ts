@@ -54,7 +54,7 @@ describe("attendance listing access", () => {
     expect(attendanceListingIsCompanyWide(["duty_manager"])).toBe(true);
   });
 
-  it("shows Attendance & Leave Calendar for HR, HoO, GM, and Sr. Site seats", () => {
+  it("shows Home attendance calendar for HR, HoO, GM, and Sr. Site seats", () => {
     expect(canSeeAttendanceLeaveCalendar(["hr"], false)).toBe(true);
     expect(canSeeAttendanceLeaveCalendar(["regional_ops"], false)).toBe(true);
     expect(canSeeAttendanceLeaveCalendar(["branch_gm"], false)).toBe(true);

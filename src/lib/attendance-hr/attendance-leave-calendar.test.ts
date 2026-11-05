@@ -8,6 +8,7 @@ import {
   calendarMonthBounds,
   calendarStatusCode,
   calendarWeekBounds,
+  dayCellSummaryParts,
   formatDayCellSummary,
   locationShortageHints,
   type CalendarLocationBreakdown,
@@ -101,6 +102,38 @@ describe("attendance-leave-calendar helpers", () => {
     expect(day.buckets.weekOff).toBe(1);
     expect(formatDayCellSummary(day)).toContain("S 1");
     expect(formatDayCellSummary(day)).toContain("L 1");
+    expect(dayCellSummaryParts(day)).toEqual(
+      expect.arrayContaining([
+        { code: "S", count: 1 },
+        { code: "L", count: 1 },
+        { code: "WO", count: 1 },
+      ]),
+    );
+  });
+
+  it("includes LT in past day cell parts when late count > 0", () => {
+    const agg = {
+      workDate: "2026-11-05",
+      isToday: true,
+      isFuture: false,
+      buckets: {
+        scheduled: 10,
+        present: 8,
+        absent: 1,
+        leave: 1,
+        late: 2,
+        weekOff: 0,
+        holiday: 0,
+        missedPunch: 0,
+      },
+    };
+    expect(dayCellSummaryParts(agg)).toEqual([
+      { code: "P", count: 8 },
+      { code: "A", count: 1 },
+      { code: "L", count: 1 },
+      { code: "LT", count: 2 },
+    ]);
+    expect(formatDayCellSummary(agg)).toBe("P 8 | A 1 | L 1 | LT 2");
   });
 
   it("maps calendar codes including late subset", () => {

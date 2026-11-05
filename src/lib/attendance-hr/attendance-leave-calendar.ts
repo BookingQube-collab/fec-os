@@ -567,23 +567,33 @@ export function calendarKpiPercent(count: number, total: number): number | null 
   return Math.round((count / total) * 1000) / 10;
 }
 
+export type DayCellSummaryPart = {
+  code: Extract<CalendarCellCode, "P" | "A" | "L" | "LT" | "WO" | "H" | "S">;
+  count: number;
+};
+
+/** Parts for colored day-cell / legend rendering (counts > 0 only). */
+export function dayCellSummaryParts(agg: CalendarDayAggregate): DayCellSummaryPart[] {
+  const b = agg.buckets;
+  const parts: DayCellSummaryPart[] = [];
+  if (agg.isFuture) {
+    if (b.scheduled) parts.push({ code: "S", count: b.scheduled });
+    if (b.leave) parts.push({ code: "L", count: b.leave });
+    if (b.weekOff) parts.push({ code: "WO", count: b.weekOff });
+    if (b.holiday) parts.push({ code: "H", count: b.holiday });
+    return parts;
+  }
+  if (b.present) parts.push({ code: "P", count: b.present });
+  if (b.absent) parts.push({ code: "A", count: b.absent });
+  if (b.leave) parts.push({ code: "L", count: b.leave });
+  if (b.late) parts.push({ code: "LT", count: b.late });
+  if (b.weekOff) parts.push({ code: "WO", count: b.weekOff });
+  if (b.holiday) parts.push({ code: "H", count: b.holiday });
+  return parts;
+}
+
 /** Format day cell summary like `P 116 | A 4 | L 7`. */
 export function formatDayCellSummary(agg: CalendarDayAggregate): string {
-  const b = agg.buckets;
-  if (agg.isFuture) {
-    const parts: string[] = [];
-    if (b.scheduled) parts.push(`S ${b.scheduled}`);
-    if (b.leave) parts.push(`L ${b.leave}`);
-    if (b.weekOff) parts.push(`WO ${b.weekOff}`);
-    if (b.holiday) parts.push(`H ${b.holiday}`);
-    return parts.join(" | ") || "—";
-  }
-  const parts: string[] = [];
-  if (b.present) parts.push(`P ${b.present}`);
-  if (b.absent) parts.push(`A ${b.absent}`);
-  if (b.leave) parts.push(`L ${b.leave}`);
-  if (b.late) parts.push(`LT ${b.late}`);
-  if (b.weekOff) parts.push(`WO ${b.weekOff}`);
-  if (b.holiday) parts.push(`H ${b.holiday}`);
-  return parts.join(" | ") || "—";
+  const parts = dayCellSummaryParts(agg);
+  return parts.length ? parts.map((p) => `${p.code} ${p.count}`).join(" | ") : "—";
 }
