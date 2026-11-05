@@ -99,6 +99,7 @@ import {
 } from "@/lib/attendance-hr/late-punch";
 import {
   appendMissingRosterAndPunchSummaryRows,
+  ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES,
   attendanceHrIncludesStaffInListing,
   attendanceHrStaffMatches,
   collapseFlexibleAttendanceReportRows,
@@ -4341,10 +4342,13 @@ async function matchingStaffIds(context: AuthContext, needle: string): Promise<s
   const pattern = `%${safe}%`;
   // DB prefilter — was loading up to 2000 staff and filtering in JS every keystroke.
   // Quote patterns so spaces in names don't break PostgREST `.or()` parsing.
+  // Include terminated / resigned / contract finished so HOO search finds people
+  // whose roster fills already wrote attendance_daily_summary (exited still listable
+  // when they punched or were rostered — see attendanceHrIncludesStaffInListing).
   const { data, error } = await context.supabase
     .from("staff")
     .select("id, full_name, employee_code, qid")
-    .in("status", ["active", "on_leave", "serving_notice", "joker"])
+    .in("status", [...ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES])
     .or(`full_name.ilike."${pattern}",employee_code.ilike."${pattern}",qid.ilike."${pattern}"`)
     .limit(500);
   if (error) throw error;

@@ -536,6 +536,40 @@ export type AttendanceHrListingEvidence = {
 };
 
 /**
+ * Staff.status values the Attendance listing name search may return.
+ * Must include exited people (terminated / resigned / …) — Fill missed punches and
+ * daily_summary already keep their history, but a search that only matched active
+ * statuses made roster-filled days vanish (Fahadha UA-DM-STF22, status=terminated).
+ */
+export const ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES = [
+  "active",
+  "probation",
+  "secondment",
+  "remote",
+  "on_leave",
+  "leave",
+  "vacation",
+  "sick_leave",
+  "unpaid_leave",
+  "serving_notice",
+  "joker",
+  "terminated",
+  "inactive",
+  "released",
+  "resigned",
+  "contract_finished",
+] as const;
+
+/** True when staff.status is in the listing search allow-list (active + exited + joker). */
+export function isAttendanceListingSearchableStaffStatus(
+  status: string | null | undefined,
+): boolean {
+  const key = (status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!key) return true;
+  return (ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES as readonly string[]).includes(key);
+}
+
+/**
  * Attendance listing keeps active / on_leave / serving_notice / joker staff.
  * Unmapped punches (no staff_id) stay visible (orphans collapsed separately when mapped).
  * Exited staff (`terminated` / `inactive` / resigned / contract finished / …) stay visible

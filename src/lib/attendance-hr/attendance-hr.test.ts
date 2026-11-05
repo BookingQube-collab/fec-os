@@ -77,6 +77,7 @@ import {
 } from "./attendance-matrix";
 import { suppressAbsentWithoutOnDutyRoster } from "./punch-over-absent";
 import {
+  ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES,
   attendanceHrIncludesStaffInListing,
   attendanceHrDisplayStaffName,
   attendanceHrListingDeviceUserId,
@@ -92,6 +93,7 @@ import {
   attendanceHrReportsUseListView,
   filterAttendanceRowsToLocationTouches,
   formatAttendanceHrLocation,
+  isAttendanceListingSearchableStaffStatus,
   staffDaysTouchingLocation,
   suppressRoamingFalseAbsentForRosterElsewhere,
   type AttendanceHrReportRow,
@@ -1016,6 +1018,19 @@ describe("HR report row helpers", () => {
         deletedAt: "2026-09-01T00:00:00.000Z",
       }),
     ).toBe(false);
+  });
+
+  it("lets listing staff search match terminated and secondment statuses", () => {
+    // Fahadha UA-DM-STF22: status=terminated after HOO roster fill — search "faha" must hit.
+    expect(isAttendanceListingSearchableStaffStatus("terminated")).toBe(true);
+    expect(isAttendanceListingSearchableStaffStatus("resigned")).toBe(true);
+    expect(isAttendanceListingSearchableStaffStatus("contract_finished")).toBe(true);
+    expect(isAttendanceListingSearchableStaffStatus("secondment")).toBe(true);
+    expect(isAttendanceListingSearchableStaffStatus("probation")).toBe(true);
+    expect(isAttendanceListingSearchableStaffStatus("joker")).toBe(true);
+    expect(isAttendanceListingSearchableStaffStatus("active")).toBe(true);
+    expect(ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES).toContain("terminated");
+    expect(isAttendanceListingSearchableStaffStatus("unknown_status")).toBe(false);
   });
 
   it("matches search against name-on-device for unmapped rows", () => {

@@ -119,6 +119,8 @@ export {
   isMappedAttendanceHrRow,
   attendanceHrReportsUseListView,
   attendanceHrFilterForcesListView,
+  ATTENDANCE_LISTING_SEARCH_STAFF_STATUSES,
+  isAttendanceListingSearchableStaffStatus,
   attendanceHrIncludesStaffInListing,
   attendanceHrRowMatchesLocation,
   attendanceHrRowMatchesKpiFilter,
