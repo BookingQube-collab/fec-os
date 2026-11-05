@@ -5925,10 +5925,10 @@
       "crewList": "Event crew",
       "hint": "Operational crew for the event dates — separate from the PM team on Home.",
       "empty": "No crew assignments yet.",
-      "addExisting": "Add labour or loaned staff",
+      "addExisting": "Add FEC joker or loaned staff",
       "addAssignment": "Add assignment",
       "notesPlaceholder": "Pay source / notes (optional)",
-      "loanedNote": "Loaned staff keep their home employment; assignment is date-bounded only. Event pay exclusion is Phase 4.",
+      "loanedNote": "Loaned staff keep their home employment; assignment is date-bounded only. Event-pay days are excluded from monthly payroll generate.",
       "hireTitle": "Create event-only hire",
       "hireHint": "Creates a temporary People record (marked Event hire) with contract end date, then links the assignment. Needs People roster edit.",
       "hireName": "Full name",
@@ -5937,6 +5937,7 @@
       "hireNeedsPeople": "Event-only hire also needs People → edit roster permission.",
       "eventHireBadge": "Event hire",
       "closedBadge": "Closed",
+      "jokerTag": "Joker",
       "payOn": "Event pay run",
       "payOff": "Excluded",
       "crewReady": "Crew readiness met",
@@ -5949,6 +5950,20 @@
       },
       "counts": {
         "total": "{{n}} assigned"
+      },
+      "import": {
+        "template": "Download template",
+        "upload": "Import CSV / Excel",
+        "help": "Bulk import columns: employee_code (preferred), staff_name, assignment_type (joker / loaned / event_hire), role_label, date_from, date_to, notes, pay_on_event_run.",
+        "noRows": "No importable rows found.",
+        "parsePartial": "Skipped {{n}} invalid row(s) before import.",
+        "imported": "Imported {{count}} assignment(s)",
+        "importedPartial": "Imported {{imported}}; {{errors}} row(s) failed",
+        "rowError": "Row {{row}}: {{message}}"
+      },
+      "export": {
+        "csv": "Download CSV",
+        "xlsx": "Download Excel"
       },
       "toasts": {
         "saved": "Assignment saved",
@@ -6219,7 +6234,16 @@
       "empty": "No events match these filters.",
       "status": "Status",
       "showArchived": "Show archived",
-      "restore": "Restore"
+      "actions": "Actions",
+      "archive": "Archive",
+      "archiveTitle": "Archive event?",
+      "archiveConfirm": "Archive “{{name}}”? It will leave the default list; staffing and pay data stay intact. Turn on Show archived to restore it later.",
+      "restore": "Unarchive",
+      "restoreTitle": "Restore event?",
+      "restoreConfirm": "Restore “{{name}}” to the active events list?",
+      "delete": "Delete permanently",
+      "deleteTitle": "Delete event permanently?",
+      "deleteConfirm": "Permanently delete “{{name}}”? This only works when the event has no staffing, schedule, or payroll data. Prefer Archive if you are unsure."
     },
     "calendar": {
       "title": "Event calendar",
@@ -6286,6 +6310,27 @@
       "estimateTotal": "Estimate total {{amount}}",
       "budgetNeedFinance": "Budget save needs finance access. You can still review the estimates.",
       "nextActions": "Suggested next actions",
+      "addSite": "Add new site",
+      "addSiteTitle": "Create site",
+      "addSiteHint": "Creates a location in the same master list used across Operations. It will be selected on this event immediately.",
+      "addSiteNoPermission": "Creating sites needs Location master access (branches.edit). Open Administration → Location master, or ask Head of Operations.",
+      "openLocationMaster": "Open Location master",
+      "createSite": "Create and select",
+      "siteName": "Site name",
+      "siteNamePlaceholder": "e.g. Lego Shows pop-up",
+      "siteCode": "Code",
+      "siteCodePlaceholder": "Auto from name",
+      "siteCodeHint": "Leave blank to auto-generate. Must be unique.",
+      "siteActive": "Active",
+      "siteActiveHint": "Active sites appear in event and branch pickers.",
+      "siteCreated": "Site “{{name}}” created",
+      "siteCreateFailed": "Could not create the site",
+      "siteSearch": "Search sites…",
+      "siteEmpty": "No sites match",
+      "sitePickerHint": "Need a venue that is not listed? Use Add new site.",
+      "pmSearch": "Search Head Office people…",
+      "pmEmpty": "No Head Office people found",
+      "pmHoHint": "Only Head Office staff (home or HO work link) can be project managers.",
       "steps": {
         "basics": "Basics",
         "scope": "Goal and scope",
@@ -7453,7 +7498,8 @@
       "templateSaved": "Template saved",
       "templateApplied": "Template applied",
       "archived": "Event archived",
-      "restored": "Event restored"
+      "restored": "Event restored",
+      "deleted": "Event permanently deleted"
     }
   },
   "vendors": {

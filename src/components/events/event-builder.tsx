@@ -3,16 +3,19 @@
 import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { CreateEventSiteDialog } from "@/components/events/create-event-site-dialog";
 import { EventAiAssist } from "@/components/events/event-ai-assist";
 import { EventSetupStepper } from "@/components/events/event-setup-stepper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Select,
   SelectContent,
@@ -35,6 +38,7 @@ import {
 import { EVENT_PRIORITIES, type EventPriority } from "@/lib/events/constants";
 import { EVENT_SETUP_STEPS, mergeScopeSections, type EventSetupStepId } from "@/lib/events/setup";
 import { STANDARD_WORKSTREAMS } from "@/lib/events/workstreams";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 
@@ -84,6 +88,7 @@ export function EventBuilder({
   const qc = useQueryClient();
   const storeLocation = useAppStore((s) => s.currentLocationId);
   const canFinance = usePermission("events.finance");
+  const canCreateSites = usePermission("branches.edit");
   const options = useEventOptions();
   const eventQ = useEvent(eventId);
   const scopeQ = useEventScope(eventId);
@@ -98,6 +103,8 @@ export function EventBuilder({
   const [tasks, setTasks] = useState<DraftTask[]>([]);
   const [budgetLines, setBudgetLines] = useState<DraftFields["budget_lines"]>([]);
   const [draft, setDraft] = useState<DraftFields | null>(null);
+  const [siteDialogOpen, setSiteDialogOpen] = useState(false);
+  const [extraSites, setExtraSites] = useState<Array<{ id: string; code: string; name: string }>>([]);
 
   useEffect(() => {
     setStep(initialStep);
@@ -375,6 +382,27 @@ export function EventBuilder({
 
   const set = (key: keyof typeof EMPTY_FORM, value: string) => setForm((f) => ({ ...f, [key]: value }));
   const staff = options.data?.staff ?? [];
+  const pmStaff = useMemo(() => {
+    const base = options.data?.pmStaff ?? [];
+    const selectedId = form.pm_staff_id;
+    if (!selectedId || base.some((row) => row.id === selectedId)) return base;
+    const selected = staff.find((row) => row.id === selectedId);
+    return selected ? [selected, ...base] : base;
+  }, [options.data?.pmStaff, form.pm_staff_id, staff]);
+  const siteOptions = useMemo(() => {
+    const fromApi = (options.data?.locations ?? []).map((loc) => ({
+      value: loc.id as string,
+      label: formatLocationLabel(loc.code, loc.name),
+    }));
+    const known = new Set(fromApi.map((row) => row.value));
+    const extras = extraSites
+      .filter((site) => !known.has(site.id))
+      .map((site) => ({
+        value: site.id,
+        label: formatLocationLabel(site.code, site.name),
+      }));
+    return [...extras, ...fromApi];
+  }, [options.data?.locations, extraSites]);
   const visibleTasks = tasks.filter((t) => included.includes(t.workstream_code));
   const budgetTotal = budgetLines.reduce((s, l) => s + Number(l.original_amount || 0), 0);
 
@@ -409,31 +437,47 @@ export function EventBuilder({
             {t("events.fields.client")}
             <Input value={form.client_name} onChange={(e) => set("client_name", e.target.value)} />
           </label>
-          <label className="space-y-1 text-sm">
-            {t("events.fields.location")}
-            <Select value={locationId || undefined} onValueChange={(v) => set("location_id", v)}>
-              <SelectTrigger><SelectValue placeholder={t("events.fields.location")} /></SelectTrigger>
-              <SelectContent>
-                {(options.data?.locations ?? []).map((loc) => (
-                  <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
+          <div className="space-y-1 text-sm sm:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>{t("events.fields.location")}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={() => setSiteDialogOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("events.builder.addSite")}
+              </Button>
+            </div>
+            <SearchableSelect
+              value={locationId}
+              onValueChange={(v) => set("location_id", v)}
+              options={siteOptions}
+              placeholder={t("events.fields.location")}
+              searchPlaceholder={t("events.builder.siteSearch")}
+              noMatchesLabel={t("events.builder.siteEmpty")}
+              aria-label={t("events.fields.location")}
+            />
+            <p className="text-xs text-muted-foreground">{t("events.builder.sitePickerHint")}</p>
+          </div>
           <label className="space-y-1 text-sm">
             {t("events.fields.venue")}
             <Input value={form.venue_name} onChange={(e) => set("venue_name", e.target.value)} />
           </label>
           <label className="space-y-1 text-sm">
             {t("events.fields.pm")}
-            <Select value={form.pm_staff_id || undefined} onValueChange={(v) => set("pm_staff_id", v)}>
-              <SelectTrigger><SelectValue placeholder={t("events.fields.pm")} /></SelectTrigger>
-              <SelectContent>
-                {staff.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={form.pm_staff_id}
+              onValueChange={(v) => set("pm_staff_id", v)}
+              options={pmStaff.map((s) => ({ value: s.id, label: s.full_name }))}
+              placeholder={t("events.fields.pm")}
+              searchPlaceholder={t("events.builder.pmSearch")}
+              noMatchesLabel={t("events.builder.pmEmpty")}
+              aria-label={t("events.fields.pm")}
+            />
+            <p className="text-xs text-muted-foreground">{t("events.builder.pmHoHint")}</p>
           </label>
           <label className="space-y-1 text-sm">
             {t("events.fields.event_start")}
@@ -749,6 +793,18 @@ export function EventBuilder({
           </Button>
         </div>
       </div>
+
+      <CreateEventSiteDialog
+        open={siteDialogOpen}
+        onOpenChange={setSiteDialogOpen}
+        canCreate={canCreateSites}
+        onCreated={(site) => {
+          setExtraSites((rows) => (rows.some((row) => row.id === site.id) ? rows : [site, ...rows]));
+          set("location_id", site.id);
+          void qc.invalidateQueries({ queryKey: queryKeys.events.options() });
+          void qc.invalidateQueries({ queryKey: queryKeys.sites.all });
+        }}
+      />
     </div>
   );
 }

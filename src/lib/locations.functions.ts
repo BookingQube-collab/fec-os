@@ -14,7 +14,11 @@ import {
 } from "@/lib/locations/delete-guard";
 import { LOCATION_KINDS, normalizeLocationKind, type LocationKind } from "@/lib/locations/kind";
 import { locationStatusForActiveFlag } from "@/lib/locations/status";
-import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
+  type AuthContext,
+} from "@/lib/server/create-action";
 import { invalidateRouteCachePrefix } from "@/lib/server/route-cache";
 
 const LOCATION_COLUMNS =
@@ -63,12 +67,48 @@ const updateSchema = z.object({
   kind: z.enum(LOCATION_KINDS).default("branch"),
 });
 
+const createSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  code: z.string().trim().max(32).optional().nullable(),
+  city: z.string().trim().min(1).max(120).optional().nullable(),
+  region: optionalText,
+  country: z.string().trim().min(2).max(8).optional().nullable(),
+  timezone: z.string().trim().min(1).max(64).optional().nullable(),
+  active: z.boolean().default(true),
+  kind: z.enum(LOCATION_KINDS).default("branch"),
+});
+
 function forgetOperationalSiteLists() {
   invalidateRouteCachePrefix("sites:");
 }
 
 function uniqueViolation(error: { code?: string; message?: string }): boolean {
   return error.code === "23505" || (error.message ?? "").toLowerCase().includes("duplicate key");
+}
+
+/** Uppercase site code from a display name; falls back to SITE. */
+export function suggestLocationCode(name: string): string {
+  const cleaned = name
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+  return cleaned || "SITE";
+}
+
+async function allocateUniqueLocationCode(
+  supabase: AuthContext["supabase"],
+  preferred: string,
+): Promise<string> {
+  const base = suggestLocationCode(preferred).slice(0, 28);
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const code = attempt === 0 ? base : `${base.slice(0, 28)}-${attempt + 1}`.slice(0, 32);
+    const { data, error } = await supabase.from("locations").select("id").eq("code", code).maybeSingle();
+    if (error) throw error;
+    if (!data) return code;
+  }
+  return `${base.slice(0, 20)}-${Date.now().toString(36).toUpperCase()}`.slice(0, 32);
 }
 
 export const listLocationMaster = createAuthenticatedActionNoInput(
@@ -96,6 +136,41 @@ export const listLocationMaster = createAuthenticatedActionNoInput(
     });
   },
   { auth: { capability: "admin.view" } },
+);
+
+export const createLocationMaster = createAuthenticatedAction(
+  createSchema,
+  async (data, context) => {
+    const name = data.name.trim();
+    const preferred = (data.code?.trim() || suggestLocationCode(name)).toUpperCase();
+    const code = await allocateUniqueLocationCode(context.supabase, preferred);
+    const status = locationStatusForActiveFlag(data.active);
+    const { data: row, error } = await context.supabase
+      .from("locations")
+      .insert({
+        code,
+        name,
+        city: (data.city?.trim() || "Doha").trim(),
+        region: data.region,
+        country: (data.country?.trim() || "QA").trim().toUpperCase(),
+        timezone: (data.timezone?.trim() || "Asia/Qatar").trim(),
+        status,
+        kind: data.kind,
+      })
+      .select(LOCATION_COLUMNS)
+      .maybeSingle();
+    if (error) {
+      if (uniqueViolation(error)) throw new Error("A location with this code already exists");
+      throw error;
+    }
+    if (!row) throw new Error("Could not create location");
+    forgetOperationalSiteLists();
+    return {
+      ...(row as Omit<LocationMasterRow, "kind">),
+      kind: normalizeLocationKind((row as { kind?: string }).kind),
+    };
+  },
+  { auth: { capability: "branches.edit", minRoleLevel: 80 } },
 );
 
 export const updateLocationMaster = createAuthenticatedAction(

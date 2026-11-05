@@ -206,6 +206,7 @@ import {
 } from "@/lib/events/governance";
 import { findUsersWithCapability, notifyUsers } from "@/lib/notifications/action-notify";
 import { validateBase64Size, validateUploadMimeList } from "@/lib/server/upload-validation";
+import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import { eventDisplayName, uniqueEventProjectNames } from "@/lib/procurement/event-link";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
@@ -215,6 +216,10 @@ import {
   createAuthenticatedActionNoInput,
   type AuthContext,
 } from "@/lib/server/create-action";
+import {
+  fetchHomeStaffIdsAtLocation,
+  fetchStaffIdsWorkingAtLocation,
+} from "@/lib/staff-work-locations";
 
 const IdSchema = z.object({ id: z.string().uuid() });
 const EventIdSchema = z.object({ eventId: z.string().uuid() });
@@ -280,13 +285,14 @@ async function notifyEventAssignees(
   }
 }
 
-async function loadEventOrThrow(context: AuthContext, eventId: string) {
-  const { data, error } = await context.supabase
-    .from("events")
-    .select("*")
-    .eq("id", eventId)
-    .is("deleted_at", null)
-    .maybeSingle();
+async function loadEventOrThrow(
+  context: AuthContext,
+  eventId: string,
+  opts?: { includeDeleted?: boolean },
+) {
+  let q = context.supabase.from("events").select("*").eq("id", eventId);
+  if (!opts?.includeDeleted) q = q.is("deleted_at", null);
+  const { data, error } = await q.maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("Event not found");
   await assertLocationAccess(context, data.location_id as string);
@@ -389,14 +395,20 @@ async function ensureStandardWorkstreams(context: AuthContext, eventId: string) 
     if (error) throw error;
   }
 
-  for (const ws of STANDARD_WORKSTREAMS) {
+  const titleFixes = STANDARD_WORKSTREAMS.filter((ws) => {
     const node = byCode.get(ws.code);
-    if (node && (node.title !== ws.title_en || node.sort_order !== ws.sort_order)) {
-      await context.supabase
-        .from("event_wbs_nodes")
-        .update({ title: ws.title_en, sort_order: ws.sort_order })
-        .eq("id", node.id);
-    }
+    return node && (node.title !== ws.title_en || node.sort_order !== ws.sort_order);
+  });
+  if (titleFixes.length) {
+    await Promise.all(
+      titleFixes.map((ws) => {
+        const node = byCode.get(ws.code)!;
+        return context.supabase
+          .from("event_wbs_nodes")
+          .update({ title: ws.title_en, sort_order: ws.sort_order })
+          .eq("id", node.id);
+      }),
+    );
   }
 
   await ensureRequiredEventDocuments(context, eventId);
@@ -1305,7 +1317,7 @@ async function loadScoreInputs(context: AuthContext, eventId: string, eventFacts
     context.supabase.from("event_milestones").select("id, status").eq("event_id", eventId),
     context.supabase
       .from("event_scope_versions")
-      .select("id, is_baseline")
+      .select("id, is_baseline, sections")
       .eq("event_id", eventId)
       .order("version_no", { ascending: false }),
     context.supabase
@@ -1362,6 +1374,10 @@ async function loadScoreInputs(context: AuthContext, eventId: string, eventFacts
   const lineRows = (lines.data ?? []) as LineAmounts[];
   const budgetApproved = budgetIsApprovedLike(budget.data?.status as string | null);
   const scopeBaselined = scopeRows.some((s) => s.is_baseline);
+  const hasFilledScope = scopeRows.some((s) => {
+    const sections = s.sections as Array<{ body?: string }> | null;
+    return Array.isArray(sections) && sections.some((sec) => (sec.body ?? "").trim().length >= 8);
+  });
   const hasScheduleBaseline = (baselines.data ?? []).some((b) => b.baseline_type === "schedule" || b.baseline_type === "both");
 
   const prRows = prs.data ?? [];
@@ -1403,6 +1419,9 @@ async function loadScoreInputs(context: AuthContext, eventId: string, eventFacts
   );
 
   const readiness = computeReadiness({ categoryScores });
+  const hasBudgetLines = lineRows.some((l) => num(l.original_amount) > 0 || num(l.revised_amount) > 0);
+  const hasTaskSchedule = openTasks.some((t) => t.start_date || t.due_date);
+  const hasOwners = openTasks.some((t) => t.owner_staff_id || t.assignee_staff_id);
 
   return {
     taskRows,
@@ -1422,8 +1441,16 @@ async function loadScoreInputs(context: AuthContext, eventId: string, eventFacts
     hasSchedule: hasScheduleBaseline || mileRows.length > 0 || completedCodes.has("production_schedule"),
     pendingPrs,
     linkedPrCount: prRows.length,
+    linkedPrRows: prRows as Array<Record<string, unknown>>,
     procurementPct,
     criticalPrsApproved,
+    setupFacts: {
+      hasScope: hasFilledScope || scopeBaselined,
+      hasWorkstreamTasks: openTasks.length >= 3,
+      hasSchedule: hasTaskSchedule || hasScheduleBaseline || mileRows.length > 0,
+      hasBudget: hasBudgetLines || num(finance.revised) > 0,
+      hasOwners,
+    },
     tasksSummary: {
       total: openTasks.length,
       completed: completed.length,
@@ -1445,6 +1472,9 @@ async function persistScores(
     name?: string | null;
     event_name?: string | null;
     event_number?: string | null;
+    health_rag?: string | null;
+    health_score?: number | null;
+    readiness_pct?: number | null;
   },
   stages: EventStage[],
 ) {
@@ -1470,15 +1500,21 @@ async function persistScores(
   // View-only callers must not persist scores (RLS blocks UPDATE without edit+;
   // missing finance rows would also understate overrun).
   if (canUserDo(context.roles ?? [], "events.edit")) {
-    await context.supabase
-      .from("events")
-      .update({
-        health_rag: health.rag,
-        health_score: health.score,
-        readiness_pct: inputs.readiness.pct,
-        updated_by: context.userId,
-      })
-      .eq("id", event.id);
+    const unchanged =
+      event.health_rag === health.rag &&
+      num(event.health_score) === health.score &&
+      num(event.readiness_pct) === inputs.readiness.pct;
+    if (!unchanged) {
+      await context.supabase
+        .from("events")
+        .update({
+          health_rag: health.rag,
+          health_score: health.score,
+          readiness_pct: inputs.readiness.pct,
+          updated_by: context.userId,
+        })
+        .eq("id", event.id);
+    }
   }
   return { ...inputs, health, stage };
 }
@@ -1586,16 +1622,50 @@ export const getEventOptions = createAuthenticatedActionNoInput(
       context.supabase.from("locations").select("id, name, code, region, city, country").eq("status", "active").order("name"),
       context.supabase
         .from("staff")
-        .select("id, full_name, job_title, location_id, employment_type, status")
+        .select("id, full_name, employee_code, job_title, location_id, employment_type, status")
         .is("deleted_at", null)
         .order("full_name")
         .limit(300),
       context.supabase.from("master_departments").select("id, name").eq("active", true).order("sort_order"),
     ]);
+    const allStaff = staff ?? [];
+    let hoLocationId =
+      (locations ?? []).find((loc) => (loc.code ?? "").toUpperCase() === HEAD_OFFICE_LOCATION_CODE)?.id ?? null;
+    if (!hoLocationId) {
+      const { data: hoRow } = await context.supabase
+        .from("locations")
+        .select("id")
+        .eq("code", HEAD_OFFICE_LOCATION_CODE)
+        .maybeSingle();
+      hoLocationId = (hoRow?.id as string | undefined) ?? null;
+    }
+    let pmStaff = allStaff;
+    if (hoLocationId) {
+      const [homeIds, workIds] = await Promise.all([
+        fetchHomeStaffIdsAtLocation(context.supabase, hoLocationId),
+        fetchStaffIdsWorkingAtLocation(context.supabase, hoLocationId),
+      ]);
+      const allowed = [...new Set([...homeIds, ...workIds])];
+      if (allowed.length === 0) {
+        pmStaff = [];
+      } else {
+        const { data: hoStaff, error: hoStaffErr } = await context.supabase
+          .from("staff")
+          .select("id, full_name, employee_code, job_title, location_id, employment_type, status")
+          .in("id", allowed)
+          .is("deleted_at", null)
+          .order("full_name")
+          .limit(300);
+        if (hoStaffErr) throw hoStaffErr;
+        pmStaff = hoStaff ?? [];
+      }
+    }
     return {
       ...lookups,
       locations: locations ?? [],
-      staff: staff ?? [],
+      staff: allStaff,
+      /** Head Office home or explicit HO work-location link — for event PM pickers. */
+      pmStaff,
       departments: departments ?? [],
     };
   },
@@ -2140,9 +2210,59 @@ export const listMyEventTasks = createAuthenticatedAction(
   { defaultInput: {}, auth: { capability: "events.view" } },
 );
 
+function mapHomeTaskRow(
+  t: Record<string, unknown>,
+  eventId: string,
+  staffMap: Map<string, string>,
+): EventTaskRow {
+  const ownerId = (t.owner_staff_id as string | null) ?? null;
+  const assigneeId = (t.assignee_staff_id as string | null) ?? null;
+  return {
+    id: t.id as string,
+    event_id: eventId,
+    task_number: (t.task_number as string | null) ?? null,
+    wbs_id: (t.wbs_id as string | null) ?? null,
+    parent_task_id: (t.parent_task_id as string | null) ?? null,
+    title: t.title as string,
+    description: (t.description as string | null) ?? null,
+    status: t.status as EventTaskRow["status"],
+    priority: t.priority as EventTaskRow["priority"],
+    start_date: (t.start_date as string | null) ?? null,
+    due_date: (t.due_date as string | null) ?? null,
+    completed_at: (t.completed_at as string | null) ?? null,
+    duration_days: numOrNull(t.duration_days),
+    owner_staff_id: ownerId,
+    owner_name: ownerId ? (staffMap.get(ownerId) ?? null) : null,
+    assignee_staff_id: assigneeId,
+    assignee_name: assigneeId ? (staffMap.get(assigneeId) ?? null) : null,
+    department_id: (t.department_id as string | null) ?? null,
+    department_name: null,
+    percent_complete: num(t.percent_complete),
+    is_critical: Boolean(t.is_critical),
+    is_milestone: Boolean(t.is_milestone),
+    estimated_hours: numOrNull(t.estimated_hours),
+    actual_hours: numOrNull(t.actual_hours),
+    estimated_cost: numOrNull(t.estimated_cost),
+    actual_cost: numOrNull(t.actual_cost),
+    checklist: [],
+    comments: [],
+    documents: [],
+    ...emptyTaskExtras(),
+    escalation_level: ((t.escalation_level as EventTaskRow["escalation_level"]) ?? "none"),
+    lifecycle_phase: (t.lifecycle_phase as string | null) ?? null,
+    phase_id: null,
+    phase_title: null,
+    workstream_id: null,
+    workstream_title: null,
+    baseline_start: null,
+    baseline_due: null,
+    baseline_percent: null,
+    variance: { startDays: null, dueDays: null, progressDelta: null },
+  };
+}
+
 export const getEvent = createAuthenticatedAction(IdSchema, async (data, context) => {
-  const event = await loadEventOrThrow(context, data.id);
-  const lookups = await loadLookups(context);
+  const [event, lookups] = await Promise.all([loadEventOrThrow(context, data.id), loadLookups(context)]);
   const scored = await persistScores(
     context,
     {
@@ -2154,6 +2274,9 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
       name: event.name as string | null,
       event_name: event.event_name as string | null,
       event_number: event.event_number as string | null,
+      health_rag: (event.health_rag as string | null) ?? null,
+      health_score: event.health_score == null ? null : num(event.health_score),
+      readiness_pct: event.readiness_pct == null ? null : num(event.readiness_pct),
     },
     lookups.stages,
   );
@@ -2165,15 +2288,17 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
     : linear[0] ?? null;
   const gateStageId = nextStage?.id ?? event.stage_id;
   const stageReqs = lookups.gates.filter((g) => g.stage_id === gateStageId);
-  const { data: manuals } = await context.supabase
-    .from("event_gate_completions")
-    .select("requirement_id, is_satisfied")
-    .eq("event_id", event.id)
-    .eq("is_satisfied", true);
-  const gates = evaluateGates(stageReqs, gateFactsFromScores(event as Record<string, unknown>, scored, manuals ?? []));
 
-  const [{ data: loc }, { data: pm }, { data: director }, { data: dept }, { data: team }, { data: risks }, { data: ready }, { data: audit }] =
-    await Promise.all([
+  const [
+    { data: manuals },
+    [{ data: loc }, { data: pm }, { data: director }, { data: dept }, { data: team }, { data: risks }, { data: ready }, { data: audit }],
+  ] = await Promise.all([
+    context.supabase
+      .from("event_gate_completions")
+      .select("requirement_id, is_satisfied")
+      .eq("event_id", event.id)
+      .eq("is_satisfied", true),
+    Promise.all([
       context.supabase.from("locations").select("id, name").eq("id", event.location_id as string).maybeSingle(),
       event.pm_staff_id
         ? context.supabase.from("staff").select("id, full_name").eq("id", event.pm_staff_id as string).maybeSingle()
@@ -2199,13 +2324,58 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
         .eq("event_id", event.id)
         .order("created_at", { ascending: false })
         .limit(30),
-    ]);
+    ]),
+    // Seed workstreams/docs/readiness while meta queries run — required before loadEventOps.
+    ensureStandardWorkstreams(context, event.id as string),
+  ]);
+
+  const gates = evaluateGates(stageReqs, gateFactsFromScores(event as Record<string, unknown>, scored, manuals ?? []));
+  const today = todayIso();
+  const openForHome = (scored.taskRows as Array<Record<string, unknown>>).filter(
+    (t) => t.status !== "completed" && t.status !== "cancelled",
+  );
+  const homeRank = (t: Record<string, unknown>) => {
+    const due = t.due_date as string | null;
+    if (due && due < today) return 0;
+    if (t.status === "blocked") return 1;
+    return 2;
+  };
+  const homeRaw = [...openForHome]
+    .sort((a, b) => {
+      const ra = homeRank(a);
+      const rb = homeRank(b);
+      if (ra !== rb) return ra - rb;
+      return ((a.due_date as string | null) ?? "9999").localeCompare((b.due_date as string | null) ?? "9999");
+    })
+    .slice(0, 30);
 
   const riskOwnerIds = [...new Set((risks ?? []).map((r) => r.owner_staff_id).filter(Boolean))] as string[];
-  const teamStaffIds = [...new Set([...(team ?? []).map((m) => m.staff_id), ...riskOwnerIds])];
-  const { data: teamStaff } = teamStaffIds.length
-    ? await context.supabase.from("staff").select("id, full_name").in("id", teamStaffIds)
-    : { data: [] };
+  const homeOwnerIds = homeRaw.flatMap((t) => [t.owner_staff_id, t.assignee_staff_id]).filter(Boolean) as string[];
+  const teamStaffIds = [...new Set([...(team ?? []).map((m) => m.staff_id), ...riskOwnerIds, ...homeOwnerIds])];
+
+  const eventIdentity = {
+    id: event.id as string,
+    name: event.name as string | null,
+    event_name: event.event_name as string | null,
+    event_number: event.event_number as string | null,
+    location_id: event.location_id as string | null,
+  };
+
+  // Reuse PRs already loaded in score inputs — avoids a second linked-PR graph fetch.
+  const rawPrs = scored.linkedPrRows ?? [];
+  const prUserIds = [...new Set(rawPrs.map((p) => p.requested_by as string | null).filter(Boolean))] as string[];
+
+  const [{ data: teamStaff }, ops, linkedMaintenance, { data: prStaff }] = await Promise.all([
+    teamStaffIds.length
+      ? context.supabase.from("staff").select("id, full_name").in("id", teamStaffIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string }> }),
+    loadEventOps(context, event.id as string, scored.taskRows as Array<Record<string, unknown>>),
+    fetchEventLinkedMaintenance(context, eventIdentity),
+    prUserIds.length
+      ? context.supabase.from("staff").select("user_id, full_name").in("user_id", prUserIds)
+      : Promise.resolve({ data: [] as { user_id: string | null; full_name: string }[] }),
+  ]);
+
   const staffMap = new Map((teamStaff ?? []).map((s) => [s.id, s.full_name]));
   const riskRows: EventRiskRow[] = (risks ?? []).map((r) => {
     const likelihood = (r.likelihood as EventRiskRow["likelihood"]) ?? null;
@@ -2241,26 +2411,9 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
     },
   );
 
-  await ensureStandardWorkstreams(context, event.id as string);
-  const ops = await loadEventOps(context, event.id as string, scored.taskRows as Array<Record<string, unknown>>);
   const missingGates = gates.filter((g) => g.blocking && !g.satisfied).length;
-
-  const rawPrs = await fetchEventLinkedPrs(
-    context,
-    {
-      id: event.id as string,
-      name: event.name as string | null,
-      event_name: event.event_name as string | null,
-      event_number: event.event_number as string | null,
-    },
-  );
-  const prUserIds = [...new Set(rawPrs.map((p) => p.requested_by as string | null).filter(Boolean))] as string[];
-  const { data: prStaff } = prUserIds.length
-    ? await context.supabase.from("staff").select("user_id, full_name").in("user_id", prUserIds)
-    : { data: [] as { user_id: string | null; full_name: string }[] };
   const prStaffMap = new Map((prStaff ?? []).filter((s) => s.user_id).map((s) => [s.user_id as string, s.full_name]));
   const roles = (context.roles ?? []) as AppRole[];
-  const today = todayIso();
   const linkedPrs = rawPrs.map((pr) => {
     const flags = resolvePrActions({
       status: pr.status as string,
@@ -2280,13 +2433,14 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
       ),
     });
   });
-  const linkedMaintenance = await fetchEventLinkedMaintenance(context, {
-    id: event.id as string,
-    name: event.name as string | null,
-    event_name: event.event_name as string | null,
-    event_number: event.event_number as string | null,
-    location_id: event.location_id as string | null,
-  });
+
+  const homeTasks = homeRaw.map((t) => mapHomeTaskRow(t, event.id as string, staffMap));
+  const setupFacts = {
+    ...scored.setupFacts,
+    hasSchedule:
+      scored.setupFacts.hasSchedule ||
+      Boolean(event.event_start && event.event_end),
+  };
 
   const canFinance = canUserDo(context.roles ?? [], "events.finance");
   const financeStrip = canFinance ? scored.finance : redactFinanceTotals(scored.finance);
@@ -2404,6 +2558,8 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
     assets: ops.assets,
     workstreams: ops.workstreams,
     overdueActions: ops.overdueActions,
+    homeTasks,
+    setupFacts,
     escalations: collectEventEscalations({
       today,
       risks: riskRows,
@@ -6563,6 +6719,83 @@ export const restoreEvent = createAuthenticatedAction(
       locationId: event.location_id as string,
       before: { deleted_at: event.deleted_at },
     });
+    return { ok: true };
+  },
+  { auth: { capability: "events.manage" } },
+);
+
+/** Hard-delete only when staffing / schedule / payroll are empty — otherwise archive. */
+export const hardDeleteEvent = createAuthenticatedAction(
+  z.object({ eventId: z.string().uuid() }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId, { includeDeleted: true });
+
+    const [assignments, slots, periods] = await Promise.all([
+      context.supabase
+        .from("event_staff_assignments")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", data.eventId),
+      context.supabase
+        .from("event_schedule_slots")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", data.eventId),
+      context.supabase
+        .from("hr_payroll_periods")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", data.eventId),
+    ]);
+    if (assignments.error) throw assignments.error;
+    if (slots.error) throw slots.error;
+    if (periods.error) throw periods.error;
+
+    const periodIds =
+      (periods.count ?? 0) > 0
+        ? (
+            await context.supabase
+              .from("hr_payroll_periods")
+              .select("id")
+              .eq("event_id", data.eventId)
+              .limit(500)
+          ).data?.map((row) => row.id as string) ?? []
+        : [];
+
+    let payrollLineCount = 0;
+    if (periodIds.length > 0) {
+      const lines = await context.supabase
+        .from("hr_payroll_lines")
+        .select("id", { count: "exact", head: true })
+        .in("period_id", periodIds);
+      if (lines.error) throw lines.error;
+      payrollLineCount = lines.count ?? 0;
+    }
+
+    const blockers: string[] = [];
+    if ((assignments.count ?? 0) > 0) blockers.push("staffing assignments");
+    if ((slots.count ?? 0) > 0) blockers.push("schedule slots");
+    if ((periods.count ?? 0) > 0 || payrollLineCount > 0) blockers.push("payroll");
+    if (blockers.length > 0) {
+      throw new Error(
+        `Cannot permanently delete this event while it has ${blockers.join(", ")}. Archive it instead to hide it from the list without losing data.`,
+      );
+    }
+
+    // Keep event_id null so this audit row survives ON DELETE CASCADE on events.
+    await writeEventAudit(context, {
+      action: "hard_delete",
+      entityType: "event",
+      entityId: data.eventId,
+      eventId: null,
+      locationId: event.location_id as string,
+      before: {
+        event_number: event.event_number,
+        name: event.event_name ?? event.name,
+        deleted_at: event.deleted_at,
+      },
+      metadata: { event_id: data.eventId },
+    });
+
+    const { error } = await context.supabase.from("events").delete().eq("id", data.eventId);
+    if (error) throw error;
     return { ok: true };
   },
   { auth: { capability: "events.manage" } },

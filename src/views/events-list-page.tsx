@@ -3,6 +3,7 @@
 import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Archive, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -11,8 +12,25 @@ import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { EventHealthBadge } from "@/components/events/event-health-badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -33,9 +51,17 @@ import { useEventOptions, useEventsList } from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
 import { fmtQar } from "@/lib/currency";
 import { EVENT_STATUSES } from "@/lib/events/constants";
-import { restoreEvent } from "@/lib/events.functions";
+import { hardDeleteEvent, restoreEvent, softDeleteEvent } from "@/lib/events.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
+
+type ConfirmKind = "archive" | "restore" | "delete";
+
+type ConfirmTarget = {
+  kind: ConfirmKind;
+  id: string;
+  label: string;
+};
 
 export default function EventsListPage() {
   const { t, i18n } = useTranslation();
@@ -49,6 +75,7 @@ export default function EventsListPage() {
   const [stageId, setStageId] = useState("all");
   const [status, setStatus] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
   const options = useEventOptions();
   const filters = useMemo(
     () => ({
@@ -62,14 +89,70 @@ export default function EventsListPage() {
     [locationId, search, health, stageId, status, showArchived],
   );
   const list = useEventsList(filters);
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.events.all });
+  };
+
+  const archiveMut = useMutation({
+    mutationFn: (eventId: string) => softDeleteEvent({ eventId }),
+    onSuccess: () => {
+      invalidate();
+      setConfirm(null);
+      toast.success(t("events.toasts.archived"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
   const restoreMut = useMutation({
     mutationFn: (eventId: string) => restoreEvent({ eventId }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.events.all });
+      invalidate();
+      setConfirm(null);
       toast.success(t("events.toasts.restored"));
     },
     onError: (e) => toast.error((e as Error).message),
   });
+
+  const deleteMut = useMutation({
+    mutationFn: (eventId: string) => hardDeleteEvent({ eventId }),
+    onSuccess: () => {
+      invalidate();
+      setConfirm(null);
+      toast.success(t("events.toasts.deleted"));
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const pending = archiveMut.isPending || restoreMut.isPending || deleteMut.isPending;
+  const colCount = canManage ? 11 : 10;
+
+  const confirmCopy = confirm
+    ? {
+        archive: {
+          title: t("events.list.archiveTitle"),
+          description: t("events.list.archiveConfirm", { name: confirm.label }),
+          action: t("events.list.archive"),
+        },
+        restore: {
+          title: t("events.list.restoreTitle"),
+          description: t("events.list.restoreConfirm", { name: confirm.label }),
+          action: t("events.list.restore"),
+        },
+        delete: {
+          title: t("events.list.deleteTitle"),
+          description: t("events.list.deleteConfirm", { name: confirm.label }),
+          action: t("events.list.delete"),
+        },
+      }[confirm.kind]
+    : null;
+
+  const runConfirm = () => {
+    if (!confirm) return;
+    if (confirm.kind === "archive") archiveMut.mutate(confirm.id);
+    else if (confirm.kind === "restore") restoreMut.mutate(confirm.id);
+    else deleteMut.mutate(confirm.id);
+  };
 
   return (
     <div className="space-y-6">
@@ -151,67 +234,128 @@ export default function EventsListPage() {
               <TableHead>{t("events.list.prs")}</TableHead>
               <TableHead>{t("events.list.readiness")}</TableHead>
               <TableHead>{t("events.list.value")}</TableHead>
-              {showArchived ? <TableHead /> : null}
+              {canManage ? <TableHead className="w-12 text-end">{t("events.list.actions")}</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
             {(list.data ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={showArchived ? 11 : 10} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={colCount} className="py-8 text-center text-muted-foreground">
                   {t("events.list.empty")}
                 </TableCell>
               </TableRow>
             ) : (
-              (list.data ?? []).map((event) => (
-                <TableRow key={event.id} className="cursor-pointer hover:bg-muted/40">
-                  <TableCell className="font-mono text-xs">
-                    <Link href={`/events/${event.id}`} className="underline-offset-2 hover:underline">
-                      {event.event_number}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    <Link href={`/events/${event.id}`} className="underline-offset-2 hover:underline">
-                      {event.event_name || event.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{event.client_name ?? "—"}</TableCell>
-                  <TableCell>{event.location_name ?? "—"}</TableCell>
-                  <TableCell className="text-xs tabular-nums">
-                    {event.event_start ?? "—"}
-                    {event.event_end ? ` → ${event.event_end}` : ""}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{(ar ? event.stage_label_ar : event.stage_label_en) ?? "—"}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <EventHealthBadge rag={event.health_rag} />
-                  </TableCell>
-                  <TableCell>
-                    {event.pending_prs > 0 ? (
-                      <Badge variant="warning">{t("events.dashboard.prBlockers", { n: event.pending_prs })}</Badge>
-                    ) : event.linked_prs > 0 ? (
-                      <Badge variant="outline">{t("events.dashboard.prsClear", { n: event.linked_prs })}</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="tabular-nums">{Math.round(event.readiness_pct)}%</TableCell>
-                  <TableCell className="tabular-nums">
-                    {event.contracted_value != null ? fmtQar(event.contracted_value) : "—"}
-                  </TableCell>
-                  {showArchived ? (
-                    <TableCell className="text-end">
-                      <Button size="sm" variant="outline" disabled={restoreMut.isPending} onClick={() => restoreMut.mutate(event.id)}>
-                        {t("events.list.restore")}
-                      </Button>
+              (list.data ?? []).map((event) => {
+                const label = event.event_name || event.name || event.event_number;
+                return (
+                  <TableRow key={event.id} className="hover:bg-muted/40">
+                    <TableCell className="font-mono text-xs">
+                      <Link href={`/events/${event.id}`} className="underline-offset-2 hover:underline">
+                        {event.event_number}
+                      </Link>
                     </TableCell>
-                  ) : null}
-                </TableRow>
-              ))
+                    <TableCell className="font-medium">
+                      <Link href={`/events/${event.id}`} className="underline-offset-2 hover:underline">
+                        {event.event_name || event.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{event.client_name ?? "—"}</TableCell>
+                    <TableCell>{event.location_name ?? "—"}</TableCell>
+                    <TableCell className="text-xs tabular-nums">
+                      {event.event_start ?? "—"}
+                      {event.event_end ? ` → ${event.event_end}` : ""}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{(ar ? event.stage_label_ar : event.stage_label_en) ?? "—"}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <EventHealthBadge rag={event.health_rag} />
+                    </TableCell>
+                    <TableCell>
+                      {event.pending_prs > 0 ? (
+                        <Badge variant="warning">{t("events.dashboard.prBlockers", { n: event.pending_prs })}</Badge>
+                      ) : event.linked_prs > 0 ? (
+                        <Badge variant="outline">{t("events.dashboard.prsClear", { n: event.linked_prs })}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{Math.round(event.readiness_pct)}%</TableCell>
+                    <TableCell className="tabular-nums">
+                      {event.contracted_value != null ? fmtQar(event.contracted_value) : "—"}
+                    </TableCell>
+                    {canManage ? (
+                      <TableCell className="text-end">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              aria-label={t("events.list.actions")}
+                              disabled={pending}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {showArchived ? (
+                              <DropdownMenuItem
+                                onSelect={() => setConfirm({ kind: "restore", id: event.id, label })}
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                                {t("events.list.restore")}
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onSelect={() => setConfirm({ kind: "archive", id: event.id, label })}
+                              >
+                                <Archive className="h-4 w-4" />
+                                {t("events.list.archive")}
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => setConfirm({ kind: "delete", id: event.id, label })}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {t("events.list.delete")}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </div>
+
+      <AlertDialog open={Boolean(confirm)} onOpenChange={(open) => !open && !pending && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmCopy?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmCopy?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pending}
+              className={confirm?.kind === "delete" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                runConfirm();
+              }}
+            >
+              {confirmCopy?.action}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
