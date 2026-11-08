@@ -321,9 +321,53 @@ export const deactivateEventRole = createAuthenticatedAction(
   { auth: { capability: "events.edit" } },
 );
 
+async function countEventRoleUsage(
+  context: AuthContext,
+  eventId: string,
+  roleId: string,
+): Promise<{ assignmentCount: number; slotCount: number }> {
+  const [{ count: assignmentCount, error: aErr }, { count: slotCount, error: sErr }] =
+    await Promise.all([
+      context.supabase
+        .from("event_staff_assignments")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .eq("event_role_id", roleId),
+      context.supabase
+        .from("event_schedule_slots")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .eq("event_role_id", roleId),
+    ]);
+  if (aErr && !/event_role_id|schema cache|does not exist/i.test(aErr.message)) throw aErr;
+  if (sErr && !/event_role_id|schema cache|does not exist/i.test(sErr.message)) throw sErr;
+  return {
+    assignmentCount: assignmentCount ?? 0,
+    slotCount: slotCount ?? 0,
+  };
+}
+
+/** Usage counts for delete confirm (assignments + schedule slots referencing the role). */
+export const getEventRoleUsage = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    id: z.string().uuid(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+    const usage = await countEventRoleUsage(context, data.eventId, data.id);
+    return {
+      ...usage,
+      inUse: usage.assignmentCount > 0 || usage.slotCount > 0,
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
 /**
- * Hard-delete when unused; soft-deactivate when referenced by assignments/slots
- * (FK is ON DELETE SET NULL, but keeping history is safer for payroll/schedule).
+ * Hard-delete the event role completely.
+ * Clears event_role_id on assignments/slots first (FK is ON DELETE SET NULL),
+ * then removes the role row — never leaves a soft-deactivated ghost.
  */
 export const deleteEventRole = createAuthenticatedAction(
   z.object({
@@ -342,44 +386,28 @@ export const deleteEventRole = createAuthenticatedAction(
     if (existingErr) throw existingErr;
     if (!existing) throw new Error("Event role not found");
 
-    const [{ count: assignmentCount, error: aErr }, { count: slotCount, error: sErr }] =
-      await Promise.all([
+    const usage = await countEventRoleUsage(context, data.eventId, data.id);
+    const inUse = usage.assignmentCount > 0 || usage.slotCount > 0;
+
+    if (inUse) {
+      const [{ error: clearAErr }, { error: clearSErr }] = await Promise.all([
         context.supabase
           .from("event_staff_assignments")
-          .select("id", { count: "exact", head: true })
+          .update({ event_role_id: null })
           .eq("event_id", data.eventId)
           .eq("event_role_id", data.id),
         context.supabase
           .from("event_schedule_slots")
-          .select("id", { count: "exact", head: true })
+          .update({ event_role_id: null })
           .eq("event_id", data.eventId)
           .eq("event_role_id", data.id),
       ]);
-    if (aErr && !/event_role_id|schema cache|does not exist/i.test(aErr.message)) throw aErr;
-    if (sErr && !/event_role_id|schema cache|does not exist/i.test(sErr.message)) throw sErr;
-
-    const assignments = assignmentCount ?? 0;
-    const slots = slotCount ?? 0;
-    const inUse = assignments > 0 || slots > 0;
-
-    if (inUse) {
-      const { error } = await context.supabase
-        .from("event_roles")
-        .update({
-          is_active: false,
-          updated_by: context.userId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", data.id)
-        .eq("event_id", data.eventId);
-      if (error) throw error;
-      return {
-        mode: "deactivated" as const,
-        inUse: true,
-        assignmentCount: assignments,
-        slotCount: slots,
-        name: String(existing.name),
-      };
+      if (clearAErr && !/event_role_id|schema cache|does not exist/i.test(clearAErr.message)) {
+        throw clearAErr;
+      }
+      if (clearSErr && !/event_role_id|schema cache|does not exist/i.test(clearSErr.message)) {
+        throw clearSErr;
+      }
     }
 
     const { error } = await context.supabase
@@ -388,11 +416,12 @@ export const deleteEventRole = createAuthenticatedAction(
       .eq("id", data.id)
       .eq("event_id", data.eventId);
     if (error) throw error;
+
     return {
       mode: "deleted" as const,
-      inUse: false,
-      assignmentCount: 0,
-      slotCount: 0,
+      inUse,
+      assignmentCount: usage.assignmentCount,
+      slotCount: usage.slotCount,
       name: String(existing.name),
     };
   },

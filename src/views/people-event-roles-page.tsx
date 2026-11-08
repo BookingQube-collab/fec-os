@@ -103,15 +103,13 @@ export default function PeopleEventRolesPage() {
         ) : rolesQ.isError ? (
           <p className="text-sm text-destructive">{(rolesQ.error as Error).message}</p>
         ) : (
-          <HrPanel delay={1}>
-            <div className="p-4 sm:p-5">
-              <EventRolesPanel
-                eventId={eventId}
-                roles={rolesQ.data?.roles ?? []}
-                canEdit={canEdit}
-                onChanged={refresh}
-              />
-            </div>
+          <HrPanel delay={1} className="p-4 sm:p-5">
+            <EventRolesPanel
+              eventId={eventId}
+              roles={rolesQ.data?.roles ?? []}
+              canEdit={canEdit}
+              onChanged={refresh}
+            />
           </HrPanel>
         )}
       </HrSection>
