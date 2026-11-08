@@ -4223,6 +4223,7 @@ export type Database = {
           joker_hours: number | null
           location_id: string
           notes: string | null
+          payroll_cycle: string
           permanent_hours: number | null
           reporting_time_minutes: number | null
           secondment_hours: number | null
@@ -4239,6 +4240,7 @@ export type Database = {
           joker_hours?: number | null
           location_id: string
           notes?: string | null
+          payroll_cycle?: string
           permanent_hours?: number | null
           reporting_time_minutes?: number | null
           secondment_hours?: number | null
@@ -4255,6 +4257,7 @@ export type Database = {
           joker_hours?: number | null
           location_id?: string
           notes?: string | null
+          payroll_cycle?: string
           permanent_hours?: number | null
           reporting_time_minutes?: number | null
           secondment_hours?: number | null
@@ -7835,6 +7838,42 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "event_asset_movements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_attendance_devices: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          device_id: string
+          event_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          device_id: string
+          event_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          device_id?: string
+          event_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_attendance_devices_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_attendance_devices_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"

@@ -246,7 +246,7 @@ export default function EventsListPage() {
               </TableRow>
             ) : (
               (list.data ?? []).map((event) => {
-                const label = event.event_name || event.name || event.event_number;
+                const label = event.event_name || event.name || event.event_number || "";
                 return (
                   <TableRow key={event.id} className="hover:bg-muted/40">
                     <TableCell className="font-mono text-xs">
