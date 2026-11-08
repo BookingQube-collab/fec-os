@@ -2623,6 +2623,16 @@ export const getEvent = createAuthenticatedAction(IdSchema, async (data, context
   return overview;
 }, { auth: { capability: "events.view" } });
 
+const EventRoleDraftInputSchema = z.object({
+  code: z.string().min(1).max(40).optional(),
+  name: z.string().min(1).max(120),
+  kind: z.enum(["shift", "labour"]).default("shift"),
+  default_hours_per_day: z.number().min(1).max(24).optional().nullable(),
+  default_day_rate_qar: z.number().min(0).optional().nullable(),
+  sort_order: z.number().int().optional(),
+  is_active: z.boolean().optional(),
+});
+
 const CreateEventSchema = z.object({
   name: z.string().min(3).max(200),
   event_name: z.string().max(200).optional().nullable(),
@@ -2658,6 +2668,8 @@ const CreateEventSchema = z.object({
   contracted_value: z.number().min(0).optional().nullable(),
   description: z.string().max(4000).optional().nullable(),
   notes: z.string().max(4000).optional().nullable(),
+  /** Optional crew roles selected at create; defaults to catalog when omitted. */
+  roles: z.array(EventRoleDraftInputSchema).max(40).optional(),
 });
 
 /** Safe envelope — production must not surface React #441 digests when create/update fails. */
@@ -2781,6 +2793,20 @@ export const createEvent = createSafeAuthenticatedAction(
       })),
     );
     await ensureStandardWorkstreams(context, created.id);
+
+    try {
+      const { seedEventRolesForEvent } = await import("@/lib/event-roles.functions");
+      const { normalizeEventRoleDrafts } = await import("@/lib/events/event-roles");
+      await seedEventRolesForEvent(
+        context,
+        created.id,
+        normalizeEventRoleDrafts(data.roles ?? null),
+        context.userId,
+      );
+    } catch (roleErr) {
+      // Non-fatal for environments that have not applied the event_roles migration yet.
+      console.warn("[createEvent] event roles seed skipped:", (roleErr as Error).message);
+    }
 
     await writeEventAudit(context, {
       action: "create",

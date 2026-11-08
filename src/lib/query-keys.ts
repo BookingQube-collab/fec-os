@@ -444,6 +444,7 @@ export const queryKeys = {
     plan: (id?: string | null) => [...queryKeys.events.all, "plan", id ?? null] as const,
     resources: (id?: string | null) => [...queryKeys.events.all, "resources", id ?? null] as const,
     staffing: (id?: string | null) => [...queryKeys.events.all, "staffing", id ?? null] as const,
+    roles: (id?: string | null) => [...queryKeys.events.all, "roles", id ?? null] as const,
     collaboration: (id?: string | null) =>
       [...queryKeys.events.all, "collaboration", id ?? null] as const,
     budget: (id?: string | null) => [...queryKeys.events.all, "budget", id ?? null] as const,

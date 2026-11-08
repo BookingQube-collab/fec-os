@@ -9,6 +9,11 @@
  */
 
 import { fecDepartmentForSiteStaff, normalizeLabel } from "@/lib/fec-departments";
+import {
+  isContractFinishedStaffStatus,
+  isResignedStaffStatus,
+  isTerminatedStaffStatus,
+} from "@/lib/staff-status";
 
 export const EVENT_CREW_SCHEDULE_CATEGORIES = [
   "crew",
@@ -178,7 +183,22 @@ export type EventCrewScheduleRoleCandidate = {
   role_label?: string | null;
   job_title?: string | null;
   is_head_office?: boolean;
+  /** staff.status — terminated / resigned / contract finished stay out */
+  status?: string | null;
 };
+
+/**
+ * Crew schedule assignable employment: blank/active/leave/notice/joker ok.
+ * Excludes terminated, inactive, released, resigned, and contract finished.
+ */
+export function isEventCrewScheduleActiveStaffStatus(
+  status: string | null | undefined,
+): boolean {
+  if (isTerminatedStaffStatus(status)) return false;
+  if (isResignedStaffStatus(status)) return false;
+  if (isContractFinishedStaffStatus(status)) return false;
+  return true;
+}
 
 /**
  * Crew / Cleaner / Maintenance must come from this event's Staffing assignments.
@@ -196,6 +216,8 @@ export type EventCrewScheduleStaffPickerOption = {
   role_label?: string | null;
   job_title?: string | null;
   is_head_office?: boolean;
+  /** staff.status — terminated / resigned / contract finished stay out */
+  status?: string | null;
   /** staffing = open event assignment; head_office = HO people catalog */
   source: "staffing" | "head_office";
 };
@@ -203,6 +225,7 @@ export type EventCrewScheduleStaffPickerOption = {
 /**
  * Options shown for a role in the Crew schedule add form.
  * Non-management: Staffing for this event only. Management: Staffing + Head Office people.
+ * Terminated / inactive / resigned / contract-finished people are never listed.
  */
 export function selectStaffOptionsForScheduleCategory(
   options: EventCrewScheduleStaffPickerOption[],
@@ -213,6 +236,7 @@ export function selectStaffOptionsForScheduleCategory(
   const seen = new Set<string>();
   for (const option of options) {
     if (!option.staff_id || seen.has(option.staff_id)) continue;
+    if (!isEventCrewScheduleActiveStaffStatus(option.status)) continue;
     if (option.source === "head_office") {
       if (!allowPeople) continue;
     } else if (option.source !== "staffing") {
@@ -233,6 +257,7 @@ export function selectStaffOptionsForScheduleCategory(
 /**
  * Pick unique staff for a Crew schedule category (first occurrence wins).
  * Used by role-only add: Staffing assignment candidates first; People only for Management.
+ * Terminated / inactive / resigned / contract-finished people are never targeted.
  */
 export function selectCrewForScheduleCategory(
   candidates: EventCrewScheduleRoleCandidate[],
@@ -242,6 +267,7 @@ export function selectCrewForScheduleCategory(
   const seen = new Set<string>();
   for (const candidate of candidates) {
     if (!candidate.staff_id || seen.has(candidate.staff_id)) continue;
+    if (!isEventCrewScheduleActiveStaffStatus(candidate.status)) continue;
     const resolved = resolveEventCrewScheduleCategory({
       role_label: candidate.role_label,
       job_title: candidate.job_title,

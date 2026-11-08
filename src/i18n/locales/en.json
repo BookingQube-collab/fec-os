@@ -5873,7 +5873,7 @@
     },
     "schedule": {
       "title": "Event crew schedule",
-      "hint": "Crew / Management use date + start/end shifts. Cleaner / Maintenance are labour day assignments (10h baseline) — not a shift module. Process attendance uses venue device punches (Asia/Qatar, site grace).",
+      "hint": "Shift roles use date + start/end. Labour roles use per-day charge and hours in a day (no shift module). Process attendance uses venue device punches (Asia/Qatar, site grace).",
       "empty": "No schedule yet — seed from Staffing crew or add by role below.",
       "emptyRoleHint": "Pick a role, set date/times (or labour date range), then add for Staffing crew in that role (Management can also use Head Office). Optionally narrow to one person.",
       "emptyCategory": "No rows in this category for the current schedule.",
@@ -5896,9 +5896,9 @@
       "addLabourDays": "Assign work days",
       "addLabourDaysForRole": "Assign work days for role",
       "addLabourDaysOne": "Assign work days for person",
-      "addLabourDaysHint": "Labour (Cleaner / Maintenance) has no shift module — assign calendar days for Staffing crew in the role. Pay uses hours worked ÷ 10 × day rate after attendance.",
+      "addLabourDaysHint": "Labour roles have no shift module — assign calendar days, hours in a day, and per-day charge. Pay = (hours worked / hours in a day) × charge after attendance.",
       "addRole": "Role",
-      "addModeLabourHint": "Labour roles (Cleaner / Maintenance): date range only — no start/end times. Applies to Staffing crew in the role unless you pick one person.",
+      "addModeLabourHint": "Labour roles: date range + hours/day + day charge — no start/end times. Applies to Staffing crew in the role unless you pick one person.",
       "addModeEventDayHint": "Crew: Staffing crew for this event. Management: Staffing + Head Office. One event-day shift unless you pick one person.",
       "labourDayPending": "{{hours}}h day (awaiting punches)",
       "labourDayHours": "{{worked}}h / {{baseline}}h day",
@@ -5908,6 +5908,8 @@
       "allStaffInRole": "All in role (default)",
       "optionalStaff": "Optional: one person only",
       "optionalStaffHint": "Leave as “all in role” for the primary path, or pick one person to limit the add.",
+      "staffSearch": "Search by name…",
+      "staffSearchEmpty": "No matching staff",
       "dateFrom": "From date",
       "dateTo": "To date",
       "scheduledIn": "Start time",
@@ -5957,14 +5959,19 @@
       }
     },
     "payroll": {
-      "hint": "Event pay run is separate from the monthly FEC 28–27 cycle. Loaned staff event days are excluded from monthly generate. WPS Salary Month uses “Event: …” batch labeling.",
-      "policyTitle": "Event / HO policy (current defaults)",
-      "policyHoCutoff": "HO cut-off follows company FEC 28–27 unless an HO site sets its own payroll cycle.",
-      "policyHoMode": "HO attendance = Shift / punch + site expected hours (not monthly roster Absent fillers).",
+      "hint": "Event pay run is separate from the monthly FEC 28–27 cycle. Paid window is event open dates only (event start → end). Loaned staff event days are excluded from monthly generate. WPS Salary Month uses “Event: …” batch labeling.",
+      "policyTitle": "Event pay policy (current defaults)",
+      "policyDuration": "Duration only = event open dates (event start → event end). Setup / dismantle days are not in the pay window unless they fall inside open dates.",
+      "policyLabour": "Labour track = per-day charges (day rate × paid event days).",
+      "policyStaff": "Staff track = crew / attendants, maintenance, and cleaners (house or outsourcing) on salary day units.",
+      "policyManagement": "Management / Head Office management are not on the event payroll (paid elsewhere).",
       "policyVenue": "Event venue = existing location (use Add site when the venue is new).",
       "policyPunches": "Event punches = host-site devices, or dedicated event devices when linked on Schedule.",
       "policyLoaned": "Loaned with Event pay on → those days are excluded from monthly generate.",
-      "policyEventOnly": "Event-only hires and jokers with Event pay on are paid on the event run.",
+      "trackLabourTitle": "Labour",
+      "trackLabourBody": "Per-day labourers and day-rate event hires — paid for each paid day in the event open window.",
+      "trackStaffTitle": "Staff",
+      "trackStaffBody": "Crew, maintenance, and cleaners — salary day units for the same open window. Management is excluded.",
       "wpsGap": "WPS CSV remains SIF-like for Finance validation only — not bank-certified. Employer MOL / establishment IDs appear only when Finance fills payroll policy; otherwise gaps are labeled in the export note.",
       "noneYet": "No event payroll period yet.",
       "createPeriod": "Create event period",
@@ -5982,10 +5989,30 @@
       "toasts": {
         "created": "Event payroll period created",
         "exists": "Using existing event payroll period",
+        "windowSynced": "Event payroll period updated to open dates (event start → end)",
         "generated": "Generated {{n}} payroll line(s)",
         "closed": "Closed {{n}} assignment(s); parked {{parked}} event hire(s)",
         "reopened": "Reopened {{n}} assignment(s); un-parked {{unparked}} event hire(s)",
         "exported": "Payroll lines downloaded"
+      }
+    },
+    "roles": {
+      "title": "Event roles",
+      "hint": "Select which roles apply to this event. Shift roles use date + start/end on Crew schedule. Labour roles use per-day charge and hours in a day (no shift module).",
+      "kinds": {
+        "shift": "Shift",
+        "labour": "Labour"
+      },
+      "hoursPerDay": "Hours in a day",
+      "dayRate": "Per-day charge (QAR)",
+      "dayRateOptional": "Day charge (optional)",
+      "customName": "Custom role name",
+      "addCustom": "Add role",
+      "save": "Save roles",
+      "labourHint": "Labour pay = (hours worked / hours in a day) x per-day charge after attendance.",
+      "toasts": {
+        "saved": "Event roles saved",
+        "added": "Role added"
       }
     },
     "staffing": {
@@ -9034,9 +9061,42 @@
     "hub": {
       "title": "Event workforce",
       "subtitle": "Attendance, crew, and payroll for events — managed in People & HR. Open a module below.",
+      "subtitleDashboard": "Live crew, attendance, and event payroll for People & HR — overview first, modules in the tabs.",
       "openModule": "Open",
       "openEventsSetup": "Events setup",
       "correctionsHint": "Punch corrections for a specific event stay on that event’s Corrections tab. Open Event attendance, then Corrections for a day."
+    },
+    "tabs": {
+      "aria": "Event workforce modules",
+      "overview": "Overview",
+      "crew": "Crew",
+      "attendance": "Attendance",
+      "payroll": "Payroll"
+    },
+    "dashboard": {
+      "kpiOpenEvents": "Open events",
+      "kpiOpenEventsHint": "{{total}} listed in the People event picker",
+      "kpiActiveCrew": "Active assignments",
+      "kpiActiveCrewHint": "{{people}} people · {{closed}} closed",
+      "kpiAttendanceDays": "Event attendance days",
+      "kpiAttendanceDaysHint": "{{missed}} missed-punch rows in this load",
+      "kpiPayrollPeriods": "Event pay periods",
+      "kpiPayrollPeriodsHint": "Event periods only (not monthly FEC)",
+      "chartCrewByType": "Crew by assignment type",
+      "chartCrewByTypeHint": "Active assignments only",
+      "chartCrewByEvent": "Top events by crew",
+      "chartCrewByEventHint": "Active assignments · up to 8 events",
+      "chartAttendanceStatus": "Attendance by status",
+      "chartAttendanceStatusHint": "Event-tagged day rows loaded for People",
+      "chartAttendanceTrend": "Attendance by day",
+      "chartAttendanceTrendHint": "Last 21 dates present in the loaded set",
+      "chartPayrollStatus": "Event payroll by status",
+      "chartPayrollStatusHint": "Event pay periods only",
+      "chartsEmpty": "No data in this view yet",
+      "seriesAssignments": "Assignments",
+      "seriesDays": "Day rows",
+      "seriesPeriods": "Periods",
+      "correctionsTitle": "Punch corrections"
     },
     "filters": {
       "event": "Event",

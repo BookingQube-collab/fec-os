@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
-import { eventPayrollBatchLabel, eventPeriodMonthAnchor } from "@/lib/events/event-payroll";
+import {
+  eventPayOpenWindow,
+  eventPayrollBatchLabel,
+  eventPeriodMonthAnchor,
+} from "@/lib/events/event-payroll";
 import {
   closeAssignmentStampNote,
   eventHireParkStatus,
@@ -12,6 +16,7 @@ import {
   isEventHireParkedStatus,
   reopenAssignmentStampNote,
 } from "@/lib/events/staff-assignments";
+import { assertCanDeletePayrollPeriod } from "@/lib/hr-payroll";
 import { CONTRACT_FINISHED_STAFF_STATUS } from "@/lib/staff-status";
 import { assertLocationAccess, ForbiddenError } from "@/lib/server/authorize";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
@@ -37,12 +42,13 @@ async function loadEventOrThrow(context: AuthContext, eventId: string) {
 }
 
 function eventPayWindow(event: Record<string, unknown>): { dateFrom: string; dateTo: string } {
-  const dateFrom =
-    String(event.venue_access ?? event.setup_start ?? event.event_start ?? "").slice(0, 10) ||
-    new Date().toISOString().slice(0, 10);
-  const dateTo =
-    String(event.dismantle_end ?? event.event_end ?? dateFrom).slice(0, 10) || dateFrom;
-  return { dateFrom, dateTo: dateTo < dateFrom ? dateFrom : dateTo };
+  return eventPayOpenWindow({
+    event_start: (event.event_start as string | null | undefined) ?? null,
+    event_end: (event.event_end as string | null | undefined) ?? null,
+    venue_access: (event.venue_access as string | null | undefined) ?? null,
+    setup_start: (event.setup_start as string | null | undefined) ?? null,
+    dismantle_end: (event.dismantle_end as string | null | undefined) ?? null,
+  });
 }
 
 async function runCloseEventCrew(
@@ -214,19 +220,64 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
       .eq("event_id", data.eventId)
       .maybeSingle();
     if (existing) {
+      const prevFrom = String(existing.date_from).slice(0, 10);
+      const prevTo = String(existing.date_to).slice(0, 10);
+      const status = String(existing.status);
+      let dateFrom = prevFrom;
+      let dateTo = prevTo;
+      let month = String(existing.month);
+      let windowSynced = false;
+
+      const needsWindowSync = prevFrom !== window.dateFrom || prevTo !== window.dateTo;
+      if (needsWindowSync) {
+        try {
+          assertCanDeletePayrollPeriod(status);
+          const nextMonth = eventPeriodMonthAnchor(window.dateFrom);
+          const { error: syncErr } = await context.supabase
+            .from("hr_payroll_periods")
+            .update({
+              date_from: window.dateFrom,
+              date_to: window.dateTo,
+              month: nextMonth,
+              updated_at: new Date().toISOString(),
+              updated_by: context.userId,
+            })
+            .eq("id", existing.id);
+          if (syncErr) throw syncErr;
+          dateFrom = window.dateFrom;
+          dateTo = window.dateTo;
+          month = nextMonth;
+          windowSynced = true;
+          await context.supabase.from("event_audit_logs").insert({
+            actor_id: context.userId,
+            action: "payroll_period_window_sync",
+            entity_type: "hr_payroll_period",
+            entity_id: existing.id as string,
+            event_id: data.eventId,
+            location_id: event.location_id as string,
+            before: { date_from: prevFrom, date_to: prevTo } as Json,
+            after: { date_from: dateFrom, date_to: dateTo } as Json,
+            metadata: {} as Json,
+          });
+        } catch {
+          // Locked / advanced periods keep their stored window.
+        }
+      }
+
       return {
         id: String(existing.id),
-        month: String(existing.month),
+        month,
         displayName: eventPayrollBatchLabel(
           (existing.display_name as string | null) ?? null,
-          String(existing.month),
+          month,
         ),
-        dateFrom: String(existing.date_from).slice(0, 10),
-        dateTo: String(existing.date_to).slice(0, 10),
-        status: String(existing.status),
+        dateFrom,
+        dateTo,
+        status,
         periodKind: "event" as const,
         eventId: data.eventId,
         reused: true,
+        windowSynced,
       };
     }
 
@@ -284,6 +335,7 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
       periodKind: "event" as const,
       eventId: data.eventId,
       reused: false,
+      windowSynced: false,
     };
   },
   { auth: { capability: "payroll.generate" } },

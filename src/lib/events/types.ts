@@ -378,6 +378,9 @@ export interface EventStaffAssignmentRow {
   staff_employee_code: string | null;
   assignment_type: "joker" | "loaned" | "event_hire";
   role_label: string;
+  event_role_id: string | null;
+  hours_per_day: number | null;
+  day_rate_qar: number | null;
   date_from: string;
   date_to: string;
   pay_on_event_run: boolean;

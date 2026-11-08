@@ -35,6 +35,10 @@ import {
   upsertEventStaffAssignment,
 } from "@/lib/event-staff-assignments.functions";
 import {
+  isLabourEventRole,
+  type EventRoleRow,
+} from "@/lib/events/event-roles";
+import {
   assignmentTypeLabel,
   EVENT_STAFF_ASSIGNMENT_TYPES,
   looksLikeJokerPoolStaff,
@@ -74,6 +78,7 @@ export function EventStaffingPanel({
   eventName,
   assignments,
   staff,
+  roles = [],
   canEdit,
   canHire,
   defaultFrom,
@@ -84,6 +89,7 @@ export function EventStaffingPanel({
   eventName?: string;
   assignments: EventStaffAssignmentRow[];
   staff: StaffOption[];
+  roles?: EventRoleRow[];
   canEdit: boolean;
   canHire: boolean;
   defaultFrom: string;
@@ -92,22 +98,34 @@ export function EventStaffingPanel({
 }) {
   const { t } = useTranslation();
   const importRef = useRef<HTMLInputElement>(null);
+  const activeRoles = useMemo(
+    () => roles.filter((r) => r.is_active !== false).sort((a, b) => a.sort_order - b.sort_order),
+    [roles],
+  );
+  const defaultRole = activeRoles.find((r) => r.code === "crew") ?? activeRoles[0] ?? null;
   const [type, setType] = useState<EventStaffAssignmentType>("loaned");
   const [staffId, setStaffId] = useState("");
-  const [role, setRole] = useState("Crew");
+  const [roleId, setRoleId] = useState(defaultRole?.id ?? "");
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo);
   const [notes, setNotes] = useState("");
+  const [dayRate, setDayRate] = useState("");
+  const [hoursPerDay, setHoursPerDay] = useState("");
   const [busy, setBusy] = useState(false);
 
   const [hireName, setHireName] = useState("");
-  const [hireRole, setHireRole] = useState("Crew");
+  const [hireRoleId, setHireRoleId] = useState(defaultRole?.id ?? "");
   const [hireFrom, setHireFrom] = useState(defaultFrom);
   const [hireTo, setHireTo] = useState(defaultTo);
   const [hirePhone, setHirePhone] = useState("");
+  const [hireDayRate, setHireDayRate] = useState("");
+  const [hireHours, setHireHours] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkFrom, setBulkFrom] = useState(defaultFrom);
   const [bulkTo, setBulkTo] = useState(defaultTo);
+
+  const selectedRole = activeRoles.find((r) => r.id === roleId) ?? null;
+  const selectedHireRole = activeRoles.find((r) => r.id === hireRoleId) ?? null;
 
   const selectedIds = useMemo(() => [...selected], [selected]);
 
@@ -125,17 +143,31 @@ export function EventStaffingPanel({
     if (!staffId) return;
     setBusy(true);
     try {
+      const role = selectedRole;
       await upsertEventStaffAssignment({
         eventId,
         staff_id: staffId,
         assignment_type: type,
-        role_label: role.trim() || "crew",
+        role_label: role?.name ?? "Crew",
+        event_role_id: role?.id ?? null,
+        hours_per_day:
+          role && isLabourEventRole(role)
+            ? Number(hoursPerDay) || role.default_hours_per_day || 10
+            : null,
+        day_rate_qar:
+          role && isLabourEventRole(role)
+            ? dayRate === ""
+              ? role.default_day_rate_qar
+              : Math.max(0, Number(dayRate) || 0)
+            : null,
         date_from: dateFrom,
         date_to: dateTo,
         notes: notes.trim() || null,
       });
       setStaffId("");
       setNotes("");
+      setDayRate("");
+      setHoursPerDay("");
       onChanged();
       toast.success(t("events.staffing.toasts.saved"));
     } catch (e) {
@@ -162,16 +194,30 @@ export function EventStaffingPanel({
     if (!hireName.trim()) return;
     setBusy(true);
     try {
+      const role = selectedHireRole;
       await createEventHireAndAssign({
         eventId,
         fullName: hireName.trim(),
-        role_label: hireRole.trim() || "crew",
+        role_label: role?.name ?? "Crew",
+        event_role_id: role?.id ?? null,
+        hours_per_day:
+          role && isLabourEventRole(role)
+            ? Number(hireHours) || role.default_hours_per_day || 10
+            : null,
+        day_rate_qar:
+          role && isLabourEventRole(role)
+            ? hireDayRate === ""
+              ? role.default_day_rate_qar
+              : Math.max(0, Number(hireDayRate) || 0)
+            : null,
         date_from: hireFrom,
         date_to: hireTo,
         phone: hirePhone.trim() || undefined,
       });
       setHireName("");
       setHirePhone("");
+      setHireDayRate("");
+      setHireHours("");
       onChanged();
       toast.success(t("events.staffing.toasts.hireCreated"));
     } catch (e) {
@@ -520,13 +566,51 @@ export function EventStaffingPanel({
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder={t("events.overview.roleLabel")}
-            />
+            <Select
+              value={roleId || "none"}
+              onValueChange={(v) => {
+                setRoleId(v === "none" ? "" : v);
+                setDayRate("");
+                setHoursPerDay("");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("events.overview.roleLabel")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("events.overview.roleLabel")}</SelectItem>
+                {activeRoles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                    {isLabourEventRole(r) ? ` · ${t("events.roles.kinds.labour")}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            {selectedRole && isLabourEventRole(selectedRole) ? (
+              <>
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  step={0.5}
+                  value={hoursPerDay || String(selectedRole.default_hours_per_day || 10)}
+                  onChange={(e) => setHoursPerDay(e.target.value)}
+                  placeholder={t("events.roles.hoursPerDay")}
+                  aria-label={t("events.roles.hoursPerDay")}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  value={dayRate}
+                  onChange={(e) => setDayRate(e.target.value)}
+                  placeholder={t("events.roles.dayRateOptional")}
+                  aria-label={t("events.roles.dayRate")}
+                />
+              </>
+            ) : null}
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -550,11 +634,27 @@ export function EventStaffingPanel({
               onChange={(e) => setHireName(e.target.value)}
               placeholder={t("events.staffing.hireName")}
             />
-            <Input
-              value={hireRole}
-              onChange={(e) => setHireRole(e.target.value)}
-              placeholder={t("events.overview.roleLabel")}
-            />
+            <Select
+              value={hireRoleId || "none"}
+              onValueChange={(v) => {
+                setHireRoleId(v === "none" ? "" : v);
+                setHireDayRate("");
+                setHireHours("");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("events.overview.roleLabel")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("events.overview.roleLabel")}</SelectItem>
+                {activeRoles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                    {isLabourEventRole(r) ? ` · ${t("events.roles.kinds.labour")}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Input
               value={hirePhone}
               onChange={(e) => setHirePhone(e.target.value)}
@@ -562,6 +662,26 @@ export function EventStaffingPanel({
             />
             <Input type="date" value={hireFrom} onChange={(e) => setHireFrom(e.target.value)} />
             <Input type="date" value={hireTo} onChange={(e) => setHireTo(e.target.value)} />
+            {selectedHireRole && isLabourEventRole(selectedHireRole) ? (
+              <>
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  step={0.5}
+                  value={hireHours || String(selectedHireRole.default_hours_per_day || 10)}
+                  onChange={(e) => setHireHours(e.target.value)}
+                  placeholder={t("events.roles.hoursPerDay")}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  value={hireDayRate}
+                  onChange={(e) => setHireDayRate(e.target.value)}
+                  placeholder={t("events.roles.dayRateOptional")}
+                />
+              </>
+            ) : null}
             <Button size="sm" disabled={!hireName.trim() || busy} onClick={() => void createHire()}>
               {t("events.staffing.createHire")}
             </Button>

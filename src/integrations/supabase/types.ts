@@ -9405,12 +9405,71 @@ export type Database = {
           },
         ]
       }
+      event_roles: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          default_day_rate_qar: number | null
+          default_hours_per_day: number
+          event_id: string
+          id: string
+          is_active: boolean
+          kind: string
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          default_day_rate_qar?: number | null
+          default_hours_per_day?: number
+          event_id: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          default_day_rate_qar?: number | null
+          default_hours_per_day?: number
+          event_id?: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_roles_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_schedule_slots: {
         Row: {
           assignment_id: string | null
           created_at: string
           created_by: string | null
+          day_rate_qar: number | null
           event_id: string
+          event_role_id: string | null
+          hours_per_day: number | null
           id: string
           location_id: string | null
           notes: string | null
@@ -9426,7 +9485,10 @@ export type Database = {
           assignment_id?: string | null
           created_at?: string
           created_by?: string | null
+          day_rate_qar?: number | null
           event_id: string
+          event_role_id?: string | null
+          hours_per_day?: number | null
           id?: string
           location_id?: string | null
           notes?: string | null
@@ -9442,7 +9504,10 @@ export type Database = {
           assignment_id?: string | null
           created_at?: string
           created_by?: string | null
+          day_rate_qar?: number | null
           event_id?: string
+          event_role_id?: string | null
+          hours_per_day?: number | null
           id?: string
           location_id?: string | null
           notes?: string | null
@@ -9470,6 +9535,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_schedule_slots_event_role_id_fkey"
+            columns: ["event_role_id"]
+            isOneToOne: false
+            referencedRelation: "event_roles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "event_schedule_slots_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
@@ -9487,7 +9559,10 @@ export type Database = {
           created_by: string | null
           date_from: string
           date_to: string
+          day_rate_qar: number | null
           event_id: string
+          event_role_id: string | null
+          hours_per_day: number | null
           id: string
           notes: string | null
           pay_on_event_run: boolean
@@ -9505,7 +9580,10 @@ export type Database = {
           created_by?: string | null
           date_from: string
           date_to: string
+          day_rate_qar?: number | null
           event_id: string
+          event_role_id?: string | null
+          hours_per_day?: number | null
           id?: string
           notes?: string | null
           pay_on_event_run?: boolean
@@ -9523,7 +9601,10 @@ export type Database = {
           created_by?: string | null
           date_from?: string
           date_to?: string
+          day_rate_qar?: number | null
           event_id?: string
+          event_role_id?: string | null
+          hours_per_day?: number | null
           id?: string
           notes?: string | null
           pay_on_event_run?: boolean
@@ -9539,6 +9620,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_staff_assignments_event_role_id_fkey"
+            columns: ["event_role_id"]
+            isOneToOne: false
+            referencedRelation: "event_roles"
             referencedColumns: ["id"]
           },
           {

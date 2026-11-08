@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useEvent,
   useEventOptions,
+  useEventRoles,
   useEventStaffAssignments,
 } from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
@@ -33,6 +34,7 @@ export default function EventSchedulePage() {
   const eventQ = useEvent(id);
   const options = useEventOptions();
   const staffingQ = useEventStaffAssignments(id);
+  const rolesQ = useEventRoles(id);
   const canEdit = usePermission("events.edit");
   const scheduleQ = useQuery({
     queryKey: [...queryKeys.events.staffing(id), "schedule"],
@@ -67,6 +69,7 @@ export default function EventSchedulePage() {
         job_title: row.staff_job_title ?? null,
         location_id: row.staff_location_id ?? null,
         role_label: row.role_label ?? null,
+        event_role_id: row.event_role_id ?? null,
         source: "staffing",
       });
     }
@@ -126,6 +129,7 @@ export default function EventSchedulePage() {
           slots={scheduleQ.data?.slots ?? []}
           attendance={scheduleQ.data?.attendance ?? []}
           staff={scheduleStaff}
+          roles={rolesQ.data?.roles ?? []}
           canEdit={canEdit}
           defaultDate={defaultDate}
           crewClosed={Boolean(scheduleQ.data?.crewClosed)}
@@ -134,6 +138,7 @@ export default function EventSchedulePage() {
           onChanged={() => {
             void qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id), "schedule"] });
             void qc.invalidateQueries({ queryKey: queryKeys.events.staffing(id) });
+            void qc.invalidateQueries({ queryKey: queryKeys.events.roles(id) });
             void qc.invalidateQueries({ queryKey: queryKeys.events.detail(id) });
           }}
         />

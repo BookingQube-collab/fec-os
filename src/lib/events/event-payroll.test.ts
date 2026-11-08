@@ -4,15 +4,21 @@ import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
 import {
   collectEventPaidDays,
   computeLabourDayPayQar,
+  EVENT_PAY_POLICY,
   eventPaidDayKey,
+  eventPayOpenWindow,
   eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
   excludeEventPaidDaysFromMonthly,
+  isEventLabourerRole,
+  isEventPayrollEligibleCategory,
   isEventPayrollPeriod,
   labourDayPayUnits,
   labourDayPayUnitsFromMinutes,
   payrollExportMonthLabel,
+  resolveEventPayTrack,
   staffIdsForEventPayRun,
+  staffIdsForEventPayRunByTrack,
   sumLabourDayPayUnitsForStaff,
 } from "@/lib/events/event-payroll";
 
@@ -91,7 +97,117 @@ describe("event payroll helpers", () => {
   });
 });
 
-describe("labour 10h day pay", () => {
+describe("event pay eligibility and tracks", () => {
+  it("excludes management categories from event payroll", () => {
+    expect(isEventPayrollEligibleCategory("management")).toBe(false);
+    expect(isEventPayrollEligibleCategory("crew")).toBe(true);
+    expect(isEventPayrollEligibleCategory("cleaner")).toBe(true);
+    expect(isEventPayrollEligibleCategory("maintenance")).toBe(true);
+  });
+
+  it("detects labourer roles separately from crew staff", () => {
+    expect(isEventLabourerRole("Labourer")).toBe(true);
+    expect(isEventLabourerRole("Day labour")).toBe(true);
+    expect(isEventLabourerRole("Crew")).toBe(false);
+    expect(isEventLabourerRole("Cleaner")).toBe(false);
+  });
+
+  it("resolves labour vs staff tracks and omits management", () => {
+    expect(resolveEventPayTrack({ role_label: "Labourer" })).toBe("labour");
+    expect(resolveEventPayTrack({ role_label: "Crew" })).toBe("staff");
+    expect(resolveEventPayTrack({ role_label: "Cleaner" })).toBe("staff");
+    expect(resolveEventPayTrack({ role_label: "Maintenance Team" })).toBe("staff");
+    expect(resolveEventPayTrack({ role_label: "Management", is_head_office: true })).toBeNull();
+    expect(resolveEventPayTrack({ role_label: "crew", is_head_office: true })).toBeNull();
+  });
+
+  it("splits pay-run staff by track and drops management", () => {
+    const split = staffIdsForEventPayRunByTrack(
+      [
+        {
+          staff_id: "lab1",
+          assignment_type: "joker",
+          role_label: "Labourer",
+          date_from: "2026-11-05",
+          date_to: "2026-11-07",
+          pay_on_event_run: true,
+        },
+        {
+          staff_id: "crew1",
+          assignment_type: "loaned",
+          role_label: "Crew",
+          date_from: "2026-11-05",
+          date_to: "2026-11-07",
+          pay_on_event_run: true,
+        },
+        {
+          staff_id: "clean1",
+          assignment_type: "loaned",
+          role_label: "Cleaner",
+          date_from: "2026-11-05",
+          date_to: "2026-11-06",
+          pay_on_event_run: true,
+        },
+        {
+          staff_id: "mgr1",
+          assignment_type: "loaned",
+          role_label: "Management",
+          is_head_office: true,
+          date_from: "2026-11-05",
+          date_to: "2026-11-07",
+          pay_on_event_run: true,
+        },
+        {
+          staff_id: "off1",
+          assignment_type: "loaned",
+          role_label: "Crew",
+          date_from: "2026-11-05",
+          date_to: "2026-11-05",
+          pay_on_event_run: false,
+        },
+      ],
+      "2026-11-05",
+      "2026-11-07",
+    );
+    expect(split.labour.sort()).toEqual(["lab1"]);
+    expect(split.staff.sort()).toEqual(["clean1", "crew1"]);
+    expect(split.all.sort()).toEqual(["clean1", "crew1", "lab1"]);
+  });
+
+  it("encodes labour hours÷hours_in_day × day charge policy", () => {
+    expect(EVENT_PAY_POLICY.paidWindow).toBe("event_open_dates");
+    expect(EVENT_PAY_POLICY.labourTrack).toBe("hours_over_day_charge");
+    expect(EVENT_PAY_POLICY.managementExcluded).toBe(true);
+    expect(EVENT_PAY_POLICY.labourDayPayUsesHoursOverBaseline).toBe(true);
+  });
+});
+
+describe("event pay open window", () => {
+  it("prefers event_start → event_end over venue/dismantle", () => {
+    expect(
+      eventPayOpenWindow({
+        event_start: "2026-11-10",
+        event_end: "2026-11-12",
+        venue_access: "2026-11-08",
+        dismantle_end: "2026-11-14",
+      }),
+    ).toEqual({ dateFrom: "2026-11-10", dateTo: "2026-11-12" });
+  });
+
+  it("falls back to venue/setup/dismantle when open dates are missing", () => {
+    expect(
+      eventPayOpenWindow({
+        event_start: null,
+        event_end: null,
+        venue_access: "2026-11-08",
+        setup_start: "2026-11-09",
+        dismantle_end: "2026-11-14",
+      }),
+    ).toEqual({ dateFrom: "2026-11-08", dateTo: "2026-11-14" });
+  });
+});
+
+describe("labour hours helpers (schedule/UI)", () => {
   it("converts hours to day units vs 10h baseline (20h = double)", () => {
     expect(labourDayPayUnits(10)).toBe(1);
     expect(labourDayPayUnits(20)).toBe(2);
@@ -133,4 +249,3 @@ describe("labour 10h day pay", () => {
     expect(units).toBe(3);
   });
 });
-

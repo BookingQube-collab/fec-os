@@ -7,12 +7,18 @@ import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
+import { EventRolesPanel } from "@/components/events/event-roles-panel";
 import { EventStaffingPanel } from "@/components/events/event-staffing-panel";
 import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useEvent, useEventOptions, useEventStaffAssignments } from "@/hooks/queries/useEvents";
+import {
+  useEvent,
+  useEventOptions,
+  useEventRoles,
+  useEventStaffAssignments,
+} from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -23,6 +29,7 @@ export default function EventStaffingPage() {
   const qc = useQueryClient();
   const eventQ = useEvent(id);
   const staffingQ = useEventStaffAssignments(id);
+  const rolesQ = useEventRoles(id);
   const options = useEventOptions();
   const canEdit = usePermission("events.edit");
   const canHire = usePermission("people.edit_roster");
@@ -41,6 +48,7 @@ export default function EventStaffingPage() {
 
   function refresh() {
     void qc.invalidateQueries({ queryKey: queryKeys.events.staffing(id) });
+    void qc.invalidateQueries({ queryKey: queryKeys.events.roles(id) });
     void qc.invalidateQueries({ queryKey: queryKeys.events.detail(id) });
     void qc.invalidateQueries({ queryKey: queryKeys.events.options() });
   }
@@ -70,24 +78,33 @@ export default function EventStaffingPage() {
       ) : staffingQ.isError ? (
         <p className="text-sm text-destructive">{(staffingQ.error as Error).message}</p>
       ) : (
-        <EventStaffingPanel
-          eventId={id}
-          eventName={title}
-          assignments={payload?.assignments ?? []}
-          staff={(options.data?.staff as Array<{
-            id: string;
-            full_name: string;
-            employee_code?: string | null;
-            employment_type?: string | null;
-            status?: string | null;
-            job_title?: string | null;
-          }>) ?? []}
-          canEdit={canEdit}
-          canHire={canHire}
-          defaultFrom={defaults.from}
-          defaultTo={defaults.to}
-          onChanged={refresh}
-        />
+        <div className="space-y-6">
+          <EventRolesPanel
+            eventId={id}
+            roles={rolesQ.data?.roles ?? []}
+            canEdit={canEdit}
+            onChanged={refresh}
+          />
+          <EventStaffingPanel
+            eventId={id}
+            eventName={title}
+            assignments={payload?.assignments ?? []}
+            roles={rolesQ.data?.roles ?? []}
+            staff={(options.data?.staff as Array<{
+              id: string;
+              full_name: string;
+              employee_code?: string | null;
+              employment_type?: string | null;
+              status?: string | null;
+              job_title?: string | null;
+            }>) ?? []}
+            canEdit={canEdit}
+            canHire={canHire}
+            defaultFrom={defaults.from}
+            defaultTo={defaults.to}
+            onChanged={refresh}
+          />
+        </div>
       )}
     </div>
   );

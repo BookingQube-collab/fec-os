@@ -11,10 +11,18 @@ import {
   eventCrewScheduleAddShiftMode,
   eventCrewScheduleAllowsPeopleFallback,
   eventCrewScheduleCategoryRoleLabel,
+  isEventCrewScheduleActiveStaffStatus,
   selectCrewForScheduleCategory,
   type EventCrewScheduleCategory,
   type EventCrewScheduleRoleCandidate,
 } from "@/lib/events/crew-schedule-categories";
+import {
+  eventRoleAllowsPeopleFallback,
+  eventRoleScheduleMode,
+  isKnownCrewScheduleCategoryCode,
+  matchEventRole,
+  resolveLabourHoursPerDay,
+} from "@/lib/events/event-roles";
 import {
   deriveEventDayStatus,
   enumerateDatesInclusive,
@@ -27,6 +35,7 @@ import {
 } from "@/lib/events/event-schedule";
 import { isEventAssignmentClosed } from "@/lib/events/staff-assignments";
 import type { EventScheduleSlotRow, EventSchedulePayload } from "@/lib/events/types";
+import { ensureEventRoles } from "@/lib/event-roles.functions";
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 
@@ -426,15 +435,24 @@ async function resolveRoleScheduleTargets(
   const { data: staffRows } = lookupIds.length
     ? await context.supabase
         .from("staff")
-        .select("id, job_title, location_id")
+        .select("id, job_title, location_id, status")
         .in("id", lookupIds)
-    : { data: [] as Array<{ id: string; job_title: string | null; location_id: string | null }> };
+        .is("deleted_at", null)
+    : {
+        data: [] as Array<{
+          id: string;
+          job_title: string | null;
+          location_id: string | null;
+          status: string | null;
+        }>,
+      };
 
   const staffById = new Map(
     (staffRows ?? []).map((s) => [
       s.id as string,
       {
         job_title: (s.job_title as string | null) ?? null,
+        status: (s.status as string | null) ?? null,
         is_head_office: Boolean(
           headOfficeLocationId && (s.location_id as string | null) === headOfficeLocationId,
         ),
@@ -451,6 +469,7 @@ async function resolveRoleScheduleTargets(
         role_label: (a.role_label as string | null) ?? null,
         job_title: person?.job_title ?? null,
         is_head_office: person?.is_head_office ?? false,
+        status: person?.status ?? null,
       };
     }),
     input.category,
@@ -469,6 +488,7 @@ async function resolveRoleScheduleTargets(
             role_label: eventCrewScheduleCategoryRoleLabel(input.category),
             job_title: person.job_title,
             is_head_office: true,
+            status: person.status,
           };
         })
         .filter((row): row is EventCrewScheduleRoleCandidate => row != null),
@@ -481,6 +501,9 @@ async function resolveRoleScheduleTargets(
     if (one) return [one];
     const person = staffById.get(input.staffId);
     if (!person) throw new Error("Staff not found");
+    if (!isEventCrewScheduleActiveStaffStatus(person.status)) {
+      throw new Error("That person is not active — terminated or inactive staff cannot be scheduled.");
+    }
     const assignment = open.find((a) => (a.staff_id as string) === input.staffId);
     if (!assignment && !(allowPeopleFallback && person.is_head_office)) {
       throw new Error(
@@ -496,6 +519,7 @@ async function resolveRoleScheduleTargets(
           eventCrewScheduleCategoryRoleLabel(input.category),
         job_title: person.job_title,
         is_head_office: person.is_head_office,
+        status: person.status,
       },
     ];
   }
@@ -505,15 +529,100 @@ async function resolveRoleScheduleTargets(
 
 /**
  * Role-only schedule add: one slot (or labour day range) per staff in the role.
- * Prefer Staffing crew for this event (filtered by category).
- * People/Head Office fallback is Management only — never the full company roster.
+ * Prefer event_role_id (event master roles). Legacy category still supported.
+ * People/Head Office fallback is Management-style shift roles only.
  * Optional staff_id limits the add to one person.
  */
+async function resolveEventRoleScheduleTargets(
+  context: AuthContext,
+  input: {
+    eventId: string;
+    role: { id: string; code: string; name: string; kind: string };
+    staffId?: string | null;
+    fallbackStaffIds?: string[];
+  },
+): Promise<EventCrewScheduleRoleCandidate[]> {
+  const headOfficeLocationId = await resolveHeadOfficeLocationId(context);
+  const allowPeopleFallback = eventRoleAllowsPeopleFallback(input.role);
+  const { data: assignments, error } = await context.supabase
+    .from('event_staff_assignments')
+    .select('id, staff_id, role_label, event_role_id, status')
+    .eq('event_id', input.eventId);
+  if (error && !/event_role_id|schema cache/i.test(error.message)) throw error;
+
+  const open = ((assignments ?? []) as Array<Record<string, unknown>>).filter(
+    (a) => !isEventAssignmentClosed(a),
+  );
+  const staffIds = [...new Set(open.map((a) => String(a.staff_id)))];
+  const { data: staffRows } = staffIds.length
+    ? await context.supabase
+        .from('staff')
+        .select('id, job_title, location_id, status')
+        .in('id', staffIds)
+    : { data: [] as Array<Record<string, unknown>> };
+  const staffMap = new Map((staffRows ?? []).map((s) => [String(s.id), s]));
+
+  const candidates: EventCrewScheduleRoleCandidate[] = [];
+  for (const a of open) {
+    const staff = staffMap.get(String(a.staff_id));
+    const person = {
+      event_role_id: (a.event_role_id as string | null | undefined) ?? null,
+      role_label: (a.role_label as string | null | undefined) ?? null,
+      job_title: (staff?.job_title as string | null | undefined) ?? null,
+      is_head_office: Boolean(
+        headOfficeLocationId && staff?.location_id === headOfficeLocationId,
+      ),
+    };
+    const matched = matchEventRole([input.role], person);
+    if (!matched) continue;
+    if (!isEventCrewScheduleActiveStaffStatus((staff?.status as string | null) ?? null)) continue;
+    candidates.push({
+      staff_id: String(a.staff_id),
+      assignment_id: String(a.id),
+      role_label: person.role_label,
+      job_title: person.job_title,
+      is_head_office: person.is_head_office,
+      status: (staff?.status as string | null) ?? null,
+    });
+  }
+
+  if (input.staffId) {
+    const hit = candidates.find((c) => c.staff_id === input.staffId);
+    if (hit) return [hit];
+    if (allowPeopleFallback && input.fallbackStaffIds?.includes(input.staffId)) {
+      return [
+        {
+          staff_id: input.staffId,
+          assignment_id: null,
+          role_label: input.role.name,
+          is_head_office: true,
+        },
+      ];
+    }
+    throw new Error(
+      'That person is not on Staffing for this event. Add them on the Staffing tab first.',
+    );
+  }
+
+  if (candidates.length) return candidates;
+
+  if (allowPeopleFallback && input.fallbackStaffIds?.length) {
+    return input.fallbackStaffIds.map((id) => ({
+      staff_id: id,
+      assignment_id: null,
+      role_label: input.role.name,
+      is_head_office: true,
+    }));
+  }
+  return [];
+}
+
 export const addEventScheduleForRole = createAuthenticatedAction(
   z
     .object({
       eventId: z.string().uuid(),
-      category: z.enum(EVENT_CREW_SCHEDULE_CATEGORIES),
+      event_role_id: z.string().uuid().optional().nullable(),
+      category: z.enum(EVENT_CREW_SCHEDULE_CATEGORIES).optional(),
       staff_id: z.string().uuid().optional().nullable(),
       fallback_staff_ids: z.array(z.string().uuid()).max(200).optional(),
       work_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
@@ -521,55 +630,115 @@ export const addEventScheduleForRole = createAuthenticatedAction(
       date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
       scheduled_in: z.string().min(4).max(8).optional().nullable(),
       scheduled_out: z.string().min(4).max(8).optional().nullable(),
+      hours_per_day: z.number().min(1).max(24).optional().nullable(),
+      day_rate_qar: z.number().min(0).optional().nullable(),
       notes: z.string().max(1000).optional().nullable(),
     })
     .superRefine((val, ctx) => {
-      const mode = eventCrewScheduleAddShiftMode(val.category);
-      if (mode === "labour_days") {
-        if (!val.date_from || !val.date_to) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Labour roles require date_from and date_to",
-          });
-        }
-      } else if (!val.work_date) {
+      if (!val.event_role_id && !val.category) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Crew / Management require work_date",
+          message: 'event_role_id or category is required',
         });
       }
     }),
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
     await assertEventCrewOpenForSchedule(context, data.eventId);
-    const category = data.category as EventCrewScheduleCategory;
-    const mode = eventCrewScheduleAddShiftMode(category);
-    const roleLabel = eventCrewScheduleCategoryRoleLabel(category);
+
+    const eventRoles = await ensureEventRoles(context, data.eventId);
+    const selectedRole = data.event_role_id
+      ? eventRoles.find((r) => r.id === data.event_role_id && r.is_active !== false) ?? null
+      : null;
+    const category =
+      (data.category as EventCrewScheduleCategory | undefined) ??
+      (selectedRole && isKnownCrewScheduleCategoryCode(selectedRole.code)
+        ? selectedRole.code
+        : 'crew');
+    const mode = selectedRole
+      ? eventRoleScheduleMode(selectedRole.kind)
+      : eventCrewScheduleAddShiftMode(category);
+    const roleLabel = selectedRole?.name ?? eventCrewScheduleCategoryRoleLabel(category);
+    const eventRoleId = selectedRole?.id ?? null;
+    const hoursPerDay =
+      mode === 'labour_days'
+        ? resolveLabourHoursPerDay({
+            hours_per_day: data.hours_per_day,
+            role_default_hours_per_day: selectedRole?.default_hours_per_day,
+          })
+        : null;
+    const dayRateQar =
+      mode === 'labour_days'
+        ? data.day_rate_qar ?? selectedRole?.default_day_rate_qar ?? null
+        : null;
     const notes = data.notes?.trim() || null;
 
-    const targets = await resolveRoleScheduleTargets(context, {
-      eventId: data.eventId,
-      category,
-      staffId: data.staff_id,
-      fallbackStaffIds: data.fallback_staff_ids,
-    });
+    if (mode === 'labour_days') {
+      if (!data.date_from || !data.date_to) {
+        throw new Error('Labour roles require date_from and date_to');
+      }
+    } else if (!data.work_date) {
+      throw new Error('Shift roles require work_date');
+    }
+
+    const targets = selectedRole
+      ? await resolveEventRoleScheduleTargets(context, {
+          eventId: data.eventId,
+          role: selectedRole,
+          staffId: data.staff_id,
+          fallbackStaffIds: data.fallback_staff_ids,
+        })
+      : await resolveRoleScheduleTargets(context, {
+          eventId: data.eventId,
+          category,
+          staffId: data.staff_id,
+          fallbackStaffIds: data.fallback_staff_ids,
+        });
     if (!targets.length) {
+      const allowPeople = selectedRole
+        ? eventRoleAllowsPeopleFallback(selectedRole)
+        : eventCrewScheduleAllowsPeopleFallback(category);
       throw new Error(
-        eventCrewScheduleAllowsPeopleFallback(category)
-          ? "No Head Office or Staffing staff in this role. Add them on Staffing, or ensure Head Office people exist."
-          : "No Staffing crew in this role for the event. Add them on the Staffing tab first.",
+        allowPeople
+          ? 'No Head Office or Staffing staff in this role. Add them on Staffing, or ensure Head Office people exist.'
+          : 'No Staffing crew in this role for the event. Add them on the Staffing tab first.',
       );
     }
 
     let inserted = 0;
     let attempted = 0;
 
-    if (mode === "labour_days") {
+    async function insertSlot(row: Record<string, unknown>) {
+      attempted += 1;
+      const { error: insErr } = await context.supabase.from('event_schedule_slots').insert(row);
+      if (insErr) {
+        if (/event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(insErr.message)) {
+          const {
+            event_role_id: _er,
+            hours_per_day: _h,
+            day_rate_qar: _d,
+            ...legacy
+          } = row;
+          const retry = await context.supabase.from('event_schedule_slots').insert(legacy);
+          if (retry.error) {
+            if (/duplicate|unique/i.test(retry.error.message)) return;
+            throw retry.error;
+          }
+          inserted += 1;
+          return;
+        }
+        if (/duplicate|unique/i.test(insErr.message)) return;
+        throw insErr;
+      }
+      inserted += 1;
+    }
+
+    if (mode === 'labour_days') {
       const dateFrom = data.date_from!;
       const dateTo = data.date_to!;
-      if (dateTo < dateFrom) throw new Error("End date must be on or after start");
+      if (dateTo < dateFrom) throw new Error('End date must be on or after start');
       const dates = enumerateDatesInclusive(dateFrom, dateTo);
-      if (!dates.length) throw new Error("Invalid date range");
+      if (!dates.length) throw new Error('Invalid date range');
       const scheduledIn = normalizeTimeHHMM(
         data.scheduled_in?.trim() || LABOUR_DAY_DEFAULT_SCHEDULED_IN,
       );
@@ -581,64 +750,59 @@ export const addEventScheduleForRole = createAuthenticatedAction(
 
       for (const target of targets) {
         for (const work_date of dates) {
-          attempted += 1;
-          const { error: insErr } = await context.supabase.from("event_schedule_slots").insert({
+          await insertSlot({
             event_id: data.eventId,
             staff_id: target.staff_id,
             assignment_id: target.assignment_id ?? null,
             work_date,
-            scheduled_in: scheduledIn + ":00",
-            scheduled_out: scheduledOut + ":00",
+            scheduled_in: scheduledIn + ':00',
+            scheduled_out: scheduledOut + ':00',
             location_id: event.location_id as string,
             role_label: roleLabel,
+            event_role_id: eventRoleId,
+            hours_per_day: hoursPerDay,
+            day_rate_qar: dayRateQar,
             notes,
             created_by: context.userId,
             updated_by: context.userId,
           });
-          if (insErr) {
-            if (/duplicate|unique/i.test(insErr.message)) continue;
-            throw insErr;
-          }
-          inserted += 1;
         }
       }
     } else {
       const workDate = data.work_date!;
-      const scheduledIn = normalizeTimeHHMM(data.scheduled_in?.trim() || "09:00");
-      const scheduledOut = normalizeTimeHHMM(data.scheduled_out?.trim() || "18:00");
+      const scheduledIn = normalizeTimeHHMM(data.scheduled_in?.trim() || '09:00');
+      const scheduledOut = normalizeTimeHHMM(data.scheduled_out?.trim() || '18:00');
       const timeErr = validateScheduleSlotTimes(scheduledIn, scheduledOut);
       if (timeErr) throw new Error(timeErr);
 
       for (const target of targets) {
-        attempted += 1;
-        const { error: insErr } = await context.supabase.from("event_schedule_slots").insert({
+        await insertSlot({
           event_id: data.eventId,
           staff_id: target.staff_id,
           assignment_id: target.assignment_id ?? null,
           work_date: workDate,
-          scheduled_in: scheduledIn + ":00",
-          scheduled_out: scheduledOut + ":00",
+          scheduled_in: scheduledIn + ':00',
+          scheduled_out: scheduledOut + ':00',
           location_id: event.location_id as string,
           role_label: roleLabel,
+          event_role_id: eventRoleId,
+          hours_per_day: null,
+          day_rate_qar: null,
           notes,
           created_by: context.userId,
           updated_by: context.userId,
         });
-        if (insErr) {
-          if (/duplicate|unique/i.test(insErr.message)) continue;
-          throw insErr;
-        }
-        inserted += 1;
       }
     }
 
     await writeEventAudit(context, {
-      action: "schedule_add_role",
-      entityType: "event_schedule_slot",
+      action: 'schedule_add_role',
+      entityType: 'event_schedule_slot',
       eventId: data.eventId,
       locationId: event.location_id as string,
       after: {
         category,
+        event_role_id: eventRoleId,
         mode,
         staff_count: targets.length,
         staff_ids: targets.map((t) => t.staff_id),
@@ -648,6 +812,8 @@ export const addEventScheduleForRole = createAuthenticatedAction(
         date_from: data.date_from ?? null,
         date_to: data.date_to ?? null,
         single_staff: data.staff_id ?? null,
+        hours_per_day: hoursPerDay,
+        day_rate_qar: dayRateQar,
       },
     });
     return {
@@ -656,9 +822,10 @@ export const addEventScheduleForRole = createAuthenticatedAction(
       staffCount: targets.length,
       mode,
       category,
+      event_role_id: eventRoleId,
     };
   },
-  { auth: { capability: "events.edit" } },
+  { auth: { capability: 'events.edit' } },
 );
 
 /** Seed one default shift per crew assignment day (skips existing staff+date+in). */

@@ -1,39 +1,47 @@
 /** Phase 4 — event payroll helpers (pure). */
 
+import {
+  resolveEventCrewScheduleCategory,
+  type EventCrewScheduleCategory,
+  type EventCrewScheduleCategoryInput,
+} from "@/lib/events/crew-schedule-categories";
 import { LABOUR_DAY_BASELINE_HOURS } from "@/lib/events/event-schedule";
 import { isPayrollPaidNonWorkDay, isPayrollPresentDay, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
 
 /**
- * event_pay_policy — product defaults (Phase 0). Encoded for admins in UI copy;
- * do not invent a second company cut-off here (see payroll_cycle on site settings).
+ * event_pay_policy — product defaults.
  *
- * - HO cut-off = company FEC 28–27 (same monthly cycle as sites unless HO overrides)
- * - HO attendance = shift_punch + site expected hours
- * - Event venue = existing location (+ Add site when needed)
- * - Event punches = host-site devices (or dedicated event device set when linked)
+ * - Paid window = event open dates (event_start → event_end)
+ * - Labour track = per-day charges (day rate × paid event days)
+ * - Staff track = crew / maintenance / cleaners (salary day units + late policy)
+ * - Management / HO management = excluded from the event pay run
  * - Loaned with pay_on_event_run → those days excluded from monthly generate
- * - Event-only / joker on the event pay run when pay_on_event_run
- * - Labour / day-rate on event runs: day pay = (hours_worked / 10) × daily_rate
- *   (10h baseline; 20h in a day = double). Crew/Management stay on shift slots.
+ * - Event punches = host-site devices (or dedicated event device set when linked)
  */
 export const EVENT_PAY_POLICY = {
-  hoCutoff: "fec_28_27",
-  hoAttendance: "shift_punch_plus_site_hours",
+  paidWindow: "event_open_dates",
+  /** Labour roles: (hours_worked / hours_in_day) × per_day_charge. */
+  labourTrack: "hours_over_day_charge",
+  staffTrack: "crew_maintenance_cleaners_salary_days",
+  managementExcluded: true,
   venue: "existing_location_or_add_site",
   punches: "host_site_devices_or_event_device_set",
   loanedPayOnEventExcludedFromMonthly: true,
   eventOnlyAndJokerOnEventRun: true,
+  /** Labour: (hours_worked / hours_in_day) × per_day_charge. */
   labourDayBaselineHours: LABOUR_DAY_BASELINE_HOURS,
   labourDayPayUsesHoursOverBaseline: true,
 } as const;
+
+export type EventPayTrack = "labour" | "staff";
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 /**
- * Paid day-units for labour / day-rate event pay.
- * Example: 20 hours worked → 2.0 units → double the daily rate for that day.
+ * Paid day-units for labour / day-rate (legacy hours÷baseline helper).
+ * Event generate uses paid calendar day units instead; kept for schedule/UI math.
  */
 export function labourDayPayUnits(
   hoursWorked: number,
@@ -51,7 +59,7 @@ export function labourDayPayUnitsFromMinutes(
   return labourDayPayUnits(Math.max(0, Number(workedMinutes) || 0) / 60, baselineHours);
 }
 
-/** day pay = (hours_worked / 10) × daily_rate */
+/** day pay = (hours_worked / baseline) × daily_rate — schedule/UI helper only. */
 export function computeLabourDayPayQar(
   hoursWorked: number,
   dayRateQar: number,
@@ -71,8 +79,8 @@ function isLabourHourPayWorkDay(day: PayrollDayInput): boolean {
 }
 
 /**
- * Sum labour day-units across attendance rows for one staff on an event pay run.
- * Present/worked days use hours/10; paid non-work (week off / annual leave) stay 1.0.
+ * Sum labour day-units across attendance rows (hours÷baseline).
+ * Prefer paid day-unit counting on event generate; retained for tests/schedule tooling.
  */
 export function sumLabourDayPayUnitsForStaff(
   days: PayrollDayInput[],
@@ -97,6 +105,41 @@ export function sumLabourDayPayUnitsForStaff(
   return round2(units);
 }
 
+/** Management / HO management are scheduled for ops but never on the event pay run. */
+export function isEventPayrollEligibleCategory(category: EventCrewScheduleCategory): boolean {
+  return category !== "management";
+}
+
+/** Explicit labourer / day-labour role labels (not cleaner / maintenance / crew). */
+export function isEventLabourerRole(roleLabel: string | null | undefined): boolean {
+  const role = String(roleLabel ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, " ");
+  if (!role) return false;
+  if (/\blabou?r(?:er|ers|ing)?\b/.test(role)) return true;
+  if (role.includes("عامل")) return true;
+  return false;
+}
+
+/**
+ * Resolve labour vs staff pay track for an event assignment.
+ * Returns null when the person must be excluded (management).
+ * Prefer explicit event role kind=labour; then labourer role_label; else staff.
+ */
+export function resolveEventPayTrack(
+  input: EventCrewScheduleCategoryInput & {
+    assignment_type?: string | null;
+    role_kind?: string | null;
+  },
+): EventPayTrack | null {
+  const category = resolveEventCrewScheduleCategory(input);
+  if (!isEventPayrollEligibleCategory(category)) return null;
+  if (String(input.role_kind ?? "").toLowerCase() === "labour") return "labour";
+  if (isEventLabourerRole(input.role_label)) return "labour";
+  return "staff";
+}
+
 export type EventPayAssignmentLike = {
   staff_id: string;
   assignment_type: string;
@@ -104,6 +147,11 @@ export type EventPayAssignmentLike = {
   date_to: string;
   pay_on_event_run: boolean;
 };
+
+export type EventPayAssignmentWithRole = EventPayAssignmentLike &
+  EventCrewScheduleCategoryInput & {
+    role_kind?: string | null;
+  };
 
 export type EventPaidDayKey = `${string}|${string}`; // staffId|YYYY-MM-DD
 
@@ -131,6 +179,7 @@ export function collectEventPaidDays(
 
 /**
  * Staff included on an event pay run: pay_on_event_run assignments overlapping the period window.
+ * Does not apply management exclusion — prefer staffIdsForEventPayRunByTrack when role meta is available.
  */
 export function staffIdsForEventPayRun(
   assignments: EventPayAssignmentLike[],
@@ -144,6 +193,29 @@ export function staffIdsForEventPayRun(
     ids.add(a.staff_id);
   }
   return [...ids];
+}
+
+/**
+ * Split event pay-run staff into labour vs staff tracks; management is omitted from both.
+ */
+export function staffIdsForEventPayRunByTrack(
+  assignments: EventPayAssignmentWithRole[],
+  dateFrom: string,
+  dateTo: string,
+): { labour: string[]; staff: string[]; all: string[] } {
+  const labour = new Set<string>();
+  const staff = new Set<string>();
+  for (const a of assignments) {
+    if (!a.pay_on_event_run) continue;
+    if (a.date_to < dateFrom || a.date_from > dateTo) continue;
+    const track = resolveEventPayTrack(a);
+    if (track === "labour") labour.add(a.staff_id);
+    else if (track === "staff") staff.add(a.staff_id);
+  }
+  // Prefer labour track when the same person appears under both labels.
+  for (const id of labour) staff.delete(id);
+  const all = [...new Set([...labour, ...staff])];
+  return { labour: [...labour], staff: [...staff], all };
 }
 
 /**
@@ -161,6 +233,25 @@ export function excludeEventPaidDaysFromMonthly(
     if (!staffId || !workDate) return true;
     return !eventPaidDays.has(eventPaidDayKey(staffId, workDate));
   });
+}
+
+/**
+ * Event pay calendar window = open dates only (event_start → event_end).
+ * Falls back to venue/setup/dismantle only when open dates are missing.
+ */
+export function eventPayOpenWindow(event: {
+  event_start?: string | null;
+  event_end?: string | null;
+  venue_access?: string | null;
+  setup_start?: string | null;
+  dismantle_end?: string | null;
+}): { dateFrom: string; dateTo: string } {
+  const dateFrom =
+    String(event.event_start ?? event.venue_access ?? event.setup_start ?? "").slice(0, 10) ||
+    new Date().toISOString().slice(0, 10);
+  const dateTo =
+    String(event.event_end ?? event.dismantle_end ?? dateFrom).slice(0, 10) || dateFrom;
+  return { dateFrom, dateTo: dateTo < dateFrom ? dateFrom : dateTo };
 }
 
 /** Synthetic YYYY-MM for event period row (sorting); uniqueness is on event_id. */

@@ -13,6 +13,7 @@ import {
   listEvents,
   listMyEventTasks,
 } from "@/lib/events.functions";
+import { getEventRoles } from "@/lib/event-roles.functions";
 import { getEventStaffAssignments } from "@/lib/event-staff-assignments.functions";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -99,6 +100,15 @@ export function useEventStaffAssignments(eventId?: string | null) {
   return useQuery({
     queryKey: queryKeys.events.staffing(eventId),
     queryFn: () => getEventStaffAssignments({ eventId: eventId! }),
+    enabled: Boolean(eventId),
+    staleTime: STALE.events,
+  });
+}
+
+export function useEventRoles(eventId?: string | null) {
+  return useQuery({
+    queryKey: queryKeys.events.roles(eventId),
+    queryFn: () => getEventRoles({ eventId: eventId! }),
     enabled: Boolean(eventId),
     staleTime: STALE.events,
   });

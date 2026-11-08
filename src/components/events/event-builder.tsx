@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { CreateEventSiteDialog } from "@/components/events/create-event-site-dialog";
 import { EventAiAssist } from "@/components/events/event-ai-assist";
+import { EventRolesPanel } from "@/components/events/event-roles-panel";
 import { EventSetupStepper } from "@/components/events/event-setup-stepper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useEvent, useEventBudget, useEventOptions, useEventPlan, useEventScope } from "@/hooks/queries/useEvents";
+import {
+  useEvent,
+  useEventBudget,
+  useEventOptions,
+  useEventPlan,
+  useEventRoles,
+  useEventScope,
+} from "@/hooks/queries/useEvents";
 import { usePermission } from "@/hooks/use-permission";
 import { fmtQar } from "@/lib/currency";
 import {
@@ -36,6 +44,10 @@ import {
   upsertEventTask,
 } from "@/lib/events.functions";
 import { EVENT_PRIORITIES, type EventPriority } from "@/lib/events/constants";
+import {
+  DEFAULT_EVENT_ROLE_CATALOG,
+  type EventRoleDraft,
+} from "@/lib/events/event-roles";
 import { EVENT_SETUP_STEPS, mergeScopeSections, type EventSetupStepId } from "@/lib/events/setup";
 import { STANDARD_WORKSTREAMS } from "@/lib/events/workstreams";
 import { formatLocationLabel } from "@/lib/locations/normalize";
@@ -122,6 +134,7 @@ export function EventBuilder({
   const scopeQ = useEventScope(eventId);
   const planQ = useEventPlan(eventId);
   const budgetQ = useEventBudget(eventId);
+  const rolesQ = useEventRoles(eventId);
 
   const [step, setStep] = useState<EventSetupStepId>(initialStep);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -133,6 +146,9 @@ export function EventBuilder({
   const [draft, setDraft] = useState<DraftFields | null>(null);
   const [siteDialogOpen, setSiteDialogOpen] = useState(false);
   const [extraSites, setExtraSites] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [roleDrafts, setRoleDrafts] = useState<EventRoleDraft[]>(() =>
+    DEFAULT_EVENT_ROLE_CATALOG.map((r) => ({ ...r })),
+  );
 
   useEffect(() => {
     setStep(initialStep);
@@ -327,7 +343,7 @@ export function EventBuilder({
         if (!result.ok) throw new Error(result.error);
         return { id: eventId };
       }
-      const result = await createEvent(payload);
+      const result = await createEvent({ ...payload, roles: roleDrafts });
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
@@ -564,6 +580,16 @@ export function EventBuilder({
             {t("events.fields.description")}
             <Textarea rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} />
           </label>
+          {!eventId ? (
+            <div className="sm:col-span-2">
+              <EventRolesPanel
+                eventId={null}
+                roles={roleDrafts}
+                canEdit
+                onDraftChange={setRoleDrafts}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -751,6 +777,15 @@ export function EventBuilder({
             pending={generate.isPending}
             onGenerate={() => generate.mutate("tasks")}
             hint={t("events.builder.ai.teamHint")}
+          />
+          <EventRolesPanel
+            eventId={eventId}
+            roles={eventId ? (rolesQ.data?.roles ?? roleDrafts) : roleDrafts}
+            canEdit
+            onChanged={() => {
+              void qc.invalidateQueries({ queryKey: queryKeys.events.roles(eventId) });
+            }}
+            onDraftChange={setRoleDrafts}
           />
           <div className="space-y-2 rounded-2xl border border-border/40 bg-card p-4">
             {visibleTasks.map((task, idx) => (

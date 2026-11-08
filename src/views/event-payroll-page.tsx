@@ -80,7 +80,11 @@ export default function EventPayrollPage() {
       const created = await createEventPayrollPeriod({ eventId: id });
       await qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id), "payroll"] });
       toast.success(
-        created.reused ? t("events.payroll.toasts.exists") : t("events.payroll.toasts.created"),
+        created.windowSynced
+          ? t("events.payroll.toasts.windowSynced")
+          : created.reused
+            ? t("events.payroll.toasts.exists")
+            : t("events.payroll.toasts.created"),
       );
       return created.id;
     } catch (e) {
@@ -192,15 +196,26 @@ export default function EventPayrollPage() {
       ) : (
         <section className="space-y-3 rounded-2xl border border-border/40 bg-card p-4">
           <p className="text-sm text-muted-foreground">{t("events.payroll.hint")}</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground/80">{t("events.payroll.trackLabourTitle")}</p>
+              <p>{t("events.payroll.trackLabourBody")}</p>
+            </div>
+            <div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground/80">{t("events.payroll.trackStaffTitle")}</p>
+              <p>{t("events.payroll.trackStaffBody")}</p>
+            </div>
+          </div>
           <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground/80">{t("events.payroll.policyTitle")}</p>
             <ul className="list-disc ps-4 space-y-0.5">
-              <li>{t("events.payroll.policyHoCutoff")}</li>
-              <li>{t("events.payroll.policyHoMode")}</li>
+              <li>{t("events.payroll.policyDuration")}</li>
+              <li>{t("events.payroll.policyLabour")}</li>
+              <li>{t("events.payroll.policyStaff")}</li>
+              <li>{t("events.payroll.policyManagement")}</li>
               <li>{t("events.payroll.policyVenue")}</li>
               <li>{t("events.payroll.policyPunches")}</li>
               <li>{t("events.payroll.policyLoaned")}</li>
-              <li>{t("events.payroll.policyEventOnly")}</li>
             </ul>
           </div>
           <p className="text-xs text-muted-foreground">{t("events.payroll.wpsGap")}</p>

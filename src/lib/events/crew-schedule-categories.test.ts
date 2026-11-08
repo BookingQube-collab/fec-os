@@ -5,6 +5,7 @@ import {
   eventCrewScheduleAllowsPeopleFallback,
   eventCrewScheduleCategoryRoleLabel,
   groupByEventCrewScheduleCategory,
+  isEventCrewScheduleActiveStaffStatus,
   isLabourStyleEventCrewCategory,
   resolveEventCrewScheduleCategory,
   selectCrewForScheduleCategory,
@@ -191,6 +192,25 @@ describe("eventCrewScheduleAllowsPeopleFallback", () => {
   });
 });
 
+describe("isEventCrewScheduleActiveStaffStatus", () => {
+  it("keeps blank, active, leave, notice, and joker", () => {
+    expect(isEventCrewScheduleActiveStaffStatus(null)).toBe(true);
+    expect(isEventCrewScheduleActiveStaffStatus("")).toBe(true);
+    expect(isEventCrewScheduleActiveStaffStatus("active")).toBe(true);
+    expect(isEventCrewScheduleActiveStaffStatus("on_leave")).toBe(true);
+    expect(isEventCrewScheduleActiveStaffStatus("serving_notice")).toBe(true);
+    expect(isEventCrewScheduleActiveStaffStatus("joker")).toBe(true);
+  });
+
+  it("drops terminated, inactive, resigned, and contract finished", () => {
+    expect(isEventCrewScheduleActiveStaffStatus("terminated")).toBe(false);
+    expect(isEventCrewScheduleActiveStaffStatus("inactive")).toBe(false);
+    expect(isEventCrewScheduleActiveStaffStatus("released")).toBe(false);
+    expect(isEventCrewScheduleActiveStaffStatus("resigned")).toBe(false);
+    expect(isEventCrewScheduleActiveStaffStatus("contract_finished")).toBe(false);
+  });
+});
+
 describe("selectStaffOptionsForScheduleCategory", () => {
   const pool = [
     {
@@ -198,12 +218,14 @@ describe("selectStaffOptionsForScheduleCategory", () => {
       source: "staffing" as const,
       role_label: "Crew",
       job_title: "Crew / Attendant",
+      status: "active",
     },
     {
       staff_id: "staffing-cleaner",
       source: "staffing" as const,
       role_label: "Cleaner",
       job_title: "Cleaner",
+      status: "active",
     },
     {
       staff_id: "ho-only",
@@ -211,6 +233,7 @@ describe("selectStaffOptionsForScheduleCategory", () => {
       role_label: null,
       job_title: "General Manager",
       is_head_office: true,
+      status: "active",
     },
     {
       staff_id: "people-crew-leak",
@@ -218,6 +241,22 @@ describe("selectStaffOptionsForScheduleCategory", () => {
       role_label: null,
       job_title: "Crew / Attendant",
       is_head_office: false,
+      status: "active",
+    },
+    {
+      staff_id: "terminated-ho",
+      source: "head_office" as const,
+      role_label: null,
+      job_title: "General Manager",
+      is_head_office: true,
+      status: "terminated",
+    },
+    {
+      staff_id: "terminated-crew",
+      source: "staffing" as const,
+      role_label: "Crew",
+      job_title: "Crew / Attendant",
+      status: "terminated",
     },
   ];
 
@@ -241,5 +280,39 @@ describe("selectStaffOptionsForScheduleCategory", () => {
     expect(
       selectStaffOptionsForScheduleCategory(pool, "crew").some((s) => s.staff_id === "people-crew-leak"),
     ).toBe(false);
+  });
+
+  it("excludes terminated staff from role picker options", () => {
+    expect(
+      selectStaffOptionsForScheduleCategory(pool, "crew").some((s) => s.staff_id === "terminated-crew"),
+    ).toBe(false);
+    expect(
+      selectStaffOptionsForScheduleCategory(pool, "management").some(
+        (s) => s.staff_id === "terminated-ho",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("selectCrewForScheduleCategory active filter", () => {
+  it("skips terminated candidates for role-only add", () => {
+    const targets = selectCrewForScheduleCategory(
+      [
+        {
+          staff_id: "active-crew",
+          role_label: "Crew",
+          job_title: "Crew / Attendant",
+          status: "active",
+        },
+        {
+          staff_id: "gone-crew",
+          role_label: "Crew",
+          job_title: "Crew / Attendant",
+          status: "terminated",
+        },
+      ],
+      "crew",
+    );
+    expect(targets.map((t) => t.staff_id)).toEqual(["active-crew"]);
   });
 });

@@ -97,6 +97,9 @@ async function listAssignmentRows(
     staff_id: string;
     assignment_type: string;
     role_label: string;
+    event_role_id?: string | null;
+    hours_per_day?: number | null;
+    day_rate_qar?: number | null;
     date_from: string;
     date_to: string;
     pay_on_event_run: boolean;
@@ -112,13 +115,25 @@ async function listAssignmentRows(
     const res = await context.supabase
       .from("event_staff_assignments")
       .select(
-        "id, event_id, staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run, notes, status, closed_at, created_at, updated_at",
+        "id, event_id, staff_id, assignment_type, role_label, event_role_id, hours_per_day, day_rate_qar, date_from, date_to, pay_on_event_run, notes, status, closed_at, created_at, updated_at",
       )
       .eq("event_id", eventId)
       .order("date_from", { ascending: true })
       .order("created_at", { ascending: true });
     error = res.error;
     rows = (res.data as AssignmentSelectRow[] | null) ?? null;
+  }
+  if (error && /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(error.message)) {
+    const legacy = await context.supabase
+      .from("event_staff_assignments")
+      .select(
+        "id, event_id, staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run, notes, status, closed_at, created_at, updated_at",
+      )
+      .eq("event_id", eventId)
+      .order("date_from", { ascending: true })
+      .order("created_at", { ascending: true });
+    error = legacy.error;
+    rows = (legacy.data as AssignmentSelectRow[] | null) ?? null;
   }
   if (error && /status|closed_at|schema cache/i.test(error.message)) {
     const fallback = await context.supabase
@@ -185,6 +200,13 @@ async function listAssignmentRows(
       staff_location_id: s?.location_id ?? null,
       assignment_type: assignmentType,
       role_label: (r.role_label as string) || "crew",
+      event_role_id: (r.event_role_id as string | null | undefined) ?? null,
+      hours_per_day:
+        r.hours_per_day == null || r.hours_per_day === undefined
+          ? null
+          : Number(r.hours_per_day),
+      day_rate_qar:
+        r.day_rate_qar == null || r.day_rate_qar === undefined ? null : Number(r.day_rate_qar),
       date_from: r.date_from as string,
       date_to: r.date_to as string,
       pay_on_event_run: Boolean(r.pay_on_event_run),
@@ -266,6 +288,9 @@ const UpsertAssignmentSchema = z.object({
   staff_id: z.string().uuid(),
   assignment_type: AssignmentTypeSchema,
   role_label: z.string().min(1).max(120).default("crew"),
+  event_role_id: z.string().uuid().optional().nullable(),
+  hours_per_day: z.number().min(1).max(24).optional().nullable(),
+  day_rate_qar: z.number().min(0).optional().nullable(),
   date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   pay_on_event_run: z.boolean().optional(),
@@ -304,6 +329,9 @@ export const upsertEventStaffAssignment = createAuthenticatedAction(
       staff_id: data.staff_id,
       assignment_type: data.assignment_type,
       role_label: data.role_label.trim() || "crew",
+      event_role_id: data.event_role_id ?? null,
+      hours_per_day: data.hours_per_day ?? null,
+      day_rate_qar: data.day_rate_qar ?? null,
       date_from: data.date_from,
       date_to: data.date_to,
       pay_on_event_run: payOn,
@@ -319,15 +347,35 @@ export const upsertEventStaffAssignment = createAuthenticatedAction(
         .update(payload)
         .eq("id", data.id)
         .eq("event_id", data.eventId);
-      if (error) throw error;
+      if (error && /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(error.message)) {
+        const { event_role_id: _r, hours_per_day: _h, day_rate_qar: _d, ...legacy } = payload;
+        const { error: legacyErr } = await context.supabase
+          .from("event_staff_assignments")
+          .update(legacy)
+          .eq("id", data.id)
+          .eq("event_id", data.eventId);
+        if (legacyErr) throw legacyErr;
+      } else if (error) throw error;
     } else {
       const { data: created, error } = await context.supabase
         .from("event_staff_assignments")
         .insert({ ...payload, created_by: context.userId })
         .select("id")
         .single();
-      if (error) throw error;
-      assignmentId = created.id as string;
+      if (error && /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(error.message)) {
+        const { event_role_id: _r, hours_per_day: _h, day_rate_qar: _d, ...legacy } = payload;
+        const retry = await context.supabase
+          .from("event_staff_assignments")
+          .insert({ ...legacy, created_by: context.userId })
+          .select("id")
+          .single();
+        if (retry.error) throw retry.error;
+        assignmentId = retry.data.id as string;
+      } else if (error) {
+        throw error;
+      } else {
+        assignmentId = created.id as string;
+      }
     }
 
     const after = await listAssignmentRows(context, data.eventId);
@@ -384,6 +432,9 @@ const CreateEventHireSchema = z.object({
   fullName: z.string().min(1).max(200),
   jobTitle: z.string().max(200).optional(),
   role_label: z.string().min(1).max(120).default("crew"),
+  event_role_id: z.string().uuid().optional().nullable(),
+  hours_per_day: z.number().min(1).max(24).optional().nullable(),
+  day_rate_qar: z.number().min(0).optional().nullable(),
   date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   pay_on_event_run: z.boolean().optional(),
@@ -489,23 +540,40 @@ export const createEventHireAndAssign = createAuthenticatedAction(
       emptyText(data.notes) ??
       `Event-only hire for event ${data.eventId.slice(0, 8)}… (${data.date_from}–${data.date_to})`;
 
-    const { data: assignment, error: assignErr } = await context.supabase
+    const hirePayload = {
+      event_id: data.eventId,
+      staff_id: staffId,
+      assignment_type: "event_hire" as const,
+      role_label: data.role_label.trim() || "crew",
+      event_role_id: data.event_role_id ?? null,
+      hours_per_day: data.hours_per_day ?? null,
+      day_rate_qar: data.day_rate_qar ?? null,
+      date_from: data.date_from,
+      date_to: data.date_to,
+      pay_on_event_run: payOn,
+      notes: hireNote,
+      created_by: context.userId,
+      updated_by: context.userId,
+    };
+    let assignmentInsert = await context.supabase
       .from("event_staff_assignments")
-      .insert({
-        event_id: data.eventId,
-        staff_id: staffId,
-        assignment_type: "event_hire",
-        role_label: data.role_label.trim() || "crew",
-        date_from: data.date_from,
-        date_to: data.date_to,
-        pay_on_event_run: payOn,
-        notes: hireNote,
-        created_by: context.userId,
-        updated_by: context.userId,
-      })
+      .insert(hirePayload)
       .select("id")
       .single();
-    if (assignErr) throw assignErr;
+    if (
+      assignmentInsert.error &&
+      /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(assignmentInsert.error.message)
+    ) {
+      const { event_role_id: _r, hours_per_day: _h, day_rate_qar: _d, ...legacy } = hirePayload;
+      assignmentInsert = await context.supabase
+        .from("event_staff_assignments")
+        .insert(legacy)
+        .select("id")
+        .single();
+    }
+    if (assignmentInsert.error) throw assignmentInsert.error;
+    const assignment = assignmentInsert.data;
+    if (!assignment) throw new Error("Failed to create assignment");
 
     const after = await listAssignmentRows(context, data.eventId);
     await syncEventCrewReadiness(context, data.eventId, eventCrewReadinessMet(after));
