@@ -251,6 +251,7 @@
     "recruitment": "Recruitment",
     "onboardingOffboarding": "Onboarding & offboarding",
     "eventStaff": "Event Staff",
+    "peopleEvents": "Event workforce",
     "eventCrew": "Event crew",
     "eventAttendance": "Event attendance",
     "eventPayroll": "Event payroll",
@@ -270,6 +271,7 @@
     "peopleSectionWorkspace": "Workspace",
     "peopleSectionPeople": "People",
     "peopleSectionWorkTime": "Work & time",
+    "peopleSectionEvents": "Events",
     "peopleSectionPay": "Pay & benefits",
     "peopleSectionServices": "HR services",
     "peopleSectionDevelopment": "Development",
@@ -9029,6 +9031,13 @@
     "kicker": "People & HR",
     "noAccess": "You do not have access to event workforce modules.",
     "setupHint": "Events is for setup. Ongoing attendance, crew, and payroll manage live here in People & HR.",
+    "hub": {
+      "title": "Event workforce",
+      "subtitle": "Attendance, crew, and payroll for events — managed in People & HR. Open a module below.",
+      "openModule": "Open",
+      "openEventsSetup": "Events setup",
+      "correctionsHint": "Punch corrections for a specific event stay on that event’s Corrections tab. Open Event attendance, then Corrections for a day."
+    },
     "filters": {
       "event": "Event",
       "allEvents": "All events",

@@ -200,12 +200,18 @@ describe("admin sidebar visibility", () => {
       "nav.peopleSectionWorkspace",
       "nav.peopleSectionPeople",
       "nav.peopleSectionWorkTime",
+      "nav.peopleSectionEvents",
       "nav.peopleSectionPay",
       "nav.peopleSectionServices",
       "nav.peopleSectionDevelopment",
       "nav.peopleSectionInsights",
       "nav.peopleSectionAdmin",
     ]);
+    expect(
+      clusterItemsBySection(flyout)
+        .find((block) => block.sectionKey === "nav.peopleSectionEvents")
+        ?.items.map((item) => item.href),
+    ).toEqual(["/people/events", "/people/event-crew", "/people/event-attendance", "/people/event-payroll"]);
     expect(flyout.every((link) => Boolean(link.sectionKey))).toBe(true);
     expect(
       clusterItemsBySection(flyout).find((block) => block.sectionKey === "nav.peopleSectionWorkspace")?.items.map((item) => item.labelKey),
@@ -252,6 +258,7 @@ describe("admin sidebar visibility", () => {
         "nav.hrProbationExit",
         "nav.teamOverview",
         "nav.hrWorkforce",
+        "nav.peopleEvents",
         "nav.eventCrew",
         "nav.eventAttendance",
         "nav.attendance",
@@ -287,6 +294,7 @@ describe("admin sidebar visibility", () => {
         "/people/import",
         "/people/leave",
         "/people/payroll",
+        "/people/events",
         "/people/event-crew",
         "/people/event-attendance",
         "/people/event-payroll",

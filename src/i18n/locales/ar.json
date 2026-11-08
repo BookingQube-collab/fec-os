@@ -250,6 +250,7 @@
     "recruitment": "التوظيف",
     "onboardingOffboarding": "التهيئة وإنهاء الخدمة",
     "eventStaff": "موظفو الفعاليات",
+    "peopleEvents": "قوى العمل للفعاليات",
     "eventCrew": "طاقم الفعاليات",
     "eventAttendance": "حضور الفعاليات",
     "eventPayroll": "رواتب الفعاليات",
@@ -269,6 +270,7 @@
     "peopleSectionWorkspace": "مساحة العمل",
     "peopleSectionPeople": "الموظفون",
     "peopleSectionWorkTime": "العمل والوقت",
+    "peopleSectionEvents": "الفعاليات",
     "peopleSectionPay": "الرواتب والمزايا",
     "peopleSectionServices": "خدمات الموارد البشرية",
     "peopleSectionDevelopment": "التطوير",
@@ -8874,6 +8876,13 @@
     "kicker": "الموظفون والموارد البشرية",
     "noAccess": "ليس لديك صلاحية وحدات القوى العاملة للفعاليات.",
     "setupHint": "الفعاليات للإعداد. إدارة الحضور والطاقم والرواتب المستمرة من الموظفين والموارد البشرية.",
+    "hub": {
+      "title": "قوى العمل للفعاليات",
+      "subtitle": "الحضور والطاقم والرواتب للفعاليات — تُدار من الموظفين والموارد البشرية. افتح وحدة أدناه.",
+      "openModule": "فتح",
+      "openEventsSetup": "إعداد الفعاليات",
+      "correctionsHint": "تصحيحات البصمة لفعالية محددة تبقى في تبويب التصحيحات لتلك الفعالية. افتح حضور الفعاليات ثم التصحيحات لليوم."
+    },
     "filters": {
       "event": "الفعالية",
       "allEvents": "كل الفعاليات",
