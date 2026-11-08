@@ -154,7 +154,12 @@ export function EventSchedulePanel({
         {devicesQ.isLoading ? (
           <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
         ) : (devicesQ.data?.devices.length ?? 0) === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("events.schedule.devicesNone")}</p>
+          <div className="space-y-2 rounded-lg border border-dashed border-border/60 bg-muted/30 px-3 py-3">
+            <p className="text-xs text-muted-foreground">{t("events.schedule.devicesNone")}</p>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/people/attendance/settings">{t("events.schedule.devicesOpenAdmin")}</Link>
+            </Button>
+          </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
             {(devicesQ.data?.devices ?? []).map((d) => (
@@ -178,7 +183,8 @@ export function EventSchedulePanel({
                   <span className="font-medium">{d.deviceName}</span>
                   <span className="block text-xs text-muted-foreground">
                     {d.deviceCode}
-                    {d.hostSite ? " · host site" : ""}
+                    {d.locationId == null ? ` · ${t("events.schedule.devicesEventPool")}` : ""}
+                    {d.hostSite ? ` · ${t("events.schedule.devicesHostSite")}` : ""}
                     {d.serialNumber ? ` · ${d.serialNumber}` : ""}
                   </span>
                 </span>

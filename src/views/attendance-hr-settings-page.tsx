@@ -39,6 +39,8 @@ import { STALE } from "@/lib/query-client";
 import Link from "next/link";
 
 const UNASSIGNED_SITE = "__unassigned__";
+const FILTER_ALL = "__all__";
+const FILTER_UNASSIGNED = UNASSIGNED_SITE;
 
 type DeviceRow = {
   id: string;
@@ -54,6 +56,14 @@ type DeviceRow = {
   adms_cmd_queued_at?: string | null;
   adms_attlog_stamp?: string | null;
 };
+
+function siteSelectValue(locationId: string | null | undefined): string {
+  return locationId ?? UNASSIGNED_SITE;
+}
+
+function siteSelectToLocationId(value: string): string | null {
+  return value === UNASSIGNED_SITE ? null : value;
+}
 
 type ResyncMode = "fec_month" | "dates";
 
@@ -112,9 +122,11 @@ export default function AttendanceHrSettingsPage() {
   const [deviceName, setDeviceName] = useState("ZKTeco Device 2");
   const [deviceCode, setDeviceCode] = useState("ZK-2");
   const [deviceSn, setDeviceSn] = useState("");
-  const [locationId, setLocationId] = useState("");
+  const [locationId, setLocationId] = useState(UNASSIGNED_SITE);
+  const [deviceListFilter, setDeviceListFilter] = useState(FILTER_ALL);
   const [snDrafts, setSnDrafts] = useState<Record<string, string>>({});
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const [siteDrafts, setSiteDrafts] = useState<Record<string, string>>({});
   const [testDevice, setTestDevice] = useState<DeviceRow | null>(null);
   const [testBusy, setTestBusy] = useState(false);
 
@@ -134,21 +146,41 @@ export default function AttendanceHrSettingsPage() {
     return null;
   };
 
-  const siteNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of q.data?.sites ?? []) {
-      const loc = s.location as { name?: string; code?: string } | null;
-      map.set(s.location_id, loc ? formatLocationLabel(loc.code, loc.name) : s.location_id);
-    }
-    return map;
-  }, [q.data?.sites]);
+  const siteOptions = useMemo(
+    () => [
+      {
+        value: UNASSIGNED_SITE,
+        label: t("attendanceHr.settings.unassignedSite"),
+        keywords: "unassigned none event pool",
+      },
+      ...(q.data?.sites ?? []).map((s) => {
+        const loc = s.location as { name?: string; code?: string } | null;
+        return {
+          value: s.location_id,
+          label: loc ? formatLocationLabel(loc.code, loc.name) : s.location_id,
+          keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}`,
+        };
+      }),
+    ],
+    [q.data?.sites, t],
+  );
+
+  const allDevices = useMemo(() => (q.data?.devices ?? []) as DeviceRow[], [q.data?.devices]);
+
+  const filteredDevices = useMemo(() => {
+    if (deviceListFilter === FILTER_ALL) return allDevices;
+    if (deviceListFilter === FILTER_UNASSIGNED) return allDevices.filter((d) => !d.location_id);
+    return allDevices.filter((d) => d.location_id === deviceListFilter);
+  }, [allDevices, deviceListFilter]);
+
+  const unassignedCount = useMemo(
+    () => allDevices.filter((d) => !d.location_id).length,
+    [allDevices],
+  );
 
   const resyncDevices = useMemo(
-    () =>
-      ((q.data?.devices ?? []) as DeviceRow[]).filter(
-        (d) => !resyncLocationId || d.location_id === resyncLocationId,
-      ),
-    [q.data?.devices, resyncLocationId],
+    () => allDevices.filter((d) => !resyncLocationId || d.location_id === resyncLocationId),
+    [allDevices, resyncLocationId],
   );
 
   const selectedResyncDevice = useMemo(
@@ -159,7 +191,7 @@ export default function AttendanceHrSettingsPage() {
   const saveDev = useMutation({
     mutationFn: () =>
       saveAttendanceDevice({
-        locationId: locationId === UNASSIGNED_SITE ? null : locationId,
+        locationId: siteSelectToLocationId(locationId),
         deviceCode,
         deviceName,
         vendor: "zkteco",
@@ -168,6 +200,11 @@ export default function AttendanceHrSettingsPage() {
       }),
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.deviceSaved"));
+      setDeviceCode("");
+      setDeviceName("");
+      setDeviceSn("");
+      setLocationId(UNASSIGNED_SITE);
+      if (locationId === UNASSIGNED_SITE) setDeviceListFilter(FILTER_UNASSIGNED);
       invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -205,6 +242,30 @@ export default function AttendanceHrSettingsPage() {
     },
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.nameSaved"));
+      invalidateAttendanceBootstrap(qc);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const saveSite = useMutation({
+    mutationFn: (device: DeviceRow) => {
+      const nextSite = siteDrafts[device.id] ?? siteSelectValue(device.location_id);
+      return saveAttendanceDevice({
+        id: device.id,
+        locationId: siteSelectToLocationId(nextSite),
+        deviceCode: device.device_code,
+        deviceName: (nameDrafts[device.id] ?? device.device_name).trim() || device.device_name,
+        vendor: "zkteco",
+        serialNumber: (snDrafts[device.id] ?? device.serial_number ?? "").trim() || null,
+        connectionMode: (snDrafts[device.id] ?? device.serial_number ?? "").trim() ? "adms" : "file",
+      });
+    },
+    onSuccess: (_result, device) => {
+      toast.success(t("attendanceHr.settings.siteSaved"));
+      setSiteDrafts((prev) => {
+        const next = { ...prev };
+        delete next[device.id];
+        return next;
+      });
       invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -636,8 +697,47 @@ export default function AttendanceHrSettingsPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <NeumorphicCard className="space-y-3 p-5">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.settings.devices")}</h2>
-          {(q.data?.devices ?? []).map((raw) => {
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold">{t("attendanceHr.settings.devices")}</h2>
+              <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.devicesPoolHint")}</p>
+            </div>
+            <Badge variant="secondary">
+              {t("attendanceHr.settings.eventPoolCount", { count: unassignedCount })}
+            </Badge>
+          </div>
+          <div className="space-y-1">
+            <Label>{t("attendanceHr.settings.deviceListFilter")}</Label>
+            <SearchableSelect
+              value={deviceListFilter}
+              onValueChange={setDeviceListFilter}
+              placeholder={t("attendanceHr.settings.deviceListFilterAll")}
+              options={[
+                {
+                  value: FILTER_ALL,
+                  label: t("attendanceHr.settings.deviceListFilterAll"),
+                  keywords: "all",
+                },
+                {
+                  value: FILTER_UNASSIGNED,
+                  label: t("attendanceHr.settings.deviceListFilterUnassigned"),
+                  keywords: "unassigned event pool none",
+                },
+                ...(q.data?.sites ?? []).map((s) => {
+                  const loc = s.location as { name?: string; code?: string } | null;
+                  return {
+                    value: s.location_id,
+                    label: loc ? formatLocationLabel(loc.code, loc.name) : s.location_id,
+                    keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}`,
+                  };
+                }),
+              ]}
+            />
+          </div>
+          {filteredDevices.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.devicesFilterEmpty")}</p>
+          ) : null}
+          {filteredDevices.map((raw) => {
             const src = raw as DeviceRow;
             const d: DeviceRow = {
               id: src.id,
@@ -664,6 +764,8 @@ export default function AttendanceHrSettingsPage() {
             const fetchable = isAdmsDeviceFetchable(d.last_adms_at);
             const fetchDisabled = fetchDev.isPending || !savedSerial || !fetchable;
             const nameDraft = nameDrafts[d.id] ?? d.device_name;
+            const siteDraft = siteDrafts[d.id] ?? siteSelectValue(d.location_id);
+            const siteDirty = siteDraft !== siteSelectValue(d.location_id);
             return (
               <div
                 key={d.id}
@@ -707,6 +809,9 @@ export default function AttendanceHrSettingsPage() {
                         {t("attendanceHr.settings.clearStuckTest")}
                       </Button>
                     ) : null}
+                    {!d.location_id ? (
+                      <Badge variant="secondary">{t("attendanceHr.settings.eventPoolBadge")}</Badge>
+                    ) : null}
                     {presence === "online" ? (
                       <Badge variant="success">{t("attendanceHr.settings.deviceOnline")}</Badge>
                     ) : presence === "stale" ? (
@@ -718,11 +823,30 @@ export default function AttendanceHrSettingsPage() {
                     )}
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {d.location_id
-                    ? (siteNameById.get(d.location_id) ?? d.location_id)
-                    : t("attendanceHr.settings.unassignedSite")}
-                </p>
+                <div className="space-y-1">
+                  <Label htmlFor={`device-site-${d.id}`}>{t("attendanceHr.settings.site")}</Label>
+                  <div className="flex gap-2">
+                    <SearchableSelect
+                      className="min-w-0 flex-1"
+                      value={siteDraft}
+                      onValueChange={(value) =>
+                        setSiteDrafts((prev) => ({ ...prev, [d.id]: value }))
+                      }
+                      placeholder={t("attendanceHr.settings.selectSite")}
+                      options={siteOptions}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="shrink-0"
+                      disabled={saveSite.isPending || !siteDirty}
+                      onClick={() => saveSite.mutate(d)}
+                    >
+                      {saveSite.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                      {t("attendanceHr.settings.saveSite")}
+                    </Button>
+                  </div>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {t("attendanceHr.settings.lastAdmsContact")}:{" "}
                   {lastContact ?? t("attendanceHr.settings.never")}
@@ -812,41 +936,34 @@ export default function AttendanceHrSettingsPage() {
               </div>
             );
           })}
-          <Label>{t("attendanceHr.settings.site")}</Label>
-          <SearchableSelect
-            value={locationId}
-            onValueChange={setLocationId}
-            placeholder={t("attendanceHr.settings.selectSite")}
-            emptyOption={{ value: "", label: t("attendanceHr.settings.selectSite") }}
-            options={[
-              {
-                value: UNASSIGNED_SITE,
-                label: t("attendanceHr.settings.unassignedSite"),
-                keywords: "unassigned none event pool",
-              },
-              ...(q.data?.sites ?? []).map((s) => {
-                const loc = s.location as { name?: string; code?: string } | null;
-                return {
-                  value: s.location_id,
-                  label: loc?.name ?? s.location_id,
-                  keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}`,
-                };
-              }),
-            ]}
-          />
-          <Label>{t("attendanceHr.settings.newDeviceCode")}</Label>
-          <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} />
-          <Label>{t("attendanceHr.settings.name")}</Label>
-          <Input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
-          <Label>{t("attendanceHr.settings.serialNumber")}</Label>
-          <Input
-            value={deviceSn}
-            onChange={(e) => setDeviceSn(e.target.value)}
-            placeholder={t("attendanceHr.settings.serialPlaceholder")}
-          />
-          <Button disabled={saveDev.isPending || !locationId} onClick={() => saveDev.mutate()}>
-            {t("attendanceHr.settings.addDevice")}
-          </Button>
+          <div className="border-t border-border/50 pt-3 space-y-3">
+            <h3 className="text-sm font-semibold">{t("attendanceHr.settings.addDeviceTitle")}</h3>
+            <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.addDeviceHint")}</p>
+            <Label>{t("attendanceHr.settings.site")}</Label>
+            <SearchableSelect
+              value={locationId}
+              onValueChange={setLocationId}
+              placeholder={t("attendanceHr.settings.selectSite")}
+              options={siteOptions}
+            />
+            <Label>{t("attendanceHr.settings.newDeviceCode")}</Label>
+            <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} />
+            <Label>{t("attendanceHr.settings.name")}</Label>
+            <Input value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
+            <Label>{t("attendanceHr.settings.serialNumber")}</Label>
+            <Input
+              value={deviceSn}
+              onChange={(e) => setDeviceSn(e.target.value)}
+              placeholder={t("attendanceHr.settings.serialPlaceholder")}
+            />
+            <Button
+              disabled={saveDev.isPending || !locationId || !deviceCode.trim() || !deviceName.trim()}
+              onClick={() => saveDev.mutate()}
+            >
+              {saveDev.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              {t("attendanceHr.settings.addDevice")}
+            </Button>
+          </div>
         </NeumorphicCard>
         <NeumorphicCard className="space-y-3 p-5">
           <h2 className="text-sm font-semibold">{t("attendanceHr.settings.shifts")}</h2>
