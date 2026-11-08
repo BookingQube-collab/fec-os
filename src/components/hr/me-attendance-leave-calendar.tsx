@@ -171,14 +171,14 @@ function KpiCard({
 }) {
   const toneClass =
     tone === "green"
-      ? "border-emerald-200/80 bg-emerald-50/70 text-emerald-900"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
       : tone === "red"
-        ? "border-rose-200/80 bg-rose-50/70 text-rose-900"
+        ? "border-rose-200 bg-rose-50 text-rose-900"
         : tone === "amber"
-          ? "border-amber-200/80 bg-amber-50/70 text-amber-950"
+          ? "border-amber-200 bg-amber-50 text-amber-950"
           : tone === "indigo"
-            ? "border-indigo-200/80 bg-indigo-50/70 text-indigo-950"
-            : "border-[color:var(--hd-accent)]/25 bg-[color:var(--hd-wash)] text-[color:var(--hd-accent-deep)]";
+            ? "border-indigo-200 bg-indigo-50 text-indigo-950"
+            : "border-[color:var(--hd-accent)]/30 bg-card text-[color:var(--hd-accent-deep)]";
   const iconClass =
     tone === "green"
       ? "bg-emerald-100 text-emerald-700"
@@ -188,7 +188,7 @@ function KpiCard({
           ? "bg-amber-100 text-amber-800"
           : tone === "indigo"
             ? "bg-indigo-100 text-indigo-700"
-            : "bg-[color:var(--hd-accent)]/15 text-[color:var(--hd-accent-deep)]";
+            : "bg-[color:var(--hd-wash)] text-[color:var(--hd-accent-deep)]";
   return (
     <div className={cn("rounded-2xl border px-3 py-3 shadow-sm", toneClass)}>
       <div className="flex items-start justify-between gap-2">
@@ -217,7 +217,7 @@ function SidebarStat({
   tone: StatusCode;
 }) {
   return (
-    <li className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-[color:var(--hd-wash)]/40 px-3 py-2">
+    <li className="flex items-center justify-between gap-2 rounded-xl border border-border bg-[color:var(--hd-wash)] px-3 py-2">
       <span className="inline-flex items-center gap-2 text-sm">
         <span
           className={cn(
@@ -375,7 +375,7 @@ export function MeAttendanceLeaveCalendar() {
     ) : query.isLoading ? (
       <Skeleton className="h-72 w-full rounded-2xl" />
     ) : view === "month" ? (
-      <div className="overflow-x-auto rounded-2xl border border-border/60 bg-background/70 p-2">
+      <div className="overflow-x-auto rounded-2xl border border-border bg-card p-2 shadow-sm">
         <div className="grid min-w-[44rem] grid-cols-7 gap-1">
           {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
             <div key={d} className="px-2 py-1 text-center text-[0.7rem] font-semibold uppercase text-muted-foreground">
@@ -389,7 +389,7 @@ export function MeAttendanceLeaveCalendar() {
                 type="button"
                 onClick={() => openDay(cell.ymd!)}
                 className={cn(
-                  "min-h-[5.25rem] rounded-xl border border-transparent bg-[color:var(--hd-wash)]/60 px-2 py-1.5 text-start transition hover:border-[color:var(--hd-accent)]/40",
+                  "min-h-[5.25rem] rounded-xl border border-transparent bg-[color:var(--hd-wash)] px-2 py-1.5 text-start transition hover:border-[color:var(--hd-accent)]/40",
                   cell.agg.isToday &&
                     "border-[color:var(--electric)] bg-[color:var(--hd-wash)] ring-1 ring-[color:var(--electric)]/40",
                   cell.agg.isFuture && "opacity-80",
@@ -421,7 +421,7 @@ export function MeAttendanceLeaveCalendar() {
             type="button"
             onClick={() => openDay(day.workDate)}
             className={cn(
-              "rounded-2xl border border-border/60 bg-background/80 p-3 text-start",
+              "rounded-2xl border border-border bg-card p-3 text-start shadow-sm",
               day.isToday && "border-[color:var(--electric)] ring-1 ring-[color:var(--electric)]/30",
             )}
           >
@@ -433,7 +433,7 @@ export function MeAttendanceLeaveCalendar() {
         ))}
       </div>
     ) : (
-      <div className="rounded-2xl border border-border/60 bg-background/80 p-4">
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-base font-semibold">{formatWorkDateDdMmYyyy(anchorDate)}</h3>
           <Button type="button" size="sm" variant="outline" onClick={() => openDay(anchorDate)}>
@@ -640,7 +640,7 @@ export function MeAttendanceLeaveCalendar() {
         <div className="min-w-0">{calendarBody}</div>
 
         <aside className="grid gap-3 content-start">
-          <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <h3 className="text-sm font-semibold">
               {t("hr.me.calendarTodaySummary", {
                 date: formatWorkDateDdMmYyyy(data?.today ?? today),
@@ -682,7 +682,7 @@ export function MeAttendanceLeaveCalendar() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <h3 className="text-sm font-semibold">{t("hr.me.calendarLocationToday")}</h3>
             <ul className="mt-3 space-y-2">
               {(data?.locationBreakdown ?? []).length === 0 ? (
@@ -720,7 +720,7 @@ export function MeAttendanceLeaveCalendar() {
               )}
             </ul>
             {(data?.shortageHints.length ?? 0) > 0 ? (
-              <div className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                 <p className="font-semibold">{t("hr.me.calendarShortage")}</p>
                 <ul className="mt-1 space-y-0.5">
                   {data!.shortageHints.slice(0, 4).map((hint) => (
@@ -736,7 +736,7 @@ export function MeAttendanceLeaveCalendar() {
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
-        <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
           <PanelHead
             title={t("hr.me.calendarOnLeaveToday")}
             count={data?.onLeaveToday.length}
@@ -782,7 +782,7 @@ export function MeAttendanceLeaveCalendar() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-rose-200/70 bg-rose-50/50 p-4">
+        <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
           <PanelHead
             title={t("hr.me.calendarExceptions")}
             count={(data?.exceptions ?? []).reduce((sum, g) => sum + g.count, 0)}
@@ -819,7 +819,7 @@ export function MeAttendanceLeaveCalendar() {
           </ul>
         </section>
 
-        <section className="rounded-2xl border border-border/60 bg-background/80 p-4">
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
           <PanelHead
             title={t("hr.me.calendarUpcomingLeaves")}
             count={data?.upcomingLeaves.length}
