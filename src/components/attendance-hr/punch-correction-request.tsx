@@ -13,7 +13,12 @@ import { useUserRoles } from "@/hooks/use-auth";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { formatPunchTime12h } from "@/lib/attendance-display";
 import { findCorrectionDay, listCorrectionSubjects, submitMissedPunchRequest } from "@/lib/attendance-hr.functions";
-import { canRequestAttendanceCorrection } from "@/lib/attendance-hr/missed-punch-approval";
+import { isFnbManager } from "@/lib/arcade/access";
+import {
+  canRequestAttendanceCorrection,
+  isHeadOfOperationsTitle,
+  missedPunchSubmitterAutoCompletesManagerSeat,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { opsApprovalLaneForStaff, opsStepApproverLabel } from "@/lib/approval-ops-routing";
 import { invalidateMissedPunchLists } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
@@ -22,6 +27,11 @@ import { userFacingActionError } from "@/lib/user-facing-action-error";
 
 function clockText(iso: string | null): string {
   return formatPunchTime12h(iso) || "—";
+}
+
+/** Client preview of teamCorrectionRoute when the ops seat is known only by title. */
+function submitsAsOpsSeat(jobTitle: string | null | undefined, department: string | null | undefined): boolean {
+  return isHeadOfOperationsTitle(jobTitle) || isFnbManager(jobTitle, department);
 }
 
 export function PunchCorrectionRequest({
@@ -85,6 +95,20 @@ export function PunchCorrectionRequest({
   const opsLabel = opsStepApproverLabel(
     selectedPerson?.opsLane ?? selfOpsLane,
   );
+  // Mirror teamCorrectionRoute on the client (title-only): ops seat → final,
+  // Sr. Site → ops, Venue / Site / regular supervisor → Sr. Site (line_manager).
+  const teamSubmitRoute = submitsAsOpsSeat(jobTitle, department)
+    ? "final"
+    : missedPunchSubmitterAutoCompletesManagerSeat(jobTitle)
+      ? "ops"
+      : "line_manager";
+  const submitLabel = !forTeam
+    ? t("hr.me.sendToSupervisor")
+    : teamSubmitRoute === "final"
+      ? t("hr.me.approveCorrection")
+      : teamSubmitRoute === "ops"
+        ? t("hr.me.approveAndSendTo", { who: opsLabel })
+        : t("hr.me.sendToWho", { who: t("hr.me.step.manager") });
   const day = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "correction-day", staffId: selectedStaffId, workDate }),
     queryFn: () => findCorrectionDay({ staffId: selectedStaffId, workDate }),
@@ -244,7 +268,7 @@ export function PunchCorrectionRequest({
           (!punchIn && !punchOut)
         }
       >
-        {forTeam ? `Approve and send to ${opsLabel}` : t("hr.me.sendToSupervisor")}
+        {submitLabel}
       </Button>
     </form>
   );
