@@ -84,6 +84,19 @@ function assertFormDatePairs(form: typeof EMPTY_FORM) {
   if (form.dismantle_start && form.dismantle_end && form.dismantle_start > form.dismantle_end) {
     throw new Error("Dismantling start must be on or before dismantling end.");
   }
+  // Setup may end before event open; dismantling may start after close.
+  const setupEnd = form.setup_end || form.setup_start;
+  const eventEnd = form.event_end || form.event_start;
+  const dismantleStart = form.dismantle_start || form.dismantle_end;
+  if (setupEnd && dismantleStart && setupEnd > dismantleStart) {
+    throw new Error("Setup must end on or before dismantling starts.");
+  }
+  if (eventEnd && dismantleStart && dismantleStart < eventEnd) {
+    throw new Error("Dismantling start must be on or after event closing.");
+  }
+  if (setupEnd && eventEnd && setupEnd > eventEnd) {
+    throw new Error("Setup must end on or before event closing.");
+  }
 }
 
 function stepIndex(id: EventSetupStepId) {

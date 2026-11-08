@@ -18,7 +18,6 @@ export function userFacingActionError(error: unknown, fallback: string): string 
   ) {
     return fallback;
   }
-  if (/^(Forbidden|Unauthorized)\b/i.test(msg)) return fallback;
   // Keep remapped OT audit / validation copy; hide raw PostgREST / schema noise.
   if (
     /Could not record OT audit|An active OT claim already exists|Add at least one overtime/i.test(
@@ -27,7 +26,26 @@ export function userFacingActionError(error: unknown, fallback: string): string 
   ) {
     return msg;
   }
-  if (/column|relation|PGRST|schema cache|permission denied|JWT|does not exist/i.test(msg)) {
+  // Constraint failures are actionable — surface them (do not treat "column" alone as schema noise).
+  if (
+    /violates not-null constraint|violates check constraint|violates foreign key|duplicate key value/i.test(
+      msg,
+    )
+  ) {
+    return msg.length > 220 ? `${msg.slice(0, 217)}…` : msg;
+  }
+  if (/Invalid uuid|Validation failed|must be on or before|must be on or after/i.test(msg)) {
+    return msg;
+  }
+  if (/^Forbidden:\s*cannot access this branch/i.test(msg)) {
+    return "You do not have access to the selected site.";
+  }
+  if (/^(Forbidden|Unauthorized)\b/i.test(msg)) return fallback;
+  if (
+    /schema cache|PGRST\d|permission denied|JWT|column .+ does not exist|relation .+ does not exist/i.test(
+      msg,
+    )
+  ) {
     return fallback;
   }
   if (msg.length > 180) return fallback;

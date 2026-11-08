@@ -30,11 +30,25 @@ describe("userFacingActionError", () => {
     );
   });
 
-  it("hides auth and PostgREST noise", () => {
+  it("hides auth and PostgREST schema noise", () => {
     expect(userFacingActionError(new Error("Forbidden: insufficient permissions"), fallback)).toBe(fallback);
     expect(
       userFacingActionError(new Error("column staff_profile_ext.contract_working_days does not exist"), fallback),
     ).toBe(fallback);
+  });
+
+  it("surfaces site access and NOT NULL constraint failures", () => {
+    expect(userFacingActionError(new Error("Forbidden: cannot access this branch"), fallback)).toBe(
+      "You do not have access to the selected site.",
+    );
+    expect(
+      userFacingActionError(
+        new Error(
+          'null value in column "is_addendum" of relation "event_documents" violates not-null constraint',
+        ),
+        fallback,
+      ),
+    ).toBe('null value in column "is_addendum" of relation "event_documents" violates not-null constraint');
   });
 
   it("keeps remapped OT revise audit messages", () => {

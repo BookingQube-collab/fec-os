@@ -319,6 +319,37 @@ function assertDatePairOrder(start: string | null, end: string | null, label: st
   }
 }
 
+/**
+ * Phase gaps are valid: setup may end before event open, dismantling may start after close.
+ * Only reject clearly inverted ranges (dismantle before the event finishes, setup after dismantle).
+ */
+function assertEventPhaseOrder(dates: {
+  setupStart: string | null;
+  setupEnd: string | null;
+  eventStart: string | null;
+  eventEnd: string | null;
+  dismantleStart: string | null;
+  dismantleEnd: string | null;
+}) {
+  const setupEnd = dates.setupEnd ?? dates.setupStart;
+  const eventStart = dates.eventStart;
+  const eventEnd = dates.eventEnd ?? dates.eventStart;
+  const dismantleStart = dates.dismantleStart ?? dates.dismantleEnd;
+  // setup_end < event_start is allowed (gap before open).
+  if (setupEnd && dismantleStart && setupEnd > dismantleStart) {
+    throw new Error("Setup must end on or before dismantling starts.");
+  }
+  if (eventEnd && dismantleStart && dismantleStart < eventEnd) {
+    throw new Error("Dismantling start must be on or after event closing.");
+  }
+  if (setupEnd && eventStart && setupEnd > eventStart) {
+    // Setup may overlap opening days; only block when setup ends after the event itself closes.
+    if (eventEnd && setupEnd > eventEnd) {
+      throw new Error("Setup must end on or before event closing.");
+    }
+  }
+}
+
 function emptyText(v?: string | null) {
   return v && v.trim() ? v.trim() : null;
 }
@@ -492,6 +523,8 @@ async function ensureRequiredEventDocuments(context: AuthContext, eventId: strin
     const have = new Set((legacy ?? []).map((row) => row.doc_type as string));
     const missing = [...REQUIRED_EVENT_DOC_SEEDS, LEGACY_EVENT_BOQ_SEED].filter((seed) => !have.has(seed.doc_type));
     if (!missing.length) return;
+    // Keep the same keys on every row — PostgREST array inserts null missing keys
+    // instead of applying column defaults (breaks NOT NULL is_addendum).
     const { error: insertErr } = await context.supabase.from("event_documents").insert(
       missing.map((seed) => ({
         event_id: eventId,
@@ -499,6 +532,7 @@ async function ensureRequiredEventDocuments(context: AuthContext, eventId: strin
         doc_type: seed.doc_type,
         required: true,
         status: "missing",
+        is_addendum: false,
         created_by: context.userId,
       })),
     );
@@ -515,6 +549,9 @@ async function ensureRequiredEventDocuments(context: AuthContext, eventId: strin
       doc_type: "permit",
       required: true,
       status: "missing",
+      workstream_code: null,
+      wbs_id: null,
+      is_addendum: false,
       created_by: context.userId,
     });
   }
@@ -2646,6 +2683,14 @@ export const createEvent = createSafeAuthenticatedAction(
     assertDatePairOrder(setupStart, setupEnd, "Setup");
     assertDatePairOrder(eventStart, eventEnd, "Event");
     assertDatePairOrder(dismantleStart, dismantleEnd, "Dismantling");
+    assertEventPhaseOrder({
+      setupStart,
+      setupEnd,
+      eventStart,
+      eventEnd,
+      dismantleStart,
+      dismantleEnd,
+    });
 
     const { data: created, error } = await context.supabase
       .from("events")
@@ -2770,6 +2815,14 @@ export const updateEvent = createSafeAuthenticatedAction(
     assertDatePairOrder(setupStart, setupEnd, "Setup");
     assertDatePairOrder(eventStart, eventEnd, "Event");
     assertDatePairOrder(dismantleStart, dismantleEnd, "Dismantling");
+    assertEventPhaseOrder({
+      setupStart,
+      setupEnd,
+      eventStart,
+      eventEnd,
+      dismantleStart,
+      dismantleEnd,
+    });
     const patch = {
       ...rest,
       event_name: emptyText(rest.event_name) ?? rest.name,
