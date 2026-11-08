@@ -125,6 +125,10 @@ export default function EventScopePage() {
         event_type: ev?.event_type_label_en || ev?.event_type_code,
         event_start: ev?.event_start,
         event_end: ev?.event_end,
+        setup_start: ev?.setup_start,
+        setup_end: ev?.setup_end,
+        dismantle_start: ev?.dismantle_start,
+        dismantle_end: ev?.dismantle_end,
       }),
     onSuccess: (result) => {
       setSections(workspaceScopeFromDraft(result.fields.scope_sections));

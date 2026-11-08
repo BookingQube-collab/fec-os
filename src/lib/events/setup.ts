@@ -19,6 +19,7 @@ export const DEFAULT_SCOPE_SECTIONS: EventScopeSection[] = [
   { key: "inclusions", title: "In scope", body: "" },
   { key: "exclusions", title: "Out of scope", body: "" },
   { key: "assumptions", title: "Assumptions", body: "" },
+  { key: "success", title: "Success criteria", body: "" },
 ];
 
 export interface EventSetupFacts {
@@ -220,7 +221,8 @@ export function mergeScopeSections(
     return {
       key,
       title: row?.title || preset?.title || key,
-      body: row?.body ?? "",
+      // Prefer filled incoming text; keep fallback when AI/partial drafts leave a section blank.
+      body: row?.body?.trim() || preset?.body || "",
     };
   });
 }

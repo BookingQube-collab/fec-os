@@ -268,6 +268,11 @@ export function EventBuilder({
     }
   };
 
+  const selectedEventType = useMemo(
+    () => options.data?.types?.find((row) => row.id === form.event_type_id) ?? null,
+    [options.data?.types, form.event_type_id],
+  );
+
   const generate = useMutation({
     mutationFn: (focus: "all" | "scope" | "wbs" | "schedule" | "budget" | "tasks" | "next") =>
       aiDraftEventPlan({
@@ -277,6 +282,7 @@ export function EventBuilder({
         event_name: form.event_name || form.name,
         client_name: form.client_name,
         venue_name: form.venue_name,
+        event_type: selectedEventType?.label_en || selectedEventType?.code || null,
         event_start: form.event_start,
         event_end: form.event_end,
         setup_start: form.setup_start,

@@ -182,11 +182,31 @@ function pickCategory(preferred: string[], available: EventCostCategoryOption[])
   return available[0] ?? null;
 }
 
-function polishSentence(text: string): string {
-  const cleaned = text.replace(/\s+/g, " ").trim();
+function formatYmdLabel(value: string | null | undefined): string | null {
+  if (!isYmd(value)) return null;
+  return value;
+}
+
+function phaseWindowLabel(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  fallback: string,
+): string {
+  const s = formatYmdLabel(start);
+  const e = formatYmdLabel(end);
+  if (s && e) return s === e ? s : `${s} → ${e}`;
+  if (s) return `from ${s}`;
+  if (e) return `through ${e}`;
+  return fallback;
+}
+
+function briefHighlights(notes: string, max = 280): string {
+  const cleaned = notes.replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
-  const capped = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-  return /[.!?]$/.test(capped) ? capped : `${capped}.`;
+  if (cleaned.length <= max) return cleaned;
+  const cut = cleaned.slice(0, max);
+  const at = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "), cut.lastIndexOf(", "));
+  return `${(at > 80 ? cut.slice(0, at + 1) : cut).trim()}…`;
 }
 
 function workstreamPhase(code: WorkstreamCode): LifecyclePhaseCode {
@@ -218,43 +238,75 @@ function templateTasks(windows: ReturnType<typeof suggestPhaseWindows>): EventPl
 
 function templateScope(ctx: EventPlanAiDraftContext): EventScopeSection[] {
   const venue = ctx.venue_name || ctx.location_name || "the venue";
+  const site = ctx.location_name && ctx.venue_name && ctx.location_name !== ctx.venue_name ? ctx.location_name : null;
   const name = ctx.event_name || "this event";
   const brief = ctx.notes.trim();
   const type = ctx.event_type || "FEC activation";
-  const dates =
-    ctx.event_start && ctx.event_end
-      ? `${ctx.event_start} to ${ctx.event_end}`
-      : ctx.event_start
-        ? `opening ${ctx.event_start}`
-        : "dates to be confirmed";
-  const client = ctx.client_name ? ` for ${ctx.client_name}` : "";
+  const client = ctx.client_name?.trim() || null;
+  const openWindow = phaseWindowLabel(ctx.event_start, ctx.event_end, "opening/closing dates TBC");
+  const setupWindow = phaseWindowLabel(ctx.setup_start, ctx.setup_end, "setup dates TBC");
+  const dismantleWindow = phaseWindowLabel(ctx.dismantle_start, ctx.dismantle_end, "dismantle dates TBC");
+  const highlights = briefHighlights(brief);
+  const siteLine = site ? ` (site: ${site})` : "";
 
-  const objectives = brief
-    ? polishSentence(brief)
-    : `Deliver ${name}${client} as a ${type} at ${venue} (${dates}) with a safe, guest-ready operation.`;
+  const objectives = [
+    `Success for ${name} means a safe, guest-ready ${type} at ${venue}${siteLine} that opens and closes on ${openWindow}${client ? `, delivered for ${client}` : ""}.`,
+    highlights
+      ? `Guest experience should reflect the brief (without restating it verbatim): ${highlights}`
+      : "Guest experience should feel intentional for the activation type—clear arrival, working attractions/zones, and staffed touchpoints throughout public hours.",
+    `Ops readiness: setup complete in ${setupWindow}, live operation stable through closing, and orderly dismantle in ${dismantleWindow} with no unresolved critical HSE, permit, or staffing blockers at opening.`,
+  ].join("\n\n");
+
+  const workstreamLines = STANDARD_WORKSTREAMS.map(
+    (ws) =>
+      `- ${ws.title_en}: plan, coordinate, and close deliverables for this workstream across setup, live, and dismantle (owners and task detail follow in the plan).`,
+  ).join("\n");
+
+  const inclusions = [
+    `FEC delivery scope for ${name} at ${venue}${siteLine}:`,
+    `Setup / bump-in (${setupWindow}): site access, build/install, technical fit-out, soft checks, and pre-open readiness against the brief.`,
+    `Live / public operation (${openWindow}): daily ops, staffing coverage, guest flow, attractions/zones called out in the brief, vendor coordination, HSE watch, and issue response during opening hours.`,
+    `Dismantle / bump-out (${dismantleWindow}): de-install, asset recovery, venue reinstatement, and close-out handover.`,
+    "Workstreams and concrete delivery responsibility:",
+    workstreamLines,
+  ].join("\n\n");
+
+  const exclusions = [
+    "Explicitly out of scope unless added by a written change order:",
+    "- Client-side media buying, paid social, or agency retainers not assigned to FEC.",
+    "- Third-party mall or landlord CAPEX / permanent works outside the temporary activation footprint.",
+    "- Content, IP, or brand approvals that remain with the client or rights holder.",
+    "- Permanent store operations, unrelated FEC sites, or other events on the calendar.",
+    "- Any attraction, zone, or vendor not described in the brief or later added to this scope.",
+  ].join("\n");
+
+  const assumptions = [
+    `Venue / landlord access for ${venue} is available for the setup window (${setupWindow}) including agreed load-in routes and storage.`,
+    "Temporary power, data, and base building services required for the build are available or will be confirmed before bump-in.",
+    "Permits and mall approvals needed for a public FEC activation in Qatar are identifiable during feasibility and tracked to clearance before opening.",
+    "Staffing (core + temporary) can be rostered to cover public hours once headcount and roles are confirmed.",
+    client
+      ? `${client} will provide brief clarifications, brand/content approvals, and decision turnaround in time for setup milestones.`
+      : "Client decision turnaround (content, approvals, change requests) stays aligned with setup milestones.",
+    ctx.contracted_value && ctx.contracted_value > 0
+      ? `Budget planning starts from the contracted envelope (QAR ${Math.round(ctx.contracted_value).toLocaleString("en-QA")}); supplier quotes will be confirmed before formal budget approval.`
+      : "Contracted value and supplier quotes will be confirmed before formal budget approval.",
+  ].join("\n");
+
+  const success = [
+    `Open on ${ctx.event_start || "the published opening date"} and operate through ${ctx.event_end || "the published closing date"} at ${venue}${siteLine}.`,
+    `Setup complete by ${ctx.setup_end || ctx.setup_start || "the agreed setup end"} with guest-facing zones/attractions from the brief in a working, guest-ready state.`,
+    "All critical permits / mall clearances resolved before public opening; no open critical HSE findings.",
+    "Opening-day staffing roster filled for guest-facing and ops-critical roles with named coverage for the first public sessions.",
+    `Dismantle started no earlier than closing and completed by ${ctx.dismantle_end || ctx.dismantle_start || "the agreed dismantle end"} with venue reinstatement accepted.`,
+  ].join("\n");
 
   return mergeScopeSections([
     { key: "objectives", title: "What success looks like", body: objectives },
-    {
-      key: "inclusions",
-      title: "In scope",
-      body: `Planning and delivery of the 13 coordinating workstreams for ${name} at ${venue}: operations, creative, production, IT/POS, procurement, logistics, staffing, marketing, venue coordination, vendors, HSE, and maintenance.`,
-    },
-    {
-      key: "exclusions",
-      title: "Out of scope",
-      body: "Client-side marketing media buying, third-party mall capex, and any work not listed in the inclusions unless added by a written change.",
-    },
-    {
-      key: "assumptions",
-      title: "Assumptions",
-      body: `Venue access and power are available for bump-in. Permits are identifiable during feasibility. Contracted value and supplier quotes will be confirmed before budget approval.`,
-    },
-    {
-      key: "success",
-      title: "Success criteria",
-      body: `Open on the published dates at ${venue} with a safe, guest-ready operation and no unresolved critical permits or staffing gaps.`,
-    },
+    { key: "inclusions", title: "In scope", body: inclusions },
+    { key: "exclusions", title: "Out of scope", body: exclusions },
+    { key: "assumptions", title: "Assumptions", body: assumptions },
+    { key: "success", title: "Success criteria", body: success },
   ]);
 }
 
@@ -332,6 +384,18 @@ function normalizeWorkstream(code: string | null | undefined): WorkstreamCode | 
   return STANDARD_WORKSTREAMS.some((w) => w.code === code) ? (code as WorkstreamCode) : null;
 }
 
+/** True when objectives are mostly a paste of the PM brief (the thin-scope failure mode). */
+function objectivesEchoBrief(objectives: string, notes: string): boolean {
+  const o = objectives.replace(/\s+/g, " ").trim().toLowerCase();
+  const n = notes.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!o || !n || n.length < 40) return false;
+  const head = n.slice(0, Math.min(160, n.length));
+  if (o === n || o.startsWith(head) || n.startsWith(o.slice(0, Math.min(160, o.length)))) return true;
+  // Thin single-paragraph objectives that share most of the brief opening.
+  if (o.length < 360 && head.length >= 80 && o.includes(head.slice(0, 80))) return true;
+  return false;
+}
+
 function normalizeDraft(raw: z.infer<typeof EventPlanDraftSchema>, fallback: EventPlanDraft, ctx: EventPlanAiDraftContext): EventPlanDraft {
   const windows = suggestPhaseWindows({ ...ctx, ...raw.event_dates });
   const included = (raw.workstreams ?? [])
@@ -340,13 +404,19 @@ function normalizeDraft(raw: z.infer<typeof EventPlanDraftSchema>, fallback: Eve
     .filter((c): c is WorkstreamCode => Boolean(c));
   const included_workstreams = included.length ? included : fallback.included_workstreams;
 
+  const rawObjectives = raw.scope?.objectives?.trim() || "";
+  const rejectObjectives = objectivesEchoBrief(rawObjectives, ctx.notes);
   const scope_sections = mergeScopeSections(
     [
-      { key: "objectives", title: "What success looks like", body: raw.scope?.objectives?.trim() || "" },
+      { key: "objectives", title: "What success looks like", body: rejectObjectives ? "" : rawObjectives },
       { key: "inclusions", title: "In scope", body: raw.scope?.inclusions?.trim() || "" },
       { key: "exclusions", title: "Out of scope", body: raw.scope?.exclusions?.trim() || "" },
       { key: "assumptions", title: "Assumptions", body: raw.scope?.assumptions?.trim() || "" },
-      { key: "success", title: "Success criteria", body: raw.scope?.success?.trim() || raw.scope?.objectives?.trim() || "" },
+      {
+        key: "success",
+        title: "Success criteria",
+        body: raw.scope?.success?.trim() || (rejectObjectives ? "" : rawObjectives),
+      },
     ].filter((s) => s.body),
     fallback.scope_sections,
   );
@@ -435,9 +505,34 @@ function withFocusDefaults(draft: EventPlanDraft, fallback: EventPlanDraft, focu
   return { ...fallback, next_actions: draft.next_actions.length ? draft.next_actions : fallback.next_actions, risks: draft.risks.length ? draft.risks : fallback.risks };
 }
 
+function buildScopePromptBlock(focus: EventPlanFocus): string[] {
+  const detailed = focus === "scope" || focus === "all";
+  return [
+    "scope: { objectives, inclusions, exclusions, assumptions, success }",
+    detailed
+      ? [
+          "Scope quality rules (critical):",
+          "- Write DETAILED, event-specific multi-paragraph (or multi-bullet) sections. Thin one-liners are not acceptable.",
+          "- objectives (What success looks like): 3 short paragraphs covering (1) business/ops outcomes, (2) guest experience grounded in the brief themes/zones WITHOUT pasting or paraphrasing the brief as the whole section, (3) ops readiness across setup → live → dismantle. Never copy the brief verbatim.",
+          "- inclusions (In scope): structure as Setup / Live / Dismantle phases WITH the concrete dates from Basics, then list workstream deliverables with concrete bullets (not just workstream names).",
+          "- exclusions (Out of scope): explicit exclusions (client media buying, landlord CAPEX, unrelated sites/events, IP/approvals retained by client, anything not in the brief).",
+          "- assumptions: venue access, power/data, permits, staffing availability, budget confirmation, and client dependencies — tie to this venue/client/dates when known.",
+          "- success: measurable criteria — open/close dates, setup complete by setup_end, permits cleared, staffing filled, HSE clear, dismantle complete by dismantle_end, guest-ready opening.",
+          "- Stay grounded in the brief + FEC structure. Do NOT invent vendor/company names, guest counts, brands, or attractions that are not in the brief.",
+          focus === "scope"
+            ? "- This request focuses on scope: prioritise rich scope text. Still return the other JSON keys, but keep tasks/budget concise if needed."
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "scope paragraphs should be professional and specific to this event; do not paste the brief into objectives.",
+  ];
+}
+
 function buildUserPrompt(ctx: EventPlanAiDraftContext): string {
+  const focus = ctx.focus ?? "all";
   const cats = ctx.cost_categories.map((c) => c.code).slice(0, 40).join(", ");
-  const streams = STANDARD_WORKSTREAMS.map((w) => w.code).join(", ");
+  const streams = STANDARD_WORKSTREAMS.map((w) => `${w.code} (${w.title_en})`).join(", ");
   const phases = LIFECYCLE_PHASES.map((p) => p.code).join(", ");
   const signals = ctx.signals
     ? [
@@ -448,35 +543,55 @@ function buildUserPrompt(ctx: EventPlanAiDraftContext): string {
     : "No live operational facts were supplied. Do not invent PRs or uploaded documents.";
   return [
     "Draft a practical event project plan for a Family Entertainment Centre (FEC) operator in Qatar.",
-    `Focus: ${ctx.focus ?? "all"}`,
+    `Focus: ${focus}`,
     `Event: ${ctx.event_name || "Untitled"}`,
     `Client: ${ctx.client_name || "—"}`,
     `Type: ${ctx.event_type || "activation"}`,
-    `Venue: ${ctx.venue_name || ctx.location_name || "TBC"}`,
-    `Dates: ${ctx.event_start || "TBC"} → ${ctx.event_end || "TBC"}`,
+    `Venue: ${ctx.venue_name || "TBC"}`,
+    `Site / location: ${ctx.location_name || "TBC"}`,
+    "Basics dates (YYYY-MM-DD) — use these exactly in scope phases and event_dates; do not invent different ones when provided:",
+    `- planning_start: ${ctx.planning_start || "TBC"}`,
+    `- setup_start: ${ctx.setup_start || "TBC"}`,
+    `- setup_end: ${ctx.setup_end || "TBC"}`,
+    `- event_start (opening): ${ctx.event_start || "TBC"}`,
+    `- event_end (closing): ${ctx.event_end || "TBC"}`,
+    `- dismantle_start: ${ctx.dismantle_start || "TBC"}`,
+    `- dismantle_end: ${ctx.dismantle_end || "TBC"}`,
     `Contracted value (QAR): ${ctx.contracted_value ?? "unknown"}`,
-    `Project manager brief: ${ctx.notes.trim() || "(use standard FEC activation template)"}`,
+    `Project manager brief (source of themes/zones only — do not paste into objectives): ${ctx.notes.trim() || "(use standard FEC activation template)"}`,
     ctx.locale === "ar" ? "Write scope paragraphs and next_actions in Arabic (Qatar office tone)." : "",
     signals,
     "",
     "Return ONLY valid JSON with:",
-    "scope: { objectives, inclusions, exclusions, assumptions, success } — short professional paragraphs, no invented client promises.",
+    ...buildScopePromptBlock(focus),
     "deliverables: [{ title, due_date YYYY-MM-DD }] — match the event type (night market, mall activation, festival, etc.).",
     `workstreams: [{ code, include }] — codes MUST be from: ${streams}. Keep all 13 unless the brief clearly excludes one.`,
     `tasks: 2-4 per included workstream. Each: title, description, workstream_code, lifecycle_phase (one of: ${phases}), start_date, due_date, priority (low|normal|high|urgent|critical), is_critical.`,
-    "Respect event start/end. Planning tasks before bump-in. Operations between event_start and event_end. Bump-out after event_end.",
+    "Respect Basics dates. Planning before setup_start. Setup between setup_start and setup_end. Operations between event_start and event_end. Dismantle between dismantle_start and dismantle_end.",
     `budget_lines: [{ category_code, title, original_amount, notes }] — category_code MUST be one of: ${cats || "contingency"}. Amounts are labelled estimates in QAR. Include a contingency line.`,
     "risks: 3-5 { title, severity }",
     "next_actions: 5-8 short next steps for the PM this week, grounded in the operational facts when present (overdue tasks, pending PRs, missing BOQ/permits, unassigned owners).",
-    "event_dates: planning_start, setup_start, setup_end, event_start, event_end, dismantle_start, dismantle_end as YYYY-MM-DD",
-    "Do not invent guest counts, brands, supplier names, or purchase requests that are not in the brief or operational facts.",
-  ].join("\n");
+    "event_dates: planning_start, setup_start, setup_end, event_start, event_end, dismantle_start, dismantle_end as YYYY-MM-DD (preserve provided Basics dates).",
+    "Do not invent guest counts, brands, supplier/vendor names, or purchase requests that are not in the brief or operational facts.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-export async function completeEventAiJson(messages: ChatMessage[], temperature = 0.3): Promise<unknown | null> {
-  return completeJsonViaGateway(messages, { temperature, moduleSource: "events.plan_draft" });
+const PLAN_DRAFT_MAX_TOKENS = 8192;
+
+export async function completeEventAiJson(
+  messages: ChatMessage[],
+  temperature = 0.3,
+  options?: { maxTokens?: number; moduleSource?: string },
+): Promise<unknown | null> {
+  return completeJsonViaGateway(messages, {
+    temperature,
+    maxTokens: options?.maxTokens,
+    moduleSource: options?.moduleSource ?? "events.plan_draft",
+  });
 }
 
 export async function callEventPlanAiDraft(
@@ -484,14 +599,18 @@ export async function callEventPlanAiDraft(
 ): Promise<{ fields: EventPlanDraft; ai_generated: boolean }> {
   const fallback = buildFallbackEventPlanDraft(ctx);
   const focus = ctx.focus ?? "all";
-  const parsed = await completeEventAiJson([
-    {
-      role: "system",
-      content:
-        "You are an event project-management assistant for FEC venues in Qatar. Output only valid JSON. Stay inside the 13 standard workstreams and 14-phase lifecycle. Budget figures are starting estimates, not commitments. Never invent purchase requests or documents that are not in the supplied facts.",
-    },
-    { role: "user", content: buildUserPrompt(ctx) },
-  ]);
+  const parsed = await completeEventAiJson(
+    [
+      {
+        role: "system",
+        content:
+          "You are an event project-management assistant for FEC venues in Qatar. Output only valid JSON. Stay inside the 13 standard workstreams and 14-phase lifecycle. Budget figures are starting estimates, not commitments. Never invent purchase requests, vendor names, or documents that are not in the supplied facts. For Goal and scope, write detailed operational text — never paste the PM brief into objectives.",
+      },
+      { role: "user", content: buildUserPrompt(ctx) },
+    ],
+    0.3,
+    { maxTokens: PLAN_DRAFT_MAX_TOKENS, moduleSource: "events.plan_draft" },
+  );
   if (!parsed) return { fields: fallback, ai_generated: false };
 
   try {

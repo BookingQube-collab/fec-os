@@ -23,13 +23,14 @@ function toGatewayMessages(messages: ChatMessage[]): AiMessage[] {
  */
 export async function completeTextViaGateway(
   messages: ChatMessage[],
-  options?: { temperature?: number; moduleSource?: string; jsonMode?: boolean },
+  options?: { temperature?: number; moduleSource?: string; jsonMode?: boolean; maxTokens?: number },
 ): Promise<string | null> {
   try {
     const result = await generateText({
       messages: toGatewayMessages(messages),
       temperature: options?.temperature ?? 0.3,
       jsonMode: options?.jsonMode,
+      maxTokens: options?.maxTokens,
       moduleSource: options?.moduleSource ?? "unknown",
     });
     const text = result.text?.trim();
@@ -41,13 +42,14 @@ export async function completeTextViaGateway(
 
 export async function completeJsonViaGateway(
   messages: ChatMessage[],
-  options?: { temperature?: number; moduleSource?: string },
+  options?: { temperature?: number; moduleSource?: string; maxTokens?: number },
 ): Promise<unknown | null> {
   try {
     const result = await generateStructuredOutput({
       messages: toGatewayMessages(messages),
       temperature: options?.temperature ?? 0.3,
       jsonMode: true,
+      maxTokens: options?.maxTokens,
       moduleSource: options?.moduleSource ?? "unknown",
     });
     if (!result.text) return null;
