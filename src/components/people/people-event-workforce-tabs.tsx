@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Banknote,
+  CalendarClock,
   CalendarDays,
   FolderKanban,
   LayoutDashboard,
@@ -21,6 +22,7 @@ export type PeopleEventWorkforceTabId =
   | "overview"
   | "crew"
   | "roles"
+  | "shifts"
   | "attendance"
   | "payroll";
 
@@ -55,6 +57,13 @@ const TABS: readonly TabDef[] = [
     capabilities: ["people.view_roster", "events.view", "attendance.view"],
   },
   {
+    id: "shifts",
+    href: "/people/event-shifts",
+    labelKey: "peopleEvent.tabs.shifts",
+    icon: CalendarClock,
+    capabilities: ["people.view_roster", "events.view", "attendance.view"],
+  },
+  {
     id: "attendance",
     href: "/people/event-attendance",
     labelKey: "peopleEvent.tabs.attendance",
@@ -77,7 +86,7 @@ function pathMatches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Shared module tabs across Event workforce hub + crew / roles / attendance / payroll. */
+/** Shared module tabs across Event workforce hub + crew / roles / shifts / attendance / payroll. */
 export function PeopleEventWorkforceTabs({
   className,
   active,

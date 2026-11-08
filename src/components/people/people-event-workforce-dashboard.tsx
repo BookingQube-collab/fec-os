@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Banknote,
+  CalendarClock,
   CalendarDays,
   ExternalLink,
   FolderKanban,
@@ -276,6 +277,14 @@ export function PeopleEventWorkforceDashboard({
       titleKey: "peopleEvent.crew.title",
       subtitleKey: "peopleEvent.crew.subtitle",
       icon: FolderKanban,
+      visible: canCrew,
+    },
+    {
+      id: "shifts",
+      href: "/people/event-shifts",
+      titleKey: "peopleEvent.shifts.title",
+      subtitleKey: "peopleEvent.shifts.subtitle",
+      icon: CalendarClock,
       visible: canCrew,
     },
     {

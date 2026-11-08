@@ -52,7 +52,9 @@ export default function EventStaffingPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant="outline">
-          <Link href={`/events/${id}/schedule`}>{t("peopleEvent.links.openEventSchedule")}</Link>
+          <Link href={`/people/event-shifts?eventId=${encodeURIComponent(id)}`}>
+            {t("peopleEvent.links.openShifts")}
+          </Link>
         </Button>
         {rolesQ.data?.roles?.some((r) => r.is_active !== false) ? (
           <div className="flex flex-wrap gap-1.5">

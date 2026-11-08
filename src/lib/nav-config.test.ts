@@ -215,6 +215,7 @@ describe("admin sidebar visibility", () => {
       "/people/events",
       "/people/event-crew",
       "/people/event-roles",
+      "/people/event-shifts",
       "/people/event-attendance",
       "/people/event-payroll",
     ]);
@@ -266,6 +267,7 @@ describe("admin sidebar visibility", () => {
         "nav.hrWorkforce",
         "nav.peopleEvents",
         "nav.eventCrew",
+        "nav.eventShifts",
         "nav.eventAttendance",
         "nav.attendance",
         "nav.eventPayroll",
@@ -303,6 +305,7 @@ describe("admin sidebar visibility", () => {
         "/people/events",
         "/people/event-crew",
         "/people/event-roles",
+        "/people/event-shifts",
         "/people/event-attendance",
         "/people/event-payroll",
         "/people/recruitment",

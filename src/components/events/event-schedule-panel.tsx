@@ -81,6 +81,7 @@ export function EventSchedulePanel({
   deviceIds = [],
   headOfficeLocationId = null,
   onChanged,
+  variant = "manage",
 }: {
   eventId: string;
   slots: EventScheduleSlotRow[];
@@ -93,8 +94,11 @@ export function EventSchedulePanel({
   deviceIds?: string[];
   headOfficeLocationId?: string | null;
   onChanged: () => void;
+  /** summary = read-only Ops hub (no create / seed / process / device save). */
+  variant?: "manage" | "summary";
 }) {
   const { t } = useTranslation();
+  const isSummary = variant === "summary";
   const addSectionRef = useRef<HTMLElement | null>(null);
   const activeRoles = roles.filter((r) => r.is_active !== false).sort((a, b) => a.sort_order - b.sort_order);
   const useEventRoles = activeRoles.length > 0;
@@ -134,6 +138,7 @@ export function EventSchedulePanel({
     queryKey: [...queryKeys.events.staffing(eventId), "devices"],
     queryFn: () => listEventLinkableDevices({ eventId }),
     staleTime: STALE.events,
+    enabled: !isSummary,
   });
 
   useEffect(() => {
@@ -397,7 +402,8 @@ export function EventSchedulePanel({
     });
   }
 
-  const editAllowed = canEdit && !crewClosed;
+  const editAllowed = canEdit && !crewClosed && !isSummary;
+  const devicesEditable = canEdit && !isSummary;
 
   async function saveDevices() {
     setBusy(true);
@@ -417,64 +423,68 @@ export function EventSchedulePanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">{t("events.schedule.devicesTitle")}</h2>
-          <p className="text-xs text-muted-foreground">{t("events.schedule.devicesHint")}</p>
-        </div>
-        {devicesQ.isLoading ? (
-          <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
-        ) : (devicesQ.data?.devices.length ?? 0) === 0 ? (
-          <div className="space-y-2 rounded-lg border border-dashed border-border/60 bg-muted/30 px-3 py-3">
-            <p className="text-xs text-muted-foreground">{t("events.schedule.devicesNone")}</p>
-            <Button asChild size="sm" variant="outline">
-              <Link href="/people/attendance/settings">{t("events.schedule.devicesOpenAdmin")}</Link>
-            </Button>
+      {!isSummary ? (
+        <section className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold">{t("events.schedule.devicesTitle")}</h2>
+            <p className="text-xs text-muted-foreground">{t("events.schedule.devicesHint")}</p>
           </div>
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(devicesQ.data?.devices ?? []).map((d) => (
-              <label
-                key={d.id}
-                className="flex items-start gap-2 rounded-lg border border-border/40 px-2 py-1.5 text-sm"
-              >
-                <Checkbox
-                  checked={selectedDevices.has(d.id)}
-                  disabled={!canEdit || busy}
-                  onCheckedChange={(v) => {
-                    setSelectedDevices((prev) => {
-                      const next = new Set(prev);
-                      if (v) next.add(d.id);
-                      else next.delete(d.id);
-                      return next;
-                    });
-                  }}
-                />
-                <span className="min-w-0">
-                  <span className="font-medium">{d.deviceName}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {d.deviceCode}
-                    {d.locationId == null ? ` · ${t("events.schedule.devicesEventPool")}` : ""}
-                    {d.hostSite ? ` · ${t("events.schedule.devicesHostSite")}` : ""}
-                    {d.serialNumber ? ` · ${d.serialNumber}` : ""}
+          {devicesQ.isLoading ? (
+            <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
+          ) : (devicesQ.data?.devices.length ?? 0) === 0 ? (
+            <div className="space-y-2 rounded-lg border border-dashed border-border/60 bg-muted/30 px-3 py-3">
+              <p className="text-xs text-muted-foreground">{t("events.schedule.devicesNone")}</p>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/people/attendance/settings">{t("events.schedule.devicesOpenAdmin")}</Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(devicesQ.data?.devices ?? []).map((d) => (
+                <label
+                  key={d.id}
+                  className="flex items-start gap-2 rounded-lg border border-border/40 px-2 py-1.5 text-sm"
+                >
+                  <Checkbox
+                    checked={selectedDevices.has(d.id)}
+                    disabled={!devicesEditable || busy}
+                    onCheckedChange={(v) => {
+                      setSelectedDevices((prev) => {
+                        const next = new Set(prev);
+                        if (v) next.add(d.id);
+                        else next.delete(d.id);
+                        return next;
+                      });
+                    }}
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium">{d.deviceName}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {d.deviceCode}
+                      {d.locationId == null ? ` · ${t("events.schedule.devicesEventPool")}` : ""}
+                      {d.hostSite ? ` · ${t("events.schedule.devicesHostSite")}` : ""}
+                      {d.serialNumber ? ` · ${d.serialNumber}` : ""}
+                    </span>
                   </span>
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-        {canEdit ? (
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void saveDevices()}>
-            {t("events.schedule.devicesSave")}
-          </Button>
-        ) : null}
-      </section>
+                </label>
+              ))}
+            </div>
+          )}
+          {devicesEditable ? (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void saveDevices()}>
+              {t("events.schedule.devicesSave")}
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-border/40 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold">{t("events.schedule.title")}</h2>
-            <p className="text-xs text-muted-foreground">{t("events.schedule.hint")}</p>
+            <p className="text-xs text-muted-foreground">
+              {isSummary ? t("peopleEvent.shifts.summaryHint") : t("events.schedule.hint")}
+            </p>
             {crewClosed ? (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
                 {t("events.schedule.crewClosed")}
@@ -547,7 +557,7 @@ export function EventSchedulePanel({
                       className={cn("h-7 rounded-full px-3 text-xs", count === 0 && "opacity-60")}
                       onClick={() => {
                         setRoleFilter(role.id);
-                        selectAddEventRole(role.id);
+                        if (!isSummary) selectAddEventRole(role.id);
                       }}
                     >
                       {role.name} ({count})
@@ -575,7 +585,7 @@ export function EventSchedulePanel({
                     className={cn("h-7 rounded-full px-3 text-xs", categoryCounts[cat] === 0 && "opacity-60")}
                     onClick={() => {
                       setCategoryFilter(cat);
-                      selectAddRole(cat);
+                      if (!isSummary) selectAddRole(cat);
                     }}
                   >
                     {categoryLabel(cat)} ({categoryCounts[cat]})
@@ -588,7 +598,9 @@ export function EventSchedulePanel({
 
         {slots.length === 0 ? (
           <div className="space-y-1">
-            <p className="text-sm text-muted-foreground">{t("events.schedule.empty")}</p>
+            <p className="text-sm text-muted-foreground">
+              {isSummary ? t("peopleEvent.shifts.empty") : t("events.schedule.empty")}
+            </p>
             {editAllowed ? (
               <p className="text-xs text-muted-foreground">{t("events.schedule.emptyRoleHint")}</p>
             ) : null}

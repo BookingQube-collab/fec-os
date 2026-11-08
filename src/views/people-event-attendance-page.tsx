@@ -120,8 +120,8 @@ export default function PeopleEventAttendancePage() {
     if (!missed) {
       return (
         <Button asChild size="sm" variant="ghost">
-          <Link href={`/events/${source.eventId}/schedule`}>
-            {t("peopleEvent.links.openEventSchedule")}
+          <Link href={`/people/event-shifts?eventId=${encodeURIComponent(source.eventId)}`}>
+            {t("peopleEvent.links.openShifts")}
           </Link>
         </Button>
       );
@@ -174,9 +174,9 @@ export default function PeopleEventAttendancePage() {
               </Button>
               {eventId ? (
                 <Button asChild size="sm" variant="secondary">
-                  <Link href={`/events/${eventId}/schedule`}>
+                  <Link href={`/people/event-shifts?eventId=${encodeURIComponent(eventId)}`}>
                     <ExternalLink className="me-1.5 h-3.5 w-3.5" />
-                    {t("peopleEvent.links.openEventSchedule")}
+                    {t("peopleEvent.links.openShifts")}
                   </Link>
                 </Button>
               ) : null}

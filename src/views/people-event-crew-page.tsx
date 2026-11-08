@@ -323,9 +323,9 @@ export default function PeopleEventCrewPage() {
                     </Link>
                   </Button>
                   <Button asChild size="sm" variant="outline">
-                    <Link href={`/events/${eventId}/schedule`}>
+                    <Link href={`/people/event-shifts?eventId=${encodeURIComponent(eventId)}`}>
                       <ExternalLink className="me-1.5 h-3.5 w-3.5" />
-                      {t("peopleEvent.links.openEventSchedule")}
+                      {t("peopleEvent.links.openShifts")}
                     </Link>
                   </Button>
                 </>

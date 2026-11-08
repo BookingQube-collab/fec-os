@@ -253,6 +253,8 @@
     "eventStaff": "Event Staff",
     "peopleEvents": "Event workforce",
     "eventCrew": "Event crew",
+    "eventRoles": "Event roles",
+    "eventShifts": "Event shifts",
     "eventAttendance": "Event attendance",
     "eventPayroll": "Event payroll",
     "biometricDevices": "Biometric & devices",
@@ -324,8 +326,7 @@
     "arcadeGroupManuals": "Manuals",
     "arcadeGroupInstalls": "Installations",
     "arcadeGroupMore": "More",
-    "arcadeMoreSections": "More arcade sections",
-    "eventRoles": "Event roles"
+    "arcadeMoreSections": "More arcade sections"
   },
   "hrWorkspace": {
     "staff": "Employee",
@@ -6014,24 +6015,42 @@
         "shift": "Shift",
         "labour": "Labour"
       },
+      "kindLabel": "Type",
+      "sections": {
+        "shift": "Shift roles",
+        "labour": "Labour roles"
+      },
+      "sectionCount": "{{count}} selected",
+      "summary": {
+        "shift": "{{count}} shift",
+        "labour": "{{count}} labour"
+      },
+      "shiftHint": "Scheduled with date and start/end times",
+      "metaHours": "{{hours}}h / day",
+      "metaDayRate": "{{rate}} QAR / day",
       "hoursPerDay": "Hours in a day",
       "dayRate": "Per-day charge (QAR)",
       "dayRateOptional": "Day charge (optional)",
-      "customName": "Custom role name",
+      "customName": "Role name",
+      "customNamePlaceholder": "Custom role name",
+      "addSection": "Add a role",
       "addCustom": "Add role",
       "save": "Save roles",
       "sortOrder": "Sort order",
       "active": "Active",
       "nameRequired": "Role name is required",
-      "deleteTitle": "Delete event role?",
-      "deleteConfirm": "Remove “{{name}}” from this event? If the role is already used on crew or schedule, it will be deactivated instead of deleted.",
+      "deleteTitle": "Delete event role permanently?",
+      "deleteConfirm": "Permanently delete “{{name}}” from this event? This cannot be undone.",
+      "deleteInUseWarning": "“{{name}}” is used on {{assignments}} assignment(s) and {{slots}} schedule slot(s). Those links will be cleared, then the role will be removed completely.",
+      "deleteUsageLoading": "Checking where this role is used…",
+      "deletePermanently": "Delete permanently",
       "labourHint": "Labour pay = (hours worked / hours in a day) x per-day charge after attendance.",
       "toasts": {
         "saved": "Event roles saved",
         "added": "Role added",
         "updated": "Role updated",
         "deleted": "Deleted role “{{name}}”",
-        "deactivatedInUse": "“{{name}}” is in use ({{assignments}} assignment(s), {{slots}} schedule slot(s)) — deactivated instead of deleted"
+        "deletedInUse": "Deleted “{{name}}” and cleared {{assignments}} assignment(s) / {{slots}} schedule slot(s)"
       }
     },
     "staffing": {
@@ -9087,8 +9106,8 @@
     },
     "hub": {
       "title": "Event workforce",
-      "subtitle": "Attendance, crew, roles, and payroll for events — managed in People & HR. Open a module below.",
-      "subtitleDashboard": "Live crew, roles, attendance, and event payroll for People & HR — overview first, modules in the tabs.",
+      "subtitle": "Attendance, crew, roles, shifts, and payroll for events — managed in People & HR. Open a module below.",
+      "subtitleDashboard": "Live crew, roles, shifts, attendance, and event payroll for People & HR — overview first, modules in the tabs.",
       "openModule": "Open",
       "openEventsSetup": "Events setup",
       "correctionsHint": "Punch corrections for a specific event stay on that event’s Corrections tab. Open Event attendance, then Corrections for a day."
@@ -9098,13 +9117,25 @@
       "overview": "Overview",
       "crew": "Crew",
       "roles": "Roles",
+      "shifts": "Shifts",
       "attendance": "Attendance",
       "payroll": "Payroll"
     },
     "roles": {
       "title": "Event roles",
-      "subtitle": "Create, edit, and delete roles for an event. Used by crew assignments and crew schedule.",
+      "subtitle": "Choose shift and labour roles for an event, then edit defaults. Used by crew assignments and crew schedule. Delete removes the role completely.",
       "pickEvent": "Select an event to manage its roles."
+    },
+    "shifts": {
+      "title": "Event shifts",
+      "subtitle": "Create and manage crew schedule shifts for an event — role-wise add, labour days, and attendance devices.",
+      "pickEvent": "Select an event to manage its shifts.",
+      "setupHint": "Shift create and manage live in People & HR. This Events tab is a summary hub with deep links.",
+      "summaryHint": "Read-only crew schedule for this event. Add shifts, seed from crew, devices, and process attendance in People → Event shifts.",
+      "empty": "No schedule yet for this event. Create shifts in People → Event shifts.",
+      "manageShifts": "Manage shifts in People",
+      "hubBadge": "Summary hub",
+      "slotCount": "{{n}} shift slots"
     },
     "dashboard": {
       "kpiOpenEvents": "Open events",
@@ -9158,6 +9189,7 @@
     "links": {
       "openCrew": "Open in People · Event crew",
       "openRoles": "Open in People · Event roles",
+      "openShifts": "Open in People · Event shifts",
       "openAttendance": "Open in People · Event attendance",
       "openPayroll": "Open in People · Event payroll",
       "openEventStaffing": "Event staffing summary",
