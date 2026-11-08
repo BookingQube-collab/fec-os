@@ -7,6 +7,7 @@ import {
   CalendarDays,
   FolderKanban,
   LayoutDashboard,
+  Settings2,
   type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,7 +17,12 @@ import type { Capability } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 
-export type PeopleEventWorkforceTabId = "overview" | "crew" | "attendance" | "payroll";
+export type PeopleEventWorkforceTabId =
+  | "overview"
+  | "crew"
+  | "roles"
+  | "attendance"
+  | "payroll";
 
 type TabDef = {
   id: PeopleEventWorkforceTabId;
@@ -42,6 +48,13 @@ const TABS: readonly TabDef[] = [
     capabilities: ["people.view_roster", "events.view", "attendance.view"],
   },
   {
+    id: "roles",
+    href: "/people/event-roles",
+    labelKey: "peopleEvent.tabs.roles",
+    icon: Settings2,
+    capabilities: ["people.view_roster", "events.view", "attendance.view"],
+  },
+  {
     id: "attendance",
     href: "/people/event-attendance",
     labelKey: "peopleEvent.tabs.attendance",
@@ -64,7 +77,7 @@ function pathMatches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Shared module tabs across Event workforce hub + crew / attendance / payroll. */
+/** Shared module tabs across Event workforce hub + crew / roles / attendance / payroll. */
 export function PeopleEventWorkforceTabs({
   className,
   active,

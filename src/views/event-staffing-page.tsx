@@ -1,57 +1,33 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
-
-import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
-import { EventRolesPanel } from "@/components/events/event-roles-panel";
+import { FecPageHeader } from "@/components/fec";
 import { EventStaffingPanel } from "@/components/events/event-staffing-panel";
 import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  useEvent,
-  useEventOptions,
-  useEventRoles,
-  useEventStaffAssignments,
-} from "@/hooks/queries/useEvents";
-import { usePermission } from "@/hooks/use-permission";
-import { queryKeys } from "@/lib/query-keys";
+import { useEvent, useEventRoles, useEventStaffAssignments } from "@/hooks/queries/useEvents";
 
+/**
+ * Event Ops Staffing tab — hub + read-only summary.
+ * Create/manage crew and roles live in People & HR → Events.
+ */
 export default function EventStaffingPage() {
   const { t } = useTranslation();
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const qc = useQueryClient();
   const eventQ = useEvent(id);
   const staffingQ = useEventStaffAssignments(id);
   const rolesQ = useEventRoles(id);
-  const options = useEventOptions();
-  const canEdit = usePermission("events.edit");
-  const canHire = usePermission("people.edit_roster");
 
   const ev = eventQ.data?.event;
   const title = ev?.name || ev?.event_name || t("nav.events");
   const payload = staffingQ.data;
-  const defaults = useMemo(() => {
-    const from =
-      payload?.eventWindow.dateFrom ??
-      ev?.event_start ??
-      new Date().toISOString().slice(0, 10);
-    const to = payload?.eventWindow.dateTo ?? ev?.event_end ?? from;
-    return { from, to };
-  }, [payload?.eventWindow, ev?.event_start, ev?.event_end]);
-
-  function refresh() {
-    void qc.invalidateQueries({ queryKey: queryKeys.events.staffing(id) });
-    void qc.invalidateQueries({ queryKey: queryKeys.events.roles(id) });
-    void qc.invalidateQueries({ queryKey: queryKeys.events.detail(id) });
-    void qc.invalidateQueries({ queryKey: queryKeys.events.options() });
-  }
 
   return (
     <div className="space-y-4">
@@ -73,38 +49,45 @@ export default function EventStaffingPage() {
       />
       <EventWorkspaceNav eventId={id} />
       <EventWorkforcePeopleLinks eventId={id} focus="crew" />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button asChild size="sm" variant="outline">
+          <Link href={`/events/${id}/schedule`}>{t("peopleEvent.links.openEventSchedule")}</Link>
+        </Button>
+        {rolesQ.data?.roles?.some((r) => r.is_active !== false) ? (
+          <div className="flex flex-wrap gap-1.5">
+            <span className="self-center text-xs text-muted-foreground">
+              {t("peopleEvent.staffingHub.rolesLabel")}
+            </span>
+            {rolesQ.data.roles
+              .filter((r) => r.is_active !== false)
+              .map((r) => (
+                <Badge key={r.id ?? r.code} variant="secondary">
+                  {r.name}
+                </Badge>
+              ))}
+          </div>
+        ) : null}
+      </div>
+
       {staffingQ.isLoading || eventQ.isLoading ? (
         <Skeleton className="h-64 w-full rounded-2xl" />
       ) : staffingQ.isError ? (
         <p className="text-sm text-destructive">{(staffingQ.error as Error).message}</p>
       ) : (
-        <div className="space-y-6">
-          <EventRolesPanel
-            eventId={id}
-            roles={rolesQ.data?.roles ?? []}
-            canEdit={canEdit}
-            onChanged={refresh}
-          />
-          <EventStaffingPanel
-            eventId={id}
-            eventName={title}
-            assignments={payload?.assignments ?? []}
-            roles={rolesQ.data?.roles ?? []}
-            staff={(options.data?.staff as Array<{
-              id: string;
-              full_name: string;
-              employee_code?: string | null;
-              employment_type?: string | null;
-              status?: string | null;
-              job_title?: string | null;
-            }>) ?? []}
-            canEdit={canEdit}
-            canHire={canHire}
-            defaultFrom={defaults.from}
-            defaultTo={defaults.to}
-            onChanged={refresh}
-          />
-        </div>
+        <EventStaffingPanel
+          eventId={id}
+          eventName={title}
+          assignments={payload?.assignments ?? []}
+          roles={rolesQ.data?.roles ?? []}
+          staff={[]}
+          canEdit={false}
+          canHire={false}
+          defaultFrom={payload?.eventWindow.dateFrom ?? ""}
+          defaultTo={payload?.eventWindow.dateTo ?? ""}
+          onChanged={() => undefined}
+          variant="summary"
+        />
       )}
     </div>
   );

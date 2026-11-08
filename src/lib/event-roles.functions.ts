@@ -212,20 +212,31 @@ export const upsertEventRole = createAuthenticatedAction(
   }),
   async (data, context) => {
     await loadEventOrThrow(context, data.eventId);
-    const code = (data.code?.trim() || slugifyEventRoleCode(data.name)).slice(0, 40);
-    const payload = {
-      event_id: data.eventId,
-      code,
-      name: data.name.trim(),
-      kind: data.kind,
-      default_hours_per_day: data.default_hours_per_day ?? 10,
-      default_day_rate_qar: data.default_day_rate_qar ?? null,
-      sort_order: data.sort_order ?? 0,
-      is_active: data.is_active !== false,
-      updated_by: context.userId,
-      updated_at: new Date().toISOString(),
-    };
+    const now = new Date().toISOString();
+
     if (data.id) {
+      const { data: existing, error: existingErr } = await context.supabase
+        .from("event_roles")
+        .select("id, code")
+        .eq("id", data.id)
+        .eq("event_id", data.eventId)
+        .maybeSingle();
+      if (existingErr) throw existingErr;
+      if (!existing) throw new Error("Event role not found");
+
+      // Preserve stable code on rename unless caller explicitly overrides it.
+      const code = (data.code?.trim() || String(existing.code)).slice(0, 40);
+      const payload = {
+        code,
+        name: data.name.trim(),
+        kind: data.kind,
+        default_hours_per_day: data.default_hours_per_day ?? 10,
+        default_day_rate_qar: data.default_day_rate_qar ?? null,
+        sort_order: data.sort_order ?? 0,
+        is_active: data.is_active !== false,
+        updated_by: context.userId,
+        updated_at: now,
+      };
       const { data: updated, error } = await context.supabase
         .from("event_roles")
         .update(payload)
@@ -238,6 +249,43 @@ export const upsertEventRole = createAuthenticatedAction(
       if (error) throw error;
       return { role: mapRoleRow(updated as Record<string, unknown>) };
     }
+
+    const code = (data.code?.trim() || slugifyEventRoleCode(data.name)).slice(0, 40);
+    const payload = {
+      event_id: data.eventId,
+      code,
+      name: data.name.trim(),
+      kind: data.kind,
+      default_hours_per_day: data.default_hours_per_day ?? 10,
+      default_day_rate_qar: data.default_day_rate_qar ?? null,
+      sort_order: data.sort_order ?? 0,
+      is_active: data.is_active !== false,
+      updated_by: context.userId,
+      updated_at: now,
+    };
+
+    // Revive soft-deactivated role with the same code instead of unique-constraint failure.
+    const { data: prior, error: priorErr } = await context.supabase
+      .from("event_roles")
+      .select("id")
+      .eq("event_id", data.eventId)
+      .eq("code", code)
+      .maybeSingle();
+    if (priorErr) throw priorErr;
+    if (prior?.id) {
+      const { data: revived, error } = await context.supabase
+        .from("event_roles")
+        .update(payload)
+        .eq("id", prior.id)
+        .eq("event_id", data.eventId)
+        .select(
+          "id, event_id, code, name, kind, default_hours_per_day, default_day_rate_qar, sort_order, is_active, created_at, updated_at",
+        )
+        .single();
+      if (error) throw error;
+      return { role: mapRoleRow(revived as Record<string, unknown>) };
+    }
+
     const { data: created, error } = await context.supabase
       .from("event_roles")
       .insert({ ...payload, created_by: context.userId })
@@ -269,6 +317,84 @@ export const deactivateEventRole = createAuthenticatedAction(
       .eq("event_id", data.eventId);
     if (error) throw error;
     return { ok: true };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+/**
+ * Hard-delete when unused; soft-deactivate when referenced by assignments/slots
+ * (FK is ON DELETE SET NULL, but keeping history is safer for payroll/schedule).
+ */
+export const deleteEventRole = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    id: z.string().uuid(),
+  }),
+  async (data, context) => {
+    await loadEventOrThrow(context, data.eventId);
+
+    const { data: existing, error: existingErr } = await context.supabase
+      .from("event_roles")
+      .select("id, name, is_active")
+      .eq("id", data.id)
+      .eq("event_id", data.eventId)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+    if (!existing) throw new Error("Event role not found");
+
+    const [{ count: assignmentCount, error: aErr }, { count: slotCount, error: sErr }] =
+      await Promise.all([
+        context.supabase
+          .from("event_staff_assignments")
+          .select("id", { count: "exact", head: true })
+          .eq("event_id", data.eventId)
+          .eq("event_role_id", data.id),
+        context.supabase
+          .from("event_schedule_slots")
+          .select("id", { count: "exact", head: true })
+          .eq("event_id", data.eventId)
+          .eq("event_role_id", data.id),
+      ]);
+    if (aErr && !/event_role_id|schema cache|does not exist/i.test(aErr.message)) throw aErr;
+    if (sErr && !/event_role_id|schema cache|does not exist/i.test(sErr.message)) throw sErr;
+
+    const assignments = assignmentCount ?? 0;
+    const slots = slotCount ?? 0;
+    const inUse = assignments > 0 || slots > 0;
+
+    if (inUse) {
+      const { error } = await context.supabase
+        .from("event_roles")
+        .update({
+          is_active: false,
+          updated_by: context.userId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.id)
+        .eq("event_id", data.eventId);
+      if (error) throw error;
+      return {
+        mode: "deactivated" as const,
+        inUse: true,
+        assignmentCount: assignments,
+        slotCount: slots,
+        name: String(existing.name),
+      };
+    }
+
+    const { error } = await context.supabase
+      .from("event_roles")
+      .delete()
+      .eq("id", data.id)
+      .eq("event_id", data.eventId);
+    if (error) throw error;
+    return {
+      mode: "deleted" as const,
+      inUse: false,
+      assignmentCount: 0,
+      slotCount: 0,
+      name: String(existing.name),
+    };
   },
   { auth: { capability: "events.edit" } },
 );

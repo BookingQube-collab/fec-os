@@ -443,6 +443,14 @@ const PICKER_SIDEBAR_ITEMS: NavItem[] = [
       departmentId: "people",
     },
     {
+      href: "/people/event-roles",
+      labelKey: "nav.eventRoles",
+      icon: Settings,
+      capability: "people.view_roster",
+      anyCapabilities: ["people.view_roster", "events.view", "attendance.view"],
+      departmentId: "people",
+    },
+    {
       href: "/people/event-attendance",
       labelKey: "nav.eventAttendance",
       icon: CalendarDays,

@@ -22,6 +22,7 @@ export function EventWorkforcePeopleLinks({
   const attendanceHref = `/people/event-attendance?eventId=${encodeURIComponent(eventId)}`;
   const crewHref = `/people/event-crew?eventId=${encodeURIComponent(eventId)}`;
   const payrollHref = `/people/event-payroll?eventId=${encodeURIComponent(eventId)}`;
+  const rolesHref = `/people/event-roles?eventId=${encodeURIComponent(eventId)}`;
   const primary =
     focus === "attendance"
       ? { href: attendanceHref, label: t("peopleEvent.links.openAttendance") }
@@ -31,9 +32,14 @@ export function EventWorkforcePeopleLinks({
           ? { href: attendanceHref, label: t("peopleEvent.links.openAttendance") }
           : { href: crewHref, label: t("peopleEvent.links.openCrew") };
 
+  const hint =
+    focus === "crew"
+      ? t("peopleEvent.staffingHub.hint")
+      : t("peopleEvent.setupHint");
+
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-muted/30 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs text-muted-foreground">{t("peopleEvent.setupHint")}</p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
       <div className="flex flex-wrap gap-1.5">
         <Button asChild size="sm" variant="secondary">
           <Link href={primary.href}>
@@ -41,6 +47,11 @@ export function EventWorkforcePeopleLinks({
             {primary.label}
           </Link>
         </Button>
+        {focus === "crew" ? (
+          <Button asChild size="sm" variant="outline">
+            <Link href={rolesHref}>{t("peopleEvent.links.openRoles")}</Link>
+          </Button>
+        ) : null}
         {focus !== "crew" ? (
           <Button asChild size="sm" variant="outline">
             <Link href={crewHref}>{t("peopleEvent.links.openCrew")}</Link>

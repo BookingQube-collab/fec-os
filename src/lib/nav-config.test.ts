@@ -211,7 +211,13 @@ describe("admin sidebar visibility", () => {
       clusterItemsBySection(flyout)
         .find((block) => block.sectionKey === "nav.peopleSectionEvents")
         ?.items.map((item) => item.href),
-    ).toEqual(["/people/events", "/people/event-crew", "/people/event-attendance", "/people/event-payroll"]);
+    ).toEqual([
+      "/people/events",
+      "/people/event-crew",
+      "/people/event-roles",
+      "/people/event-attendance",
+      "/people/event-payroll",
+    ]);
     expect(flyout.every((link) => Boolean(link.sectionKey))).toBe(true);
     expect(
       clusterItemsBySection(flyout).find((block) => block.sectionKey === "nav.peopleSectionWorkspace")?.items.map((item) => item.labelKey),
@@ -296,6 +302,7 @@ describe("admin sidebar visibility", () => {
         "/people/payroll",
         "/people/events",
         "/people/event-crew",
+        "/people/event-roles",
         "/people/event-attendance",
         "/people/event-payroll",
         "/people/recruitment",

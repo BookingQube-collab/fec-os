@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -95,6 +95,7 @@ export function EventSchedulePanel({
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
+  const addSectionRef = useRef<HTMLElement | null>(null);
   const activeRoles = roles.filter((r) => r.is_active !== false).sort((a, b) => a.sort_order - b.sort_order);
   const useEventRoles = activeRoles.length > 0;
   const [busy, setBusy] = useState(false);
@@ -114,6 +115,11 @@ export function EventSchedulePanel({
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(() => new Set(deviceIds));
   const [categoryFilter, setCategoryFilter] = useState<EventCrewScheduleCategory | "all">("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+
+  function focusAddSection(mode: "role" | "individual") {
+    if (mode === "role") setStaffId("");
+    addSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   useEffect(() => {
     if (!useEventRoles) return;
@@ -477,6 +483,22 @@ export function EventSchedulePanel({
           </div>
           {editAllowed ? (
             <div className="flex flex-wrap items-end gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => focusAddSection("role")}
+              >
+                {t("events.schedule.createByRole")}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => focusAddSection("individual")}
+              >
+                {t("events.schedule.createIndividual")}
+              </Button>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void seed()}>
                 {t("events.schedule.seedFromCrew")}
               </Button>
@@ -679,6 +701,7 @@ export function EventSchedulePanel({
 
       {editAllowed ? (
         <section
+          ref={addSectionRef}
           className={cn(
             "rounded-2xl border bg-card p-4",
             slots.length === 0 ? "border-primary/40 ring-1 ring-primary/15" : "border-border/40",
@@ -694,6 +717,9 @@ export function EventSchedulePanel({
               {addShiftMode === "labour_days"
                 ? t("events.schedule.addLabourDaysHint")
                 : t("events.schedule.addSlotHint")}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("events.schedule.createPathsHint")}
             </p>
           </div>
           <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label={t("events.schedule.addRole")}>

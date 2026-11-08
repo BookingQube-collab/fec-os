@@ -4,10 +4,20 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, Users } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, Plus, Upload, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import {
+  EventStaffBulkCreateDialog,
+  EventStaffIndividualCreateDialog,
+} from "@/components/events/event-staff-create-dialogs";
+import {
+  FecDropdown as DropdownMenu,
+  FecDropdownContent as DropdownMenuContent,
+  FecDropdownItem as DropdownMenuItem,
+  FecDropdownTrigger as DropdownMenuTrigger,
+} from "@/components/fec";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
@@ -61,6 +71,7 @@ export default function PeopleEventCrewPage() {
   const searchParams = useSearchParams();
   const { data: sites } = useSites();
   const canEdit = usePermission("events.edit");
+  const canHire = usePermission("people.edit_roster");
   const roles = useUserRoles();
   const { profile } = useAuth();
   const actorOpts = {
@@ -80,6 +91,8 @@ export default function PeopleEventCrewPage() {
   const [bulkFrom, setBulkFrom] = useState("");
   const [bulkTo, setBulkTo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [individualOpen, setIndividualOpen] = useState(false);
+  const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
 
   const eventsQ = useQuery({
     queryKey: [...queryKeys.people.all, "event-options", locationId || null],
@@ -110,6 +123,16 @@ export default function PeopleEventCrewPage() {
 
   const rows = crewQ.data?.rows ?? [];
   const events = eventsQ.data?.events ?? [];
+  const createEvents = useMemo(
+    () =>
+      events.map((ev) => ({
+        id: ev.id,
+        name: ev.name,
+        dateFrom: ev.dateFrom,
+        dateTo: ev.dateTo,
+      })),
+    [events],
+  );
   const selectedIds = useMemo(() => [...selected], [selected]);
 
   function toggleAll(on: boolean) {
@@ -266,17 +289,46 @@ export default function PeopleEventCrewPage() {
           subtitle={t("peopleEvent.crew.subtitle")}
           actions={
             <div className="flex flex-wrap gap-2">
+              {canEdit ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm">
+                      <Plus className="me-1.5 h-3.5 w-3.5" />
+                      {t("peopleEvent.create.menu")}
+                      <ChevronDown className="ms-1.5 h-3.5 w-3.5 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[14rem]">
+                    <DropdownMenuItem onClick={() => setIndividualOpen(true)}>
+                      <Plus className="me-2 h-3.5 w-3.5" />
+                      {t("peopleEvent.create.individual")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setBulkCreateOpen(true)}>
+                      <Upload className="me-2 h-3.5 w-3.5" />
+                      {t("peopleEvent.create.bulk")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
               <Button size="sm" variant="outline" disabled={!rows.length} onClick={exportCsv}>
                 <Download className="me-1.5 h-3.5 w-3.5" />
                 {t("peopleEvent.bulk.exportCsv")}
               </Button>
               {eventId ? (
-                <Button asChild size="sm" variant="secondary">
-                  <Link href={`/events/${eventId}/staffing`}>
-                    <ExternalLink className="me-1.5 h-3.5 w-3.5" />
-                    {t("peopleEvent.links.openEventStaffing")}
-                  </Link>
-                </Button>
+                <>
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href={`/people/event-roles?eventId=${encodeURIComponent(eventId)}`}>
+                      <ExternalLink className="me-1.5 h-3.5 w-3.5" />
+                      {t("peopleEvent.links.openRoles")}
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/events/${eventId}/schedule`}>
+                      <ExternalLink className="me-1.5 h-3.5 w-3.5" />
+                      {t("peopleEvent.links.openEventSchedule")}
+                    </Link>
+                  </Button>
+                </>
               ) : null}
             </div>
           }
@@ -408,7 +460,9 @@ export default function PeopleEventCrewPage() {
 
           {!canEdit ? (
             <p className="px-1 text-xs text-muted-foreground">{t("peopleEvent.crew.viewOnlyHint")}</p>
-          ) : null}
+          ) : (
+            <p className="px-1 text-xs text-muted-foreground">{t("peopleEvent.crew.createHint")}</p>
+          )}
 
           <HrPanel delay={2}>
             <div className="hr-table-wrap p-2 sm:p-4">
@@ -484,8 +538,10 @@ export default function PeopleEventCrewPage() {
                         </td>
                         <td className="text-end">
                           <Button asChild size="sm" variant="ghost">
-                            <Link href={`/events/${r.eventId}/staffing`}>
-                              {t("peopleEvent.links.setup")}
+                            <Link
+                              href={`/people/event-roles?eventId=${encodeURIComponent(r.eventId)}`}
+                            >
+                              {t("peopleEvent.tabs.roles")}
                             </Link>
                           </Button>
                         </td>
@@ -497,6 +553,26 @@ export default function PeopleEventCrewPage() {
             </div>
           </HrPanel>
         </HrSection>
+
+        {canEdit ? (
+          <>
+            <EventStaffIndividualCreateDialog
+              open={individualOpen}
+              onOpenChange={setIndividualOpen}
+              events={createEvents}
+              initialEventId={eventId || undefined}
+              canHire={canHire}
+              onCreated={() => void refresh()}
+            />
+            <EventStaffBulkCreateDialog
+              open={bulkCreateOpen}
+              onOpenChange={setBulkCreateOpen}
+              events={createEvents}
+              initialEventId={eventId || undefined}
+              onImported={() => void refresh()}
+            />
+          </>
+        ) : null}
       </HrShell>
   );
 }

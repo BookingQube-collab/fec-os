@@ -118,7 +118,7 @@ export default function EventSchedulePage() {
     <div className="space-y-4">
       <FecPageHeader title={t("events.workspace.crewSchedule")} subtitle={title} />
       <EventWorkspaceNav eventId={id} />
-      <EventWorkforcePeopleLinks eventId={id} focus="attendance" />
+      <EventWorkforcePeopleLinks eventId={id} focus="crew" />
       {scheduleQ.isLoading || staffingQ.isLoading ? (
         <Skeleton className="h-64 w-full rounded-2xl" />
       ) : scheduleQ.isError ? (
