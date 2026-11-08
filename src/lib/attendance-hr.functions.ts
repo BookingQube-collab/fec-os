@@ -1843,7 +1843,8 @@ export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
 export const saveAttendanceDevice = createAuthenticatedAction(
   z.object({
     id: z.string().uuid().optional(),
-    locationId: z.string().uuid(),
+    /** Null = unassigned (no site) — eligible for event device linking. */
+    locationId: z.string().uuid().nullable(),
     deviceCode: z.string().min(1).max(50),
     deviceName: z.string().min(1).max(200),
     vendor: z.string().max(50).default("zkteco"),
@@ -1854,13 +1855,26 @@ export const saveAttendanceDevice = createAuthenticatedAction(
     connectionMode: z.string().max(20).optional(),
   }),
   async (data, context) => {
-    await assertLocationAccess(context, data.locationId);
+    if (data.locationId) await assertLocationAccess(context, data.locationId);
     const serial = data.serialNumber?.trim() || null;
-    const { data: site } = await context.supabase
-      .from("attendance_site_settings")
-      .select("company_id")
-      .eq("location_id", data.locationId)
-      .maybeSingle();
+    let companyId: string | null = null;
+    if (data.locationId) {
+      const { data: site } = await context.supabase
+        .from("attendance_site_settings")
+        .select("company_id")
+        .eq("location_id", data.locationId)
+        .maybeSingle();
+      companyId = (site?.company_id as string | null) ?? null;
+    } else {
+      const { data: company } = await context.supabase
+        .from("hr_companies")
+        .select("id")
+        .eq("active", true)
+        .order("name")
+        .limit(1)
+        .maybeSingle();
+      companyId = (company?.id as string | null) ?? null;
+    }
     const payload = {
       location_id: data.locationId,
       device_code: data.deviceCode,
@@ -1870,7 +1884,7 @@ export const saveAttendanceDevice = createAuthenticatedAction(
       serial_number: serial,
       timezone: data.timezone,
       active: data.active,
-      company_id: site?.company_id ?? null,
+      company_id: companyId,
       connection_mode: data.connectionMode ?? (serial ? "adms" : "file"),
     };
     if (data.id) {
@@ -1898,7 +1912,8 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
       .maybeSingle();
     if (error) throw error;
     if (!device) throw new Error("Device not found");
-    await assertLocationAccess(context, device.location_id as string);
+    const deviceLocationId = (device.location_id as string | null) ?? null;
+    if (deviceLocationId) await assertLocationAccess(context, deviceLocationId);
     if (!String(device.serial_number ?? "").trim()) {
       throw new Error("Save the device serial number first.");
     }
@@ -1911,7 +1926,7 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
       data.hours ?? 48,
       device.timezone ? String(device.timezone) : "Asia/Qatar",
     );
-    await audit(context, "adms_fetch_queued", "attendance_device", device.id as string, device.location_id as string, {
+    await audit(context, "adms_fetch_queued", "attendance_device", device.id as string, deviceLocationId, {
       hours: data.hours ?? 48,
       cmdId: result.cmdId,
     });

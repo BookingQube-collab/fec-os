@@ -38,9 +38,11 @@ import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import Link from "next/link";
 
+const UNASSIGNED_SITE = "__unassigned__";
+
 type DeviceRow = {
   id: string;
-  location_id: string;
+  location_id: string | null;
   device_code: string;
   device_name: string;
   serial_number?: string | null;
@@ -157,7 +159,7 @@ export default function AttendanceHrSettingsPage() {
   const saveDev = useMutation({
     mutationFn: () =>
       saveAttendanceDevice({
-        locationId,
+        locationId: locationId === UNASSIGNED_SITE ? null : locationId,
         deviceCode,
         deviceName,
         vendor: "zkteco",
@@ -717,7 +719,9 @@ export default function AttendanceHrSettingsPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {siteNameById.get(d.location_id) ?? d.location_id}
+                  {d.location_id
+                    ? (siteNameById.get(d.location_id) ?? d.location_id)
+                    : t("attendanceHr.settings.unassignedSite")}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t("attendanceHr.settings.lastAdmsContact")}:{" "}
@@ -814,14 +818,21 @@ export default function AttendanceHrSettingsPage() {
             onValueChange={setLocationId}
             placeholder={t("attendanceHr.settings.selectSite")}
             emptyOption={{ value: "", label: t("attendanceHr.settings.selectSite") }}
-            options={(q.data?.sites ?? []).map((s) => {
-              const loc = s.location as { name?: string; code?: string } | null;
-              return {
-                value: s.location_id,
-                label: loc?.name ?? s.location_id,
-                keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}`,
-              };
-            })}
+            options={[
+              {
+                value: UNASSIGNED_SITE,
+                label: t("attendanceHr.settings.unassignedSite"),
+                keywords: "unassigned none event pool",
+              },
+              ...(q.data?.sites ?? []).map((s) => {
+                const loc = s.location as { name?: string; code?: string } | null;
+                return {
+                  value: s.location_id,
+                  label: loc?.name ?? s.location_id,
+                  keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}`,
+                };
+              }),
+            ]}
           />
           <Label>{t("attendanceHr.settings.newDeviceCode")}</Label>
           <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} />

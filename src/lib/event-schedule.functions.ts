@@ -484,24 +484,41 @@ export const processEventAttendance = createAuthenticatedAction(
   { auth: { capability: "events.edit" } },
 );
 
-/** List host-site (+ optional) devices for event linking UI. */
+/**
+ * Devices eligible to dedicate to an event:
+ * - unassigned (location_id IS NULL), plus
+ * - any already saved on this event (so site-linked selections stay visible).
+ */
 export const listEventLinkableDevices = createAuthenticatedAction(
   EventIdSchema,
   async (data, context) => {
     const event = await loadEventOrThrow(context, data.eventId);
-    const locationId = event.location_id as string;
-    const { data: devices, error } = await context.supabase
-      .from("attendance_devices")
-      .select("id, device_code, device_name, location_id, serial_number")
-      .order("device_name");
-    if (error) throw error;
+    const locationId = (event.location_id as string | null) ?? null;
     const linkedRes = await context.supabase
       .from("event_attendance_devices")
       .select("device_id")
       .eq("event_id", data.eventId);
-    const linkedIds = new Set(
-      linkedRes.error ? [] : (linkedRes.data ?? []).map((r) => r.device_id as string),
-    );
+    const linkedIds = [
+      ...new Set(
+        linkedRes.error ? [] : (linkedRes.data ?? []).map((r) => r.device_id as string),
+      ),
+    ];
+
+    // Admin read: unassigned devices are company-scoped and may be invisible under
+    // location RLS for event editors who are not HR.
+    let deviceQ = supabaseAdmin
+      .from("attendance_devices")
+      .select("id, device_code, device_name, location_id, serial_number")
+      .order("device_name");
+    if (linkedIds.length) {
+      deviceQ = deviceQ.or(`location_id.is.null,id.in.(${linkedIds.join(",")})`);
+    } else {
+      deviceQ = deviceQ.is("location_id", null);
+    }
+    const { data: devices, error } = await deviceQ;
+    if (error) throw error;
+
+    const linkedSet = new Set(linkedIds);
     return {
       locationId,
       devices: (devices ?? []).map((d) => ({
@@ -510,7 +527,7 @@ export const listEventLinkableDevices = createAuthenticatedAction(
         deviceName: String(d.device_name ?? ""),
         locationId: (d.location_id as string | null) ?? null,
         serialNumber: (d.serial_number as string | null) ?? null,
-        linked: linkedIds.has(d.id as string),
+        linked: linkedSet.has(d.id as string),
         hostSite: locationId != null && d.location_id === locationId,
       })),
     };

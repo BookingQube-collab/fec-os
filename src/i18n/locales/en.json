@@ -5883,8 +5883,8 @@
       "fixLink": "Fix",
       "crewClosed": "Crew is closed — schedule edits are blocked. Use Event pay → Reopen closed crew (or People · Event crew bulk reopen).",
       "devicesTitle": "Event devices",
-      "devicesHint": "Optional. When set, attendance processing prefers punches from these devices; otherwise host-site devices are used.",
-      "devicesNone": "No dedicated devices — using host site.",
+      "devicesHint": "Optional. Only devices with no site link can be dedicated here; otherwise host-site devices are used for attendance.",
+      "devicesNone": "All devices are site-linked. Add an unassigned device in Attendance → device admin (or clear a device’s site there).",
       "devicesSave": "Save devices",
       "devicesSaved": "Event devices updated",
       "columns": {
@@ -9533,6 +9533,7 @@
       "saveSn": "Save SN",
       "site": "Site",
       "selectSite": "Select site",
+      "unassignedSite": "Unassigned (no site — event pool)",
       "newDeviceCode": "New device code",
       "name": "Name",
       "addDevice": "Add device",

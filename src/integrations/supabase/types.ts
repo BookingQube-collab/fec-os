@@ -3318,7 +3318,7 @@ export type Database = {
           last_adms_source_ip: string | null
           last_sync_at: string | null
           last_user_sync_at: string | null
-          location_id: string
+          location_id: string | null
           notes: string | null
           serial_number: string | null
           sync_enabled: boolean
@@ -3348,7 +3348,7 @@ export type Database = {
           last_adms_source_ip?: string | null
           last_sync_at?: string | null
           last_user_sync_at?: string | null
-          location_id: string
+          location_id?: string | null
           notes?: string | null
           serial_number?: string | null
           sync_enabled?: boolean
@@ -3378,7 +3378,7 @@ export type Database = {
           last_adms_source_ip?: string | null
           last_sync_at?: string | null
           last_user_sync_at?: string | null
-          location_id?: string
+          location_id?: string | null
           notes?: string | null
           serial_number?: string | null
           sync_enabled?: boolean
