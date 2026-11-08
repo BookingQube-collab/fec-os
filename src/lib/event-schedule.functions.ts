@@ -460,7 +460,7 @@ async function resolveRoleScheduleTargets(
   if (!targets.length && fallbackIds.length) {
     targets = selectCrewForScheduleCategory(
       fallbackIds
-        .map((staff_id) => {
+        .map((staff_id): EventCrewScheduleRoleCandidate | null => {
           const person = staffById.get(staff_id);
           if (!person?.is_head_office) return null;
           return {
@@ -471,7 +471,7 @@ async function resolveRoleScheduleTargets(
             is_head_office: true,
           };
         })
-        .filter((row): row is EventCrewScheduleRoleCandidate => Boolean(row)),
+        .filter((row): row is EventCrewScheduleRoleCandidate => row != null),
       input.category,
     );
   }
