@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   eventCrewScheduleAddShiftMode,
+  eventCrewScheduleAllowsPeopleFallback,
   eventCrewScheduleCategoryRoleLabel,
   groupByEventCrewScheduleCategory,
   isLabourStyleEventCrewCategory,
   resolveEventCrewScheduleCategory,
   selectCrewForScheduleCategory,
+  selectStaffOptionsForScheduleCategory,
 } from "./crew-schedule-categories";
 
 describe("resolveEventCrewScheduleCategory", () => {
@@ -177,5 +179,67 @@ describe("selectCrewForScheduleCategory", () => {
         "cleaner",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("eventCrewScheduleAllowsPeopleFallback", () => {
+  it("allows Head Office People only for Management", () => {
+    expect(eventCrewScheduleAllowsPeopleFallback("management")).toBe(true);
+    expect(eventCrewScheduleAllowsPeopleFallback("crew")).toBe(false);
+    expect(eventCrewScheduleAllowsPeopleFallback("cleaner")).toBe(false);
+    expect(eventCrewScheduleAllowsPeopleFallback("maintenance")).toBe(false);
+  });
+});
+
+describe("selectStaffOptionsForScheduleCategory", () => {
+  const pool = [
+    {
+      staff_id: "loaned-crew",
+      source: "staffing" as const,
+      role_label: "Crew",
+      job_title: "Crew / Attendant",
+    },
+    {
+      staff_id: "staffing-cleaner",
+      source: "staffing" as const,
+      role_label: "Cleaner",
+      job_title: "Cleaner",
+    },
+    {
+      staff_id: "ho-only",
+      source: "head_office" as const,
+      role_label: null,
+      job_title: "General Manager",
+      is_head_office: true,
+    },
+    {
+      staff_id: "people-crew-leak",
+      source: "head_office" as const,
+      role_label: null,
+      job_title: "Crew / Attendant",
+      is_head_office: false,
+    },
+  ];
+
+  it("limits Crew / Cleaner / Maintenance to Staffing for the event", () => {
+    expect(selectStaffOptionsForScheduleCategory(pool, "crew").map((s) => s.staff_id)).toEqual([
+      "loaned-crew",
+    ]);
+    expect(selectStaffOptionsForScheduleCategory(pool, "cleaner").map((s) => s.staff_id)).toEqual([
+      "staffing-cleaner",
+    ]);
+    expect(selectStaffOptionsForScheduleCategory(pool, "maintenance")).toEqual([]);
+  });
+
+  it("allows Head Office people for Management (plus staffing management)", () => {
+    expect(
+      selectStaffOptionsForScheduleCategory(pool, "management").map((s) => s.staff_id),
+    ).toEqual(["ho-only"]);
+  });
+
+  it("never surfaces non-HO People directory rows for floor roles", () => {
+    expect(
+      selectStaffOptionsForScheduleCategory(pool, "crew").some((s) => s.staff_id === "people-crew-leak"),
+    ).toBe(false);
   });
 });

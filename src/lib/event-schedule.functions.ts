@@ -9,6 +9,7 @@ import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import {
   EVENT_CREW_SCHEDULE_CATEGORIES,
   eventCrewScheduleAddShiftMode,
+  eventCrewScheduleAllowsPeopleFallback,
   eventCrewScheduleCategoryRoleLabel,
   selectCrewForScheduleCategory,
   type EventCrewScheduleCategory,
@@ -407,6 +408,7 @@ async function resolveRoleScheduleTargets(
   },
 ): Promise<EventCrewScheduleRoleCandidate[]> {
   const headOfficeLocationId = await resolveHeadOfficeLocationId(context);
+  const allowPeopleFallback = eventCrewScheduleAllowsPeopleFallback(input.category);
   const { data: assignments, error } = await context.supabase
     .from("event_staff_assignments")
     .select("id, staff_id, role_label, status")
@@ -415,7 +417,10 @@ async function resolveRoleScheduleTargets(
 
   const open = (assignments ?? []).filter((a) => !isEventAssignmentClosed(a));
   const assignmentStaffIds = [...new Set(open.map((a) => a.staff_id as string))];
-  const fallbackIds = [...new Set((input.fallbackStaffIds ?? []).filter(Boolean))];
+  // People fallback is Management (Head Office) only — never the full company roster for other roles.
+  const fallbackIds = allowPeopleFallback
+    ? [...new Set((input.fallbackStaffIds ?? []).filter(Boolean))]
+    : [];
   const lookupIds = [...new Set([...assignmentStaffIds, ...fallbackIds, input.staffId].filter(Boolean))] as string[];
 
   const { data: staffRows } = lookupIds.length
@@ -454,16 +459,19 @@ async function resolveRoleScheduleTargets(
   let targets = fromAssignments;
   if (!targets.length && fallbackIds.length) {
     targets = selectCrewForScheduleCategory(
-      fallbackIds.map((staff_id) => {
-        const person = staffById.get(staff_id);
-        return {
-          staff_id,
-          assignment_id: null,
-          role_label: eventCrewScheduleCategoryRoleLabel(input.category),
-          job_title: person?.job_title ?? null,
-          is_head_office: person?.is_head_office ?? false,
-        };
-      }),
+      fallbackIds
+        .map((staff_id) => {
+          const person = staffById.get(staff_id);
+          if (!person?.is_head_office) return null;
+          return {
+            staff_id,
+            assignment_id: null,
+            role_label: eventCrewScheduleCategoryRoleLabel(input.category),
+            job_title: person.job_title,
+            is_head_office: true,
+          };
+        })
+        .filter((row): row is EventCrewScheduleRoleCandidate => Boolean(row)),
       input.category,
     );
   }
@@ -473,8 +481,12 @@ async function resolveRoleScheduleTargets(
     if (one) return [one];
     const person = staffById.get(input.staffId);
     if (!person) throw new Error("Staff not found");
-    // Explicit single-person path still allowed even if category filter would exclude them.
     const assignment = open.find((a) => (a.staff_id as string) === input.staffId);
+    if (!assignment && !(allowPeopleFallback && person.is_head_office)) {
+      throw new Error(
+        "That person is not on Staffing for this event. Add them on the Staffing tab first.",
+      );
+    }
     return [
       {
         staff_id: input.staffId,
@@ -493,7 +505,8 @@ async function resolveRoleScheduleTargets(
 
 /**
  * Role-only schedule add: one slot (or labour day range) per staff in the role.
- * Prefer Staffing crew assignments filtered by category; fall back to People ids from the client.
+ * Prefer Staffing crew for this event (filtered by category).
+ * People/Head Office fallback is Management only — never the full company roster.
  * Optional staff_id limits the add to one person.
  */
 export const addEventScheduleForRole = createAuthenticatedAction(
@@ -542,7 +555,9 @@ export const addEventScheduleForRole = createAuthenticatedAction(
     });
     if (!targets.length) {
       throw new Error(
-        "No staff in this role for the event. Add them on Staffing, or pick one person below.",
+        eventCrewScheduleAllowsPeopleFallback(category)
+          ? "No Head Office or Staffing staff in this role. Add them on Staffing, or ensure Head Office people exist."
+          : "No Staffing crew in this role for the event. Add them on the Staffing tab first.",
       );
     }
 

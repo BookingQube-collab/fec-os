@@ -29,9 +29,11 @@ import {
 import {
   EVENT_CREW_SCHEDULE_CATEGORY_ORDER,
   eventCrewScheduleAddShiftMode,
+  eventCrewScheduleAllowsPeopleFallback,
   groupByEventCrewScheduleCategory,
   isLabourStyleEventCrewCategory,
   resolveEventCrewScheduleCategory,
+  selectStaffOptionsForScheduleCategory,
   type EventCrewScheduleCategory,
 } from "@/lib/events/crew-schedule-categories";
 import {
@@ -49,6 +51,13 @@ export type EventScheduleStaffOption = {
   full_name: string;
   job_title?: string | null;
   location_id?: string | null;
+  /** Event Staffing role when sourced from assignments. */
+  role_label?: string | null;
+  /**
+   * staffing = this event's Staffing crew.
+   * head_office = Head Office People catalog (Management only).
+   */
+  source?: "staffing" | "head_office";
 };
 
 export function EventSchedulePanel({
@@ -115,9 +124,11 @@ export function EventSchedulePanel({
 
   function categoryForStaff(person: EventScheduleStaffOption): EventCrewScheduleCategory {
     return resolveEventCrewScheduleCategory({
-      role_label: null,
+      role_label: person.role_label ?? null,
       job_title: person.job_title ?? null,
-      is_head_office: Boolean(headOfficeLocationId && person.location_id === headOfficeLocationId),
+      is_head_office:
+        person.source === "head_office" ||
+        Boolean(headOfficeLocationId && person.location_id === headOfficeLocationId),
     });
   }
 
@@ -130,7 +141,21 @@ export function EventSchedulePanel({
       : slots.filter((slot) => categoryForSlot(slot) === categoryFilter);
   const groupedSlots = groupByEventCrewScheduleCategory(filteredSlots, categoryForSlot);
   const addShiftMode = eventCrewScheduleAddShiftMode(addRole);
-  const staffForAddRole = staff.filter((person) => categoryForStaff(person) === addRole);
+  const staffForAddRoleIds = new Set(
+    selectStaffOptionsForScheduleCategory(
+      staff.map((person) => ({
+        staff_id: person.id,
+        role_label: person.role_label ?? null,
+        job_title: person.job_title ?? null,
+        is_head_office:
+          person.source === "head_office" ||
+          Boolean(headOfficeLocationId && person.location_id === headOfficeLocationId),
+        source: person.source ?? (person.role_label ? "staffing" : "head_office"),
+      })),
+      addRole,
+    ).map((row) => row.staff_id),
+  );
+  const staffForAddRole = staff.filter((person) => staffForAddRoleIds.has(person.id));
 
   const categoryCounts: Record<EventCrewScheduleCategory | "all", number> = {
     all: slots.length,
@@ -611,7 +636,9 @@ export function EventSchedulePanel({
             </select>
             <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-3 self-center">
               {staffForAddRole.length === 0
-                ? t("events.schedule.noStaffForRoleHint")
+                ? eventCrewScheduleAllowsPeopleFallback(addRole)
+                  ? t("events.schedule.noStaffForManagementHint")
+                  : t("events.schedule.noStaffForRoleHint")
                 : t("events.schedule.optionalStaffHint")}
             </p>
           </div>

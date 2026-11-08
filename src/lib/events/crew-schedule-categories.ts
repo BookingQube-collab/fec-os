@@ -181,8 +181,58 @@ export type EventCrewScheduleRoleCandidate = {
 };
 
 /**
+ * Crew / Cleaner / Maintenance must come from this event's Staffing assignments.
+ * Management Team may also use the Head Office People catalog.
+ */
+export function eventCrewScheduleAllowsPeopleFallback(
+  category: EventCrewScheduleCategory,
+): boolean {
+  return category === "management";
+}
+
+/** Picker option for the Crew schedule optional-person dropdown / role add. */
+export type EventCrewScheduleStaffPickerOption = {
+  staff_id: string;
+  role_label?: string | null;
+  job_title?: string | null;
+  is_head_office?: boolean;
+  /** staffing = open event assignment; head_office = HO people catalog */
+  source: "staffing" | "head_office";
+};
+
+/**
+ * Options shown for a role in the Crew schedule add form.
+ * Non-management: Staffing for this event only. Management: Staffing + Head Office people.
+ */
+export function selectStaffOptionsForScheduleCategory(
+  options: EventCrewScheduleStaffPickerOption[],
+  category: EventCrewScheduleCategory,
+): EventCrewScheduleStaffPickerOption[] {
+  const allowPeople = eventCrewScheduleAllowsPeopleFallback(category);
+  const out: EventCrewScheduleStaffPickerOption[] = [];
+  const seen = new Set<string>();
+  for (const option of options) {
+    if (!option.staff_id || seen.has(option.staff_id)) continue;
+    if (option.source === "head_office") {
+      if (!allowPeople) continue;
+    } else if (option.source !== "staffing") {
+      continue;
+    }
+    const resolved = resolveEventCrewScheduleCategory({
+      role_label: option.role_label,
+      job_title: option.job_title,
+      is_head_office: Boolean(option.is_head_office),
+    });
+    if (resolved !== category) continue;
+    seen.add(option.staff_id);
+    out.push(option);
+  }
+  return out;
+}
+
+/**
  * Pick unique staff for a Crew schedule category (first occurrence wins).
- * Used by role-only add: prefer Staffing assignment candidates, else People fallbacks.
+ * Used by role-only add: Staffing assignment candidates first; People only for Management.
  */
 export function selectCrewForScheduleCategory(
   candidates: EventCrewScheduleRoleCandidate[],
