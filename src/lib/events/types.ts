@@ -433,6 +433,8 @@ export interface EventSchedulePayload {
   attendance: EventScheduleAttendanceRow[];
   locationId: string | null;
   crewClosed: boolean;
+  /** Dedicated biometric devices when linked; empty = host-site punches. */
+  deviceIds: string[];
 }
 
 export interface EventMissedPunchDayRow {

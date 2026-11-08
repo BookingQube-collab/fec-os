@@ -1007,6 +1007,59 @@ export const WPS_EXPORT_COLUMNS = [
   "Payment Method",
 ] as const;
 
+/** Optional employer fields from payroll policy / Finance — never invent MOL IDs. */
+export type WpsEmployerMeta = {
+  employerEid?: string | null;
+  payerEid?: string | null;
+  establishmentId?: string | null;
+  /** YYYY-MM or Event: … batch label already resolved for Salary Month. */
+  salaryMonth?: string | null;
+  companyCode?: string | null;
+  companyName?: string | null;
+};
+
+export function wpsExportGaps(meta: WpsEmployerMeta = {}): string[] {
+  const gaps: string[] = [];
+  if (!String(meta.employerEid ?? "").trim()) gaps.push("MOL/employer EID missing in payroll policy (wps_employer_eid)");
+  if (!String(meta.payerEid ?? "").trim() && !String(meta.employerEid ?? "").trim()) {
+    gaps.push("Payer EID missing (wps_payer_eid)");
+  }
+  if (!String(meta.establishmentId ?? "").trim()) {
+    gaps.push("Establishment ID missing in payroll policy (wps_establishment_id)");
+  }
+  gaps.push("IBAN/QID not validated against bank master");
+  gaps.push("Not bank-gateway certified — Finance validation CSV only");
+  return gaps;
+}
+
+export type PayrollExportRow = {
+  employeeCode: string;
+  employeeName: string;
+  qid?: string | null;
+  iban?: string | null;
+  bankName?: string | null;
+  wpsEmployeeId?: string | null;
+  month: string;
+  fixedIncome: number;
+  variableIncome: number;
+  deductions: number;
+  netQar: number;
+  paymentMethod: HrPayrollPaymentMethod;
+};
+
+/** Simple record-count + net-sum control line (not a bank QCB checksum). */
+export function wpsControlChecksum(rows: PayrollExportRow[]): {
+  recordCount: number;
+  totalNetQar: number;
+  token: string;
+} {
+  const recordCount = rows.length;
+  const totalNetQar =
+    Math.round(rows.reduce((s, r) => s + (Number(r.netQar) || 0), 0) * 100) / 100;
+  const token = `SCR|${recordCount}|${totalNetQar.toFixed(2)}`;
+  return { recordCount, totalNetQar, token };
+}
+
 export const CHEQUE_EXPORT_COLUMNS = [
   "Employee Code",
   "Employee Name",
@@ -1025,40 +1078,52 @@ export const BANK_TRANSFER_EXPORT_COLUMNS = [
   "Currency",
 ] as const;
 
-export type PayrollExportRow = {
-  employeeCode: string;
-  employeeName: string;
-  qid?: string | null;
-  iban?: string | null;
-  bankName?: string | null;
-  wpsEmployeeId?: string | null;
-  month: string;
-  fixedIncome: number;
-  variableIncome: number;
-  deductions: number;
-  netQar: number;
-  paymentMethod: HrPayrollPaymentMethod;
-};
+export function buildWpsExportRows(
+  rows: PayrollExportRow[],
+  meta: WpsEmployerMeta = {},
+): string[][] {
+  const employer = String(meta.employerEid ?? "").trim();
+  const payer = String(meta.payerEid ?? "").trim() || employer;
+  const establishment = String(meta.establishmentId ?? "").trim();
+  const salaryMonth = String(meta.salaryMonth ?? rows[0]?.month ?? "").trim();
+  const company = String(meta.companyCode ?? meta.companyName ?? "").trim();
+  const control = wpsControlChecksum(rows);
+  const gaps = wpsExportGaps({ ...meta, salaryMonth });
 
-export function buildWpsExportRows(rows: PayrollExportRow[]): string[][] {
-  return [
+  const header: string[][] = [
+    [
+      "EHR",
+      employer || "[GAP:wps_employer_eid]",
+      payer || "[GAP:wps_payer_eid]",
+      establishment || "[GAP:wps_establishment_id]",
+      salaryMonth,
+      company,
+      String(control.recordCount),
+      control.totalNetQar.toFixed(2),
+    ],
+    ["NOTE", ...gaps],
     [...WPS_EXPORT_COLUMNS],
-    ...rows.map((r) => [
-      r.employeeCode,
-      r.employeeName,
-      r.qid ?? "",
-      r.iban ?? "",
-      r.bankName ?? "",
-      r.wpsEmployeeId ?? "",
-      r.month,
-      String(r.fixedIncome),
-      String(r.variableIncome),
-      String(r.deductions),
-      String(r.netQar),
-      HR_PAYROLL_CURRENCY,
-      r.paymentMethod,
-    ]),
   ];
+
+  const body = rows.map((r) => [
+    r.employeeCode,
+    r.employeeName,
+    r.qid ?? "",
+    r.iban ?? "",
+    r.bankName ?? "",
+    r.wpsEmployeeId ?? "",
+    r.month,
+    String(r.fixedIncome),
+    String(r.variableIncome),
+    String(r.deductions),
+    String(r.netQar),
+    HR_PAYROLL_CURRENCY,
+    r.paymentMethod,
+  ]);
+
+  const trailer: string[][] = [[control.token, "record_count", String(control.recordCount), "total_net_qar", control.totalNetQar.toFixed(2)]];
+
+  return [...header, ...body, ...trailer];
 }
 
 export function buildChequeExportRows(rows: PayrollExportRow[]): string[][] {

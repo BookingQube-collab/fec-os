@@ -10,6 +10,8 @@ import {
   eventHireParkStatus,
   findOverlappingAssignment,
   isEventAssignmentClosed,
+  isEventHireParkedStatus,
+  reopenAssignmentStampNote,
   isEventStaffAssignmentType,
   looksLikeJokerPoolStaff,
   normalizeAssignmentType,
@@ -138,7 +140,10 @@ describe("event staff assignments", () => {
     expect(isEventAssignmentClosed({ status: "closed" })).toBe(true);
     expect(isEventAssignmentClosed({ status: "active" })).toBe(false);
     expect(eventHireParkStatus()).toBe("contract_finished");
+    expect(isEventHireParkedStatus("contract_finished")).toBe(true);
+    expect(isEventHireParkedStatus("active")).toBe(false);
     expect(closeAssignmentStampNote("2026-11-05", "abcd1234-xxxx")).toMatch(/Closed via event/);
+    expect(reopenAssignmentStampNote("2026-11-08")).toMatch(/Reopened via event/);
   });
 
   it("parses staffing import template", () => {

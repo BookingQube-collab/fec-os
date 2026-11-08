@@ -150,3 +150,14 @@ export function closeAssignmentStampNote(closedOn: string, periodId?: string | n
   const periodBit = periodId ? ` period ${periodId.slice(0, 8)}` : "";
   return `Closed via event workflow${periodBit} on ${closedOn}`;
 }
+
+export function reopenAssignmentStampNote(reopenedOn: string): string {
+  return `Reopened via event workflow on ${reopenedOn}`;
+}
+
+/** Event-hire park status that reopen may reverse when still parked. */
+export function isEventHireParkedStatus(status: string | null | undefined): boolean {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase() === eventHireParkStatus();
+}

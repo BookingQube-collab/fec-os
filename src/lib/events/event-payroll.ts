@@ -1,5 +1,25 @@
 /** Phase 4 — event payroll helpers (pure). */
 
+/**
+ * event_pay_policy — product defaults (Phase 0). Encoded for admins in UI copy;
+ * do not invent a second company cut-off here (see payroll_cycle on site settings).
+ *
+ * - HO cut-off = company FEC 28–27 (same monthly cycle as sites unless HO overrides)
+ * - HO attendance = shift_punch + site expected hours
+ * - Event venue = existing location (+ Add site when needed)
+ * - Event punches = host-site devices (or dedicated event device set when linked)
+ * - Loaned with pay_on_event_run → those days excluded from monthly generate
+ * - Event-only / joker on the event pay run when pay_on_event_run
+ */
+export const EVENT_PAY_POLICY = {
+  hoCutoff: "fec_28_27",
+  hoAttendance: "shift_punch_plus_site_hours",
+  venue: "existing_location_or_add_site",
+  punches: "host_site_devices_or_event_device_set",
+  loanedPayOnEventExcludedFromMonthly: true,
+  eventOnlyAndJokerOnEventRun: true,
+} as const;
+
 export type EventPayAssignmentLike = {
   staff_id: string;
   assignment_type: string;

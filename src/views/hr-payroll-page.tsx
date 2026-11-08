@@ -223,7 +223,11 @@ export default function HrPayrollPage() {
                       onClick={() => {
                         startTransition(async () => {
                           try {
-                            const created = await createPayrollPeriod({ month: createMonth });
+                            const created = await createPayrollPeriod({
+                              month: createMonth,
+                              // When filtering to a site (e.g. HO), use that site's payroll_cycle if set.
+                              locationId: loc,
+                            });
                             toast.success(t("hr.payrollRuns.created"));
                             void qc.invalidateQueries({ queryKey: queryKeys.people.hrPayrollPeriods() });
                             window.location.href = `/people/payroll/${created.id}`;

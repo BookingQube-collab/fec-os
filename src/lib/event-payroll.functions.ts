@@ -9,6 +9,8 @@ import {
   closeAssignmentStampNote,
   eventHireParkStatus,
   isEventAssignmentClosed,
+  isEventHireParkedStatus,
+  reopenAssignmentStampNote,
 } from "@/lib/events/staff-assignments";
 import { CONTRACT_FINISHED_STAFF_STATUS } from "@/lib/staff-status";
 import { assertLocationAccess, ForbiddenError } from "@/lib/server/authorize";
@@ -316,6 +318,113 @@ export const noteEventAssignmentsClosed = createAuthenticatedAction(
       parkEventHires: true,
     });
     return { updated: res.closedAssignments, parkedHires: res.parkedHires };
+  },
+  { auth: { capability: "payroll.generate" } },
+);
+
+async function runReopenEventCrew(
+  context: AuthContext,
+  data: { eventId: string; unparkEventHires?: boolean; ids?: string[] | null },
+) {
+  const event = await loadEventOrThrow(context, data.eventId);
+  const nowIso = new Date().toISOString();
+  const stamp = reopenAssignmentStampNote(nowIso.slice(0, 10));
+  const unpark = data.unparkEventHires !== false;
+
+  let q = context.supabase
+    .from("event_staff_assignments")
+    .select("id, staff_id, assignment_type, notes, status")
+    .eq("event_id", data.eventId)
+    .eq("status", "closed");
+  if (data.ids?.length) q = q.in("id", data.ids);
+  const { data: rows, error } = await q;
+  if (error) {
+    if (/status|closed_at|schema cache/i.test(error.message)) {
+      throw new Error("Crew close/reopen columns are not applied yet — run migrations.");
+    }
+    throw error;
+  }
+
+  let reopenedAssignments = 0;
+  let unparkedHires = 0;
+  const hireStaffIds: string[] = [];
+
+  for (const row of rows ?? []) {
+    const notes = String(row.notes ?? "");
+    const nextNotes = notes.includes("Reopened via event")
+      ? notes
+      : notes
+        ? `${notes}\n${stamp}`
+        : stamp;
+    const { error: updErr } = await context.supabase
+      .from("event_staff_assignments")
+      .update({
+        status: "active",
+        closed_at: null,
+        closed_by: null,
+        notes: nextNotes,
+        updated_by: context.userId,
+        updated_at: nowIso,
+      })
+      .eq("id", row.id);
+    if (updErr) throw updErr;
+    reopenedAssignments += 1;
+    if (String(row.assignment_type) === "event_hire") {
+      hireStaffIds.push(row.staff_id as string);
+    }
+  }
+
+  if (unpark && hireStaffIds.length) {
+    for (const staffId of hireStaffIds) {
+      const { data: staffRow } = await supabaseAdmin
+        .from("staff")
+        .select("id, status, employment_type, job_title")
+        .eq("id", staffId)
+        .maybeSingle();
+      if (!staffRow) continue;
+      const emp = String(staffRow.employment_type ?? "").toLowerCase();
+      const title = String(staffRow.job_title ?? "").toLowerCase();
+      if (emp !== "temporary" && !title.includes("event")) continue;
+      if (!isEventHireParkedStatus(staffRow.status as string)) continue;
+      await supabaseAdmin
+        .from("staff")
+        .update({ status: "active", updated_at: nowIso })
+        .eq("id", staffId);
+      unparkedHires += 1;
+    }
+  }
+
+  await context.supabase.from("event_audit_logs").insert({
+    actor_id: context.userId,
+    action: "crew_reopen",
+    entity_type: "event_staff_assignment",
+    event_id: data.eventId,
+    location_id: event.location_id as string,
+    before: null,
+    after: {
+      reopenedAssignments,
+      unparkedHires,
+      ids: data.ids ?? null,
+    } as Json,
+    metadata: {} as Json,
+  });
+
+  return { reopenedAssignments, unparkedHires };
+}
+
+/**
+ * Reopen closed assignments so schedule edits unlock again.
+ * Optionally restores parked event_hire staff still on contract_finished.
+ */
+export const reopenEventCrew = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    unparkEventHires: z.boolean().optional().default(true),
+    ids: z.array(z.string().uuid()).max(200).optional().nullable(),
+  }),
+  async (data, context) => {
+    requireCap(context, "payroll.generate");
+    return runReopenEventCrew(context, data);
   },
   { auth: { capability: "payroll.generate" } },
 );

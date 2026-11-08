@@ -16,6 +16,7 @@ import {
   buildBankTransferExportRows,
   buildChequeExportRows,
   buildWpsExportRows,
+  wpsExportGaps,
   computePayrollLineAmounts,
   computeProrationFactor,
   earningsToFixedVariable,
@@ -43,6 +44,10 @@ import {
   type PayrollMoneyLine,
 } from "@/lib/hr-payroll";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
+import {
+  normalizePayrollCycle,
+  periodBoundsForCycle,
+} from "@/lib/attendance-hr/payroll-cycle";
 import {
   aggregatePayrollRows,
   listPayrollLateWorkedDates,
@@ -200,10 +205,35 @@ export const createPayrollPeriod = createAuthenticatedAction(
   z.object({
     month: z.string().regex(/^\d{4}-\d{2}$/),
     notes: z.string().trim().max(2000).optional().nullable(),
+    /**
+     * When set to an HO (or other) location with payroll_cycle=calendar_month,
+     * period dates follow that cycle. Company-wide create (no locationId) stays FEC 28–27.
+     */
+    locationId: z.string().uuid().optional().nullable(),
   }),
   async (data, context) => {
     requireCap(context, "payroll.generate");
-    const bounds = fecPeriodForMonth(data.month);
+    let bounds = fecPeriodForMonth(data.month);
+    let cycleNote: string | null = null;
+    if (data.locationId) {
+      const { data: site } = await context.supabase
+        .from("attendance_site_settings")
+        .select("payroll_cycle")
+        .eq("location_id", data.locationId)
+        .maybeSingle();
+      const cycle = normalizePayrollCycle(
+        (site as { payroll_cycle?: string | null } | null)?.payroll_cycle,
+      );
+      const cycleBounds = periodBoundsForCycle(data.month, cycle);
+      bounds = {
+        month: cycleBounds.month,
+        dateFrom: cycleBounds.dateFrom,
+        dateTo: cycleBounds.dateTo,
+      };
+      if (cycle !== "fec_28_27") {
+        cycleNote = `HO/site payroll_cycle=${cycle} for location ${data.locationId}`;
+      }
+    }
     const { data: row, error } = await context.supabase
       .from("hr_payroll_periods")
       .insert({
@@ -212,7 +242,7 @@ export const createPayrollPeriod = createAuthenticatedAction(
         date_to: bounds.dateTo,
         status: "draft",
         currency: "QAR",
-        notes: data.notes ?? null,
+        notes: [data.notes ?? null, cycleNote].filter(Boolean).join(" — ") || null,
         created_by: context.userId,
         period_kind: "monthly",
         source: "generated",
@@ -226,7 +256,11 @@ export const createPayrollPeriod = createAuthenticatedAction(
       throw error;
     }
     const period = mapPeriod(row as Record<string, unknown>);
-    await auditPayroll(context, "hr.payroll.period.create", period.id, period);
+    await auditPayroll(context, "hr.payroll.period.create", period.id, {
+      ...period,
+      locationId: data.locationId ?? null,
+      cycleNote,
+    });
     return period;
   },
   { auth: { capability: "payroll.generate" } },
@@ -1617,9 +1651,27 @@ export const getPayrollExportMatrix = createAuthenticatedAction(
       data.periodId,
       data.method,
     );
+    const payrollPolicy = await readPolicySection(context, "payroll").catch(
+      () => ({}) as Record<string, unknown>,
+    );
+    const { data: company } = await context.supabase
+      .from("hr_companies")
+      .select("code, name")
+      .eq("active", true)
+      .order("name")
+      .limit(1)
+      .maybeSingle();
+    const wpsMeta = {
+      employerEid: String(payrollPolicy.wps_employer_eid ?? "").trim() || null,
+      payerEid: String(payrollPolicy.wps_payer_eid ?? "").trim() || null,
+      establishmentId: String(payrollPolicy.wps_establishment_id ?? "").trim() || null,
+      salaryMonth: month,
+      companyCode: (company?.code as string | null) ?? null,
+      companyName: (company?.name as string | null) ?? null,
+    };
     const matrix =
       data.method === "wps"
-        ? buildWpsExportRows(rows)
+        ? buildWpsExportRows(rows, wpsMeta)
         : data.method === "cheque"
           ? buildChequeExportRows(rows)
           : buildBankTransferExportRows(rows);
@@ -1627,8 +1679,8 @@ export const getPayrollExportMatrix = createAuthenticatedAction(
       rows: rows.length,
       periodKind,
     });
-    const wpsGaps =
-      "SIF-like columns for Finance validation — not bank-certified WPS SIF submission. Remaining gaps: no MOL employer establishment number, no bank-gateway file header/trailer, no QCB checksum/record-count controls, IBAN/QID not validated against bank master.";
+    const gapList = wpsExportGaps(wpsMeta).join("; ");
+    const wpsGaps = `SIF-like WPS CSV with EHR header + SCR control trailer when policy fields exist. Gaps: ${gapList}`;
     return {
       month,
       method: data.method,
@@ -1640,6 +1692,7 @@ export const getPayrollExportMatrix = createAuthenticatedAction(
             ? `Event batch "${month}". ${wpsGaps}`
             : wpsGaps
           : null,
+      wpsMeta: data.method === "wps" ? wpsMeta : null,
     };
   },
   { auth: { capability: "payroll.export_wps" } },

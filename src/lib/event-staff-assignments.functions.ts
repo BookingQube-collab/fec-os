@@ -827,6 +827,54 @@ export const bulkCloseEventStaffAssignments = createAuthenticatedAction(
   { auth: { capability: "events.edit" } },
 );
 
+/** Bulk-reopen selected closed assignments (does not un-park hires — use Event pay reopen for that). */
+export const bulkReopenEventStaffAssignments = createAuthenticatedAction(
+  BulkIdsSchema,
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const nowIso = new Date().toISOString();
+    const reopenedOn = nowIso.slice(0, 10);
+    const { data: rows, error } = await context.supabase
+      .from("event_staff_assignments")
+      .select("id, status, notes")
+      .eq("event_id", data.eventId)
+      .in("id", data.ids);
+    if (error) throw error;
+
+    let reopened = 0;
+    for (const row of rows ?? []) {
+      if (String(row.status ?? "active").toLowerCase() !== "closed") continue;
+      const notes = String(row.notes ?? "");
+      const stamp = `Reopened via bulk ${reopenedOn}`;
+      const nextNotes = notes.includes("Reopened via") ? notes : notes ? `${notes}\n${stamp}` : stamp;
+      const { error: updErr } = await context.supabase
+        .from("event_staff_assignments")
+        .update({
+          status: "active",
+          closed_at: null,
+          closed_by: null,
+          notes: nextNotes,
+          updated_by: context.userId,
+          updated_at: nowIso,
+        })
+        .eq("id", row.id)
+        .eq("event_id", data.eventId);
+      if (updErr) throw updErr;
+      reopened += 1;
+    }
+
+    await writeEventAudit(context, {
+      action: "crew_bulk_reopen",
+      entityType: "event_staff_assignment",
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { reopened, attempted: data.ids.length },
+    });
+    return { reopened };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
 /** Bulk-update date window for selected assignments (same from/to applied to all). */
 export const bulkUpdateEventStaffAssignmentDates = createAuthenticatedAction(
   BulkIdsSchema.extend({

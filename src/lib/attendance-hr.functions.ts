@@ -2256,6 +2256,7 @@ export const saveAttendanceLocationBreak = createAuthenticatedAction(
 );
 
 const attendanceModeSchema = z.enum(["roster", "shift_punch"]);
+const payrollCycleSchema = z.enum(["fec_28_27", "calendar_month"]);
 
 const siteShiftPolicySchema = z.object({
   locationId: z.string().uuid(),
@@ -2267,6 +2268,8 @@ const siteShiftPolicySchema = z.object({
   jokerHours: z.number().min(1).max(16),
   /** Phase 1: roster (sites) vs shift_punch (HO). Apply-all does not copy this. */
   attendanceMode: attendanceModeSchema.optional(),
+  /** Additive HO override; apply-all does not copy this. */
+  payrollCycle: payrollCycleSchema.optional(),
 });
 
 async function ensureE3CompanyId(context: AuthContext): Promise<string> {
@@ -2292,6 +2295,7 @@ async function upsertAttendanceSiteShiftPolicy(
     secondmentHours?: number | null;
     jokerHours?: number | null;
     attendanceMode?: AttendanceMode | null;
+    payrollCycle?: "fec_28_27" | "calendar_month" | null;
   },
 ) {
   await assertSite(context, data.locationId);
@@ -2305,6 +2309,9 @@ async function upsertAttendanceSiteShiftPolicy(
   if (data.jokerHours !== undefined) patch.joker_hours = data.jokerHours;
   if (data.attendanceMode !== undefined && data.attendanceMode !== null) {
     patch.attendance_mode = normalizeAttendanceMode(data.attendanceMode);
+  }
+  if (data.payrollCycle !== undefined && data.payrollCycle !== null) {
+    patch.payroll_cycle = data.payrollCycle;
   }
 
   const { data: existing, error: fetchErr } = await context.supabase
@@ -2347,13 +2354,14 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
       context.supabase
         .from("attendance_site_settings")
         .select(
-          "location_id, attendance_mode, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+          "location_id, attendance_mode, payroll_cycle, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
         ),
     ]);
     if (locErr) throw locErr;
     type SiteSettingsRow = {
       location_id: string;
       attendance_mode?: string | null;
+      payroll_cycle?: string | null;
       break_minutes?: number | null;
       reporting_time_minutes?: number | null;
       buffer_minutes?: number | null;
@@ -2363,15 +2371,26 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
     };
     let settings: SiteSettingsRow[] | null = (settingsFirst.data as SiteSettingsRow[] | null) ?? null;
     if (settingsFirst.error) {
-      // Pre-migration: fall back without attendance_mode so the page still loads.
-      if (!/attendance_mode|schema cache/i.test(settingsFirst.error.message)) throw settingsFirst.error;
+      // Pre-migration: fall back without new columns so the page still loads.
+      if (!/attendance_mode|payroll_cycle|schema cache/i.test(settingsFirst.error.message)) {
+        throw settingsFirst.error;
+      }
       const retry = await context.supabase
         .from("attendance_site_settings")
         .select(
-          "location_id, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+          "location_id, attendance_mode, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
         );
-      if (retry.error) throw retry.error;
-      settings = (retry.data as SiteSettingsRow[] | null) ?? null;
+      if (retry.error) {
+        const retry2 = await context.supabase
+          .from("attendance_site_settings")
+          .select(
+            "location_id, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+          );
+        if (retry2.error) throw retry2.error;
+        settings = (retry2.data as SiteSettingsRow[] | null) ?? null;
+      } else {
+        settings = (retry.data as SiteSettingsRow[] | null) ?? null;
+      }
     }
 
     const byId = new Map((settings ?? []).map((row) => [row.location_id as string, row]));
@@ -2383,6 +2402,8 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
         const attendanceMode = stored?.attendance_mode
           ? normalizeAttendanceMode(stored.attendance_mode)
           : defaultAttendanceModeForLocationCode(loc.code);
+        const payrollCycle =
+          stored?.payroll_cycle === "calendar_month" ? "calendar_month" : "fec_28_27";
         return {
           locationId: loc.id,
           code: loc.code,
@@ -2390,6 +2411,7 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
           region: loc.region,
           status: loc.status,
           attendanceMode,
+          payrollCycle,
           breakMinutes:
             stored?.break_minutes != null ? Number(stored.break_minutes) : defaults.breakMinutes,
           reportingTimeMinutes:
@@ -2433,6 +2455,7 @@ export const saveAttendanceSiteShiftPolicy = createAuthenticatedAction(
       secondmentHours: data.secondmentHours,
       jokerHours: data.jokerHours,
       attendanceMode: data.attendanceMode,
+      payrollCycle: data.payrollCycle,
     });
     return { ok: true as const };
   },

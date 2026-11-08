@@ -118,6 +118,7 @@ export const getEventSchedule = createAuthenticatedAction(
           attendance: [],
           locationId: event.location_id as string,
           crewClosed: false,
+          deviceIds: [],
         };
       }
       throw error;
@@ -146,6 +147,17 @@ export const getEventSchedule = createAuthenticatedAction(
       .eq("status", "closed")
       .limit(1);
 
+    let deviceIds: string[] = [];
+    {
+      const devicesRes = await context.supabase
+        .from("event_attendance_devices")
+        .select("device_id")
+        .eq("event_id", data.eventId);
+      if (!devicesRes.error) {
+        deviceIds = (devicesRes.data ?? []).map((d) => d.device_id as string);
+      }
+    }
+
     return {
       slots: mapped,
       attendance: (att ?? []).map((a) => ({
@@ -163,6 +175,7 @@ export const getEventSchedule = createAuthenticatedAction(
       })),
       locationId: (event.location_id as string) ?? null,
       crewClosed: (closedRows ?? []).length > 0,
+      deviceIds,
     };
   },
   { auth: { capability: "events.view" } },
@@ -345,14 +358,31 @@ export const processEventAttendance = createAuthenticatedAction(
     const staffIds = [...new Set(slots.map((s) => s.staff_id as string))];
     const graceMinutes = await loadEventGraceMinutes(context, locationId);
 
-    const { data: punches, error: punchErr } = await supabaseAdmin
+    let deviceIds: string[] = [];
+    {
+      const linkedRes = await context.supabase
+        .from("event_attendance_devices")
+        .select("device_id")
+        .eq("event_id", data.eventId);
+      if (!linkedRes.error) {
+        deviceIds = (linkedRes.data ?? []).map((d) => d.device_id as string);
+      }
+    }
+
+    let punchQ = supabaseAdmin
       .from("attendance_logs")
-      .select("id, staff_id, punch_at, attendance_date, location_id")
+      .select("id, staff_id, punch_at, attendance_date, location_id, device_id")
       .in("staff_id", staffIds)
-      .eq("location_id", locationId)
       .gte("attendance_date", dateFrom)
       .lte("attendance_date", dateTo)
       .order("punch_at", { ascending: true });
+    if (deviceIds.length) {
+      // Prefer dedicated event devices when linked; do not require host location_id.
+      punchQ = punchQ.in("device_id", deviceIds);
+    } else {
+      punchQ = punchQ.eq("location_id", locationId);
+    }
+    const { data: punches, error: punchErr } = await punchQ;
     if (punchErr) throw punchErr;
 
     // Tag matching punches with event_id + keep location_id (venue attribution).
@@ -441,10 +471,90 @@ export const processEventAttendance = createAuthenticatedAction(
       entityType: "event_attendance",
       eventId: data.eventId,
       locationId,
-      after: { slots: slots.length, upserted, punches: punches?.length ?? 0 },
+      after: {
+        slots: slots.length,
+        upserted,
+        punches: punches?.length ?? 0,
+        deviceIds: deviceIds.length ? deviceIds : null,
+      },
     });
 
-    return { slots: slots.length, upserted, punches: punches?.length ?? 0 };
+    return { slots: slots.length, upserted, punches: punches?.length ?? 0, deviceIds };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+/** List host-site (+ optional) devices for event linking UI. */
+export const listEventLinkableDevices = createAuthenticatedAction(
+  EventIdSchema,
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const locationId = event.location_id as string;
+    const { data: devices, error } = await context.supabase
+      .from("attendance_devices")
+      .select("id, device_code, device_name, location_id, serial_number")
+      .order("device_name");
+    if (error) throw error;
+    const linkedRes = await context.supabase
+      .from("event_attendance_devices")
+      .select("device_id")
+      .eq("event_id", data.eventId);
+    const linkedIds = new Set(
+      linkedRes.error ? [] : (linkedRes.data ?? []).map((r) => r.device_id as string),
+    );
+    return {
+      locationId,
+      devices: (devices ?? []).map((d) => ({
+        id: d.id as string,
+        deviceCode: String(d.device_code ?? ""),
+        deviceName: String(d.device_name ?? ""),
+        locationId: (d.location_id as string | null) ?? null,
+        serialNumber: (d.serial_number as string | null) ?? null,
+        linked: linkedIds.has(d.id as string),
+        hostSite: locationId != null && d.location_id === locationId,
+      })),
+    };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+/** Replace the dedicated event device set (empty = fall back to host site). */
+export const setEventAttendanceDevices = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    deviceIds: z.array(z.string().uuid()).max(40),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    const unique = [...new Set(data.deviceIds)];
+    const { error: delErr } = await context.supabase
+      .from("event_attendance_devices")
+      .delete()
+      .eq("event_id", data.eventId);
+    if (delErr) {
+      if (/event_attendance_devices|schema cache/i.test(delErr.message)) {
+        throw new Error("Event device linking is not applied yet — run migrations.");
+      }
+      throw delErr;
+    }
+    if (unique.length) {
+      const { error: insErr } = await context.supabase.from("event_attendance_devices").insert(
+        unique.map((device_id) => ({
+          event_id: data.eventId,
+          device_id,
+          created_by: context.userId,
+        })),
+      );
+      if (insErr) throw insErr;
+    }
+    await writeEventAudit(context, {
+      action: "event_devices_set",
+      entityType: "event_attendance_devices",
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: { deviceIds: unique },
+    });
+    return { deviceIds: unique };
   },
   { auth: { capability: "events.edit" } },
 );

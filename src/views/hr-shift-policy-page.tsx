@@ -19,7 +19,9 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   applyDefaultAttendanceSiteShiftPolicies,
+  getAttendanceHrBootstrap,
   listAttendanceSiteShiftPolicies,
+  saveAttendanceShiftTemplate,
   saveAttendanceSiteShiftPolicy,
 } from "@/lib/attendance-hr.functions";
 import {
@@ -27,6 +29,11 @@ import {
   ATTENDANCE_MODE_SHIFT_PUNCH,
   type AttendanceMode,
 } from "@/lib/attendance-hr/attendance-mode";
+import {
+  PAYROLL_CYCLE_CALENDAR_MONTH,
+  PAYROLL_CYCLE_FEC_28_27,
+  type PayrollCycleKind,
+} from "@/lib/attendance-hr/payroll-cycle";
 import {
   DEFAULT_BREAK_MINUTES,
   DEFAULT_BUFFER_MINUTES,
@@ -42,6 +49,7 @@ import { STALE } from "@/lib/query-client";
 
 type Draft = {
   attendanceMode: AttendanceMode;
+  payrollCycle: PayrollCycleKind;
   breakMinutes: string;
   reportingTimeMinutes: string;
   bufferMinutes: string;
@@ -67,6 +75,7 @@ export default function HrShiftPolicyPage() {
   const [locationId, setLocationId] = useState("");
   const [draft, setDraft] = useState<Draft>({
     attendanceMode: ATTENDANCE_MODE_ROSTER,
+    payrollCycle: PAYROLL_CYCLE_FEC_28_27,
     breakMinutes: String(DEFAULT_BREAK_MINUTES),
     reportingTimeMinutes: String(DEFAULT_REPORTING_TIME_MINUTES),
     bufferMinutes: String(DEFAULT_BUFFER_MINUTES),
@@ -80,6 +89,12 @@ export default function HrShiftPolicyPage() {
     queryFn: () => listAttendanceSiteShiftPolicies(),
     staleTime: STALE.peopleCatalog,
   });
+  const bootstrapQ = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
+    queryFn: () => getAttendanceHrBootstrap({ includeStaff: false }),
+    staleTime: STALE.peopleCatalog,
+  });
+  const companyId = (bootstrapQ.data?.companies?.[0] as { id?: string } | undefined)?.id ?? "";
 
   const selected = useMemo(
     () => (q.data?.sites ?? []).find((s) => s.locationId === locationId) ?? null,
@@ -93,6 +108,10 @@ export default function HrShiftPolicyPage() {
         selected.attendanceMode === ATTENDANCE_MODE_SHIFT_PUNCH
           ? ATTENDANCE_MODE_SHIFT_PUNCH
           : ATTENDANCE_MODE_ROSTER,
+      payrollCycle:
+        selected.payrollCycle === PAYROLL_CYCLE_CALENDAR_MONTH
+          ? PAYROLL_CYCLE_CALENDAR_MONTH
+          : PAYROLL_CYCLE_FEC_28_27,
       breakMinutes: String(selected.breakMinutes),
       reportingTimeMinutes: String(selected.reportingTimeMinutes),
       bufferMinutes: String(selected.bufferMinutes),
@@ -135,6 +154,7 @@ export default function HrShiftPolicyPage() {
     return {
       locationId,
       attendanceMode: draft.attendanceMode,
+      payrollCycle: draft.payrollCycle,
       breakMinutes: Math.round(values.breakMinutes),
       reportingTimeMinutes: Math.round(values.reportingTimeMinutes),
       bufferMinutes: Math.round(values.bufferMinutes),
@@ -152,6 +172,44 @@ export default function HrShiftPolicyPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const saveHoShift = useMutation({
+    mutationFn: (kind: "morning" | "evening") => {
+      if (!companyId || !locationId) throw new Error(t("hr.shiftPolicy.needLocation"));
+      const morning = kind === "morning";
+      return saveAttendanceShiftTemplate({
+        companyId,
+        locationId,
+        name: morning ? "Morning" : "Evening",
+        startTime: morning ? "08:00" : "16:00",
+        endTime: morning ? "16:00" : "00:00",
+        overnight: !morning,
+        graceMinutes: Number(draft.bufferMinutes) || 10,
+        breakMinutes: Number(draft.breakMinutes) || 60,
+        minWorkMinutes: Math.round((Number(draft.permanentHours) || 8) * 60),
+        overtimeAfterMinutes: Math.round((Number(draft.permanentHours) || 8) * 60),
+        dayCutoffTime: "06:00",
+        active: true,
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("hr.shiftPolicy.hoShiftSaved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }) });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const locationShifts = useMemo(() => {
+    const shifts = (bootstrapQ.data?.shifts ?? []) as Array<{
+      id: string;
+      name?: string | null;
+      location_id?: string | null;
+      start_time?: string | null;
+      end_time?: string | null;
+      active?: boolean | null;
+    }>;
+    return shifts.filter((s) => s.location_id === locationId && s.active !== false);
+  }, [bootstrapQ.data?.shifts, locationId]);
 
   const applyAll = useMutation({
     mutationFn: () => {
@@ -230,6 +288,10 @@ export default function HrShiftPolicyPage() {
                   uaBreak: URBAN_ARENA_BREAK_MINUTES,
                 })}
               </p>
+              <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground/80">{t("hr.shiftPolicy.policyTitle")}</p>
+                <p>{t("hr.shiftPolicy.policyBody")}</p>
+              </div>
 
               <div className="max-w-md space-y-1.5">
                 <Label htmlFor="hr-shift-location">{t("hr.shiftPolicy.location")}</Label>
@@ -282,6 +344,73 @@ export default function HrShiftPolicyPage() {
                     />
                     <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.attendanceModeHelp")}</p>
                   </div>
+
+                  <div className="max-w-md space-y-1.5">
+                    <Label htmlFor="hr-shift-payroll-cycle">{t("hr.shiftPolicy.payrollCycle")}</Label>
+                    <SearchableSelect
+                      id="hr-shift-payroll-cycle"
+                      value={draft.payrollCycle}
+                      onValueChange={(v) =>
+                        setDraft((d) => ({
+                          ...d,
+                          payrollCycle:
+                            v === PAYROLL_CYCLE_CALENDAR_MONTH
+                              ? PAYROLL_CYCLE_CALENDAR_MONTH
+                              : PAYROLL_CYCLE_FEC_28_27,
+                        }))
+                      }
+                      options={[
+                        {
+                          value: PAYROLL_CYCLE_FEC_28_27,
+                          label: t("hr.shiftPolicy.payrollCycleFec"),
+                          keywords: "fec 28 27",
+                        },
+                        {
+                          value: PAYROLL_CYCLE_CALENDAR_MONTH,
+                          label: t("hr.shiftPolicy.payrollCycleCalendar"),
+                          keywords: "calendar month HO",
+                        },
+                      ]}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.payrollCycleHelp")}</p>
+                  </div>
+
+                  {draft.attendanceMode === ATTENDANCE_MODE_SHIFT_PUNCH ? (
+                    <div className="space-y-2 rounded-xl border border-border/60 p-3">
+                      <p className="text-sm font-medium">{t("hr.shiftPolicy.hoShiftsTitle")}</p>
+                      <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.hoShiftsHelp")}</p>
+                      {locationShifts.length ? (
+                        <ul className="space-y-1 text-xs text-muted-foreground">
+                          {locationShifts.map((s) => (
+                            <li key={s.id}>
+                              {s.name}: {String(s.start_time ?? "").slice(0, 5)}–
+                              {String(s.end_time ?? "").slice(0, 5)}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={saveHoShift.isPending || !companyId}
+                          onClick={() => saveHoShift.mutate("morning")}
+                        >
+                          {t("hr.shiftPolicy.hoShiftMorning")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={saveHoShift.isPending || !companyId}
+                          onClick={() => saveHoShift.mutate("evening")}
+                        >
+                          {t("hr.shiftPolicy.hoShiftEvening")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="overflow-x-auto rounded-xl border border-border/70">
                     <table className="w-full text-sm">

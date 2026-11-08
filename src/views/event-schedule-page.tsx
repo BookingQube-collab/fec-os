@@ -53,6 +53,7 @@ export default function EventSchedulePage() {
           canEdit={canEdit}
           defaultDate={defaultDate}
           crewClosed={Boolean(scheduleQ.data?.crewClosed)}
+          deviceIds={scheduleQ.data?.deviceIds ?? []}
           onChanged={() => {
             void qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id), "schedule"] });
             void qc.invalidateQueries({ queryKey: queryKeys.events.detail(id) });

@@ -195,21 +195,28 @@ describe("AT#11 separates WPS / cheque / bank-transfer employees", () => {
   });
 
   it("builds WPS export with SIF-like headers", () => {
-    const rows = buildWpsExportRows([
-      {
-        employeeCode: "E1",
-        employeeName: "Ali",
-        month: "2026-09",
-        fixedIncome: 4000,
-        variableIncome: 200,
-        deductions: 100,
-        netQar: 4100,
-        paymentMethod: "wps",
-        iban: "QA00",
-      },
-    ]);
-    expect(rows[0]?.[0]).toBe("Employee ID");
-    expect(rows[1]?.[10]).toBe("4100");
+    const rows = buildWpsExportRows(
+      [
+        {
+          employeeCode: "E1",
+          employeeName: "Ali",
+          month: "2026-09",
+          fixedIncome: 4000,
+          variableIncome: 200,
+          deductions: 100,
+          netQar: 4100,
+          paymentMethod: "wps",
+          iban: "QA00",
+        },
+      ],
+      { employerEid: "EMP1", establishmentId: "EST1", salaryMonth: "2026-09" },
+    );
+    expect(rows[0]?.[0]).toBe("EHR");
+    expect(rows[0]?.[1]).toBe("EMP1");
+    expect(rows[2]?.[0]).toBe("Employee ID");
+    const body = rows.find((r) => r[0] === "E1");
+    expect(body?.[10]).toBe("4100");
+    expect(rows.at(-1)?.[0]).toMatch(/^SCR\|/);
   });
 });
 

@@ -1,12 +1,14 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -18,11 +20,15 @@ import {
 } from "@/components/ui/table";
 import {
   deleteEventScheduleSlot,
+  listEventLinkableDevices,
   processEventAttendance,
   seedEventScheduleFromCrew,
+  setEventAttendanceDevices,
   upsertEventScheduleSlot,
 } from "@/lib/event-schedule.functions";
 import type { EventScheduleAttendanceRow, EventScheduleSlotRow } from "@/lib/events/types";
+import { queryKeys } from "@/lib/query-keys";
+import { STALE } from "@/lib/query-client";
 
 export function EventSchedulePanel({
   eventId,
@@ -32,6 +38,7 @@ export function EventSchedulePanel({
   canEdit,
   defaultDate,
   crewClosed = false,
+  deviceIds = [],
   onChanged,
 }: {
   eventId: string;
@@ -41,6 +48,7 @@ export function EventSchedulePanel({
   canEdit: boolean;
   defaultDate: string;
   crewClosed?: boolean;
+  deviceIds?: string[];
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
@@ -51,6 +59,17 @@ export function EventSchedulePanel({
   const [scheduledOut, setScheduledOut] = useState("18:00");
   const [processFrom, setProcessFrom] = useState("");
   const [processTo, setProcessTo] = useState("");
+  const [selectedDevices, setSelectedDevices] = useState<Set<string>>(() => new Set(deviceIds));
+
+  const devicesQ = useQuery({
+    queryKey: [...queryKeys.events.staffing(eventId), "devices"],
+    queryFn: () => listEventLinkableDevices({ eventId }),
+    staleTime: STALE.events,
+  });
+
+  useEffect(() => {
+    setSelectedDevices(new Set(deviceIds));
+  }, [deviceIds]);
 
   const attByKey = new Map(attendance.map((a) => [`${a.staff_id}|${a.work_date}`, a]));
 
@@ -109,8 +128,71 @@ export function EventSchedulePanel({
 
   const editAllowed = canEdit && !crewClosed;
 
+  async function saveDevices() {
+    setBusy(true);
+    try {
+      await setEventAttendanceDevices({
+        eventId,
+        deviceIds: [...selectedDevices],
+      });
+      onChanged();
+      toast.success(t("events.schedule.devicesSaved"));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <section className="rounded-2xl border border-border/40 bg-card p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">{t("events.schedule.devicesTitle")}</h2>
+          <p className="text-xs text-muted-foreground">{t("events.schedule.devicesHint")}</p>
+        </div>
+        {devicesQ.isLoading ? (
+          <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
+        ) : (devicesQ.data?.devices.length ?? 0) === 0 ? (
+          <p className="text-xs text-muted-foreground">{t("events.schedule.devicesNone")}</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(devicesQ.data?.devices ?? []).map((d) => (
+              <label
+                key={d.id}
+                className="flex items-start gap-2 rounded-lg border border-border/40 px-2 py-1.5 text-sm"
+              >
+                <Checkbox
+                  checked={selectedDevices.has(d.id)}
+                  disabled={!canEdit || busy}
+                  onCheckedChange={(v) => {
+                    setSelectedDevices((prev) => {
+                      const next = new Set(prev);
+                      if (v) next.add(d.id);
+                      else next.delete(d.id);
+                      return next;
+                    });
+                  }}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium">{d.deviceName}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {d.deviceCode}
+                    {d.hostSite ? " · host site" : ""}
+                    {d.serialNumber ? ` · ${d.serialNumber}` : ""}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        {canEdit ? (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void saveDevices()}>
+            {t("events.schedule.devicesSave")}
+          </Button>
+        ) : null}
+      </section>
+
       <section className="rounded-2xl border border-border/40 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>

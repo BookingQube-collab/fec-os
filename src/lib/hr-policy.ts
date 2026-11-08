@@ -120,6 +120,13 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
     late_deduct_units_per_day: 0.5,
     late_escalate_after_count: 0,
     late_escalate_extra_units: 1,
+    /**
+     * Optional WPS/SIF employer fields (Finance). Empty = export labels the gap;
+     * not bank-certified until Finance supplies real MOL / establishment values.
+     */
+    wps_employer_eid: "",
+    wps_payer_eid: "",
+    wps_establishment_id: "",
   },
   notification: {
     channels: ["in_app", "email"],

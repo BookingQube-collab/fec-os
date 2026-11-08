@@ -11,6 +11,16 @@ import { toast } from "sonner";
 
 import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,6 +30,7 @@ import {
   closeEventCrew,
   createEventPayrollPeriod,
   getEventPayrollPeriod,
+  reopenEventCrew,
 } from "@/lib/event-payroll.functions";
 import { generatePayrollLines, getPayrollExportMatrix } from "@/lib/hr-payroll.functions";
 import { queryKeys } from "@/lib/query-keys";
@@ -49,6 +60,8 @@ export default function EventPayrollPage() {
   const canView = usePermission("payroll.view");
   const canExport = usePermission("payroll.export_wps");
   const [busy, setBusy] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
 
   const periodQ = useQuery({
     queryKey: [...queryKeys.events.staffing(id), "payroll"],
@@ -113,6 +126,29 @@ export default function EventPayrollPage() {
       toast.error((e as Error).message);
     } finally {
       setBusy(false);
+      setConfirmClose(false);
+    }
+  }
+
+  async function reopenCrew() {
+    setBusy(true);
+    try {
+      const res = await reopenEventCrew({
+        eventId: id,
+        unparkEventHires: true,
+      });
+      await qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id)] });
+      toast.success(
+        t("events.payroll.toasts.reopened", {
+          n: res.reopenedAssignments,
+          unparked: res.unparkedHires,
+        }),
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+      setConfirmReopen(false);
     }
   }
 
@@ -156,6 +192,17 @@ export default function EventPayrollPage() {
       ) : (
         <section className="space-y-3 rounded-2xl border border-border/40 bg-card p-4">
           <p className="text-sm text-muted-foreground">{t("events.payroll.hint")}</p>
+          <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground/80">{t("events.payroll.policyTitle")}</p>
+            <ul className="list-disc ps-4 space-y-0.5">
+              <li>{t("events.payroll.policyHoCutoff")}</li>
+              <li>{t("events.payroll.policyHoMode")}</li>
+              <li>{t("events.payroll.policyVenue")}</li>
+              <li>{t("events.payroll.policyPunches")}</li>
+              <li>{t("events.payroll.policyLoaned")}</li>
+              <li>{t("events.payroll.policyEventOnly")}</li>
+            </ul>
+          </div>
           <p className="text-xs text-muted-foreground">{t("events.payroll.wpsGap")}</p>
           {period ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -183,8 +230,11 @@ export default function EventPayrollPage() {
               <Button size="sm" disabled={busy} onClick={() => void generate()}>
                 {t("events.payroll.generate")}
               </Button>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void closeCrew()}>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmClose(true)}>
                 {t("events.payroll.closeAssignments")}
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setConfirmReopen(true)}>
+                {t("events.payroll.reopenAssignments")}
               </Button>
             </div>
           ) : (
@@ -192,6 +242,36 @@ export default function EventPayrollPage() {
           )}
         </section>
       )}
+
+      <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("events.payroll.closeConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("events.payroll.closeConfirmBody")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => void closeCrew()}>
+              {t("events.payroll.closeAssignments")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmReopen} onOpenChange={setConfirmReopen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("events.payroll.reopenConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("events.payroll.reopenConfirmBody")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => void reopenCrew()}>
+              {t("events.payroll.reopenAssignments")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -33,12 +33,15 @@ import type { Capability } from "@/lib/rbac";
 import {
   bulkCloseEventStaffAssignments,
   bulkDeleteEventStaffAssignments,
+  bulkReopenEventStaffAssignments,
   bulkUpdateEventStaffAssignmentDates,
 } from "@/lib/event-staff-assignments.functions";
 import {
   assignmentTypeLabel,
   EVENT_STAFF_ASSIGNMENT_TYPES,
 } from "@/lib/events/staff-assignments";
+import { findStaffingShortageDays } from "@/lib/events/staffing-shortage";
+import { getEventSchedule } from "@/lib/event-schedule.functions";
 import {
   listPeopleEventCrew,
   listPeopleEventOptions,
@@ -126,8 +129,34 @@ export default function PeopleEventCrewPage() {
     setSelected(new Set());
   }
 
+  const shortageQ = useQuery({
+    queryKey: [...queryKeys.people.all, "event-crew-shortage", eventId || null],
+    queryFn: async () => {
+      if (!eventId) return [] as ReturnType<typeof findStaffingShortageDays>;
+      const [crew, schedule] = await Promise.all([
+        listPeopleEventCrew({ eventId, status: "all" }),
+        getEventSchedule({ eventId }),
+      ]);
+      return findStaffingShortageDays({
+        assignments: crew.rows.map((r) => ({
+          staff_id: r.staffId,
+          date_from: r.dateFrom,
+          date_to: r.dateTo,
+          status: r.status,
+        })),
+        slots: schedule.slots.map((s) => ({
+          work_date: s.work_date,
+          staff_id: s.staff_id,
+        })),
+        minScheduled: 1,
+      });
+    },
+    enabled: Boolean(eventId) && canView,
+    staleTime: STALE.events,
+  });
+
   async function runBulk(
-    action: "close" | "remove" | "dates",
+    action: "close" | "reopen" | "remove" | "dates",
   ) {
     if (!selectedIds.length) return;
     const byEvent = new Map<string, string[]>();
@@ -141,6 +170,10 @@ export default function PeopleEventCrewPage() {
       toast.error(t("peopleEvent.bulk.needDates"));
       return;
     }
+    if (action === "reopen") {
+      const ok = window.confirm(t("peopleEvent.bulk.reopenConfirm", { n: selectedIds.length }));
+      if (!ok) return;
+    }
     setBusy(true);
     try {
       let total = 0;
@@ -148,6 +181,9 @@ export default function PeopleEventCrewPage() {
         if (action === "close") {
           const res = await bulkCloseEventStaffAssignments({ eventId: evId, ids });
           total += res.closed;
+        } else if (action === "reopen") {
+          const res = await bulkReopenEventStaffAssignments({ eventId: evId, ids });
+          total += res.reopened;
         } else if (action === "remove") {
           const res = await bulkDeleteEventStaffAssignments({ eventId: evId, ids });
           total += res.removed;
@@ -165,9 +201,11 @@ export default function PeopleEventCrewPage() {
       toast.success(
         action === "close"
           ? t("peopleEvent.bulk.closed", { n: total })
-          : action === "remove"
-            ? t("peopleEvent.bulk.removed", { n: total })
-            : t("peopleEvent.bulk.datesUpdated", { n: total }),
+          : action === "reopen"
+            ? t("peopleEvent.bulk.reopened", { n: total })
+            : action === "remove"
+              ? t("peopleEvent.bulk.removed", { n: total })
+              : t("peopleEvent.bulk.datesUpdated", { n: total }),
       );
     } catch (e) {
       toast.error((e as Error).message);
@@ -292,6 +330,27 @@ export default function PeopleEventCrewPage() {
             </PeopleEventFilters>
           </HrPanel>
 
+          {eventId && (shortageQ.data?.length ?? 0) > 0 ? (
+            <HrPanel delay={0.5}>
+              <div className="space-y-2 p-4">
+                <p className="text-sm font-medium">{t("peopleEvent.shortage.title")}</p>
+                <p className="text-xs text-muted-foreground">{t("peopleEvent.shortage.hint")}</p>
+                <ul className="space-y-1 text-sm">
+                  {(shortageQ.data ?? []).slice(0, 8).map((a) => (
+                    <li key={a.workDate} className="text-amber-800 dark:text-amber-200">
+                      {t("peopleEvent.shortage.day", {
+                        date: a.workDate,
+                        scheduled: a.scheduledCount,
+                        crew: a.coveringCrewCount,
+                        deficit: a.deficit,
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </HrPanel>
+          ) : null}
+
           {canEdit && selectedIds.length > 0 ? (
             <HrPanel delay={1}>
               <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
@@ -305,6 +364,14 @@ export default function PeopleEventCrewPage() {
                   onClick={() => void runBulk("close")}
                 >
                   {t("peopleEvent.bulk.close")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void runBulk("reopen")}
+                >
+                  {t("peopleEvent.bulk.reopen")}
                 </Button>
                 <Button
                   size="sm"
