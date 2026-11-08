@@ -20,6 +20,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type LabelProps,
 } from "recharts";
 import { useTranslation } from "react-i18next";
 
@@ -85,11 +86,11 @@ function Panel({
   );
 }
 
-function BarTopLabel(props: Record<string, unknown>) {
+function BarTopLabel(props: LabelProps & { payload?: EventBarPoint }) {
   const x = Number(props.x ?? 0);
   const y = Number(props.y ?? 0);
   const width = Number(props.width ?? 0);
-  const point = props.payload as EventBarPoint | undefined;
+  const point = props.payload;
   if (!point) return null;
   return (
     <text
