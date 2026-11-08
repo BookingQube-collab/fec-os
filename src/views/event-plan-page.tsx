@@ -670,30 +670,26 @@ export default function EventPlanPage() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 max-w-full space-y-5">
       <FecPageHeader
         kicker={eventQ.data?.event.event_number ?? undefined}
         title={t("events.plan.title")}
         subtitle={t("events.plan.subtitle")}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {canEdit ? (
-              <>
-                <Button size="sm" variant="outline" onClick={() => openAutoSchedule("forward")}>
-                  {t("events.plan.autoScheduleForward")}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => openAutoSchedule("backward")}>
-                  {t("events.plan.autoScheduleBackward")}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => baseline.mutate()} disabled={baseline.isPending}>
-                  {t("events.plan.saveBaseline")}
-                </Button>
-              </>
-            ) : null}
-            <EventWorkspaceNav eventId={id} />
-          </div>
-        }
       />
+      <EventWorkspaceNav eventId={id} />
+      {canEdit ? (
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => openAutoSchedule("forward")}>
+            {t("events.plan.autoScheduleForward")}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => openAutoSchedule("backward")}>
+            {t("events.plan.autoScheduleBackward")}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => baseline.mutate()} disabled={baseline.isPending}>
+            {t("events.plan.saveBaseline")}
+          </Button>
+        </div>
+      ) : null}
 
       <EventSourceBanner />
 

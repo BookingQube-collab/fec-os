@@ -24,6 +24,8 @@ interface PageHeaderProps {
  * Page chrome. Stack title then actions below `lg` so the desktop button strip
  * cannot sit beside the title while MobileBottomNav is still visible (`lg:hidden`).
  * `md` is too early: 768–1023 still shows phone chrome and crushes letter-columns.
+ * At `lg+`, the title|actions row wraps instead of letting shrink-0 actions
+ * collapse the title into a vertical letter strip.
  */
 export function PageHeader({
   icon: Icon,
@@ -47,8 +49,8 @@ export function PageHeader({
         className,
       )}
     >
-      <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
-        <div className="flex w-full min-w-0 items-start gap-3 lg:max-w-[min(100%,36rem)] lg:flex-1">
+      <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between lg:gap-x-4 lg:gap-y-3">
+        <div className="flex w-full min-w-0 items-start gap-3 lg:min-w-[min(100%,18rem)] lg:max-w-[min(100%,36rem)] lg:flex-1">
           {Icon ? (
             <span className="icon-well icon-well-lg mt-0.5 shrink-0" aria-hidden>
               <Icon strokeWidth={1.5} />
@@ -56,9 +58,9 @@ export function PageHeader({
           ) : null}
           <div className="w-full min-w-0 flex-1">
             {kicker ? (
-              <p className="section-kicker mb-1.5">
+              <p className="section-kicker mb-1.5 max-w-full">
                 <span className="lg:hidden">{kicker}</span>
-                <span className="hidden lg:inline">
+                <span className="hidden min-w-0 lg:inline-block lg:max-w-full">
                   <BitsShine text={kicker} color="#6b6560" shineColor="#1a1a1a" speed={6} />
                 </span>
               </p>
@@ -86,12 +88,12 @@ export function PageHeader({
 
         {useCompactActions ? (
           actions ? (
-            <div className="hidden min-w-0 shrink-0 flex-wrap items-center gap-3 pt-0.5 lg:flex">
+            <div className="hidden min-w-0 max-w-full flex-wrap items-center justify-end gap-3 pt-0.5 lg:flex lg:min-w-0 lg:flex-1 lg:basis-[min(100%,20rem)]">
               {actions}
             </div>
           ) : null
         ) : actions ? (
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-3 pt-0.5 lg:w-auto lg:shrink-0">
+          <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-3 pt-0.5 lg:w-auto lg:min-w-0 lg:flex-1 lg:basis-[min(100%,20rem)] lg:justify-end">
             {actions}
           </div>
         ) : null}
