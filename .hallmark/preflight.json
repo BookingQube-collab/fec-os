@@ -1,0 +1,8 @@
+﻿{
+  "scannedAt": "2026-11-08",
+  "framework": "Next.js",
+  "palette": "FEC --hd-accent purple #6d4ae6",
+  "fonts": "existing FEC helpdesk stack",
+  "motion": "CSS transitions only on this page",
+  "preserve": ["font stack", "brand purple", "routes", "RBAC", "data hooks"]
+}

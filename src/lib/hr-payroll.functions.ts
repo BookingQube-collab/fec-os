@@ -62,6 +62,7 @@ import {
   excludeEventPaidDaysFromMonthly,
   payrollExportMonthLabel,
   staffIdsForEventPayRun,
+  sumLabourDayPayUnitsForStaff,
 } from "@/lib/events/event-payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import {
@@ -799,7 +800,12 @@ export const generatePayrollLines = createAuthenticatedAction(
       const lateDates = listPayrollLateWorkedDates(dayInputs, s.id, paidBounds);
       // Late deduct from HR payroll policy (default: each late → half day).
       const lateUnits = sumPaidUnitsWithLatePolicy(paidDates, lateDates, lateDeductPolicy);
-      const workedDays = lateUnits.units;
+      // Event pay + day-rate / joker labour: (hours_worked / 10) × day rate (can exceed 1.0/day).
+      // Monthly periods keep whole-day + late units. Crew/Management on monthly salary unchanged.
+      const workedDays =
+        isEventPeriod && dailyPay
+          ? sumLabourDayPayUnitsForStaff(dayInputs, s.id, paidBounds)
+          : lateUnits.units;
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
       const submittedOtHours = minutesToOtHours(submittedOtMinutes);

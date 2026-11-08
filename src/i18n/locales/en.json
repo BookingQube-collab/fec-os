@@ -5870,14 +5870,37 @@
       "budget": "Budget"
     },
     "schedule": {
-      "title": "Event shift schedule",
-      "hint": "Date + start/end per crew member. Not the monthly site roster. Process attendance uses venue device punches (Asia/Qatar, site grace).",
-      "empty": "No shifts yet — seed from Staffing crew or add a slot.",
+      "title": "Event crew schedule",
+      "hint": "Crew / Management use date + start/end shifts. Cleaner / Maintenance are labour day assignments (10h baseline) — not a shift module. Process attendance uses venue device punches (Asia/Qatar, site grace).",
+      "empty": "No schedule yet — seed from Staffing crew or add by role below.",
+      "emptyRoleHint": "Pick a role first. Crew / Management get shifts; Cleaner / Maintenance get labour work days (no start/end).",
+      "emptyCategory": "No rows in this category for the current schedule.",
+      "categoryFilter": "Crew schedule categories",
+      "categories": {
+        "all": "All",
+        "crew": "Crew",
+        "cleaner": "Cleaner",
+        "maintenance": "Maintenance Team",
+        "management": "Management Team (Head Office)"
+      },
       "seedFromCrew": "Seed from crew",
       "processAttendance": "Process attendance",
       "processFrom": "Process from date",
       "processTo": "Process to date",
       "addSlot": "Add shift",
+      "addSlotHint": "Event shifts are role-wise: choose the role, then a person in that role.",
+      "addLabourDays": "Assign work days",
+      "addLabourDaysHint": "Labour (Cleaner / Maintenance) has no shift module — assign calendar days. Pay uses hours worked ÷ 10 × day rate after attendance.",
+      "addRole": "Role",
+      "addModeLabourHint": "Labour roles (Cleaner / Maintenance): date range only — no start/end times. Salary = hours ÷ 10 × day rate (e.g. 20h = double).",
+      "addModeEventDayHint": "Crew / Management: add one event-day shift (single date + start/end).",
+      "labourDayPending": "{{hours}}h day (awaiting punches)",
+      "labourDayHours": "{{worked}}h / {{baseline}}h day",
+      "noStaffForRole": "No staff mapped to this role",
+      "dateFrom": "From date",
+      "dateTo": "To date",
+      "scheduledIn": "Start time",
+      "scheduledOut": "End time",
       "correctionsHint": "Missed punches for this crew:",
       "openCorrections": "Open event corrections",
       "fixLink": "Fix",
@@ -5894,12 +5917,15 @@
         "person": "Person",
         "date": "Date",
         "shift": "Shift",
+        "labourDay": "Work day",
         "attendance": "Attendance"
       },
       "toasts": {
         "seeded": "Seeded {{n}} shifts",
         "processed": "Updated {{days}} day(s) from {{punches}} punch(es)",
-        "saved": "Shift saved"
+        "saved": "Shift saved",
+        "savedRange": "Added {{n}} shift day(s)",
+        "savedLabourDays": "Assigned {{n}} labour work day(s)"
       }
     },
     "corrections": {

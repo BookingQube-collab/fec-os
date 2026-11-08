@@ -3,13 +3,17 @@ import { describe, expect, it } from "vitest";
 import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
 import {
   collectEventPaidDays,
+  computeLabourDayPayQar,
   eventPaidDayKey,
   eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
   excludeEventPaidDaysFromMonthly,
   isEventPayrollPeriod,
+  labourDayPayUnits,
+  labourDayPayUnitsFromMinutes,
   payrollExportMonthLabel,
   staffIdsForEventPayRun,
+  sumLabourDayPayUnitsForStaff,
 } from "@/lib/events/event-payroll";
 
 describe("event payroll helpers", () => {
@@ -84,6 +88,49 @@ describe("event payroll helpers", () => {
       }),
     ).toBe("Event: InflataCity");
     expect(payrollExportMonthLabel({ periodKind: "monthly", month: "2026-11" })).toBe("2026-11");
+  });
+});
+
+describe("labour 10h day pay", () => {
+  it("converts hours to day units vs 10h baseline (20h = double)", () => {
+    expect(labourDayPayUnits(10)).toBe(1);
+    expect(labourDayPayUnits(20)).toBe(2);
+    expect(labourDayPayUnits(5)).toBe(0.5);
+    expect(labourDayPayUnitsFromMinutes(600)).toBe(1);
+    expect(labourDayPayUnitsFromMinutes(1200)).toBe(2);
+  });
+
+  it("computes day pay as (hours / 10) × daily rate", () => {
+    expect(computeLabourDayPayQar(10, 100)).toBe(100);
+    expect(computeLabourDayPayQar(20, 100)).toBe(200);
+    expect(computeLabourDayPayQar(5, 100)).toBe(50);
+  });
+
+  it("sums attendance-derived units for a staff member", () => {
+    const units = sumLabourDayPayUnitsForStaff(
+      [
+        {
+          staff_id: "lab1",
+          work_date: "2026-11-05",
+          status: "present",
+          worked_minutes: 1200,
+        },
+        {
+          staff_id: "lab1",
+          work_date: "2026-11-06",
+          status: "present",
+          worked_minutes: 600,
+        },
+        {
+          staff_id: "other",
+          work_date: "2026-11-05",
+          status: "present",
+          worked_minutes: 1200,
+        },
+      ],
+      "lab1",
+    );
+    expect(units).toBe(3);
   });
 });
 

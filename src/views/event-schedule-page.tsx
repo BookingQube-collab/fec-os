@@ -34,6 +34,12 @@ export default function EventSchedulePage() {
   const ev = eventQ.data?.event;
   const title = ev?.name || ev?.event_name || t("nav.events");
   const defaultDate = ev?.event_start?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+  const headOfficeLocationId =
+    scheduleQ.data?.headOfficeLocationId ??
+    (
+      options.data?.locations as Array<{ id: string; code?: string | null }> | undefined
+    )?.find((loc) => (loc.code ?? "").toUpperCase() === "HO")?.id ??
+    null;
 
   return (
     <div className="space-y-4">
@@ -49,11 +55,19 @@ export default function EventSchedulePage() {
           eventId={id}
           slots={scheduleQ.data?.slots ?? []}
           attendance={scheduleQ.data?.attendance ?? []}
-          staff={(options.data?.staff as Array<{ id: string; full_name: string }>) ?? []}
+          staff={
+            (options.data?.staff as Array<{
+              id: string;
+              full_name: string;
+              job_title?: string | null;
+              location_id?: string | null;
+            }>) ?? []
+          }
           canEdit={canEdit}
           defaultDate={defaultDate}
           crewClosed={Boolean(scheduleQ.data?.crewClosed)}
           deviceIds={scheduleQ.data?.deviceIds ?? []}
+          headOfficeLocationId={headOfficeLocationId}
           onChanged={() => {
             void qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id), "schedule"] });
             void qc.invalidateQueries({ queryKey: queryKeys.events.detail(id) });

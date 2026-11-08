@@ -5,8 +5,12 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { bufferMinutesForLocation } from "@/lib/attendance-hr/shift-policy";
+import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import {
   deriveEventDayStatus,
+  enumerateDatesInclusive,
+  LABOUR_DAY_DEFAULT_SCHEDULED_IN,
+  LABOUR_DAY_DEFAULT_SCHEDULED_OUT,
   normalizeTimeHHMM,
   pairPunchTimes,
   seedSlotsFromAssignments,
@@ -83,12 +87,21 @@ async function loadEventGraceMinutes(context: AuthContext, locationId: string): 
   return bufferMinutesForLocation(data?.buffer_minutes ?? null);
 }
 
-function mapSlot(row: Record<string, unknown>, staffName?: string | null): EventScheduleSlotRow {
+function mapSlot(
+  row: Record<string, unknown>,
+  staff?: {
+    full_name?: string | null;
+    job_title?: string | null;
+    is_head_office?: boolean;
+  } | null,
+): EventScheduleSlotRow {
   return {
     id: String(row.id),
     event_id: String(row.event_id),
     staff_id: String(row.staff_id),
-    staff_name: staffName ?? null,
+    staff_name: staff?.full_name ?? null,
+    staff_job_title: staff?.job_title ?? null,
+    staff_is_head_office: Boolean(staff?.is_head_office),
     assignment_id: (row.assignment_id as string | null) ?? null,
     work_date: String(row.work_date).slice(0, 10),
     scheduled_in: normalizeTimeHHMM(String(row.scheduled_in).slice(0, 8)),
@@ -97,6 +110,15 @@ function mapSlot(row: Record<string, unknown>, staffName?: string | null): Event
     role_label: (row.role_label as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
   };
+}
+
+async function resolveHeadOfficeLocationId(context: AuthContext): Promise<string | null> {
+  const { data } = await context.supabase
+    .from("locations")
+    .select("id")
+    .eq("code", HEAD_OFFICE_LOCATION_CODE)
+    .maybeSingle();
+  return (data?.id as string | undefined) ?? null;
 }
 
 export const getEventSchedule = createAuthenticatedAction(
@@ -117,6 +139,7 @@ export const getEventSchedule = createAuthenticatedAction(
           slots: [],
           attendance: [],
           locationId: event.location_id as string,
+          headOfficeLocationId: await resolveHeadOfficeLocationId(context),
           crewClosed: false,
           deviceIds: [],
         };
@@ -124,13 +147,37 @@ export const getEventSchedule = createAuthenticatedAction(
       throw error;
     }
 
+    const headOfficeLocationId = await resolveHeadOfficeLocationId(context);
     const staffIds = [...new Set((slots ?? []).map((s) => s.staff_id as string))];
     const { data: staff } = staffIds.length
-      ? await context.supabase.from("staff").select("id, full_name").in("id", staffIds)
-      : { data: [] as Array<{ id: string; full_name: string }> };
-    const nameById = new Map((staff ?? []).map((s) => [s.id as string, s.full_name as string]));
+      ? await context.supabase
+          .from("staff")
+          .select("id, full_name, job_title, location_id")
+          .in("id", staffIds)
+      : {
+          data: [] as Array<{
+            id: string;
+            full_name: string;
+            job_title: string | null;
+            location_id: string | null;
+          }>,
+        };
+    const staffById = new Map(
+      (staff ?? []).map((s) => [
+        s.id as string,
+        {
+          full_name: s.full_name as string,
+          job_title: (s.job_title as string | null) ?? null,
+          is_head_office: Boolean(
+            headOfficeLocationId && (s.location_id as string | null) === headOfficeLocationId,
+          ),
+        },
+      ]),
+    );
 
-    const mapped = (slots ?? []).map((s) => mapSlot(s as Record<string, unknown>, nameById.get(s.staff_id as string)));
+    const mapped = (slots ?? []).map((s) =>
+      mapSlot(s as Record<string, unknown>, staffById.get(s.staff_id as string)),
+    );
 
     const { data: att } = await context.supabase
       .from("attendance_daily_summary")
@@ -163,7 +210,7 @@ export const getEventSchedule = createAuthenticatedAction(
       attendance: (att ?? []).map((a) => ({
         id: a.id as string,
         staff_id: a.staff_id as string,
-        staff_name: nameById.get(a.staff_id as string) ?? null,
+        staff_name: staffById.get(a.staff_id as string)?.full_name ?? null,
         work_date: String(a.work_date).slice(0, 10),
         status: String(a.status ?? ""),
         actual_in: (a.actual_in as string | null) ?? null,
@@ -174,6 +221,7 @@ export const getEventSchedule = createAuthenticatedAction(
         missed_punch: Boolean(a.missed_punch),
       })),
       locationId: (event.location_id as string) ?? null,
+      headOfficeLocationId,
       crewClosed: (closedRows ?? []).length > 0,
       deviceIds,
     };
@@ -260,6 +308,82 @@ export const deleteEventScheduleSlot = createAuthenticatedAction(IdSchema, async
   });
   return { ok: true };
 }, { auth: { capability: "events.edit" } });
+
+/**
+ * Labour day assignment: one staff + inclusive date range.
+ * Not a traditional shift module — start/end default to the 10h labour day window
+ * so process-attendance can still pair punches. Skips duplicate staff+date+in rows.
+ */
+export const upsertEventScheduleSlotRange = createAuthenticatedAction(
+  z.object({
+    eventId: z.string().uuid(),
+    staff_id: z.string().uuid(),
+    assignment_id: z.string().uuid().optional().nullable(),
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    scheduled_in: z.string().min(4).max(8).optional().nullable(),
+    scheduled_out: z.string().min(4).max(8).optional().nullable(),
+    role_label: z.string().max(120).optional().nullable(),
+    notes: z.string().max(1000).optional().nullable(),
+  }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    await assertEventCrewOpenForSchedule(context, data.eventId);
+    const inRaw = data.scheduled_in?.trim() || LABOUR_DAY_DEFAULT_SCHEDULED_IN;
+    const outRaw = data.scheduled_out?.trim() || LABOUR_DAY_DEFAULT_SCHEDULED_OUT;
+    const timeErr = validateScheduleSlotTimes(inRaw, outRaw);
+    if (timeErr) throw new Error(timeErr);
+    if (data.date_to < data.date_from) throw new Error("End date must be on or after start");
+    const dates = enumerateDatesInclusive(data.date_from, data.date_to);
+    if (!dates.length) throw new Error("Invalid date range");
+
+    const scheduledIn = normalizeTimeHHMM(inRaw);
+    const scheduledOut = normalizeTimeHHMM(outRaw);
+    const roleLabel = data.role_label?.trim() || null;
+    const notes = data.notes?.trim() || null;
+    let inserted = 0;
+
+    for (const work_date of dates) {
+      const { error: insErr } = await context.supabase.from("event_schedule_slots").insert({
+        event_id: data.eventId,
+        staff_id: data.staff_id,
+        assignment_id: data.assignment_id ?? null,
+        work_date,
+        scheduled_in: scheduledIn + ":00",
+        scheduled_out: scheduledOut + ":00",
+        location_id: event.location_id as string,
+        role_label: roleLabel,
+        notes,
+        created_by: context.userId,
+        updated_by: context.userId,
+      });
+      if (insErr) {
+        if (/duplicate|unique/i.test(insErr.message)) continue;
+        throw insErr;
+      }
+      inserted += 1;
+    }
+
+    await writeEventAudit(context, {
+      action: "schedule_add_range",
+      entityType: "event_schedule_slot",
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: {
+        staff_id: data.staff_id,
+        date_from: data.date_from,
+        date_to: data.date_to,
+        scheduled_in: scheduledIn,
+        scheduled_out: scheduledOut,
+        role_label: roleLabel,
+        inserted,
+        attempted: dates.length,
+      },
+    });
+    return { inserted, attempted: dates.length };
+  },
+  { auth: { capability: "events.edit" } },
+);
 
 /** Seed one default shift per crew assignment day (skips existing staff+date+in). */
 export const seedEventScheduleFromCrew = createAuthenticatedAction(

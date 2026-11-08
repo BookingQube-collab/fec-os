@@ -405,6 +405,10 @@ export interface EventScheduleSlotRow {
   event_id: string;
   staff_id: string;
   staff_name: string | null;
+  /** Staff home job title — used with role_label for Crew schedule categories. */
+  staff_job_title?: string | null;
+  /** True when staff home location is Head Office. */
+  staff_is_head_office?: boolean;
   assignment_id: string | null;
   work_date: string;
   scheduled_in: string;
@@ -432,6 +436,8 @@ export interface EventSchedulePayload {
   slots: EventScheduleSlotRow[];
   attendance: EventScheduleAttendanceRow[];
   locationId: string | null;
+  /** Head Office location id when present — for Management Team (HO) grouping. */
+  headOfficeLocationId: string | null;
   crewClosed: boolean;
   /** Dedicated biometric devices when linked; empty = host-site punches. */
   deviceIds: string[];

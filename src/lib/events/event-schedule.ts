@@ -2,6 +2,16 @@
 
 import { computeLatePunchMinutes, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
 import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
+import { EXTENDED_SHIFT_HOURS } from "@/lib/attendance-hr/shift-policy";
+
+/**
+ * Labour roles (Cleaner / Maintenance) are not on a traditional shift module.
+ * Day anchors still need scheduled_in/out for attendance pairing — use a fixed
+ * 10h window matching site joker / extended expected hours.
+ */
+export const LABOUR_DAY_BASELINE_HOURS = EXTENDED_SHIFT_HOURS;
+export const LABOUR_DAY_DEFAULT_SCHEDULED_IN = "08:00";
+export const LABOUR_DAY_DEFAULT_SCHEDULED_OUT = "18:00";
 
 export type EventScheduleSlotLike = {
   id?: string;

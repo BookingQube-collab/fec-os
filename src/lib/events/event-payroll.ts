@@ -1,5 +1,8 @@
 /** Phase 4 — event payroll helpers (pure). */
 
+import { LABOUR_DAY_BASELINE_HOURS } from "@/lib/events/event-schedule";
+import { isPayrollPaidNonWorkDay, isPayrollPresentDay, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
+
 /**
  * event_pay_policy — product defaults (Phase 0). Encoded for admins in UI copy;
  * do not invent a second company cut-off here (see payroll_cycle on site settings).
@@ -10,6 +13,8 @@
  * - Event punches = host-site devices (or dedicated event device set when linked)
  * - Loaned with pay_on_event_run → those days excluded from monthly generate
  * - Event-only / joker on the event pay run when pay_on_event_run
+ * - Labour / day-rate on event runs: day pay = (hours_worked / 10) × daily_rate
+ *   (10h baseline; 20h in a day = double). Crew/Management stay on shift slots.
  */
 export const EVENT_PAY_POLICY = {
   hoCutoff: "fec_28_27",
@@ -18,7 +23,79 @@ export const EVENT_PAY_POLICY = {
   punches: "host_site_devices_or_event_device_set",
   loanedPayOnEventExcludedFromMonthly: true,
   eventOnlyAndJokerOnEventRun: true,
+  labourDayBaselineHours: LABOUR_DAY_BASELINE_HOURS,
+  labourDayPayUsesHoursOverBaseline: true,
 } as const;
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Paid day-units for labour / day-rate event pay.
+ * Example: 20 hours worked → 2.0 units → double the daily rate for that day.
+ */
+export function labourDayPayUnits(
+  hoursWorked: number,
+  baselineHours: number = LABOUR_DAY_BASELINE_HOURS,
+): number {
+  const hours = Math.max(0, Number(hoursWorked) || 0);
+  const baseline = Math.max(1, Number(baselineHours) || LABOUR_DAY_BASELINE_HOURS);
+  return round2(hours / baseline);
+}
+
+export function labourDayPayUnitsFromMinutes(
+  workedMinutes: number,
+  baselineHours: number = LABOUR_DAY_BASELINE_HOURS,
+): number {
+  return labourDayPayUnits(Math.max(0, Number(workedMinutes) || 0) / 60, baselineHours);
+}
+
+/** day pay = (hours_worked / 10) × daily_rate */
+export function computeLabourDayPayQar(
+  hoursWorked: number,
+  dayRateQar: number,
+  baselineHours: number = LABOUR_DAY_BASELINE_HOURS,
+): number {
+  return round2(labourDayPayUnits(hoursWorked, baselineHours) * Math.max(0, Number(dayRateQar) || 0));
+}
+
+function isLabourHourPayWorkDay(day: PayrollDayInput): boolean {
+  if (isPayrollPresentDay(day)) return true;
+  const status = String(day.status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (status === "overtime" || status === "short_hours" || status === "late") return true;
+  return Number(day.worked_minutes ?? 0) > 0 && Boolean(day.actual_in) && Boolean(day.actual_out);
+}
+
+/**
+ * Sum labour day-units across attendance rows for one staff on an event pay run.
+ * Present/worked days use hours/10; paid non-work (week off / annual leave) stay 1.0.
+ */
+export function sumLabourDayPayUnitsForStaff(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+  baselineHours: number = LABOUR_DAY_BASELINE_HOURS,
+): number {
+  let units = 0;
+  for (const day of days) {
+    if (day.staff_id !== staffId) continue;
+    const workDate = day.work_date ? String(day.work_date).slice(0, 10) : null;
+    if (!workDate) continue;
+    if (bounds?.from && workDate < bounds.from) continue;
+    if (bounds?.to && workDate > bounds.to) continue;
+    if (isPayrollPaidNonWorkDay(day)) {
+      units += 1;
+      continue;
+    }
+    if (!isLabourHourPayWorkDay(day)) continue;
+    units += labourDayPayUnitsFromMinutes(Number(day.worked_minutes ?? 0), baselineHours);
+  }
+  return round2(units);
+}
 
 export type EventPayAssignmentLike = {
   staff_id: string;
