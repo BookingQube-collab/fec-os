@@ -1,27 +1,33 @@
 "use client";
 
-/* Hallmark · redesign · app dashboard · preserve FEC People/HR tokens
- * macrostructure: Stat-Led workbench · tone: utilitarian ops · enrichment: none
- * previous: sparse 3-card hub · this: KPI strip + charts + module tabs
+/* Hallmark · redesign · app dashboard · mockup-faithful Event Attendance
+ * macrostructure: Stat-Led workbench · theme: studied-DNA (mockup purple #7C3AED)
+ * design-system: FEC People/HR · designed-as-app
+ * previous: sparse workforce hub · this: Event Attendance overview matching attached mockup
  */
 
 import Link from "next/link";
-import { Calendar, ExternalLink } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CalendarDays, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventWorkforceDashboard } from "@/components/people/people-event-workforce-dashboard";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { canActorPerform } from "@/lib/arcade/access";
+import {
+  defaultOverviewRange,
+  formatRangeLabel,
+} from "@/lib/people-event-attendance-overview";
 import type { Capability } from "@/lib/rbac";
 
 export default function PeopleEventsHubPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const roles = useUserRoles();
   const { profile } = useAuth();
   const actorOpts = {
@@ -29,6 +35,13 @@ export default function PeopleEventsHubPage() {
     staffRole: profile?.staff_role,
     department: profile?.department,
   };
+
+  const initialRange = useMemo(() => defaultOverviewRange(), []);
+  const [dateFrom, setDateFrom] = useState(initialRange.from);
+  const [dateTo, setDateTo] = useState(initialRange.to);
+
+  const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
+  const rangeLabel = formatRangeLabel(dateFrom, dateTo, locale);
 
   const can = (caps: readonly Capability[]) =>
     caps.some((cap) => canActorPerform(roles, cap, actorOpts));
@@ -41,37 +54,100 @@ export default function PeopleEventsHubPage() {
 
   return (
     <HrShell>
-      <HrSection
-        icon={Calendar}
-        kicker={t("peopleEvent.kicker")}
-        title={t("peopleEvent.hub.title")}
-        subtitle={t("peopleEvent.hub.subtitleDashboard")}
-        actions={
-          canOpenEventsSetup ? (
-            <Button asChild size="sm" variant="outline">
-              <Link href="/events">
-                <ExternalLink className="me-1.5 h-3.5 w-3.5" />
-                {t("peopleEvent.hub.openEventsSetup")}
-              </Link>
-            </Button>
-          ) : null
-        }
-      >
+      <div className="ea-attendance-overview space-y-5">
+        <header className="relative overflow-hidden rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.55]"
+            aria-hidden
+            style={{
+              background:
+                "radial-gradient(ellipse 80% 60% at 100% 0%, rgba(124,58,237,0.12), transparent 55%), radial-gradient(ellipse 50% 40% at 0% 100%, rgba(167,139,250,0.10), transparent 50%)",
+            }}
+          />
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="mt-0.5 grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-violet-100 text-[#7c3aed]">
+                <CalendarDays className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t("peopleEvent.hub.breadcrumb")}
+                </p>
+                <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-foreground sm:text-[1.75rem]">
+                  {t("peopleEvent.hub.title")}
+                </h1>
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                  {t("peopleEvent.hub.subtitleDashboard")}
+                </p>
+              </div>
+            </div>
+
+            <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
+              <div
+                className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-white/90 px-2.5 py-1.5 shadow-sm"
+                title={rangeLabel}
+              >
+                <CalendarDays className="h-4 w-4 shrink-0 text-[#7c3aed]" aria-hidden />
+                <label className="sr-only" htmlFor="ea-date-from">
+                  {t("peopleEvent.filters.from")}
+                </label>
+                <Input
+                  id="ea-date-from"
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-8 w-[9.75rem] border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
+                />
+                <span className="text-muted-foreground" aria-hidden>
+                  –
+                </span>
+                <label className="sr-only" htmlFor="ea-date-to">
+                  {t("peopleEvent.filters.to")}
+                </label>
+                <Input
+                  id="ea-date-to"
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-8 w-[9.75rem] border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
+                />
+              </div>
+
+              {canOpenEventsSetup ? (
+                <Button
+                  asChild
+                  size="sm"
+                  className="h-10 shrink-0 rounded-xl bg-[#7c3aed] px-4 text-white hover:bg-[#6d28d9] focus-visible:ring-[#7c3aed]/40"
+                >
+                  <Link href="/events">
+                    {t("peopleEvent.hub.openEventsSetup")}
+                    <ExternalLink className="ms-1.5 h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
         {!hasAnyModule ? (
           <HrPanel>
-            <HrEmptyState message={t("peopleEvent.noAccess")} icon={Calendar} />
+            <HrEmptyState message={t("peopleEvent.noAccess")} icon={CalendarDays} />
           </HrPanel>
         ) : (
           <>
-            <PeopleEventWorkforceTabs active="overview" />
+            <PeopleEventWorkforceTabs active="overview" variant="pills" />
             <PeopleEventWorkforceDashboard
               canCrew={canCrew}
               canAttendance={canAttendance}
               canPayroll={canPayroll}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
             />
           </>
         )}
-      </HrSection>
+      </div>
     </HrShell>
   );
 }

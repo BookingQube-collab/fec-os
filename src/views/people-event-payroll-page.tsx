@@ -98,7 +98,7 @@ export default function PeopleEventPayrollPage() {
             </div>
           }
         >
-          <PeopleEventWorkforceTabs active="payroll" />
+          <PeopleEventWorkforceTabs active="payroll" variant="pills" />
           <HrPanel delay={0}>
             <PeopleEventFilters
               events={events}

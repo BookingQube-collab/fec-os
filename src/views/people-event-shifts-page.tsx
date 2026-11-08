@@ -69,7 +69,7 @@ export default function PeopleEventShiftsPage() {
         title={t("peopleEvent.shifts.title")}
         subtitle={t("peopleEvent.shifts.subtitle")}
       >
-        <PeopleEventWorkforceTabs active="shifts" />
+        <PeopleEventWorkforceTabs active="shifts" variant="pills" />
         <HrPanel delay={0}>
           <PeopleEventFilters
             events={events}

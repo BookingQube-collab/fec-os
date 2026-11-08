@@ -82,7 +82,7 @@ export default function PeopleEventRolesPage() {
         title={t("peopleEvent.roles.title")}
         subtitle={t("peopleEvent.roles.subtitle")}
       >
-        <PeopleEventWorkforceTabs active="roles" />
+        <PeopleEventWorkforceTabs active="roles" variant="pills" />
         <HrPanel delay={0}>
           <PeopleEventFilters
             events={events}

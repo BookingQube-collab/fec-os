@@ -183,7 +183,7 @@ export default function PeopleEventAttendancePage() {
             </div>
           }
         >
-          <PeopleEventWorkforceTabs active="attendance" />
+          <PeopleEventWorkforceTabs active="attendance" variant="pills" />
           <HrPanel delay={0}>
             <PeopleEventFilters
               events={events}

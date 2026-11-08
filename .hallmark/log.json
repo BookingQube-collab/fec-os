@@ -1,4 +1,30 @@
-﻿[
+[
+  {
+    "date": "2026-11-09",
+    "macrostructure": "Stat-Led",
+    "theme": "studied-DNA",
+    "theme_axes": "light / grotesk-sans / cool",
+    "enrichment": "none",
+    "brief": "Event Crew (/people/event-crew) pixel-faithful to attached purple mockup — KPI strip, filters, assignments table/cards",
+    "scope": "page"
+  },
+  {
+    "date": "2026-11-09",
+    "macrostructure": "Stat-Led",
+    "theme": "studied-DNA",
+    "theme_axes": "light / grotesk-sans / cool",
+    "enrichment": "none",
+    "brief": "Event Attendance hub (/people/events) pixel-faithful to attached purple mockup — KPI/charts/table/quick actions",
+    "scope": "page"
+  },
+  {
+    "date": "2026-11-08",
+    "macrostructure": "Stat-Led",
+    "theme": "FEC People/HR system",
+    "theme_axes": "light / grotesk-sans / cool",
+    "enrichment": "none",
+    "brief": "Event workforce hub redesign — KPI strip, recharts, Overview/Crew/Attendance/Payroll tabs"
+  },
   {
     "date": "2026-11-08",
     "macrostructure": "Workbench",

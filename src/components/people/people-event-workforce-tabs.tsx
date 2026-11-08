@@ -90,10 +90,13 @@ function pathMatches(pathname: string, href: string): boolean {
 export function PeopleEventWorkforceTabs({
   className,
   active,
+  variant = "segment",
 }: {
   className?: string;
   /** Override active tab when pathname alone is ambiguous. */
   active?: PeopleEventWorkforceTabId;
+  /** `pills` matches the Event Attendance mockup (solid purple active). */
+  variant?: "segment" | "pills";
 }) {
   const { t } = useTranslation();
   const pathname = usePathname() ?? "";
@@ -114,6 +117,37 @@ export function PeopleEventWorkforceTabs({
   const current =
     active ??
     (visible.find((tab) => pathMatches(pathname, tab.href))?.id ?? visible[0]?.id);
+
+  if (variant === "pills") {
+    return (
+      <nav
+        className={cn("flex flex-wrap gap-2", className)}
+        aria-label={t("peopleEvent.tabs.aria")}
+      >
+        {visible.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = tab.id === current;
+          return (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              aria-current={isActive ? "page" : undefined}
+              className={cn(
+                "inline-flex min-h-10 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium outline-none transition-colors",
+                "focus-visible:ring-2 focus-visible:ring-[#7c3aed]/40",
+                isActive
+                  ? "bg-[#7c3aed] text-white shadow-sm"
+                  : "border border-border/80 bg-white text-muted-foreground hover:border-[#7c3aed]/30 hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="whitespace-nowrap">{t(tab.labelKey)}</span>
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
 
   return (
     <nav
