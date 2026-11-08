@@ -139,6 +139,8 @@ export interface EventPlanAiDraftContext {
   event_end?: string | null;
   planning_start?: string | null;
   setup_start?: string | null;
+  setup_end?: string | null;
+  dismantle_start?: string | null;
   dismantle_end?: string | null;
   contracted_value?: number | null;
   cost_categories: EventCostCategoryOption[];
@@ -287,10 +289,10 @@ function templateDates(ctx: EventPlanAiDraftContext, windows: ReturnType<typeof 
   return {
     planning_start: ctx.planning_start || windows.initiation.start,
     setup_start: ctx.setup_start || windows.bump_in.start,
-    setup_end: windows.bump_in.end,
+    setup_end: ctx.setup_end || windows.bump_in.end,
     event_start: ctx.event_start || windows.go_live.start,
     event_end: ctx.event_end || windows.operations.end,
-    dismantle_start: windows.bump_out.start,
+    dismantle_start: ctx.dismantle_start || windows.bump_out.start,
     dismantle_end: ctx.dismantle_end || windows.bump_out.end,
   };
 }

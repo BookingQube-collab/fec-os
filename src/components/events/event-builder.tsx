@@ -41,6 +41,7 @@ import { STANDARD_WORKSTREAMS } from "@/lib/events/workstreams";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 
 type DraftFields = Awaited<ReturnType<typeof aiDraftEventPlan>>["fields"];
 type DraftTask = DraftFields["tasks"][number] & { id?: string; owner_staff_id?: string | null };
@@ -66,10 +67,24 @@ const EMPTY_FORM = {
   event_start: "",
   event_end: "",
   setup_start: "",
+  setup_end: "",
+  dismantle_start: "",
   dismantle_end: "",
   contracted_value: "",
   description: "",
 };
+
+function assertFormDatePairs(form: typeof EMPTY_FORM) {
+  if (form.setup_start && form.setup_end && form.setup_start > form.setup_end) {
+    throw new Error("Setup start must be on or before setup end.");
+  }
+  if (form.event_start && form.event_end && form.event_start > form.event_end) {
+    throw new Error("Event opening must be on or before closing.");
+  }
+  if (form.dismantle_start && form.dismantle_end && form.dismantle_start > form.dismantle_end) {
+    throw new Error("Dismantling start must be on or before dismantling end.");
+  }
+}
 
 function stepIndex(id: EventSetupStepId) {
   return EVENT_SETUP_STEPS.findIndex((s) => s.id === id);
@@ -131,6 +146,8 @@ export function EventBuilder({
       event_start: ev.event_start ?? "",
       event_end: ev.event_end ?? "",
       setup_start: ev.setup_start ?? "",
+      setup_end: ev.setup_end ?? "",
+      dismantle_start: ev.dismantle_start ?? "",
       dismantle_end: ev.dismantle_end ?? "",
       contracted_value: ev.contracted_value != null ? String(ev.contracted_value) : "",
       description: ev.description ?? "",
@@ -203,10 +220,10 @@ export function EventBuilder({
       event_dates: {
         planning_start: null,
         setup_start: form.setup_start || null,
-        setup_end: null,
+        setup_end: form.setup_end || null,
         event_start: form.event_start || null,
         event_end: form.event_end || null,
-        dismantle_start: null,
+        dismantle_start: form.dismantle_start || null,
         dismantle_end: form.dismantle_end || null,
       },
     };
@@ -231,6 +248,8 @@ export function EventBuilder({
         event_start: fields.event_dates.event_start ?? f.event_start,
         event_end: fields.event_dates.event_end ?? f.event_end,
         setup_start: fields.event_dates.setup_start ?? f.setup_start,
+        setup_end: fields.event_dates.setup_end ?? f.setup_end,
+        dismantle_start: fields.event_dates.dismantle_start ?? f.dismantle_start,
         dismantle_end: fields.event_dates.dismantle_end ?? f.dismantle_end,
       }));
     }
@@ -248,6 +267,8 @@ export function EventBuilder({
         event_start: form.event_start,
         event_end: form.event_end,
         setup_start: form.setup_start,
+        setup_end: form.setup_end,
+        dismantle_start: form.dismantle_start,
         dismantle_end: form.dismantle_end,
         contracted_value: form.contracted_value ? Number(form.contracted_value) : null,
         location_id: locationId || null,
@@ -256,11 +277,12 @@ export function EventBuilder({
       applyDraftToState(result.fields, focus);
       toast.success(result.ai_generated ? t("events.builder.ai.applied") : t("events.builder.ai.fallback"));
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(userFacingActionError(e, t("events.toasts.saveFailed"))),
   });
 
   const persistBasics = useMutation({
     mutationFn: async () => {
+      assertFormDatePairs(form);
       const payload = {
         name: form.name,
         event_name: form.event_name || form.name,
@@ -274,16 +296,21 @@ export function EventBuilder({
         event_start: form.event_start || null,
         event_end: form.event_end || null,
         setup_start: form.setup_start || null,
+        setup_end: form.setup_end || null,
+        dismantle_start: form.dismantle_start || null,
         dismantle_end: form.dismantle_end || null,
         contracted_value: form.contracted_value ? Number(form.contracted_value) : null,
         description: form.description || brief || null,
         notes: brief || null,
       };
       if (eventId) {
-        await updateEvent({ id: eventId, ...payload });
+        const result = await updateEvent({ id: eventId, ...payload });
+        if (!result.ok) throw new Error(result.error);
         return { id: eventId };
       }
-      return createEvent(payload);
+      const result = await createEvent(payload);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
     },
     onSuccess: (row) => {
       invalidate();
@@ -294,7 +321,7 @@ export function EventBuilder({
       }
       toast.success(t("events.toasts.updated"));
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(userFacingActionError(e, t("events.toasts.saveFailed"))),
   });
 
   const persistSlice = useMutation({
@@ -314,7 +341,7 @@ export function EventBuilder({
       invalidate();
       toast.success(t("events.toasts.updated"));
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(userFacingActionError(e, t("events.toasts.saveFailed"))),
   });
 
   const saveOwners = useMutation({
@@ -334,7 +361,7 @@ export function EventBuilder({
       invalidate();
       toast.success(t("events.toasts.updated"));
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(userFacingActionError(e, t("events.toasts.saveFailed"))),
   });
 
   const launch = useMutation({
@@ -344,7 +371,7 @@ export function EventBuilder({
       toast.success(t("events.builder.launched"));
       router.push(`/events/${eventId}`);
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(userFacingActionError(e, t("events.toasts.saveFailed"))),
   });
 
   const goTo = (id: EventSetupStepId) => {
@@ -490,6 +517,14 @@ export function EventBuilder({
           <label className="space-y-1 text-sm">
             {t("events.fields.setup_start")}
             <Input type="date" value={form.setup_start} onChange={(e) => set("setup_start", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-sm">
+            {t("events.fields.setup_end")}
+            <Input type="date" value={form.setup_end} onChange={(e) => set("setup_end", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-sm">
+            {t("events.fields.dismantle_start")}
+            <Input type="date" value={form.dismantle_start} onChange={(e) => set("dismantle_start", e.target.value)} />
           </label>
           <label className="space-y-1 text-sm">
             {t("events.fields.dismantle_end")}

@@ -214,6 +214,7 @@ import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
   type AuthContext,
 } from "@/lib/server/create-action";
 import {
@@ -309,6 +310,13 @@ function num(v: unknown) {
 
 function emptyDate(v?: string | null) {
   return v && v.trim() ? v : null;
+}
+
+/** When both ends of a pair are set, require start ≤ end. Partial pairs are allowed. */
+function assertDatePairOrder(start: string | null, end: string | null, label: string) {
+  if (start && end && start > end) {
+    throw new Error(`${label} start must be on or before end.`);
+  }
 }
 
 function emptyText(v?: string | null) {
@@ -2615,7 +2623,8 @@ const CreateEventSchema = z.object({
   notes: z.string().max(4000).optional().nullable(),
 });
 
-export const createEvent = createAuthenticatedAction(
+/** Safe envelope — production must not surface React #441 digests when create/update fails. */
+export const createEvent = createSafeAuthenticatedAction(
   CreateEventSchema,
   async (data, context) => {
     await assertLocationAccess(context, data.location_id);
@@ -2628,7 +2637,16 @@ export const createEvent = createAuthenticatedAction(
     const { data: number, error: numErr } = await context.supabase.rpc("next_evt_number");
     if (numErr) throw numErr;
 
+    const setupStart = emptyDate(data.setup_start);
+    const setupEnd = emptyDate(data.setup_end);
+    const eventStart = emptyDate(data.event_start);
+    const eventEnd = emptyDate(data.event_end);
+    const dismantleStart = emptyDate(data.dismantle_start) ?? emptyDate(data.dismantle_date);
     const dismantleEnd = emptyDate(data.dismantle_end) ?? emptyDate(data.dismantle_date);
+    assertDatePairOrder(setupStart, setupEnd, "Setup");
+    assertDatePairOrder(eventStart, eventEnd, "Event");
+    assertDatePairOrder(dismantleStart, dismantleEnd, "Dismantling");
+
     const { data: created, error } = await context.supabase
       .from("events")
       .insert({
@@ -2652,13 +2670,13 @@ export const createEvent = createAuthenticatedAction(
         contract_date: emptyDate(data.contract_date),
         planning_start: emptyDate(data.planning_start),
         venue_access: emptyDate(data.venue_access),
-        setup_start: emptyDate(data.setup_start),
-        setup_end: emptyDate(data.setup_end),
+        setup_start: setupStart,
+        setup_end: setupEnd,
         rehearsal_date: emptyDate(data.rehearsal_date),
         client_inspection_date: emptyDate(data.client_inspection_date),
-        event_start: emptyDate(data.event_start),
-        event_end: emptyDate(data.event_end),
-        dismantle_start: emptyDate(data.dismantle_start) ?? emptyDate(data.dismantle_date),
+        event_start: eventStart,
+        event_end: eventEnd,
+        dismantle_start: dismantleStart,
         dismantle_end: dismantleEnd,
         dismantle_date: dismantleEnd,
         handover_date: emptyDate(data.handover_date),
@@ -2732,7 +2750,7 @@ export const createEvent = createAuthenticatedAction(
   { auth: { capability: "events.create" } },
 );
 
-export const updateEvent = createAuthenticatedAction(
+export const updateEvent = createSafeAuthenticatedAction(
   CreateEventSchema.extend({
     id: z.string().uuid(),
     status: z.enum(EVENT_STATUSES).optional(),
@@ -2743,7 +2761,15 @@ export const updateEvent = createAuthenticatedAction(
     const current = await loadEventOrThrow(context, data.id);
     await assertLocationAccess(context, data.location_id);
     const { id, ...rest } = data;
+    const setupStart = emptyDate(rest.setup_start);
+    const setupEnd = emptyDate(rest.setup_end);
+    const eventStart = emptyDate(rest.event_start);
+    const eventEnd = emptyDate(rest.event_end);
+    const dismantleStart = emptyDate(rest.dismantle_start) ?? emptyDate(rest.dismantle_date);
     const dismantleEnd = emptyDate(rest.dismantle_end) ?? emptyDate(rest.dismantle_date);
+    assertDatePairOrder(setupStart, setupEnd, "Setup");
+    assertDatePairOrder(eventStart, eventEnd, "Event");
+    assertDatePairOrder(dismantleStart, dismantleEnd, "Dismantling");
     const patch = {
       ...rest,
       event_name: emptyText(rest.event_name) ?? rest.name,
@@ -2757,13 +2783,13 @@ export const updateEvent = createAuthenticatedAction(
       contract_date: emptyDate(rest.contract_date),
       planning_start: emptyDate(rest.planning_start),
       venue_access: emptyDate(rest.venue_access),
-      setup_start: emptyDate(rest.setup_start),
-      setup_end: emptyDate(rest.setup_end),
+      setup_start: setupStart,
+      setup_end: setupEnd,
       rehearsal_date: emptyDate(rest.rehearsal_date),
       client_inspection_date: emptyDate(rest.client_inspection_date),
-      event_start: emptyDate(rest.event_start),
-      event_end: emptyDate(rest.event_end),
-      dismantle_start: emptyDate(rest.dismantle_start) ?? emptyDate(rest.dismantle_date),
+      event_start: eventStart,
+      event_end: eventEnd,
+      dismantle_start: dismantleStart,
       dismantle_end: dismantleEnd,
       dismantle_date: dismantleEnd,
       handover_date: emptyDate(rest.handover_date),
@@ -5825,6 +5851,8 @@ export const aiDraftEventPlan = createAuthenticatedAction(
     event_end: z.string().optional().nullable(),
     planning_start: z.string().optional().nullable(),
     setup_start: z.string().optional().nullable(),
+    setup_end: z.string().optional().nullable(),
+    dismantle_start: z.string().optional().nullable(),
     dismantle_end: z.string().optional().nullable(),
     contracted_value: z.number().min(0).optional().nullable(),
     location_id: z.string().uuid().optional().nullable(),
@@ -5841,6 +5869,8 @@ export const aiDraftEventPlan = createAuthenticatedAction(
     let eventEnd = data.event_end ?? null;
     let planningStart = data.planning_start ?? null;
     let setupStart = data.setup_start ?? null;
+    let setupEnd = data.setup_end ?? null;
+    let dismantleStart = data.dismantle_start ?? null;
     let dismantleEnd = data.dismantle_end ?? null;
     let contracted = data.contracted_value ?? null;
     let typeLabel = data.event_type ?? null;
@@ -5857,6 +5887,8 @@ export const aiDraftEventPlan = createAuthenticatedAction(
       eventEnd = eventEnd || (event.event_end as string | null);
       planningStart = planningStart || (event.planning_start as string | null);
       setupStart = setupStart || (event.setup_start as string | null);
+      setupEnd = setupEnd || (event.setup_end as string | null);
+      dismantleStart = dismantleStart || (event.dismantle_start as string | null);
       dismantleEnd = dismantleEnd || (event.dismantle_end as string | null);
       contracted = contracted ?? (event.contracted_value as number | null);
       notes = notes.trim() || (event.notes as string | null) || (event.description as string | null) || "";
@@ -5880,6 +5912,8 @@ export const aiDraftEventPlan = createAuthenticatedAction(
       event_end: eventEnd,
       planning_start: planningStart,
       setup_start: setupStart,
+      setup_end: setupEnd,
+      dismantle_start: dismantleStart,
       dismantle_end: dismantleEnd,
       contracted_value: contracted,
       locale: data.locale,
