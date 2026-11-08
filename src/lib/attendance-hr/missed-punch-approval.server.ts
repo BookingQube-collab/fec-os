@@ -45,7 +45,7 @@ import {
   previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
   punchCorrectionRequestSide,
-  pickBestPunchCorrectionSummary,
+  planPunchCorrectionDay,
   ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
   requesterLineManagerUserIds,
@@ -2732,6 +2732,145 @@ export async function listPunchCorrectionSubjects(userId: string): Promise<Punch
     .sort((a, b) => Number(b.self) - Number(a.self) || a.fullName.localeCompare(b.fullName));
 }
 
+/** Leave types that block punch correction (same family as scheduled-off statuses). */
+const SCHEDULED_OFF_LEAVE_TYPES = new Set([
+  "annual_leave",
+  "sick_leave",
+  "unpaid_leave",
+  "comp_off",
+  "public_holiday",
+]);
+
+function punchCorrectionDayFromSummary(args: {
+  workDate: string;
+  summary: {
+    id: string;
+    work_date: string;
+    status: string | null;
+    missed_punch: boolean | null;
+    actual_in: string | null;
+    actual_out: string | null;
+  } | null;
+}): PunchCorrectionDay {
+  if (!args.summary) {
+    return {
+      summaryId: null,
+      workDate: args.workDate,
+      actualIn: null,
+      actualOut: null,
+      status: "",
+      missedPunch: false,
+      correctable: false,
+    };
+  }
+  const hasIn = Boolean(args.summary.actual_in);
+  const hasOut = Boolean(args.summary.actual_out);
+  return {
+    summaryId: String(args.summary.id),
+    workDate: String(args.summary.work_date).slice(0, 10),
+    actualIn: args.summary.actual_in ? String(args.summary.actual_in) : null,
+    actualOut: args.summary.actual_out ? String(args.summary.actual_out) : null,
+    status: String(args.summary.status ?? ""),
+    missedPunch: Boolean(args.summary.missed_punch),
+    correctable:
+      punchCorrectionRequestSide({
+        missedPunch: Boolean(args.summary.missed_punch),
+        status: String(args.summary.status ?? ""),
+        hasIn,
+        hasOut,
+      }) !== null,
+  };
+}
+
+/** Persist a punch-less Absent shell at the rostered on-duty site (not a gap: id). */
+async function ensureRosteredAbsentPunchCorrectionSummary(args: {
+  staffId: string;
+  workDate: string;
+  locationId: string;
+}): Promise<{
+  id: string;
+  work_date: string;
+  status: string | null;
+  missed_punch: boolean | null;
+  actual_in: string | null;
+  actual_out: string | null;
+  location_id: string | null;
+}> {
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from("attendance_daily_summary")
+    .select("id, work_date, status, missed_punch, actual_in, actual_out, location_id")
+    .eq("staff_id", args.staffId)
+    .eq("work_date", args.workDate)
+    .eq("location_id", args.locationId)
+    .maybeSingle();
+  if (existingErr) throw new Error(existingErr.message);
+  if (existing?.id) {
+    return {
+      id: String(existing.id),
+      work_date: String(existing.work_date),
+      status: existing.status == null ? null : String(existing.status),
+      missed_punch: existing.missed_punch == null ? null : Boolean(existing.missed_punch),
+      actual_in: existing.actual_in == null ? null : String(existing.actual_in),
+      actual_out: existing.actual_out == null ? null : String(existing.actual_out),
+      location_id: existing.location_id == null ? null : String(existing.location_id),
+    };
+  }
+
+  const { data: inserted, error: insertErr } = await supabaseAdmin
+    .from("attendance_daily_summary")
+    .insert({
+      location_id: args.locationId,
+      staff_id: args.staffId,
+      work_date: args.workDate,
+      subject_key: `staff:${args.staffId}`,
+      actual_in: null,
+      actual_out: null,
+      status: "absent",
+      missed_punch: false,
+      punch_count: 0,
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      worked_minutes: null,
+      biometric_user_id: null,
+      device_id: null,
+    })
+    .select("id, work_date, status, missed_punch, actual_in, actual_out, location_id")
+    .single();
+  if (insertErr) {
+    // Concurrent ensure — unique (location_id, staff_id, work_date) won the race.
+    const { data: raced, error: racedErr } = await supabaseAdmin
+      .from("attendance_daily_summary")
+      .select("id, work_date, status, missed_punch, actual_in, actual_out, location_id")
+      .eq("staff_id", args.staffId)
+      .eq("work_date", args.workDate)
+      .eq("location_id", args.locationId)
+      .maybeSingle();
+    if (racedErr) throw new Error(racedErr.message);
+    if (raced?.id) {
+      return {
+        id: String(raced.id),
+        work_date: String(raced.work_date),
+        status: raced.status == null ? null : String(raced.status),
+        missed_punch: raced.missed_punch == null ? null : Boolean(raced.missed_punch),
+        actual_in: raced.actual_in == null ? null : String(raced.actual_in),
+        actual_out: raced.actual_out == null ? null : String(raced.actual_out),
+        location_id: raced.location_id == null ? null : String(raced.location_id),
+      };
+    }
+    throw new Error(insertErr.message);
+  }
+  return {
+    id: String(inserted.id),
+    work_date: String(inserted.work_date),
+    status: inserted.status == null ? null : String(inserted.status),
+    missed_punch: inserted.missed_punch == null ? null : Boolean(inserted.missed_punch),
+    actual_in: inserted.actual_in == null ? null : String(inserted.actual_in),
+    actual_out: inserted.actual_out == null ? null : String(inserted.actual_out),
+    location_id: inserted.location_id == null ? null : String(inserted.location_id),
+  };
+}
+
 /** One attendance day for a person this login may correct. */
 export async function findPunchCorrectionDay(args: {
   userId: string;
@@ -2755,7 +2894,7 @@ export async function findPunchCorrectionDay(args: {
   // pick the best correctable row instead of limit(1) which is arbitrary.
   const { data: rows, error } = await supabaseAdmin
     .from("attendance_daily_summary")
-    .select("id, work_date, status, missed_punch, actual_in, actual_out")
+    .select("id, work_date, status, missed_punch, actual_in, actual_out, location_id")
     .eq("staff_id", args.staffId)
     .eq("work_date", args.workDate);
   if (error) throw new Error(error.message);
@@ -2766,35 +2905,59 @@ export async function findPunchCorrectionDay(args: {
     missed_punch: row.missed_punch == null ? null : Boolean(row.missed_punch),
     actual_in: row.actual_in == null ? null : String(row.actual_in),
     actual_out: row.actual_out == null ? null : String(row.actual_out),
+    location_id: row.location_id == null ? null : String(row.location_id),
   }));
-  const data = pickBestPunchCorrectionSummary(candidates);
-  if (!data) {
-    return {
-      summaryId: null,
+
+  // Reports can show ABSENT at a seconded roster site via gap: shells when process
+  // never wrote that site's summary. Resolve roster + leave so the portal can ensure
+  // a real attendance_daily_summary row submitMissedPunchRequest can use.
+  const [{ data: rosterRows, error: rosterErr }, { data: leaveRow, error: leaveErr }] =
+    await Promise.all([
+      supabaseAdmin
+        .from("attendance_roster_assignments")
+        .select("location_id, is_week_off")
+        .eq("staff_id", args.staffId)
+        .eq("work_date", args.workDate),
+      supabaseAdmin
+        .from("attendance_leave_records")
+        .select("leave_type")
+        .eq("staff_id", args.staffId)
+        .eq("leave_date", args.workDate)
+        .maybeSingle(),
+    ]);
+  if (rosterErr) throw new Error(rosterErr.message);
+  if (leaveErr) throw new Error(leaveErr.message);
+
+  const roster = (rosterRows ?? [])
+    .map((row) => ({
+      location_id: String(row.location_id ?? "").trim(),
+      is_week_off: Boolean(row.is_week_off),
+    }))
+    .filter((row) => row.location_id);
+  const leaveType = String(leaveRow?.leave_type ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const hasApprovedLeave = Boolean(leaveType) && SCHEDULED_OFF_LEAVE_TYPES.has(leaveType);
+
+  const plan = planPunchCorrectionDay({
+    summaries: candidates,
+    roster,
+    hasApprovedLeave,
+  });
+
+  if (plan.kind === "ensure_absent") {
+    const ensured = await ensureRosteredAbsentPunchCorrectionSummary({
+      staffId: args.staffId,
       workDate: args.workDate,
-      actualIn: null,
-      actualOut: null,
-      status: "",
-      missedPunch: false,
-      correctable: false,
-    };
+      locationId: plan.locationId,
+    });
+    return punchCorrectionDayFromSummary({ workDate: args.workDate, summary: ensured });
   }
-  const hasIn = Boolean(data.actual_in);
-  const hasOut = Boolean(data.actual_out);
-  return {
-    summaryId: String(data.id),
-    workDate: String(data.work_date).slice(0, 10),
-    actualIn: data.actual_in ? String(data.actual_in) : null,
-    actualOut: data.actual_out ? String(data.actual_out) : null,
-    status: String(data.status ?? ""),
-    missedPunch: Boolean(data.missed_punch),
-    correctable:
-      punchCorrectionRequestSide({
-        missedPunch: Boolean(data.missed_punch),
-        status: String(data.status ?? ""),
-        hasIn,
-        hasOut,
-      }) !== null,
-  };
+
+  return punchCorrectionDayFromSummary({
+    workDate: args.workDate,
+    summary: plan.summary,
+  });
 }
 

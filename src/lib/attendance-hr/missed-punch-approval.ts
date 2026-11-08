@@ -402,6 +402,13 @@ export type PunchCorrectionSummaryCandidate = {
   missed_punch: boolean | null;
   actual_in: string | null;
   actual_out: string | null;
+  /** Site of the daily summary — used when ensuring a seconded roster absent row. */
+  location_id?: string | null;
+};
+
+export type PunchCorrectionRosterAssignment = {
+  location_id: string;
+  is_week_off: boolean;
 };
 
 /**
@@ -433,6 +440,79 @@ export function pickBestPunchCorrectionSummary(
   });
   scored.sort((a, b) => b.score - a.score);
   return scored[0]?.row ?? null;
+}
+
+export function isPunchCorrectionSummaryCorrectable(
+  summary: PunchCorrectionSummaryCandidate | null | undefined,
+): boolean {
+  if (!summary) return false;
+  return (
+    punchCorrectionRequestSide({
+      missedPunch: Boolean(summary.missed_punch),
+      status: String(summary.status ?? ""),
+      hasIn: Boolean(summary.actual_in),
+      hasOut: Boolean(summary.actual_out),
+    }) !== null
+  );
+}
+
+/**
+ * On-duty roster site for a civil day. Week-off / rest at any rostered site wins —
+ * those days must not invent an Absent correction shell.
+ */
+export function onDutyRosterLocationForPunchCorrection(
+  roster: readonly PunchCorrectionRosterAssignment[],
+): string | null {
+  if (!roster.length) return null;
+  if (roster.some((row) => row.is_week_off)) return null;
+  for (const row of roster) {
+    const loc = String(row.location_id ?? "").trim();
+    if (loc) return loc;
+  }
+  return null;
+}
+
+export type PunchCorrectionDayPlan =
+  | { kind: "use_summary"; summary: PunchCorrectionSummaryCandidate }
+  | { kind: "ensure_absent"; locationId: string }
+  | { kind: "not_correctable"; summary: PunchCorrectionSummaryCandidate | null };
+
+/**
+ * Choose an existing correctable summary, or plan a real absent row at the
+ * rostered on-duty site when reports would show ABSENT via a gap shell
+ * (home-site only / missing seconded-site summary).
+ *
+ * When roster places the person on duty at a site, that site wins over a
+ * home-site filler — even if the home row looks correctable (false ABSENT).
+ */
+export function planPunchCorrectionDay(input: {
+  summaries: readonly PunchCorrectionSummaryCandidate[];
+  roster: readonly PunchCorrectionRosterAssignment[];
+  hasApprovedLeave: boolean;
+}): PunchCorrectionDayPlan {
+  const best = pickBestPunchCorrectionSummary(input.summaries);
+  if (input.hasApprovedLeave || input.roster.some((row) => row.is_week_off)) {
+    return { kind: "not_correctable", summary: best };
+  }
+
+  const locationId = onDutyRosterLocationForPunchCorrection(input.roster);
+  if (locationId) {
+    const atRoster =
+      input.summaries.find((row) => String(row.location_id ?? "").trim() === locationId) ?? null;
+    if (atRoster) {
+      // Never overwrite an existing roster-site row (leave / other non-correctable).
+      return isPunchCorrectionSummaryCorrectable(atRoster)
+        ? { kind: "use_summary", summary: atRoster }
+        : { kind: "not_correctable", summary: atRoster };
+    }
+    // Missing seconded-site summary (report gap:) — ensure a real Absent row there.
+    return { kind: "ensure_absent", locationId };
+  }
+
+  if (isPunchCorrectionSummaryCorrectable(best)) {
+    return { kind: "use_summary", summary: best! };
+  }
+  return { kind: "not_correctable", summary: best };
 }
 
 /** Branch, duty, and technical supervisors. A cashier is not a manager by role alone. */

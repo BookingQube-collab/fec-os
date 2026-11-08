@@ -52,6 +52,9 @@ import {
   nextMissedPunchStep,
   punchCorrectionRequestSide,
   pickBestPunchCorrectionSummary,
+  planPunchCorrectionDay,
+  onDutyRosterLocationForPunchCorrection,
+  isPunchCorrectionSummaryCorrectable,
   requesterLineManagerUserIds,
   canSiteSupervisorActOnTeamCorrection,
   isMissedPunchTeamSubmittedNote,
@@ -217,6 +220,93 @@ describe("missed punch approval chain", () => {
     expect(pickBestPunchCorrectionSummary([presentOtherSite, missedHome])?.id).toBe("missed-row");
     expect(pickBestPunchCorrectionSummary([missedHome, presentOtherSite])?.id).toBe("missed-row");
     expect(pickBestPunchCorrectionSummary([])).toBeNull();
+  });
+
+  it("plans an Absent ensure at CAR-AP when home INF-CC is non-correctable and roster is on duty there", () => {
+    // Jorene: home INF-CC filler is not correctable; reports show ABSENT CAR-AP from roster gap.
+    const homeInfCc = {
+      id: "inf-home",
+      work_date: "2026-11-07",
+      status: "present",
+      missed_punch: false,
+      actual_in: null,
+      actual_out: null,
+      location_id: "inf-cc",
+    };
+    expect(isPunchCorrectionSummaryCorrectable(homeInfCc)).toBe(false);
+    expect(onDutyRosterLocationForPunchCorrection([{ location_id: "car-ap", is_week_off: false }])).toBe(
+      "car-ap",
+    );
+    expect(
+      planPunchCorrectionDay({
+        summaries: [homeInfCc],
+        roster: [{ location_id: "car-ap", is_week_off: false }],
+        hasApprovedLeave: false,
+      }),
+    ).toEqual({ kind: "ensure_absent", locationId: "car-ap" });
+
+    // No summary rows at all — still ensure at the rostered on-duty site.
+    expect(
+      planPunchCorrectionDay({
+        summaries: [],
+        roster: [{ location_id: "car-ap", is_week_off: false }],
+        hasApprovedLeave: false,
+      }),
+    ).toEqual({ kind: "ensure_absent", locationId: "car-ap" });
+
+    // False home ABSENT must not win over a missing CAR-AP rostered day.
+    const homeAbsent = {
+      id: "inf-absent",
+      work_date: "2026-11-07",
+      status: "absent",
+      missed_punch: false,
+      actual_in: null,
+      actual_out: null,
+      location_id: "inf-cc",
+    };
+    expect(isPunchCorrectionSummaryCorrectable(homeAbsent)).toBe(true);
+    expect(
+      planPunchCorrectionDay({
+        summaries: [homeAbsent],
+        roster: [{ location_id: "car-ap", is_week_off: false }],
+        hasApprovedLeave: false,
+      }),
+    ).toEqual({ kind: "ensure_absent", locationId: "car-ap" });
+
+    // Real CAR-AP absent already in DB — use it (prefer correctable over ensure).
+    const carAbsent = {
+      id: "car-absent",
+      work_date: "2026-11-07",
+      status: "absent",
+      missed_punch: false,
+      actual_in: null,
+      actual_out: null,
+      location_id: "car-ap",
+    };
+    expect(
+      planPunchCorrectionDay({
+        summaries: [homeInfCc, carAbsent],
+        roster: [{ location_id: "car-ap", is_week_off: false }],
+        hasApprovedLeave: false,
+      }),
+    ).toEqual({ kind: "use_summary", summary: carAbsent });
+    expect(pickBestPunchCorrectionSummary([homeInfCc, carAbsent])?.id).toBe("car-absent");
+
+    // True week-off / leave must stay blocked.
+    expect(
+      planPunchCorrectionDay({
+        summaries: [homeAbsent],
+        roster: [{ location_id: "car-ap", is_week_off: true }],
+        hasApprovedLeave: false,
+      }).kind,
+    ).toBe("not_correctable");
+    expect(
+      planPunchCorrectionDay({
+        summaries: [],
+        roster: [{ location_id: "car-ap", is_week_off: false }],
+        hasApprovedLeave: true,
+      }).kind,
+    ).toBe("not_correctable");
   });
 
   it("treats Mary’s title as the site in-charge and ignores other supervisor titles", () => {
