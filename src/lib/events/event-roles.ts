@@ -205,9 +205,20 @@ export function isKnownCrewScheduleCategoryCode(code: string): code is EventCrew
   return (EVENT_CREW_SCHEDULE_CATEGORIES as readonly string[]).includes(code);
 }
 
+/** Zod / form payloads may use null for optional numeric defaults. */
+export type EventRoleDraftInput = {
+  code?: string;
+  name: string;
+  kind?: EventRoleKind;
+  default_hours_per_day?: number | null;
+  default_day_rate_qar?: number | null;
+  sort_order?: number;
+  is_active?: boolean;
+};
+
 /** Draft roles selected at event create (subset of catalog + optional custom). */
 export function normalizeEventRoleDrafts(
-  drafts: Array<Partial<EventRoleDraft> & { name: string }> | null | undefined,
+  drafts: EventRoleDraftInput[] | null | undefined,
 ): EventRoleDraft[] {
   if (!drafts?.length) {
     return DEFAULT_EVENT_ROLE_CATALOG.map((r) => ({ ...r }));
