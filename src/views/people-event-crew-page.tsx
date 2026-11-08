@@ -13,6 +13,7 @@ import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventFilters } from "@/components/people/people-event-filters";
+import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -280,6 +281,7 @@ export default function PeopleEventCrewPage() {
             </div>
           }
         >
+          <PeopleEventWorkforceTabs active="crew" />
           <HrPanel delay={0}>
             <PeopleEventFilters
               events={events}
