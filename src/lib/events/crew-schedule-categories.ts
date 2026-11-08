@@ -171,6 +171,39 @@ export function isLabourStyleEventCrewCategory(category: EventCrewScheduleCatego
   return eventCrewScheduleAddShiftMode(category) === "labour_days";
 }
 
+/** Candidate used when resolving who gets a role-only schedule add. */
+export type EventCrewScheduleRoleCandidate = {
+  staff_id: string;
+  assignment_id?: string | null;
+  role_label?: string | null;
+  job_title?: string | null;
+  is_head_office?: boolean;
+};
+
+/**
+ * Pick unique staff for a Crew schedule category (first occurrence wins).
+ * Used by role-only add: prefer Staffing assignment candidates, else People fallbacks.
+ */
+export function selectCrewForScheduleCategory(
+  candidates: EventCrewScheduleRoleCandidate[],
+  category: EventCrewScheduleCategory,
+): EventCrewScheduleRoleCandidate[] {
+  const out: EventCrewScheduleRoleCandidate[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate.staff_id || seen.has(candidate.staff_id)) continue;
+    const resolved = resolveEventCrewScheduleCategory({
+      role_label: candidate.role_label,
+      job_title: candidate.job_title,
+      is_head_office: candidate.is_head_office,
+    });
+    if (resolved !== category) continue;
+    seen.add(candidate.staff_id);
+    out.push(candidate);
+  }
+  return out;
+}
+
 export function groupByEventCrewScheduleCategory<T>(
   items: T[],
   categoryOf: (item: T) => EventCrewScheduleCategory,

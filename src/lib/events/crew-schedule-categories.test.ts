@@ -6,6 +6,7 @@ import {
   groupByEventCrewScheduleCategory,
   isLabourStyleEventCrewCategory,
   resolveEventCrewScheduleCategory,
+  selectCrewForScheduleCategory,
 } from "./crew-schedule-categories";
 
 describe("resolveEventCrewScheduleCategory", () => {
@@ -116,5 +117,65 @@ describe("eventCrewScheduleAddShiftMode", () => {
     expect(eventCrewScheduleAddShiftMode("management")).toBe("event_day");
     expect(isLabourStyleEventCrewCategory("crew")).toBe(false);
     expect(isLabourStyleEventCrewCategory("management")).toBe(false);
+  });
+});
+
+describe("selectCrewForScheduleCategory", () => {
+  it("filters by category and dedupes staff_id (first wins)", () => {
+    const selected = selectCrewForScheduleCategory(
+      [
+        {
+          staff_id: "c1",
+          assignment_id: "a1",
+          role_label: "Crew",
+          job_title: "Crew / Attendant",
+        },
+        {
+          staff_id: "cl1",
+          assignment_id: "a2",
+          role_label: "Cleaner",
+          job_title: "Cleaner",
+        },
+        {
+          staff_id: "c1",
+          assignment_id: "a3",
+          role_label: "Crew",
+          job_title: "Crew / Attendant",
+        },
+        {
+          staff_id: "m1",
+          role_label: "crew",
+          is_head_office: true,
+        },
+      ],
+      "crew",
+    );
+    expect(selected.map((s) => s.staff_id)).toEqual(["c1"]);
+    expect(selected[0].assignment_id).toBe("a1");
+  });
+
+  it("selects labour and management categories from role / HO signals", () => {
+    const pool = [
+      { staff_id: "cl1", role_label: "Cleaner", job_title: null },
+      { staff_id: "mt1", role_label: "Maintenance Team", job_title: null },
+      { staff_id: "mg1", role_label: null, job_title: "General Manager", is_head_office: true },
+      { staff_id: "c1", role_label: "Crew", job_title: "Cashier" },
+    ];
+    expect(selectCrewForScheduleCategory(pool, "cleaner").map((s) => s.staff_id)).toEqual(["cl1"]);
+    expect(selectCrewForScheduleCategory(pool, "maintenance").map((s) => s.staff_id)).toEqual([
+      "mt1",
+    ]);
+    expect(selectCrewForScheduleCategory(pool, "management").map((s) => s.staff_id)).toEqual([
+      "mg1",
+    ]);
+  });
+
+  it("returns empty when no candidates match the role", () => {
+    expect(
+      selectCrewForScheduleCategory(
+        [{ staff_id: "c1", role_label: "Crew", job_title: "Crew / Attendant" }],
+        "cleaner",
+      ),
+    ).toEqual([]);
   });
 });

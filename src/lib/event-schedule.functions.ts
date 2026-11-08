@@ -7,6 +7,14 @@ import type { Json } from "@/integrations/supabase/types";
 import { bufferMinutesForLocation } from "@/lib/attendance-hr/shift-policy";
 import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import {
+  EVENT_CREW_SCHEDULE_CATEGORIES,
+  eventCrewScheduleAddShiftMode,
+  eventCrewScheduleCategoryRoleLabel,
+  selectCrewForScheduleCategory,
+  type EventCrewScheduleCategory,
+  type EventCrewScheduleRoleCandidate,
+} from "@/lib/events/crew-schedule-categories";
+import {
   deriveEventDayStatus,
   enumerateDatesInclusive,
   LABOUR_DAY_DEFAULT_SCHEDULED_IN,
@@ -381,6 +389,259 @@ export const upsertEventScheduleSlotRange = createAuthenticatedAction(
       },
     });
     return { inserted, attempted: dates.length };
+  },
+  { auth: { capability: "events.edit" } },
+);
+
+/**
+ * Resolve staff for a role-only schedule add.
+ * Prefer open Staffing assignments matching the category; else People fallback ids.
+ */
+async function resolveRoleScheduleTargets(
+  context: AuthContext,
+  input: {
+    eventId: string;
+    category: EventCrewScheduleCategory;
+    staffId?: string | null;
+    fallbackStaffIds?: string[];
+  },
+): Promise<EventCrewScheduleRoleCandidate[]> {
+  const headOfficeLocationId = await resolveHeadOfficeLocationId(context);
+  const { data: assignments, error } = await context.supabase
+    .from("event_staff_assignments")
+    .select("id, staff_id, role_label, status")
+    .eq("event_id", input.eventId);
+  if (error) throw error;
+
+  const open = (assignments ?? []).filter((a) => !isEventAssignmentClosed(a));
+  const assignmentStaffIds = [...new Set(open.map((a) => a.staff_id as string))];
+  const fallbackIds = [...new Set((input.fallbackStaffIds ?? []).filter(Boolean))];
+  const lookupIds = [...new Set([...assignmentStaffIds, ...fallbackIds, input.staffId].filter(Boolean))] as string[];
+
+  const { data: staffRows } = lookupIds.length
+    ? await context.supabase
+        .from("staff")
+        .select("id, job_title, location_id")
+        .in("id", lookupIds)
+    : { data: [] as Array<{ id: string; job_title: string | null; location_id: string | null }> };
+
+  const staffById = new Map(
+    (staffRows ?? []).map((s) => [
+      s.id as string,
+      {
+        job_title: (s.job_title as string | null) ?? null,
+        is_head_office: Boolean(
+          headOfficeLocationId && (s.location_id as string | null) === headOfficeLocationId,
+        ),
+      },
+    ]),
+  );
+
+  const fromAssignments = selectCrewForScheduleCategory(
+    open.map((a) => {
+      const person = staffById.get(a.staff_id as string);
+      return {
+        staff_id: a.staff_id as string,
+        assignment_id: a.id as string,
+        role_label: (a.role_label as string | null) ?? null,
+        job_title: person?.job_title ?? null,
+        is_head_office: person?.is_head_office ?? false,
+      };
+    }),
+    input.category,
+  );
+
+  let targets = fromAssignments;
+  if (!targets.length && fallbackIds.length) {
+    targets = selectCrewForScheduleCategory(
+      fallbackIds.map((staff_id) => {
+        const person = staffById.get(staff_id);
+        return {
+          staff_id,
+          assignment_id: null,
+          role_label: eventCrewScheduleCategoryRoleLabel(input.category),
+          job_title: person?.job_title ?? null,
+          is_head_office: person?.is_head_office ?? false,
+        };
+      }),
+      input.category,
+    );
+  }
+
+  if (input.staffId) {
+    const one = targets.find((t) => t.staff_id === input.staffId);
+    if (one) return [one];
+    const person = staffById.get(input.staffId);
+    if (!person) throw new Error("Staff not found");
+    // Explicit single-person path still allowed even if category filter would exclude them.
+    const assignment = open.find((a) => (a.staff_id as string) === input.staffId);
+    return [
+      {
+        staff_id: input.staffId,
+        assignment_id: (assignment?.id as string | undefined) ?? null,
+        role_label:
+          (assignment?.role_label as string | null | undefined) ??
+          eventCrewScheduleCategoryRoleLabel(input.category),
+        job_title: person.job_title,
+        is_head_office: person.is_head_office,
+      },
+    ];
+  }
+
+  return targets;
+}
+
+/**
+ * Role-only schedule add: one slot (or labour day range) per staff in the role.
+ * Prefer Staffing crew assignments filtered by category; fall back to People ids from the client.
+ * Optional staff_id limits the add to one person.
+ */
+export const addEventScheduleForRole = createAuthenticatedAction(
+  z
+    .object({
+      eventId: z.string().uuid(),
+      category: z.enum(EVENT_CREW_SCHEDULE_CATEGORIES),
+      staff_id: z.string().uuid().optional().nullable(),
+      fallback_staff_ids: z.array(z.string().uuid()).max(200).optional(),
+      work_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+      date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+      date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+      scheduled_in: z.string().min(4).max(8).optional().nullable(),
+      scheduled_out: z.string().min(4).max(8).optional().nullable(),
+      notes: z.string().max(1000).optional().nullable(),
+    })
+    .superRefine((val, ctx) => {
+      const mode = eventCrewScheduleAddShiftMode(val.category);
+      if (mode === "labour_days") {
+        if (!val.date_from || !val.date_to) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Labour roles require date_from and date_to",
+          });
+        }
+      } else if (!val.work_date) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Crew / Management require work_date",
+        });
+      }
+    }),
+  async (data, context) => {
+    const event = await loadEventOrThrow(context, data.eventId);
+    await assertEventCrewOpenForSchedule(context, data.eventId);
+    const category = data.category as EventCrewScheduleCategory;
+    const mode = eventCrewScheduleAddShiftMode(category);
+    const roleLabel = eventCrewScheduleCategoryRoleLabel(category);
+    const notes = data.notes?.trim() || null;
+
+    const targets = await resolveRoleScheduleTargets(context, {
+      eventId: data.eventId,
+      category,
+      staffId: data.staff_id,
+      fallbackStaffIds: data.fallback_staff_ids,
+    });
+    if (!targets.length) {
+      throw new Error(
+        "No staff in this role for the event. Add them on Staffing, or pick one person below.",
+      );
+    }
+
+    let inserted = 0;
+    let attempted = 0;
+
+    if (mode === "labour_days") {
+      const dateFrom = data.date_from!;
+      const dateTo = data.date_to!;
+      if (dateTo < dateFrom) throw new Error("End date must be on or after start");
+      const dates = enumerateDatesInclusive(dateFrom, dateTo);
+      if (!dates.length) throw new Error("Invalid date range");
+      const scheduledIn = normalizeTimeHHMM(
+        data.scheduled_in?.trim() || LABOUR_DAY_DEFAULT_SCHEDULED_IN,
+      );
+      const scheduledOut = normalizeTimeHHMM(
+        data.scheduled_out?.trim() || LABOUR_DAY_DEFAULT_SCHEDULED_OUT,
+      );
+      const timeErr = validateScheduleSlotTimes(scheduledIn, scheduledOut);
+      if (timeErr) throw new Error(timeErr);
+
+      for (const target of targets) {
+        for (const work_date of dates) {
+          attempted += 1;
+          const { error: insErr } = await context.supabase.from("event_schedule_slots").insert({
+            event_id: data.eventId,
+            staff_id: target.staff_id,
+            assignment_id: target.assignment_id ?? null,
+            work_date,
+            scheduled_in: scheduledIn + ":00",
+            scheduled_out: scheduledOut + ":00",
+            location_id: event.location_id as string,
+            role_label: roleLabel,
+            notes,
+            created_by: context.userId,
+            updated_by: context.userId,
+          });
+          if (insErr) {
+            if (/duplicate|unique/i.test(insErr.message)) continue;
+            throw insErr;
+          }
+          inserted += 1;
+        }
+      }
+    } else {
+      const workDate = data.work_date!;
+      const scheduledIn = normalizeTimeHHMM(data.scheduled_in?.trim() || "09:00");
+      const scheduledOut = normalizeTimeHHMM(data.scheduled_out?.trim() || "18:00");
+      const timeErr = validateScheduleSlotTimes(scheduledIn, scheduledOut);
+      if (timeErr) throw new Error(timeErr);
+
+      for (const target of targets) {
+        attempted += 1;
+        const { error: insErr } = await context.supabase.from("event_schedule_slots").insert({
+          event_id: data.eventId,
+          staff_id: target.staff_id,
+          assignment_id: target.assignment_id ?? null,
+          work_date: workDate,
+          scheduled_in: scheduledIn + ":00",
+          scheduled_out: scheduledOut + ":00",
+          location_id: event.location_id as string,
+          role_label: roleLabel,
+          notes,
+          created_by: context.userId,
+          updated_by: context.userId,
+        });
+        if (insErr) {
+          if (/duplicate|unique/i.test(insErr.message)) continue;
+          throw insErr;
+        }
+        inserted += 1;
+      }
+    }
+
+    await writeEventAudit(context, {
+      action: "schedule_add_role",
+      entityType: "event_schedule_slot",
+      eventId: data.eventId,
+      locationId: event.location_id as string,
+      after: {
+        category,
+        mode,
+        staff_count: targets.length,
+        staff_ids: targets.map((t) => t.staff_id),
+        inserted,
+        attempted,
+        work_date: data.work_date ?? null,
+        date_from: data.date_from ?? null,
+        date_to: data.date_to ?? null,
+        single_staff: data.staff_id ?? null,
+      },
+    });
+    return {
+      inserted,
+      attempted,
+      staffCount: targets.length,
+      mode,
+      category,
+    };
   },
   { auth: { capability: "events.edit" } },
 );

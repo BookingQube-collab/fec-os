@@ -19,18 +19,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  addEventScheduleForRole,
   deleteEventScheduleSlot,
   listEventLinkableDevices,
   processEventAttendance,
   seedEventScheduleFromCrew,
   setEventAttendanceDevices,
-  upsertEventScheduleSlot,
-  upsertEventScheduleSlotRange,
 } from "@/lib/event-schedule.functions";
 import {
   EVENT_CREW_SCHEDULE_CATEGORY_ORDER,
   eventCrewScheduleAddShiftMode,
-  eventCrewScheduleCategoryRoleLabel,
   groupByEventCrewScheduleCategory,
   isLabourStyleEventCrewCategory,
   resolveEventCrewScheduleCategory,
@@ -188,38 +186,50 @@ export function EventSchedulePanel({
   }
 
   async function addSlot() {
-    if (!staffId) return;
-    const roleLabel = eventCrewScheduleCategoryRoleLabel(addRole);
+    if (addShiftMode === "labour_days") {
+      if (!dateFrom || !dateTo) return;
+    } else if (!workDate) {
+      return;
+    }
     setBusy(true);
     try {
-      if (addShiftMode === "labour_days") {
-        if (!dateFrom || !dateTo) return;
-        // Labour: day assignment only — no shift start/end in UX; 10h window for attendance.
-        const res = await upsertEventScheduleSlotRange({
-          eventId,
-          staff_id: staffId,
-          date_from: dateFrom,
-          date_to: dateTo,
-          scheduled_in: LABOUR_DAY_DEFAULT_SCHEDULED_IN,
-          scheduled_out: LABOUR_DAY_DEFAULT_SCHEDULED_OUT,
-          role_label: roleLabel,
-        });
-        setStaffId("");
-        onChanged();
-        toast.success(t("events.schedule.toasts.savedLabourDays", { n: res.inserted }));
+      const res = await addEventScheduleForRole({
+        eventId,
+        category: addRole,
+        staff_id: staffId || null,
+        fallback_staff_ids: staffForAddRole.map((s) => s.id),
+        work_date: addShiftMode === "event_day" ? workDate : null,
+        date_from: addShiftMode === "labour_days" ? dateFrom : null,
+        date_to: addShiftMode === "labour_days" ? dateTo : null,
+        scheduled_in:
+          addShiftMode === "labour_days" ? LABOUR_DAY_DEFAULT_SCHEDULED_IN : scheduledIn,
+        scheduled_out:
+          addShiftMode === "labour_days" ? LABOUR_DAY_DEFAULT_SCHEDULED_OUT : scheduledOut,
+      });
+      setStaffId("");
+      onChanged();
+      if (staffId) {
+        toast.success(
+          addShiftMode === "labour_days"
+            ? t("events.schedule.toasts.savedLabourDays", { n: res.inserted })
+            : t("events.schedule.toasts.saved"),
+        );
+      } else if (addShiftMode === "labour_days") {
+        toast.success(
+          t("events.schedule.toasts.savedLabourDaysForRole", {
+            n: res.inserted,
+            people: res.staffCount,
+            role: categoryLabel(addRole),
+          }),
+        );
       } else {
-        if (!workDate) return;
-        await upsertEventScheduleSlot({
-          eventId,
-          staff_id: staffId,
-          work_date: workDate,
-          scheduled_in: scheduledIn,
-          scheduled_out: scheduledOut,
-          role_label: roleLabel,
-        });
-        setStaffId("");
-        onChanged();
-        toast.success(t("events.schedule.toasts.saved"));
+        toast.success(
+          t("events.schedule.toasts.savedForRole", {
+            n: res.inserted,
+            people: res.staffCount,
+            role: categoryLabel(addRole),
+          }),
+        );
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -496,8 +506,8 @@ export function EventSchedulePanel({
           <div className="mb-3">
             <h2 className="text-sm font-semibold">
               {addShiftMode === "labour_days"
-                ? t("events.schedule.addLabourDays")
-                : t("events.schedule.addSlot")}
+                ? t("events.schedule.addLabourDaysForRole")
+                : t("events.schedule.addSlotForRole")}
             </h2>
             <p className="text-xs text-muted-foreground">
               {addShiftMode === "labour_days"
@@ -530,24 +540,6 @@ export function EventSchedulePanel({
               addShiftMode === "labour_days" ? "lg:grid-cols-4" : "lg:grid-cols-5",
             )}
           >
-            <select
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-              value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
-              aria-label={t("events.overview.selectStaff")}
-            >
-              <option value="">
-                {staffForAddRole.length === 0
-                  ? t("events.schedule.noStaffForRole")
-                  : t("events.overview.selectStaff")}
-              </option>
-              {staffForAddRole.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.full_name}
-                  {s.job_title ? ` · ${s.job_title}` : ""}
-                </option>
-              ))}
-            </select>
             {addShiftMode === "labour_days" ? (
               <>
                 <Input
@@ -588,16 +580,40 @@ export function EventSchedulePanel({
             <Button
               size="sm"
               disabled={
-                !staffId ||
                 busy ||
                 (addShiftMode === "labour_days" ? !dateFrom || !dateTo : !workDate)
               }
               onClick={() => void addSlot()}
             >
-              {addShiftMode === "labour_days"
-                ? t("events.schedule.addLabourDays")
-                : t("events.schedule.addSlot")}
+              {staffId
+                ? addShiftMode === "labour_days"
+                  ? t("events.schedule.addLabourDaysOne")
+                  : t("events.schedule.addSlotOne")
+                : addShiftMode === "labour_days"
+                  ? t("events.schedule.addLabourDaysForRole")
+                  : t("events.schedule.addSlotForRole")}
             </Button>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 lg:grid-cols-5">
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm md:col-span-2 lg:col-span-2"
+              value={staffId}
+              onChange={(e) => setStaffId(e.target.value)}
+              aria-label={t("events.schedule.optionalStaff")}
+            >
+              <option value="">{t("events.schedule.allStaffInRole")}</option>
+              {staffForAddRole.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.full_name}
+                  {s.job_title ? ` · ${s.job_title}` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-3 self-center">
+              {staffForAddRole.length === 0
+                ? t("events.schedule.noStaffForRoleHint")
+                : t("events.schedule.optionalStaffHint")}
+            </p>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             {t("events.schedule.correctionsHint")}{" "}
