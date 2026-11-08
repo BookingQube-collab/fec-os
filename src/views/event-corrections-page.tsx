@@ -10,9 +10,10 @@ import { EventCorrectionsPanel } from "@/components/events/event-corrections-pan
 import { EventWorkforcePeopleLinks } from "@/components/events/event-workforce-people-links";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { useEvent } from "@/hooks/queries/useEvents";
-import { usePermission } from "@/hooks/use-permission";
 import { listEventCorrections, listEventMissedPunchDays } from "@/lib/event-corrections.functions";
+import { mayModifyEventMissedPunch } from "@/lib/people-event-attendance-display";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -22,8 +23,12 @@ export default function EventCorrectionsPage() {
   const id = params.id;
   const qc = useQueryClient();
   const eventQ = useEvent(id);
-  // submitMissedPunchRequest is gated on hr.employee_app (same as My Day).
-  const canSubmit = usePermission("hr.employee_app");
+  const { profile } = useAuth();
+  const roles = useUserRoles();
+  const canModify = mayModifyEventMissedPunch({
+    roles,
+    jobTitle: profile?.job_title,
+  });
 
   const missedQ = useQuery({
     queryKey: [...queryKeys.events.staffing(id), "missed-punches"],
@@ -63,7 +68,7 @@ export default function EventCorrectionsPage() {
           eventId={id}
           days={missedQ.data?.days ?? []}
           corrections={corrQ.data?.corrections ?? []}
-          canSubmit={Boolean(canSubmit)}
+          canModify={canModify}
           onChanged={refresh}
         />
       )}

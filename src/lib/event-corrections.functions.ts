@@ -2,9 +2,13 @@
 
 import { z } from "zod";
 
+import { submitMissedPunchRequest as insertMissedPunchRequest } from "@/lib/attendance-hr/missed-punch-approval.server";
+import { mayModifyEventMissedPunch } from "@/lib/people-event-attendance-display";
 import type { EventCorrectionRow, EventMissedPunchDayRow } from "@/lib/events/types";
-import { assertLocationAccess } from "@/lib/server/authorize";
+import { assertLocationAccess, ForbiddenError } from "@/lib/server/authorize";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
+
+const punchHhMm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
 async function loadEventOrThrow(context: AuthContext, eventId: string) {
   const { data, error } = await context.supabase
@@ -159,4 +163,70 @@ export const listEventCorrections = createAuthenticatedAction(
     };
   },
   { auth: { capability: "events.view" } },
+);
+
+/**
+ * Direct event missed-punch modify (in and/or out).
+ * Head of Operations / regional_ops only — not general admin.
+ * Reuses the missed-punch submit path (HOO finalizes immediately when route is final).
+ */
+export const modifyEventMissedPunchAsHoo = createAuthenticatedAction(
+  z
+    .object({
+      eventId: z.string().uuid(),
+      summaryId: z.string().uuid(),
+      punchInTime: punchHhMm.optional().nullable(),
+      punchOutTime: punchHhMm.optional().nullable(),
+      reason: z.string().max(1000).optional(),
+    })
+    .refine((data) => Boolean(data.punchInTime || data.punchOutTime), {
+      message: "Enter punch-in, punch-out, or both.",
+    }),
+  async (data, context) => {
+    const roles = context.roles ?? [];
+    const jobTitle = context.access?.jobTitle ?? null;
+    if (!mayModifyEventMissedPunch({ roles, jobTitle })) {
+      throw new ForbiddenError("Only Head of Operations can modify event missed punches.");
+    }
+
+    const event = await loadEventOrThrow(context, data.eventId);
+    const { data: summary, error } = await context.supabase
+      .from("attendance_daily_summary")
+      .select("id, event_id, staff_id, location_id, missed_punch, status, actual_in, actual_out")
+      .eq("id", data.summaryId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!summary) throw new Error("Attendance day not found.");
+    if (summary.event_id !== data.eventId) {
+      throw new ForbiddenError("That attendance day is not tagged to this event.");
+    }
+    if (summary.location_id && summary.location_id !== event.location_id) {
+      await assertLocationAccess(context, summary.location_id as string);
+    }
+
+    const incomplete =
+      Boolean(summary.missed_punch) ||
+      String(summary.status ?? "") === "missed_punch" ||
+      Boolean(summary.actual_in) !== Boolean(summary.actual_out);
+    if (!incomplete) {
+      throw new Error("This day is not a missed / incomplete punch.");
+    }
+
+    const created = await insertMissedPunchRequest({
+      userId: context.userId,
+      summaryId: data.summaryId,
+      punchInTime: data.punchInTime,
+      punchOutTime: data.punchOutTime,
+      reason:
+        data.reason?.trim() ||
+        `Event missed punch modified by Head of Operations (${data.eventId.slice(0, 8)})`,
+    });
+    return {
+      id: created.id,
+      requestNumber: created.requestNumber,
+      routedTo: created.routedTo,
+      approverCount: created.approverCount,
+    };
+  },
+  { auth: { anyCapability: ["events.view", "attendance.view", "hr.employee_app"] } },
 );

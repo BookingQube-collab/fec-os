@@ -8,19 +8,32 @@ import { CalendarClock, Download, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { AttendanceKpiStrip } from "@/components/people/attendance-kpi-strip";
+import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventFilters } from "@/components/people/people-event-filters";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
-import { toCsv } from "@/lib/csv-parse";
+import {
+  buildAttendanceCsv,
+  computeAttendanceKpis,
+  type AttendanceListingSource,
+} from "@/lib/attendance-display";
+import {
+  isEventMissedPunchRow,
+  mayModifyEventMissedPunch,
+  toEventAttendanceListingSource,
+  toEventAttendanceSummaryRow,
+} from "@/lib/people-event-attendance-display";
 import {
   listPeopleEventAttendance,
   listPeopleEventOptions,
+  type PeopleEventAttendanceRow,
 } from "@/lib/people-event-workforce.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -38,6 +51,13 @@ export default function PeopleEventAttendancePage() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const { data: sites } = useSites();
+  const { profile } = useAuth();
+  const roles = useUserRoles();
+  const canModifyMissed = mayModifyEventMissedPunch({
+    roles,
+    jobTitle: profile?.job_title,
+  });
+
   const [eventId, setEventId] = useState(() => uuidOrEmpty(searchParams.get("eventId")));
   const [locationId, setLocationId] = useState(() => uuidOrEmpty(searchParams.get("locationId")));
   const [dateFrom, setDateFrom] = useState(() => ymdOrEmpty(searchParams.get("from")));
@@ -74,39 +94,55 @@ export default function PeopleEventAttendancePage() {
   const rows = attendanceQ.data?.rows ?? [];
   const events = eventsQ.data?.events ?? [];
 
-  const exportCsv = useMemo(() => {
-    return () => {
-      const csv = toCsv(
-        [
-          "event",
-          "employee_code",
-          "staff_name",
-          "work_date",
-          "status",
-          "actual_in",
-          "actual_out",
-          "late_minutes",
-          "ot_minutes",
-          "worked_minutes",
-          "missed_punch",
-        ],
-        rows.map((r) => [
-          r.eventName ?? r.eventId,
-          r.employeeCode ?? "",
-          r.staffName ?? "",
-          r.workDate,
-          r.status,
-          r.actualIn ?? "",
-          r.actualOut ?? "",
-          r.lateMinutes,
-          r.overtimeMinutes,
-          r.workedMinutes,
-          r.missedPunch ? "true" : "false",
-        ]),
+  const rowById = useMemo(() => {
+    const map = new Map<string, PeopleEventAttendanceRow>();
+    for (const row of rows) map.set(row.id, row);
+    return map;
+  }, [rows]);
+
+  const listingRows = useMemo(() => rows.map(toEventAttendanceListingSource), [rows]);
+  const summaryRows = useMemo(() => rows.map(toEventAttendanceSummaryRow), [rows]);
+  const kpis = useMemo(() => computeAttendanceKpis(summaryRows), [summaryRows]);
+  const openMissedCount = useMemo(
+    () => rows.filter(isEventMissedPunchRow).length,
+    [rows],
+  );
+
+  const exportCsv = () => {
+    const csv = buildAttendanceCsv(summaryRows);
+    downloadCsvContent(csv, `event-attendance-${dateFrom || "all"}-${dateTo || "all"}.csv`);
+  };
+
+  const renderActions = (listing: AttendanceListingSource) => {
+    const source = listing.id ? rowById.get(listing.id) : undefined;
+    if (!source) return null;
+    const missed = isEventMissedPunchRow(source);
+    if (!missed) {
+      return (
+        <Button asChild size="sm" variant="ghost">
+          <Link href={`/events/${source.eventId}/schedule`}>
+            {t("peopleEvent.links.openEventSchedule")}
+          </Link>
+        </Button>
       );
-      downloadCsvContent(csv, `event-attendance-${dateFrom || "all"}-${dateTo || "all"}.csv`);
-    };
-  }, [rows, dateFrom, dateTo]);
+    }
+    if (canModifyMissed) {
+      return (
+        <Button asChild size="sm" variant="secondary">
+          <Link href={`/events/${source.eventId}/corrections#mp-${source.id}`}>
+            {t("peopleEvent.attendance.modifyMissed")}
+          </Link>
+        </Button>
+      );
+    }
+    return (
+      <Button asChild size="sm" variant="ghost">
+        <Link href={`/events/${source.eventId}/corrections#mp-${source.id}`}>
+          {t("peopleEvent.attendance.viewMissed")}
+        </Link>
+      </Button>
+    );
+  };
 
   return (
     <CapabilityGate
@@ -166,65 +202,29 @@ export default function PeopleEventAttendancePage() {
           </HrPanel>
 
           <HrPanel delay={1}>
-            <div className="hr-table-wrap p-2 sm:p-4">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t("peopleEvent.columns.event")}</th>
-                    <th>{t("peopleEvent.columns.person")}</th>
-                    <th>{t("peopleEvent.columns.date")}</th>
-                    <th>{t("peopleEvent.columns.status")}</th>
-                    <th>{t("peopleEvent.columns.shift")}</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {attendanceQ.isLoading ? (
-                    <tr>
-                      <td colSpan={6}>{t("common.loading")}</td>
-                    </tr>
-                  ) : rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6}>
-                        <HrEmptyState message={t("peopleEvent.attendance.empty")} icon={CalendarClock} />
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((r) => (
-                      <tr key={r.id}>
-                        <td className="font-medium">{r.eventName ?? "—"}</td>
-                        <td>
-                          <div className="flex flex-col gap-0.5">
-                            <span>{r.staffName ?? "—"}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {r.employeeCode ?? ""}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="whitespace-nowrap text-xs">{r.workDate}</td>
-                        <td>
-                          <Badge variant={r.missedPunch ? "destructive" : "secondary"}>
-                            {r.status}
-                            {r.lateMinutes > 0 ? ` · late ${r.lateMinutes}m` : ""}
-                            {r.overtimeMinutes > 0 ? ` · OT ${r.overtimeMinutes}m` : ""}
-                          </Badge>
-                        </td>
-                        <td className="text-xs text-muted-foreground">
-                          {(r.actualIn ?? "—").slice(11, 16) || "—"}–
-                          {(r.actualOut ?? "—").slice(11, 16) || "—"}
-                        </td>
-                        <td className="text-end">
-                          <Button asChild size="sm" variant="ghost">
-                            <Link href={`/events/${r.eventId}/corrections`}>
-                              {t("peopleEvent.links.corrections")}
-                            </Link>
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <div className="space-y-4 p-2 sm:p-4">
+              <AttendanceKpiStrip
+                kpis={kpis}
+                openExceptionsCount={openMissedCount}
+                isLoading={attendanceQ.isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                {canModifyMissed
+                  ? t("peopleEvent.attendance.hooModifyHint")
+                  : t("peopleEvent.attendance.viewOnlyMissedHint")}
+              </p>
+              {attendanceQ.isLoading ? (
+                <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                  {t("common.loading")}
+                </div>
+              ) : (
+                <AttendanceRecordsTable
+                  rows={listingRows}
+                  empty={<HrEmptyState message={t("peopleEvent.attendance.empty")} icon={CalendarClock} />}
+                  rowActions={renderActions}
+                  actionsHeader={t("common.actions")}
+                />
+              )}
             </div>
           </HrPanel>
         </HrSection>

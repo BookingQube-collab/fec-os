@@ -33,9 +33,14 @@ export type PeopleEventAttendanceRow = {
   workDate: string;
   status: string;
   locationId: string | null;
+  locationName: string | null;
+  biometricUserId: string | null;
+  scheduledIn: string | null;
+  scheduledOut: string | null;
   actualIn: string | null;
   actualOut: string | null;
   lateMinutes: number;
+  earlyLeaveMinutes: number;
   overtimeMinutes: number;
   workedMinutes: number;
   missedPunch: boolean;
@@ -140,7 +145,7 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
     let q = context.supabase
       .from("attendance_daily_summary")
       .select(
-        "id, event_id, staff_id, work_date, status, location_id, actual_in, actual_out, late_minutes, overtime_minutes, worked_minutes, missed_punch",
+        "id, event_id, staff_id, work_date, status, location_id, biometric_user_id, scheduled_in, scheduled_out, actual_in, actual_out, late_minutes, early_leave_minutes, overtime_minutes, worked_minutes, missed_punch",
       )
       .not("event_id", "is", null)
       .order("work_date", { ascending: false })
@@ -159,9 +164,10 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
     }
     if (!rows?.length) return { rows: [] };
 
-    const staffIds = [...new Set(rows.map((r) => r.staff_id as string))];
+    const staffIds = [...new Set(rows.map((r) => r.staff_id as string).filter(Boolean))];
     const eventIds = [...new Set(rows.map((r) => r.event_id as string).filter(Boolean))];
-    const [{ data: staff }, { data: events }] = await Promise.all([
+    const locIds = [...new Set(rows.map((r) => r.location_id as string).filter(Boolean))];
+    const [{ data: staff }, { data: events }, { data: locs }] = await Promise.all([
       context.supabase
         .from("staff")
         .select("id, full_name, employee_code")
@@ -170,6 +176,9 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
         .from("events")
         .select("id, name, event_name")
         .in("id", eventIds),
+      locIds.length
+        ? context.supabase.from("locations").select("id, code, name").in("id", locIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; code: string | null; name: string | null }> }),
     ]);
     const staffMap = new Map(
       (staff ?? []).map((s) => [
@@ -186,16 +195,26 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
         String(e.name || e.event_name || "Event"),
       ]),
     );
+    const locMap = new Map(
+      (locs ?? []).map((l) => [
+        l.id as string,
+        [l.code, l.name].filter(Boolean).join(" · ") || (l.name as string) || null,
+      ]),
+    );
 
     const search = data.search?.trim().toLowerCase() ?? "";
     const mapped: PeopleEventAttendanceRow[] = [];
     for (const r of rows) {
       const eventId = r.event_id as string;
-      const staffId = r.staff_id as string;
+      const staffId = (r.staff_id as string | null) ?? "";
+      if (!staffId) continue;
       const person = staffMap.get(staffId);
       const eventName = eventMap.get(eventId) ?? null;
+      const locationId = (r.location_id as string | null) ?? null;
+      const locationName = locationId ? (locMap.get(locationId) ?? null) : null;
       if (search) {
-        const hay = `${person?.name ?? ""} ${person?.code ?? ""} ${eventName ?? ""}`.toLowerCase();
+        const hay =
+          `${person?.name ?? ""} ${person?.code ?? ""} ${eventName ?? ""} ${locationName ?? ""}`.toLowerCase();
         if (!hay.includes(search)) continue;
       }
       mapped.push({
@@ -207,10 +226,15 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
         employeeCode: person?.code ?? null,
         workDate: String(r.work_date).slice(0, 10),
         status: String(r.status ?? ""),
-        locationId: (r.location_id as string | null) ?? null,
+        locationId,
+        locationName,
+        biometricUserId: (r.biometric_user_id as string | null) ?? null,
+        scheduledIn: (r.scheduled_in as string | null) ?? null,
+        scheduledOut: (r.scheduled_out as string | null) ?? null,
         actualIn: (r.actual_in as string | null) ?? null,
         actualOut: (r.actual_out as string | null) ?? null,
         lateMinutes: Number(r.late_minutes ?? 0),
+        earlyLeaveMinutes: Number(r.early_leave_minutes ?? 0),
         overtimeMinutes: Number(r.overtime_minutes ?? 0),
         workedMinutes: Number(r.worked_minutes ?? 0),
         missedPunch: Boolean(r.missed_punch),

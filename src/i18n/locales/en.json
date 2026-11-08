@@ -324,7 +324,8 @@
     "arcadeGroupManuals": "Manuals",
     "arcadeGroupInstalls": "Installations",
     "arcadeGroupMore": "More",
-    "arcadeMoreSections": "More arcade sections"
+    "arcadeMoreSections": "More arcade sections",
+    "eventRoles": "Event roles"
   },
   "hrWorkspace": {
     "staff": "Employee",
@@ -5874,8 +5875,8 @@
     "schedule": {
       "title": "Event crew schedule",
       "hint": "Shift roles use date + start/end. Labour roles use per-day charge and hours in a day (no shift module). Process attendance uses venue device punches (Asia/Qatar, site grace).",
-      "empty": "No schedule yet — seed from Staffing crew or add by role below.",
-      "emptyRoleHint": "Pick a role, set date/times (or labour date range), then add for Staffing crew in that role (Management can also use Head Office). Optionally narrow to one person.",
+      "empty": "No schedule yet — seed from event crew (People) or add by role below.",
+      "emptyRoleHint": "Pick a role, set date/times (or labour date range), then add for event crew in that role (Management can also use Head Office). Optionally narrow to one person.",
       "emptyCategory": "No rows in this category for the current schedule.",
       "categoryFilter": "Crew schedule categories",
       "categories": {
@@ -5885,6 +5886,9 @@
         "maintenance": "Maintenance Team",
         "management": "Management Team (Head Office)"
       },
+      "createByRole": "Add by role",
+      "createIndividual": "Add individual",
+      "createPathsHint": "Bulk path: leave person as “all in role”. Individual path: pick one person below, then add.",
       "seedFromCrew": "Seed from crew",
       "processAttendance": "Process attendance",
       "processFrom": "Process from date",
@@ -5892,19 +5896,19 @@
       "addSlot": "Add shift",
       "addSlotForRole": "Add shift for role",
       "addSlotOne": "Add shift for person",
-      "addSlotHint": "Choose a role and date/times — creates a shift for Staffing crew in that role on this event (Management also uses Head Office). Optionally pick one person below.",
+      "addSlotHint": "Choose a role and date/times — creates a shift for event crew in that role on this event (Management also uses Head Office). Optionally pick one person below.",
       "addLabourDays": "Assign work days",
       "addLabourDaysForRole": "Assign work days for role",
       "addLabourDaysOne": "Assign work days for person",
       "addLabourDaysHint": "Labour roles have no shift module — assign calendar days, hours in a day, and per-day charge. Pay = (hours worked / hours in a day) × charge after attendance.",
       "addRole": "Role",
-      "addModeLabourHint": "Labour roles: date range + hours/day + day charge — no start/end times. Applies to Staffing crew in the role unless you pick one person.",
-      "addModeEventDayHint": "Crew: Staffing crew for this event. Management: Staffing + Head Office. One event-day shift unless you pick one person.",
+      "addModeLabourHint": "Labour roles: date range + hours/day + day charge — no start/end times. Applies to event crew in the role unless you pick one person.",
+      "addModeEventDayHint": "Crew: event crew for this event. Management: event crew + Head Office. One event-day shift unless you pick one person.",
       "labourDayPending": "{{hours}}h day (awaiting punches)",
       "labourDayHours": "{{worked}}h / {{baseline}}h day",
-      "noStaffForRole": "No Staffing crew in this role",
-      "noStaffForRoleHint": "No Staffing crew in this role for the event yet — add them on the Staffing tab first. The company People directory is not used here.",
-      "noStaffForManagementHint": "No Head Office or Staffing people in Management yet — add Staffing assignments or ensure Head Office staff exist.",
+      "noStaffForRole": "No event crew in this role",
+      "noStaffForRoleHint": "No crew in this role for the event yet — add them in People → Event crew first. The company People directory is not used here.",
+      "noStaffForManagementHint": "No Head Office or event crew in Management yet — add crew in People → Event crew or ensure Head Office staff exist.",
       "allStaffInRole": "All in role (default)",
       "optionalStaff": "Optional: one person only",
       "optionalStaffHint": "Leave as “all in role” for the primary path, or pick one person to limit the add.",
@@ -5946,16 +5950,23 @@
     "corrections": {
       "missedTitle": "Event missed punches",
       "missedHint": "Scoped to event crew assignments. Submits into the existing missed-punch approval chain.",
+      "missedHintHoo": "Head of Operations can set punch-in / punch-out for any missed day on this event.",
+      "missedHintViewOnly": "View only — only Head of Operations can modify missed punch in/out. Request your own correction on My Day if needed.",
       "missedEmpty": "No open missed punches for this event.",
-      "form": "Correction",
-      "submit": "Submit MP",
+      "form": "Modify",
+      "currentPunches": "Current punches",
+      "punchIn": "In",
+      "punchOut": "Out",
+      "status": "Status",
+      "submit": "Save punches",
       "needTimes": "Enter punch-in, punch-out, or both.",
-      "approvalHint": "Approvals continue on My Day for the usual seats.",
+      "approvalHint": "Own / team correction requests continue on My Day for the usual seats.",
+      "approvalHintHoo": "HOO modify applies through the missed-punch path and finalizes when you hold the ops seat.",
       "myDayLink": "Open My Day",
       "queueTitle": "Crew corrections in event window",
       "queueEmpty": "No corrections filed for this crew yet.",
       "toasts": {
-        "submitted": "Missed-punch request submitted"
+        "submitted": "Missed punch updated"
       }
     },
     "payroll": {
@@ -6009,10 +6020,18 @@
       "customName": "Custom role name",
       "addCustom": "Add role",
       "save": "Save roles",
+      "sortOrder": "Sort order",
+      "active": "Active",
+      "nameRequired": "Role name is required",
+      "deleteTitle": "Delete event role?",
+      "deleteConfirm": "Remove “{{name}}” from this event? If the role is already used on crew or schedule, it will be deactivated instead of deleted.",
       "labourHint": "Labour pay = (hours worked / hours in a day) x per-day charge after attendance.",
       "toasts": {
         "saved": "Event roles saved",
-        "added": "Role added"
+        "added": "Role added",
+        "updated": "Role updated",
+        "deleted": "Deleted role “{{name}}”",
+        "deactivatedInUse": "“{{name}}” is in use ({{assignments}} assignment(s), {{slots}} schedule slot(s)) — deactivated instead of deleted"
       }
     },
     "staffing": {
@@ -9057,11 +9076,19 @@
   "peopleEvent": {
     "kicker": "People & HR",
     "noAccess": "You do not have access to event workforce modules.",
-    "setupHint": "Events is for setup. Ongoing attendance, crew, and payroll manage live here in People & HR.",
+    "setupHint": "Event Management is for scope, schedule, and budget. Staffing, attendance, and payroll manage live in People & HR.",
+    "staffingHub": {
+      "hint": "Staffing create and manage live in People & HR. This Events tab is a summary hub with deep links.",
+      "summaryHint": "Read-only crew summary for this event. Create, bulk edit, and roles settings are in People → Event crew / Roles.",
+      "manageCrew": "Manage crew in People",
+      "manageRoles": "Manage roles in People",
+      "rolesLabel": "Roles",
+      "empty": "No crew yet for this event. Create assignments in People → Event crew."
+    },
     "hub": {
       "title": "Event workforce",
-      "subtitle": "Attendance, crew, and payroll for events — managed in People & HR. Open a module below.",
-      "subtitleDashboard": "Live crew, attendance, and event payroll for People & HR — overview first, modules in the tabs.",
+      "subtitle": "Attendance, crew, roles, and payroll for events — managed in People & HR. Open a module below.",
+      "subtitleDashboard": "Live crew, roles, attendance, and event payroll for People & HR — overview first, modules in the tabs.",
       "openModule": "Open",
       "openEventsSetup": "Events setup",
       "correctionsHint": "Punch corrections for a specific event stay on that event’s Corrections tab. Open Event attendance, then Corrections for a day."
@@ -9070,8 +9097,14 @@
       "aria": "Event workforce modules",
       "overview": "Overview",
       "crew": "Crew",
+      "roles": "Roles",
       "attendance": "Attendance",
       "payroll": "Payroll"
+    },
+    "roles": {
+      "title": "Event roles",
+      "subtitle": "Create, edit, and delete roles for an event. Used by crew assignments and crew schedule.",
+      "pickEvent": "Select an event to manage its roles."
     },
     "dashboard": {
       "kpiOpenEvents": "Open events",
@@ -9124,10 +9157,11 @@
     },
     "links": {
       "openCrew": "Open in People · Event crew",
+      "openRoles": "Open in People · Event roles",
       "openAttendance": "Open in People · Event attendance",
       "openPayroll": "Open in People · Event payroll",
-      "openEventStaffing": "Event staffing (setup)",
-      "openEventSchedule": "Event schedule (setup)",
+      "openEventStaffing": "Event staffing summary",
+      "openEventSchedule": "Event crew schedule",
       "openEventPay": "Event pay (setup)",
       "allPayroll": "All payroll periods",
       "corrections": "Corrections",
@@ -9155,14 +9189,32 @@
     },
     "attendance": {
       "title": "Event attendance",
-      "subtitle": "Days tagged with an event — filter by event, site, and date range.",
-      "empty": "No event-tagged attendance for these filters."
+      "subtitle": "Days tagged with an event — same listing layout as FEC attendance, scoped to events.",
+      "empty": "No event-tagged attendance for these filters.",
+      "modifyMissed": "Modify punch",
+      "viewMissed": "View missed",
+      "hooModifyHint": "Missed punch in/out can be modified by Head of Operations only — use Modify punch on a missed row.",
+      "viewOnlyMissedHint": "You can view missed punches here. Only Head of Operations can modify them; request a correction on My Day if you need a change."
+    },
+    "create": {
+      "menu": "Create",
+      "individual": "Individual create",
+      "bulk": "Bulk create (CSV / Excel)",
+      "individualTitle": "Create crew assignment",
+      "individualHint": "Add FEC joker or loaned staff, or create an event-only hire when permitted.",
+      "bulkTitle": "Bulk create crew",
+      "bulkHint": "Import assignments for one event using the staffing CSV / Excel template.",
+      "pickEvent": "Select event",
+      "needEvent": "Choose an event to continue.",
+      "tabExisting": "Joker / loaned",
+      "tabHire": "Event-only hire"
     },
     "crew": {
       "title": "Event crew",
-      "subtitle": "Assignments across events. Ops edit on Events staffing; HR can review and bulk-manage here when permitted.",
+      "subtitle": "Create and manage crew assignments across events here in People & HR.",
       "empty": "No crew assignments for these filters.",
-      "viewOnlyHint": "View and export only — Events edit permission is required for bulk close, remove, or date changes. Use Setup to open the event."
+      "viewOnlyHint": "View and export only — Events edit permission is required to create, bulk close, remove, or change dates.",
+      "createHint": "Requires Events edit. Event-only hire also needs People roster edit."
     },
     "payroll": {
       "title": "Event payroll",

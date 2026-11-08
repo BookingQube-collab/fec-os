@@ -16,20 +16,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { submitMissedPunchRequest } from "@/lib/attendance-hr.functions";
+import { modifyEventMissedPunchAsHoo } from "@/lib/event-corrections.functions";
 import type { EventCorrectionRow, EventMissedPunchDayRow } from "@/lib/events/types";
 
 export function EventCorrectionsPanel({
   eventId,
   days,
   corrections,
-  canSubmit,
+  canModify,
   onChanged,
 }: {
   eventId: string;
   days: EventMissedPunchDayRow[];
   corrections: EventCorrectionRow[];
-  canSubmit: boolean;
+  /** Head of Operations only — missed punch in/out modify. */
+  canModify: boolean;
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
@@ -54,7 +55,8 @@ export function EventCorrectionsPanel({
     }
     setBusyId(day.summaryId);
     try {
-      await submitMissedPunchRequest({
+      await modifyEventMissedPunchAsHoo({
+        eventId,
         summaryId: day.summaryId,
         reason: draft.reason.trim() || `Event ${eventId.slice(0, 8)} missed punch`,
         punchInTime: draft.in || null,
@@ -74,7 +76,11 @@ export function EventCorrectionsPanel({
       <section className="rounded-2xl border border-border/40 bg-card p-4">
         <div className="mb-3">
           <h2 className="text-sm font-semibold">{t("events.corrections.missedTitle")}</h2>
-          <p className="text-xs text-muted-foreground">{t("events.corrections.missedHint")}</p>
+          <p className="text-xs text-muted-foreground">
+            {canModify
+              ? t("events.corrections.missedHintHoo")
+              : t("events.corrections.missedHintViewOnly")}
+          </p>
         </div>
         {openDays.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("events.corrections.missedEmpty")}</p>
@@ -85,7 +91,8 @@ export function EventCorrectionsPanel({
                 <TableHead>{t("events.schedule.columns.person")}</TableHead>
                 <TableHead>{t("events.schedule.columns.date")}</TableHead>
                 <TableHead>{t("events.schedule.columns.attendance")}</TableHead>
-                {canSubmit ? <TableHead>{t("events.corrections.fix")}</TableHead> : null}
+                <TableHead>{t("events.corrections.currentPunches")}</TableHead>
+                {canModify ? <TableHead>{t("events.corrections.form")}</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -98,11 +105,17 @@ export function EventCorrectionsPanel({
                     <TableCell>
                       <Badge variant="destructive">{day.status}</Badge>
                     </TableCell>
-                    {canSubmit ? (
+                    <TableCell className="text-xs tabular-nums text-muted-foreground">
+                      {(day.actual_in ?? "—").toString().slice(11, 16) || "—"}–
+                      {(day.actual_out ?? "—").toString().slice(11, 16) || "—"}
+                    </TableCell>
+                    {canModify ? (
                       <TableCell>
                         <div className="flex flex-wrap items-end gap-2">
                           <div>
-                            <label className="text-[10px] text-muted-foreground">In</label>
+                            <label className="text-[10px] text-muted-foreground">
+                              {t("events.corrections.punchIn")}
+                            </label>
                             <Input
                               type="time"
                               className="h-8 w-[7.5rem]"
@@ -116,7 +129,9 @@ export function EventCorrectionsPanel({
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] text-muted-foreground">Out</label>
+                            <label className="text-[10px] text-muted-foreground">
+                              {t("events.corrections.punchOut")}
+                            </label>
                             <Input
                               type="time"
                               className="h-8 w-[7.5rem]"
@@ -146,8 +161,8 @@ export function EventCorrectionsPanel({
           </Table>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
-          {t("events.corrections.approvalHint")}{" "}
-          <Link href="/me" className="underline underline-offset-2">
+          {canModify ? t("events.corrections.approvalHintHoo") : t("events.corrections.approvalHint")}{" "}
+          <Link href="/me#me-correction" className="underline underline-offset-2">
             {t("events.corrections.myDayLink")}
           </Link>
         </p>
@@ -163,7 +178,7 @@ export function EventCorrectionsPanel({
               <TableRow>
                 <TableHead>{t("events.schedule.columns.person")}</TableHead>
                 <TableHead>{t("events.schedule.columns.date")}</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t("events.corrections.status")}</TableHead>
                 <TableHead>#</TableHead>
               </TableRow>
             </TableHeader>

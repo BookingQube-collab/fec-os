@@ -36,7 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const HEAD_CLASS = "whitespace-nowrap text-xs uppercase tracking-wider";
-const COL_COUNT = 13;
+const BASE_COL_COUNT = 13;
 /** Columns before TOTAL HOURS WORKED (location → last check-out). */
 const HOURS_COL_INDEX = 8;
 
@@ -175,6 +175,8 @@ export function AttendanceRecordsTable({
   mapStaffOptions,
   mappingBusyIds,
   onMapStaff,
+  rowActions,
+  actionsHeader,
 }: {
   rows: AttendanceListingSource[];
   empty?: ReactNode;
@@ -182,11 +184,15 @@ export function AttendanceRecordsTable({
   mapStaffOptions?: AttendanceMapStaffOption[];
   mappingBusyIds?: ReadonlySet<string>;
   onMapStaff?: (row: AttendanceListingSource, staffId: string) => void;
+  /** Optional trailing actions cell (e.g. HOO missed-punch modify on Event attendance). */
+  rowActions?: (row: AttendanceListingSource, index: number) => ReactNode;
+  actionsHeader?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [draftByMapping, setDraftByMapping] = useState<Record<string, string>>({});
   const canInlineMap = Boolean(mapStaffOptions && onMapStaff);
   const totalHoursSum = sumListingTotalHours(rows);
+  const colCount = BASE_COL_COUNT + (rowActions ? 1 : 0);
 
   return (
     <div className="space-y-3">
@@ -209,12 +215,15 @@ export function AttendanceRecordsTable({
             <TableHead className={HEAD_CLASS}>{t("people.attendance.overtime")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.overtimeHours")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.status")}</TableHead>
+            {rowActions ? (
+              <TableHead className={HEAD_CLASS}>{actionsHeader ?? t("common.actions")}</TableHead>
+            ) : null}
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell className="px-4 py-8" colSpan={COL_COUNT}>
+              <TableCell className="px-4 py-8" colSpan={colCount}>
                 {empty}
               </TableCell>
             </TableRow>
@@ -340,6 +349,9 @@ export function AttendanceRecordsTable({
                       {t(`attendanceHr.reports.statuses.${statusKey}`, { defaultValue: statusDisplay.label })}
                     </Badge>
                   </TableCell>
+                  {rowActions ? (
+                    <TableCell className="text-end whitespace-nowrap">{rowActions(row, index)}</TableCell>
+                  ) : null}
                 </TableRow>
               );
             })
@@ -357,7 +369,7 @@ export function AttendanceRecordsTable({
               <TableCell className="tabular-nums text-sm font-bold text-[#1a1a1a]">
                 {formatHoursValue(totalHoursSum)}h
               </TableCell>
-              <TableCell colSpan={COL_COUNT - HOURS_COL_INDEX - 1} />
+              <TableCell colSpan={colCount - HOURS_COL_INDEX - 1} />
             </TableRow>
           </TableFooter>
         ) : null}
