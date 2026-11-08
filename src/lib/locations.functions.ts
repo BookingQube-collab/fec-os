@@ -13,6 +13,7 @@ import {
   type LocationDeleteLinkKind,
 } from "@/lib/locations/delete-guard";
 import { LOCATION_KINDS, normalizeLocationKind, type LocationKind } from "@/lib/locations/kind";
+import { suggestLocationCode } from "@/lib/locations/suggest-code";
 import { locationStatusForActiveFlag } from "@/lib/locations/status";
 import {
   createAuthenticatedAction,
@@ -84,17 +85,6 @@ function forgetOperationalSiteLists() {
 
 function uniqueViolation(error: { code?: string; message?: string }): boolean {
   return error.code === "23505" || (error.message ?? "").toLowerCase().includes("duplicate key");
-}
-
-/** Uppercase site code from a display name; falls back to SITE. */
-export function suggestLocationCode(name: string): string {
-  const cleaned = name
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 24);
-  return cleaned || "SITE";
 }
 
 async function allocateUniqueLocationCode(

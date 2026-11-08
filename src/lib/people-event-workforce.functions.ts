@@ -8,7 +8,6 @@
 import { z } from "zod";
 
 import { createAuthenticatedAction } from "@/lib/server/create-action";
-import { canUserDo } from "@/lib/rbac";
 
 const Ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const Uuid = z.string().uuid();
@@ -342,8 +341,3 @@ export const listPeopleEventCrew = createAuthenticatedAction(
     },
   },
 );
-
-/** Whether the caller can mutate event crew (ops). HR view-only otherwise. */
-export function canMutateEventCrew(roles: string[] | null | undefined): boolean {
-  return canUserDo((roles ?? []) as Parameters<typeof canUserDo>[0], "events.edit");
-}

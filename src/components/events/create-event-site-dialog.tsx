@@ -18,7 +18,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { createLocationMaster, suggestLocationCode } from "@/lib/locations.functions";
+import { createLocationMaster } from "@/lib/locations.functions";
+import { suggestLocationCode } from "@/lib/locations/suggest-code";
 
 type CreatedSite = {
   id: string;
