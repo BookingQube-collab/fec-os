@@ -412,7 +412,7 @@ export default function PeopleEventPayrollPage() {
                   </div>
                 </div>
 
-                <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+                <div className="min-w-0 sm:col-span-2 lg:col-span-1 lg:min-w-[18rem]">
                   <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {t("peopleEvent.payroll.dateRange")}
                   </label>

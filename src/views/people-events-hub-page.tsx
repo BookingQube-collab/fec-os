@@ -131,7 +131,7 @@ export default function PeopleEventsHubPage() {
                 className="w-full sm:w-auto"
                 triggerClassName="border-border/70 bg-white/90"
               />
-              <div className="min-w-0">
+              <div className="w-full min-w-0 sm:w-auto sm:min-w-[18rem]">
                 <label
                   className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                   htmlFor="ea-date-from"
@@ -145,7 +145,7 @@ export default function PeopleEventsHubPage() {
                   onDateTo={setDateTo}
                   fromId="ea-date-from"
                   toId="ea-date-to"
-                  className="w-full min-w-[16rem] border-border/70 bg-white/90 sm:w-auto sm:min-w-[18rem]"
+                  className="border-border/70 bg-white/90"
                 />
               </div>
 

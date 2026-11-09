@@ -445,7 +445,7 @@ export default function PeopleEventAttendancePage() {
                 </div>
               </div>
 
-              <div className="min-w-0 sm:col-span-2 xl:col-span-1">
+              <div className="min-w-0 sm:col-span-2 xl:col-span-1 xl:min-w-[18rem]">
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t("peopleEvent.filters.dateRange")}
                 </label>

@@ -188,7 +188,7 @@ export function PeopleEventWorkforceDemoTools({
               toId="demo-date-to"
               disabled={busy}
               showIcon={false}
-              className="w-full min-w-[16rem] border-border/70 sm:w-auto sm:min-w-[18rem]"
+              className="w-full border-border/70 sm:min-w-[18rem]"
             />
 
             <Button

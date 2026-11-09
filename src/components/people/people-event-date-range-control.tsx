@@ -4,15 +4,34 @@ import { CalendarDays } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-const dateInputClassName =
-  "h-8 min-h-8 w-0 min-w-0 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40";
+/**
+ * Native date fields inside a single chrome shell.
+ * Hide the WebKit calendar glyph (Windows/Chrome clips it in narrow flex rows)
+ * and stretch an invisible indicator so the whole field still opens the picker.
+ * Intrinsic date min-width is reset so From/To can share one row without overflow.
+ */
+const dateInputClassName = cn(
+  "relative h-8 min-h-8 min-w-[6.75rem] flex-1 border-0 bg-transparent px-1 py-0",
+  "appearance-none text-sm leading-8 text-foreground shadow-none outline-none",
+  "scheme-light tabular-nums",
+  "focus-visible:rounded-md focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40",
+  "disabled:cursor-not-allowed disabled:opacity-50",
+  "[&::-webkit-datetime-edit]:min-w-0",
+  "[&::-webkit-datetime-edit-fields-wrapper]:min-w-0",
+  "[&::-webkit-datetime-edit-fields-wrapper]:p-0",
+  "[&::-webkit-calendar-picker-indicator]:absolute",
+  "[&::-webkit-calendar-picker-indicator]:inset-0",
+  "[&::-webkit-calendar-picker-indicator]:h-full",
+  "[&::-webkit-calendar-picker-indicator]:w-full",
+  "[&::-webkit-calendar-picker-indicator]:cursor-pointer",
+  "[&::-webkit-calendar-picker-indicator]:opacity-0",
+);
 
 /**
  * Inline From–To date pair for People → Event workforce filters.
- * Stays one horizontal row (no wrap) so narrow grid columns don’t stack/clip.
+ * One horizontal row with a single Lucide calendar cue (no stacked native icons).
  */
 export function PeopleEventDateRangeControl({
   dateFrom,
@@ -43,19 +62,19 @@ export function PeopleEventDateRangeControl({
   return (
     <div
       className={cn(
-        "flex h-10 min-w-0 items-center gap-1.5 overflow-hidden rounded-xl border border-input bg-white px-2.5 shadow-sm",
+        "flex h-10 w-full min-w-0 items-center gap-1 rounded-xl border border-input bg-white px-2 shadow-sm",
         className,
       )}
       role="group"
       aria-label={t("peopleEvent.filters.dateRange")}
     >
       {showIcon ? (
-        <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#7c3aed]" aria-hidden />
       ) : null}
       <label className="sr-only" htmlFor={fromInputId}>
         {t("peopleEvent.filters.from")}
       </label>
-      <Input
+      <input
         id={fromInputId}
         type="date"
         value={dateFrom}
@@ -70,7 +89,7 @@ export function PeopleEventDateRangeControl({
       <label className="sr-only" htmlFor={toInputId}>
         {t("peopleEvent.filters.to")}
       </label>
-      <Input
+      <input
         id={toInputId}
         type="date"
         value={dateTo}
