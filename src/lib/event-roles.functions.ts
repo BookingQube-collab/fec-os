@@ -115,7 +115,9 @@ export const getEventRoles = createAuthenticatedAction(
   async (data, context) => {
     await loadEventOrThrow(context, data.eventId);
     const roles = await ensureEventRoles(context, data.eventId);
-    return { roles };
+    // Soft-deactivated rows stay in DB (FK-safe) but must not reappear in the UI.
+    // Permanent delete removes the row; this filter covers the soft-delete path.
+    return { roles: roles.filter((r) => r.is_active !== false) };
   },
   { auth: { capability: "events.view" } },
 );

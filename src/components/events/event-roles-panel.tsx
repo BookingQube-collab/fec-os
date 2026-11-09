@@ -148,7 +148,7 @@ export const EventRolesPanel = forwardRef<
   const addSectionRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState<RoleDraftState[]>(() =>
-    (roles.length ? roles : DEFAULT_EVENT_ROLE_CATALOG).map(toDraft),
+    (roles.length ? roles : eventId ? [] : DEFAULT_EVENT_ROLE_CATALOG).map(toDraft),
   );
   const [customName, setCustomName] = useState("");
   const [customKind, setCustomKind] = useState<EventRoleKind>("shift");
@@ -166,9 +166,15 @@ export const EventRolesPanel = forwardRef<
   }));
 
   useEffect(() => {
-    if (!roles.length) return;
-    setLocal(roles.map(toDraft));
-  }, [roles]);
+    // Persisted events: mirror server rows exactly (never fall back to the default
+    // catalog — that re-materializes permanently deleted roles as ghost rows).
+    // Create-flow (no eventId): empty props still mean "start from catalog".
+    if (eventId) {
+      setLocal(roles.map(toDraft));
+      return;
+    }
+    setLocal((roles.length ? roles : DEFAULT_EVENT_ROLE_CATALOG).map(toDraft));
+  }, [roles, eventId]);
 
   const active = useMemo(() => local.filter((r) => r.is_active !== false), [local]);
   const shiftActiveCount = useMemo(
@@ -410,6 +416,7 @@ export const EventRolesPanel = forwardRef<
     setDeleteUsage(null);
 
     if (!eventId || !row.id) {
+      // Draft / create-flow: catalog toggles soft-off; custom rows are removed.
       if (DEFAULT_EVENT_ROLE_CATALOG.some((c) => c.code === row.code)) {
         pushLocal(local.map((r) => (r.code === row.code ? { ...r, is_active: false } : r)));
       } else {
@@ -419,10 +426,14 @@ export const EventRolesPanel = forwardRef<
       return;
     }
 
+    const previous = local;
+    // Optimistic: drop immediately so KPIs/section counts match (hard delete).
+    pushLocal(local.filter((r) => r.id !== row.id));
+    if (editingCode === row.code) cancelEdit();
+
     setBusy(true);
     try {
       const result = await deleteEventRole({ eventId, id: row.id });
-      if (editingCode === row.code) cancelEdit();
       onChanged?.();
       if (result.inUse) {
         toast.success(
@@ -436,6 +447,7 @@ export const EventRolesPanel = forwardRef<
         toast.success(t("events.roles.toasts.deleted", { name: result.name }));
       }
     } catch (e) {
+      pushLocal(previous);
       toast.error((e as Error).message);
     } finally {
       setBusy(false);
@@ -791,6 +803,9 @@ export const EventRolesPanel = forwardRef<
         <div className="space-y-2.5">
           {catalog.map((cat) => {
             const row = local.find((r) => r.code === cat.code);
+            // Persisted event: never invent a catalog row that is not in server/local
+            // data — permanent delete must remove it from the list entirely.
+            if (!row && eventId) return null;
             const selected = Boolean(row && row.is_active !== false);
             const display = row ?? toDraft(cat);
             return renderRoleRow({

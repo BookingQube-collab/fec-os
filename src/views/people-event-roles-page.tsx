@@ -289,7 +289,7 @@ export default function PeopleEventRolesPage() {
             ref={panelRef}
             layout="page"
             eventId={eventId}
-            roles={roleRows}
+            roles={activeRoles}
             canEdit={canEdit}
             onChanged={refresh}
           />
