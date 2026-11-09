@@ -182,6 +182,9 @@ export function EventStaffingPanel({
             {!isSummary && allowEdit ? (
               <EventStaffBulkImportActions
                 eventId={eventId}
+                roles={roles}
+                dateFrom={defaultFrom}
+                dateTo={defaultTo}
                 disabled={busy}
                 onImported={onChanged}
                 showHelp={false}
@@ -193,7 +196,13 @@ export function EventStaffingPanel({
                 variant="outline"
                 type="button"
                 disabled={busy}
-                onClick={downloadEventStaffingTemplate}
+                onClick={() =>
+                  downloadEventStaffingTemplate({
+                    roles,
+                    dateFrom: defaultFrom,
+                    dateTo: defaultTo,
+                  })
+                }
               >
                 {t("events.staffing.import.template")}
               </Button>

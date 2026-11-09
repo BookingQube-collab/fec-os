@@ -1,6 +1,7 @@
 /** Event staffing bulk import / export helpers (CSV & Excel). */
 
 import { toCsv } from "@/lib/csv-parse";
+import { previewEventHireEmployeeCode } from "@/lib/events/event-hire-employee-code";
 import {
   assignmentTypeLabel,
   normalizeAssignmentType,
@@ -8,6 +9,25 @@ import {
   type EventStaffAssignmentType,
 } from "@/lib/events/staff-assignments";
 import type { EventStaffAssignmentRow } from "@/lib/events/types";
+
+export type EventStaffingTemplateRole = {
+  code: string;
+  name: string;
+  is_active?: boolean;
+  sort_order?: number;
+};
+
+export type EventStaffingTemplateOptions = {
+  /** Active event roles from HR / event roles master. */
+  roles?: readonly EventStaffingTemplateRole[] | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  /**
+   * When true, pre-fill illustrative EVT-{role}nn codes (import regenerates for new hires).
+   * Default false — leave employee_code blank.
+   */
+  previewCodes?: boolean;
+};
 
 const COL = {
   employee_code: ["employee_code", "emp_code", "code", "staff_code", "employee code", "كود الموظف"],
@@ -99,13 +119,57 @@ export type EventStaffingImportPreview = {
   errors: { row: number; message: string }[];
 };
 
-export function buildEventStaffingTemplateCsv(): string {
+/**
+ * Sample CSV for bulk crew import.
+ * Prefer one row per active event role (role_label from the event).
+ * employee_code is left blank (auto-generated from role on import for new event hires)
+ * unless `previewCodes` is set for illustration.
+ */
+export function buildEventStaffingTemplateCsv(options?: EventStaffingTemplateOptions): string {
+  const dateFrom = (options?.dateFrom ?? "").trim() || "2026-08-26";
+  const dateTo = (options?.dateTo ?? "").trim() || "2026-08-31";
+  const activeRoles = (options?.roles ?? [])
+    .filter((r) => r.is_active !== false)
+    .slice()
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name));
+
+  if (activeRoles.length > 0) {
+    const previewUsed: string[] = [];
+    return toCsv(
+      [...EVENT_STAFFING_IMPORT_HEADERS],
+      activeRoles.map((role, idx) => {
+        const code = options?.previewCodes
+          ? previewEventHireEmployeeCode(role.code, previewUsed)
+          : "";
+        if (code) previewUsed.push(code);
+        return [
+          code,
+          `Sample ${role.name}`,
+          "event_hire",
+          role.name,
+          dateFrom,
+          dateTo,
+          idx === 0 ? "employee_code auto-generated from role — leave blank for new hires" : "",
+          "true",
+        ];
+      }),
+    );
+  }
+
+  // Fallback when no event roles are available yet (create roles first).
   return toCsv(
     [...EVENT_STAFFING_IMPORT_HEADERS],
     [
-      ["INF-CC-JK01", "Sample Joker", "joker", "Crew", "2026-08-26", "2026-08-31", "", "true"],
-      ["HO-OPS-01", "Sample Loaned", "loaned", "Supervisor", "2026-08-26", "2026-08-31", "Home site covers OT", "true"],
-      ["", "Existing Event Hire Name", "event_hire", "Usher", "2026-08-26", "2026-08-31", "", "true"],
+      [
+        "",
+        "Sample Event Hire",
+        "event_hire",
+        "Crew",
+        dateFrom,
+        dateTo,
+        "employee_code auto-generated from role — leave blank for new hires; use existing codes only for joker/loaned",
+        "true",
+      ],
     ],
   );
 }
@@ -129,16 +193,24 @@ export function parseEventStaffingImportRows(
 
     if (!employee_code && !staff_name && !typeRaw && !fromRaw && !toRaw) return;
 
-    if (!employee_code && !staff_name) {
-      errors.push({ row: rowNum, message: "employee_code or staff_name is required" });
-      return;
-    }
-
-    const assignment_type = normalizeAssignmentType(typeRaw || "joker");
+    const assignment_type = normalizeAssignmentType(typeRaw || "event_hire");
     if (!assignment_type) {
       errors.push({
         row: rowNum,
         message: `Unknown assignment_type "${typeRaw}" (use joker, loaned, or event_hire)`,
+      });
+      return;
+    }
+
+    // New event hires need a name (code is auto-generated from role).
+    // Joker / loaned need employee_code (preferred) or staff_name to match existing staff.
+    if (!employee_code && !staff_name) {
+      errors.push({
+        row: rowNum,
+        message:
+          assignment_type === "event_hire"
+            ? "staff_name is required for new event hires (employee_code is auto-generated)"
+            : "employee_code or staff_name is required",
       });
       return;
     }

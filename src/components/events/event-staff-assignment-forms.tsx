@@ -384,18 +384,36 @@ export function EventStaffCreateHireForm({
   );
 }
 
-export function downloadEventStaffingTemplate() {
-  downloadCsvContent(buildEventStaffingTemplateCsv(), "event-crew-import-template.csv");
+export function downloadEventStaffingTemplate(options?: {
+  roles?: EventRoleRow[];
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  const activeRoles = (options?.roles ?? []).filter((r) => r.is_active !== false);
+  downloadCsvContent(
+    buildEventStaffingTemplateCsv({
+      roles: activeRoles,
+      dateFrom: options?.dateFrom,
+      dateTo: options?.dateTo,
+    }),
+    "event-crew-import-template.csv",
+  );
 }
 
 export function EventStaffBulkImportActions({
   eventId,
+  roles = [],
+  dateFrom,
+  dateTo,
   disabled,
   onImported,
   showHelp = true,
   allowUpload = true,
 }: {
   eventId: string;
+  roles?: EventRoleRow[];
+  dateFrom?: string;
+  dateTo?: string;
   disabled?: boolean;
   onImported: () => void;
   showHelp?: boolean;
@@ -404,6 +422,14 @@ export function EventStaffBulkImportActions({
   const { t } = useTranslation();
   const importRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+
+  function onDownloadSample() {
+    downloadEventStaffingTemplate({
+      roles,
+      dateFrom,
+      dateTo,
+    });
+  }
 
   async function onImportFile(file: File | null) {
     if (!file || !eventId) return;
@@ -464,7 +490,7 @@ export function EventStaffBulkImportActions({
           variant="outline"
           type="button"
           disabled={busy || disabled}
-          onClick={downloadEventStaffingTemplate}
+          onClick={onDownloadSample}
         >
           <Download className="me-1.5 h-3.5 w-3.5" />
           {t("events.staffing.import.template")}

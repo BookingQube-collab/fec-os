@@ -146,13 +146,37 @@ describe("event staff assignments", () => {
     expect(reopenAssignmentStampNote("2026-11-08")).toMatch(/Reopened via event/);
   });
 
-  it("parses staffing import template", () => {
-    const preview = parseEventStaffingImportRows(parseCsv(buildEventStaffingTemplateCsv()));
+  it("builds sample rows from active event roles with blank employee codes", () => {
+    const csv = buildEventStaffingTemplateCsv({
+      roles: [
+        { code: "crew", name: "Crew", sort_order: 0 },
+        { code: "cleaner", name: "Cleaner", sort_order: 1, is_active: false },
+        { code: "cashier", name: "Cashier", sort_order: 2 },
+      ],
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-05",
+    });
+    const preview = parseEventStaffingImportRows(parseCsv(csv));
     expect(preview.errors).toEqual([]);
-    expect(preview.rows).toHaveLength(3);
-    expect(preview.rows[0]?.assignment_type).toBe("joker");
-    expect(preview.rows[1]?.assignment_type).toBe("loaned");
-    expect(preview.rows[2]?.assignment_type).toBe("event_hire");
+    expect(preview.rows).toHaveLength(2);
+    expect(preview.rows[0]).toMatchObject({
+      employee_code: null,
+      assignment_type: "event_hire",
+      role_label: "Crew",
+      date_from: "2026-09-01",
+      date_to: "2026-09-05",
+    });
+    expect(preview.rows[1]?.role_label).toBe("Cashier");
+    expect(preview.rows.every((r) => !r.employee_code)).toBe(true);
+  });
+
+  it("can preview illustrative role-based employee codes in the sample", () => {
+    const csv = buildEventStaffingTemplateCsv({
+      roles: [{ code: "crew", name: "Crew", sort_order: 0 }],
+      previewCodes: true,
+    });
+    const preview = parseEventStaffingImportRows(parseCsv(csv));
+    expect(preview.rows[0]?.employee_code).toBe("EVT-CRW01");
   });
 
   it("accepts legacy labour type in import files", () => {

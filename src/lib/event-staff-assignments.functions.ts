@@ -15,9 +15,10 @@ import {
   type EventStaffAssignmentType,
   validateAssignmentDates,
 } from "@/lib/events/staff-assignments";
+import { generateEventHireEmployeeCode } from "@/lib/events/event-hire-employee-code";
+import { slugifyEventRoleCode } from "@/lib/events/event-roles";
 import type { EventStaffingImportRow } from "@/lib/events/staffing-import";
 import type { EventStaffAssignmentRow, EventStaffAssignmentsPayload } from "@/lib/events/types";
-import { resolveNewEmployeeCode } from "@/lib/staff-employee-code";
 import { assertLocationAccess, requireCapability } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -68,6 +69,70 @@ async function loadEventOrThrow(context: AuthContext, eventId: string) {
 
 function emptyText(v?: string | null) {
   return v && v.trim() ? v.trim() : null;
+}
+
+async function loadAllEmployeeCodes(): Promise<string[]> {
+  const all: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: batch, error } = await supabaseAdmin
+      .from("staff")
+      .select("employee_code")
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw error;
+    for (const row of batch ?? []) {
+      const c = String(row.employee_code ?? "").trim().toUpperCase();
+      if (c) all.push(c);
+    }
+    if ((batch ?? []).length < 1000) break;
+  }
+  return all;
+}
+
+type EventRoleMatch = {
+  id: string;
+  code: string;
+  name: string;
+  kind: string | null;
+  default_hours_per_day: number | null;
+  default_day_rate_qar: number | null;
+};
+
+async function loadEventRolesForImport(
+  context: AuthContext,
+  eventId: string,
+): Promise<EventRoleMatch[]> {
+  const { data, error } = await context.supabase
+    .from("event_roles")
+    .select("id, code, name, kind, default_hours_per_day, default_day_rate_qar, is_active")
+    .eq("event_id", eventId)
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+  if (error) {
+    if (/event_roles|schema cache|does not exist/i.test(error.message)) return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    code: String(r.code ?? ""),
+    name: String(r.name ?? ""),
+    kind: (r.kind as string | null) ?? null,
+    default_hours_per_day: (r.default_hours_per_day as number | null) ?? null,
+    default_day_rate_qar: (r.default_day_rate_qar as number | null) ?? null,
+  }));
+}
+
+function matchEventRole(
+  roles: EventRoleMatch[],
+  roleLabel: string,
+): EventRoleMatch | null {
+  const needle = roleLabel.trim().toLowerCase();
+  if (!needle) return null;
+  return (
+    roles.find((r) => r.name.trim().toLowerCase() === needle) ??
+    roles.find((r) => r.code.trim().toLowerCase() === needle) ??
+    null
+  );
 }
 
 function eventWindowDefaults(event: {
@@ -461,36 +526,20 @@ export const createEventHireAndAssign = createAuthenticatedAction(
     await assertLocationAccess(context, locationId);
 
     const defaults = eventHireEmploymentDefaults(data.date_from, data.date_to);
-    const { data: locRow, error: locErr } = await context.supabase
-      .from("locations")
-      .select("code")
-      .eq("id", locationId)
-      .single();
-    if (locErr) throw locErr;
-    const locationCode = String(locRow?.code ?? "").trim().toUpperCase();
-    if (!locationCode) throw new Error("Branch code not found");
 
-    const codeRows = await (async () => {
-      const all: string[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data: batch, error } = await supabaseAdmin
-          .from("staff")
-          .select("employee_code")
-          .order("id", { ascending: true })
-          .range(from, from + 999);
-        if (error) throw error;
-        for (const row of batch ?? []) {
-          const c = String(row.employee_code ?? "").trim().toUpperCase();
-          if (c) all.push(c);
-        }
-        if ((batch ?? []).length < 1000) break;
-      }
-      return all;
-    })();
+    let roleCode = slugifyEventRoleCode(data.role_label);
+    if (data.event_role_id) {
+      const { data: roleRow } = await context.supabase
+        .from("event_roles")
+        .select("code, name")
+        .eq("id", data.event_role_id)
+        .eq("event_id", data.eventId)
+        .maybeSingle();
+      if (roleRow?.code) roleCode = String(roleRow.code);
+    }
 
-    const employee_code = resolveNewEmployeeCode(locationCode, codeRows, null, {
-      jobTitle: data.jobTitle ?? defaults.jobTitle,
-    });
+    const usedCodes = new Set(await loadAllEmployeeCodes());
+    const employee_code = generateEventHireEmployeeCode(roleCode, usedCodes);
 
     const { data: staffRow, error: staffErr } = await supabaseAdmin
       .from("staff")
@@ -616,7 +665,11 @@ const BulkImportSchema = z.object({
 
 /**
  * Bulk-add crew assignments from a parsed CSV/Excel preview.
- * Matches staff by employee_code (preferred) or exact full_name (case-insensitive).
+ *
+ * - joker / loaned: resolve existing staff by employee_code (preferred) or exact name.
+ * - event_hire: same resolve when code/name matches; otherwise create a temporary
+ *   People record with employee_code auto-generated from the event role (`EVT-CRW01`).
+ *   User-supplied codes that do not match anyone are ignored for new event hires.
  */
 export const bulkImportEventStaffAssignments = createAuthenticatedAction(
   BulkImportSchema,
@@ -624,6 +677,8 @@ export const bulkImportEventStaffAssignments = createAuthenticatedAction(
     const event = await loadEventOrThrow(context, data.eventId);
     const existing = await listAssignmentRows(context, data.eventId);
     const working: typeof existing = [...existing];
+    const eventRoles = await loadEventRolesForImport(context, data.eventId);
+    const locationId = event.location_id as string;
 
     const codes = [
       ...new Set(
@@ -635,14 +690,13 @@ export const bulkImportEventStaffAssignments = createAuthenticatedAction(
     const names = [
       ...new Set(
         data.rows
-          .filter((r) => !(r.employee_code ?? "").trim())
           .map((r) => (r.staff_name ?? "").trim().toLowerCase())
           .filter(Boolean),
       ),
     ];
 
-    const byCode = new Map<string, { id: string; full_name: string }>();
-    const byName = new Map<string, { id: string; full_name: string }[]>();
+    const byCode = new Map<string, { id: string; full_name: string; employee_code: string }>();
+    const byName = new Map<string, { id: string; full_name: string; employee_code: string }[]>();
 
     if (codes.length) {
       const { data: staffByCode, error } = await context.supabase
@@ -655,7 +709,13 @@ export const bulkImportEventStaffAssignments = createAuthenticatedAction(
         const code = String(s.employee_code ?? "")
           .trim()
           .toUpperCase();
-        if (code) byCode.set(code, { id: s.id as string, full_name: s.full_name as string });
+        if (code) {
+          byCode.set(code, {
+            id: s.id as string,
+            full_name: s.full_name as string,
+            employee_code: code,
+          });
+        }
       }
     }
 
@@ -674,10 +734,27 @@ export const bulkImportEventStaffAssignments = createAuthenticatedAction(
             .toLowerCase();
           if (key !== name) continue;
           const list = byName.get(key) ?? [];
-          list.push({ id: s.id as string, full_name: s.full_name as string });
+          list.push({
+            id: s.id as string,
+            full_name: s.full_name as string,
+            employee_code: String(s.employee_code ?? "")
+              .trim()
+              .toUpperCase(),
+          });
           byName.set(key, list);
         }
       }
+    }
+
+    const mayCreateHires = data.rows.some((r) => r.assignment_type === "event_hire");
+    let usedCodes: Set<string> | null = null;
+    if (mayCreateHires) {
+      try {
+        await requireCapability(context, "people.edit_roster");
+      } catch {
+        // Still allow joker/loaned / existing-staff rows; hire creates fail per-row.
+      }
+      usedCodes = new Set(await loadAllEmployeeCodes());
     }
 
     const errors: { row: number; message: string }[] = [];
@@ -685,33 +762,127 @@ export const bulkImportEventStaffAssignments = createAuthenticatedAction(
 
     for (const row of data.rows as EventStaffingImportRow[]) {
       const code = (row.employee_code ?? "").trim().toUpperCase();
+      const roleLabel = row.role_label.trim() || "crew";
+      const matchedRole = matchEventRole(eventRoles, roleLabel);
+      const roleCode = matchedRole?.code || slugifyEventRoleCode(roleLabel);
       let staffId: string | null = null;
+      let staffCode: string | null = code || null;
+      let createdHire = false;
 
       if (code) {
         const hit = byCode.get(code);
-        if (!hit) {
+        if (hit) {
+          staffId = hit.id;
+          staffCode = hit.employee_code;
+        } else if (row.assignment_type !== "event_hire") {
           errors.push({ row: row.row, message: `No staff with employee_code ${code}` });
           continue;
         }
-        staffId = hit.id;
-      } else {
+        // event_hire + unknown code → ignore supplied code and create below
+      }
+
+      if (!staffId) {
         const key = (row.staff_name ?? "").trim().toLowerCase();
-        const hits = byName.get(key) ?? [];
-        if (hits.length === 0) {
-          errors.push({
-            row: row.row,
-            message: `No staff named "${row.staff_name}" — use employee_code for a unique match`,
-          });
-          continue;
-        }
-        if (hits.length > 1) {
+        const hits = key ? byName.get(key) ?? [] : [];
+        if (hits.length === 1) {
+          staffId = hits[0]!.id;
+          staffCode = hits[0]!.employee_code || null;
+        } else if (hits.length > 1) {
           errors.push({
             row: row.row,
             message: `Multiple staff named "${row.staff_name}" — use employee_code`,
           });
           continue;
+        } else if (row.assignment_type === "event_hire") {
+          const fullName = (row.staff_name ?? "").trim();
+          if (!fullName) {
+            errors.push({
+              row: row.row,
+              message: "staff_name is required for new event hires",
+            });
+            continue;
+          }
+          try {
+            await requireCapability(context, "people.edit_roster");
+          } catch {
+            errors.push({
+              row: row.row,
+              message: "Creating event hires needs People → edit roster permission",
+            });
+            continue;
+          }
+          if (!usedCodes) usedCodes = new Set(await loadAllEmployeeCodes());
+          const employee_code = generateEventHireEmployeeCode(roleCode, usedCodes);
+          const defaults = eventHireEmploymentDefaults(row.date_from, row.date_to);
+          const { data: staffRow, error: staffErr } = await supabaseAdmin
+            .from("staff")
+            .insert({
+              location_id: locationId,
+              employee_code,
+              full_name: fullName,
+              job_title: `${matchedRole?.name || roleLabel} · Event`,
+              department: "Event hire",
+              hire_date: defaults.hireDate,
+              status: defaults.status,
+              employment_type: defaults.employmentType,
+            })
+            .select("id")
+            .single();
+          if (staffErr) {
+            errors.push({ row: row.row, message: staffErr.message });
+            continue;
+          }
+          staffId = staffRow.id as string;
+          staffCode = employee_code;
+          createdHire = true;
+
+          await supabaseAdmin.from("staff_profile_ext").upsert(
+            {
+              staff_id: staffId,
+              contract_start: defaults.contractStart,
+              contract_end: defaults.contractEnd,
+              updated_by: context.userId,
+            },
+            { onConflict: "staff_id" },
+          );
+
+          await context.supabase.rpc("log_audit", {
+            _action: "staff.created",
+            _table_name: "staff",
+            _row_id: staffId,
+            _after: {
+              employee_code,
+              full_name: fullName,
+              source: "event_hire_import",
+              event_id: data.eventId,
+            },
+            _location_id: locationId,
+            _metadata: { event_id: data.eventId },
+          });
+
+          const nameKey = fullName.toLowerCase();
+          const list = byName.get(nameKey) ?? [];
+          list.push({ id: staffId, full_name: fullName, employee_code });
+          byName.set(nameKey, list);
+          byCode.set(employee_code, {
+            id: staffId,
+            full_name: fullName,
+            employee_code,
+          });
+        } else {
+          errors.push({
+            row: row.row,
+            message: key
+              ? `No staff named "${row.staff_name}" — use employee_code for a unique match`
+              : "employee_code or staff_name is required",
+          });
+          continue;
         }
-        staffId = hits[0]!.id;
+      }
+
+      if (!staffId) {
+        errors.push({ row: row.row, message: "Could not resolve staff" });
+        continue;
       }
 
       const dateErr = validateAssignmentDates(row.date_from, row.date_to);
@@ -738,41 +909,65 @@ export const bulkImportEventStaffAssignments = createAuthenticatedAction(
         event_id: data.eventId,
         staff_id: staffId,
         assignment_type: row.assignment_type,
-        role_label: row.role_label.trim() || "crew",
+        role_label: matchedRole?.name || roleLabel,
+        event_role_id: matchedRole?.id ?? null,
+        hours_per_day:
+          createdHire && matchedRole?.kind === "labour"
+            ? matchedRole.default_hours_per_day
+            : null,
+        day_rate_qar:
+          createdHire && matchedRole?.kind === "labour"
+            ? matchedRole.default_day_rate_qar
+            : null,
         date_from: row.date_from,
         date_to: row.date_to,
         pay_on_event_run: row.pay_on_event_run,
-        notes: emptyText(row.notes),
+        notes:
+          emptyText(row.notes) ??
+          (createdHire
+            ? `Event-only hire for event ${data.eventId.slice(0, 8)}… (${row.date_from}–${row.date_to})`
+            : null),
         created_by: context.userId,
         updated_by: context.userId,
         updated_at: new Date().toISOString(),
       };
 
-      const { data: created, error } = await context.supabase
+      let insert = await context.supabase
         .from("event_staff_assignments")
         .insert(payload)
         .select("id")
         .single();
-      if (error) {
-        errors.push({ row: row.row, message: error.message });
+      if (
+        insert.error &&
+        /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(insert.error.message)
+      ) {
+        const { event_role_id: _r, hours_per_day: _h, day_rate_qar: _d, ...legacy } = payload;
+        insert = await context.supabase
+          .from("event_staff_assignments")
+          .insert(legacy)
+          .select("id")
+          .single();
+      }
+      if (insert.error) {
+        errors.push({ row: row.row, message: insert.error.message });
         continue;
       }
 
       working.push({
-        id: created.id as string,
+        id: insert.data!.id as string,
         event_id: data.eventId,
         staff_id: staffId,
         staff_name: null,
-        staff_employee_code: code || null,
+        staff_employee_code: staffCode,
         staff_employment_type: null,
         staff_status: null,
         staff_job_title: null,
         staff_location_id: null,
         assignment_type: row.assignment_type,
         role_label: payload.role_label,
-        event_role_id: null,
-        hours_per_day: null,
-        day_rate_qar: null,
+        event_role_id: payload.event_role_id,
+        hours_per_day: payload.hours_per_day,
+        day_rate_qar: payload.day_rate_qar,
         date_from: row.date_from,
         date_to: row.date_to,
         pay_on_event_run: row.pay_on_event_run,

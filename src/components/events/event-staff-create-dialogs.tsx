@@ -190,10 +190,28 @@ export function EventStaffBulkCreateDialog({
 }) {
   const { t } = useTranslation();
   const [eventId, setEventId] = useState(initialEventId ?? "");
+  const rolesQ = useEventRoles(open ? eventId || null : null);
+  const staffingQ = useEventStaffAssignments(open ? eventId || null : null);
+  const eventQ = useEvent(open ? eventId || null : null);
 
   useEffect(() => {
     if (open) setEventId(initialEventId ?? "");
   }, [open, initialEventId]);
+
+  const defaults = useMemo(() => {
+    const selected = events.find((e) => e.id === eventId);
+    const from =
+      staffingQ.data?.eventWindow.dateFrom ??
+      selected?.dateFrom ??
+      eventQ.data?.event?.event_start?.slice(0, 10) ??
+      new Date().toISOString().slice(0, 10);
+    const to =
+      staffingQ.data?.eventWindow.dateTo ??
+      selected?.dateTo ??
+      eventQ.data?.event?.event_end?.slice(0, 10) ??
+      from;
+    return { from, to };
+  }, [events, eventId, staffingQ.data?.eventWindow, eventQ.data?.event]);
 
   function handleImported() {
     onImported();
@@ -214,6 +232,9 @@ export function EventStaffBulkCreateDialog({
           ) : (
             <EventStaffBulkImportActions
               eventId={eventId}
+              roles={rolesQ.data?.roles ?? []}
+              dateFrom={defaults.from}
+              dateTo={defaults.to}
               onImported={handleImported}
             />
           )}
