@@ -4,12 +4,47 @@ import {
   type AttendanceSummaryRow,
 } from "@/lib/attendance-display";
 import { mayFillRosterDevicePunches } from "@/lib/attendance-hr/roster-punch-fill";
+import { normalizeLabel } from "@/lib/fec-departments";
 import {
   buildAttendanceTrend,
   previousEqualRange,
   type DayTrendPoint,
 } from "@/lib/people-event-attendance-overview";
 import type { PeopleEventAttendanceRow } from "@/lib/people-event-workforce.functions";
+
+/** Event-role option used by the Event Attendance Role filter. */
+export type EventAttendanceRoleOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+/**
+ * Match an attendance row to a selected event role.
+ * Prefer `event_role_id`; fall back to denormalized `role_label` vs role code/name.
+ */
+export function eventAttendanceRowMatchesRole(
+  row: PeopleEventAttendanceRow,
+  roleId: string | null | undefined,
+  roles: readonly EventAttendanceRoleOption[],
+): boolean {
+  if (!roleId) return true;
+  if (row.eventRoleId && row.eventRoleId === roleId) return true;
+  const role = roles.find((r) => r.id === roleId);
+  if (!role) return false;
+  const label = normalizeLabel(row.roleLabel);
+  if (!label) return false;
+  return label === normalizeLabel(role.code) || label === normalizeLabel(role.name);
+}
+
+export function filterEventAttendanceRowsByRole(
+  rows: PeopleEventAttendanceRow[],
+  roleId: string | null | undefined,
+  roles: readonly EventAttendanceRoleOption[],
+): PeopleEventAttendanceRow[] {
+  if (!roleId) return rows;
+  return rows.filter((row) => eventAttendanceRowMatchesRole(row, roleId, roles));
+}
 
 /** Same gate as Fill missed punches — Head of Operations / regional_ops only (not general admin). */
 export function mayModifyEventMissedPunch(input: {

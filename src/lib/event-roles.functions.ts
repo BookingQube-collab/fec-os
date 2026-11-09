@@ -119,7 +119,12 @@ export const getEventRoles = createAuthenticatedAction(
     // Permanent delete removes the row; this filter covers the soft-delete path.
     return { roles: roles.filter((r) => r.is_active !== false) };
   },
-  { auth: { capability: "events.view" } },
+  {
+    auth: {
+      // People Event Attendance Role filter needs this without full Events edit access.
+      anyCapability: ["events.view", "attendance.view", "people.view_roster"],
+    },
+  },
 );
 
 const RoleDraftSchema = z.object({

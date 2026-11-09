@@ -13,6 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Briefcase,
   CalendarClock,
   CalendarDays,
   Download,
@@ -29,6 +30,7 @@ import { EventAttendanceRecordsPanel } from "@/components/people/event-attendanc
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
@@ -42,19 +44,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
+import { useEventRoles } from "@/hooks/queries/useEvents";
 import { buildAttendanceCsv } from "@/lib/attendance-display";
 import { EVENT_WORKFORCE_DEMO_MAX_DAYS } from "@/lib/events/event-workforce-demo";
 import {
   buildEventAttendancePageKpis,
   buildEventAttendanceStatusCounts,
   buildEventAttendanceTrendForRange,
+  filterEventAttendanceRowsByRole,
   mayModifyEventMissedPunch,
   previousEqualRange,
   toEventAttendanceSummaryRow,
 } from "@/lib/people-event-attendance-display";
 import {
   defaultOverviewRange,
-  formatRangeLabel,
   rangeForSelectedEvent,
 } from "@/lib/people-event-attendance-overview";
 import {
@@ -115,11 +118,11 @@ export default function PeopleEventAttendancePage() {
     () => ymdOrEmpty(searchParams.get("to")) || initialRange.to,
   );
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  const [roleId, setRoleId] = useState(() => uuidOrEmpty(searchParams.get("roleId")));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const prevEventIdRef = useRef<string | undefined>(undefined);
 
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
-  const rangeLabel = formatRangeLabel(dateFrom, dateTo, locale);
   const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
 
   const eventsQ = useQuery({
@@ -173,7 +176,35 @@ export default function PeopleEventAttendancePage() {
     enabled: Boolean(dateFrom && dateTo),
   });
 
-  const rows = attendanceQ.data?.rows ?? [];
+  const rolesQ = useEventRoles(eventId || null);
+  const roleOptions = useMemo(
+    () =>
+      (rolesQ.data?.roles ?? []).map((r) => ({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+      })),
+    [rolesQ.data?.roles],
+  );
+
+  const rawRows = attendanceQ.data?.rows ?? [];
+  const rawPreviousRows = previousQ.data?.rows ?? [];
+  // Wait for event roles before applying label fallback matching (eventRoleId still works earlier).
+  const roleFilterReady = !roleId || rolesQ.isSuccess;
+  const rows = useMemo(
+    () =>
+      roleFilterReady
+        ? filterEventAttendanceRowsByRole(rawRows, roleId || null, roleOptions)
+        : rawRows,
+    [rawRows, roleId, roleOptions, roleFilterReady],
+  );
+  const previousRows = useMemo(
+    () =>
+      roleFilterReady
+        ? filterEventAttendanceRowsByRole(rawPreviousRows, roleId || null, roleOptions)
+        : rawPreviousRows,
+    [rawPreviousRows, roleId, roleOptions, roleFilterReady],
+  );
   const allEvents = eventsQ.data?.events ?? [];
   const eventSites = useMemo(
     () => eventSiteOptionsFromEvents(allEvents, eventId || null),
@@ -199,24 +230,33 @@ export default function PeopleEventAttendancePage() {
     const isFirst = prev === undefined;
     if (!eventId) {
       prevEventIdRef.current = eventId;
+      setRoleId("");
       return;
     }
     const ev = listed.find((e) => e.id === eventId);
     if (!ev) return;
     prevEventIdRef.current = eventId;
+    // Role options are event-scoped — clear when the event changes.
+    if (!isFirst) setRoleId("");
     if (isFirst && urlHadRange) return;
     const next = rangeForSelectedEvent(ev, initialRange, EVENT_WORKFORCE_DEMO_MAX_DAYS);
     setDateFrom(next.from);
     setDateTo(next.to);
   }, [eventId, eventsQ.isSuccess, eventsQ.data?.events, urlHadRange, initialRange]);
 
+  useEffect(() => {
+    if (!roleId || !rolesQ.isSuccess) return;
+    if (roleOptions.some((r) => r.id === roleId)) return;
+    setRoleId("");
+  }, [roleId, roleOptions, rolesQ.isSuccess]);
+
   const kpis = useMemo(
     () =>
       buildEventAttendancePageKpis({
         rows,
-        previousRows: previousQ.data?.rows ?? [],
+        previousRows,
       }),
-    [rows, previousQ.data?.rows],
+    [rows, previousRows],
   );
 
   const statusCounts = useMemo(() => buildEventAttendanceStatusCounts(rows), [rows]);
@@ -332,7 +372,7 @@ export default function PeopleEventAttendancePage() {
           />
 
           <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <div className="min-w-0">
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t("peopleEvent.filters.event")}
@@ -399,39 +439,60 @@ export default function PeopleEventAttendancePage() {
 
               <div className="min-w-0">
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.role")}
+                </label>
+                <div className="relative">
+                  <Briefcase
+                    className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Select
+                    value={roleId || "all"}
+                    onValueChange={(v) => {
+                      setRoleId(v === "all" ? "" : v);
+                      setSelected(new Set());
+                    }}
+                    disabled={!eventId}
+                  >
+                    <SelectTrigger className="h-10 rounded-xl ps-9">
+                      <SelectValue
+                        placeholder={
+                          eventId
+                            ? t("peopleEvent.filters.allRoles")
+                            : t("peopleEvent.filters.rolePickEvent")
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t("peopleEvent.filters.allRoles")}</SelectItem>
+                      {roleOptions.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="min-w-0 sm:col-span-2 xl:col-span-1">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t("peopleEvent.filters.dateRange")}
                 </label>
-                <div
-                  className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-xl border border-input bg-white px-2.5 py-1 shadow-sm"
-                  title={rangeLabel}
-                >
-                  <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    max={dateTo || undefined}
-                    onChange={(e) => {
-                      setDateFrom(e.target.value);
-                      setSelected(new Set());
-                    }}
-                    className="h-8 w-[9.25rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-                    aria-label={t("peopleEvent.filters.from")}
-                  />
-                  <span className="text-muted-foreground" aria-hidden>
-                    –
-                  </span>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    min={dateFrom || undefined}
-                    onChange={(e) => {
-                      setDateTo(e.target.value);
-                      setSelected(new Set());
-                    }}
-                    className="h-8 w-[9.25rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-                    aria-label={t("peopleEvent.filters.to")}
-                  />
-                </div>
+                <PeopleEventDateRangeControl
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onDateFrom={(v) => {
+                    setDateFrom(v);
+                    setSelected(new Set());
+                  }}
+                  onDateTo={(v) => {
+                    setDateTo(v);
+                    setSelected(new Set());
+                  }}
+                  fromId="event-attendance-date-from"
+                  toId="event-attendance-date-to"
+                />
               </div>
 
               <div className="min-w-0">

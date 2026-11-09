@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -52,6 +53,7 @@ export function PeopleEventFilters({
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
+  const showDates = Boolean(onDateFrom && onDateTo);
 
   return (
     <div className="grid min-w-0 grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
@@ -93,25 +95,16 @@ export function PeopleEventFilters({
           </Select>
         </div>
       ) : null}
-      {onDateFrom ? (
-        <div className="min-w-0">
-          <Label htmlFor="people-event-from">{t("peopleEvent.filters.from")}</Label>
-          <Input
-            id="people-event-from"
-            type="date"
-            value={dateFrom ?? ""}
-            onChange={(e) => onDateFrom(e.target.value)}
-          />
-        </div>
-      ) : null}
-      {onDateTo ? (
-        <div className="min-w-0">
-          <Label htmlFor="people-event-to">{t("peopleEvent.filters.to")}</Label>
-          <Input
-            id="people-event-to"
-            type="date"
-            value={dateTo ?? ""}
-            onChange={(e) => onDateTo(e.target.value)}
+      {showDates ? (
+        <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+          <Label>{t("peopleEvent.filters.dateRange")}</Label>
+          <PeopleEventDateRangeControl
+            dateFrom={dateFrom ?? ""}
+            dateTo={dateTo ?? ""}
+            onDateFrom={onDateFrom!}
+            onDateTo={onDateTo!}
+            fromId="people-event-from"
+            toId="people-event-to"
           />
         </div>
       ) : null}
