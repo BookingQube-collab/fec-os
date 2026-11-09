@@ -77,10 +77,10 @@ const TABS: readonly TabDef[] = [
   },
   {
     id: "reports",
-    href: "/events/reports",
+    href: "/people/event-reports",
     labelKey: "peopleEvent.tabs.reports",
     icon: FileBarChart,
-    capabilities: ["events.view"],
+    capabilities: ["attendance.view"],
   },
   {
     id: "payroll",

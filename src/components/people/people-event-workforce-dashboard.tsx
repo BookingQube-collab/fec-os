@@ -310,7 +310,7 @@ export function PeopleEventWorkforceDashboard({
     },
     {
       id: "report",
-      href: peopleEventHref("/people/event-attendance", selectedEventId),
+      href: peopleEventHref("/people/event-reports", selectedEventId),
       titleKey: "peopleEvent.dashboard.actionAttendanceReport",
       subtitleKey: "peopleEvent.dashboard.actionAttendanceReportHint",
       icon: FileBarChart2,
