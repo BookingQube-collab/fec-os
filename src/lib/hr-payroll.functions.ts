@@ -531,10 +531,22 @@ export const generatePayrollLines = createAuthenticatedAction(
         assignRes.error &&
         /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(assignRes.error.message)
       ) {
-        assignRes = await supabaseAdmin
+        // Schema-cache fallback when role-rate columns are not visible yet.
+        // Pad nulls so the result matches the full select shape used downstream.
+        const fallbackRes = await supabaseAdmin
           .from("event_staff_assignments")
           .select("staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run")
           .eq("event_id", eventId);
+        assignRes = {
+          ...fallbackRes,
+          data:
+            fallbackRes.data?.map((row) => ({
+              ...row,
+              event_role_id: null,
+              hours_per_day: null,
+              day_rate_qar: null,
+            })) ?? null,
+        } as typeof assignRes;
       }
       if (assignRes.error && !/event_staff_assignments|schema cache/i.test(assignRes.error.message)) {
         throw assignRes.error;
