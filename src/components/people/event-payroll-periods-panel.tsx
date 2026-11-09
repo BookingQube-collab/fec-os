@@ -93,16 +93,24 @@ export function EventPayrollPeriodsPanel({
   isLoading,
   canCreate,
   createBusy,
+  createDisabled,
   onCreate,
   onExportCsv,
+  setupHref,
+  hasEvent,
   locale = "en",
 }: {
   rows: EventPayrollPeriodRow[];
   isLoading?: boolean;
   canCreate?: boolean;
   createBusy?: boolean;
+  /** True when Create should stay visible but inactive (e.g. no shared eventId). */
+  createDisabled?: boolean;
   onCreate?: () => void;
   onExportCsv?: () => void;
+  /** Deep link to Event pay (setup) for the selected event. */
+  setupHref?: string | null;
+  hasEvent?: boolean;
   locale?: string;
 }) {
   const { t } = useTranslation();
@@ -165,7 +173,8 @@ export function EventPayrollPeriodsPanel({
             <Button
               size="sm"
               variant="outline"
-              disabled={createBusy}
+              disabled={createBusy || createDisabled}
+              title={createDisabled ? t("peopleEvent.payroll.needEvent") : undefined}
               onClick={onCreate}
               className="h-10 rounded-xl border-border/80 bg-white"
             >
@@ -194,8 +203,50 @@ export function EventPayrollPeriodsPanel({
             ))}
           </div>
         ) : total === 0 ? (
-          <div className="p-8">
-            <HrEmptyState message={t("peopleEvent.payroll.empty")} icon={CalendarDays} />
+          <div className="space-y-5 p-8">
+            <HrEmptyState
+              message={t("peopleEvent.payroll.empty")}
+              hint={
+                hasEvent
+                  ? t("peopleEvent.payroll.emptyHintWithEvent")
+                  : t("peopleEvent.payroll.emptyHintNoEvent")
+              }
+              icon={CalendarDays}
+            />
+            <div className="mx-auto max-w-lg rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground/90">
+                {t("peopleEvent.payroll.howToTitle")}
+              </p>
+              <ol className="mt-2 list-decimal space-y-1.5 ps-4">
+                <li>{t("peopleEvent.payroll.howToStep1")}</li>
+                <li>{t("peopleEvent.payroll.howToStep2")}</li>
+                <li>{t("peopleEvent.payroll.howToStep3")}</li>
+                <li>{t("peopleEvent.payroll.howToStep4")}</li>
+              </ol>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {canCreate ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={createBusy || createDisabled}
+                    title={createDisabled ? t("peopleEvent.payroll.needEvent") : undefined}
+                    onClick={onCreate}
+                    className="h-9 rounded-xl"
+                  >
+                    <Plus className="me-1.5 h-3.5 w-3.5" aria-hidden />
+                    {t("peopleEvent.payroll.createPeriod")}
+                  </Button>
+                ) : null}
+                {setupHref ? (
+                  <Button asChild size="sm" className="h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]">
+                    <Link href={setupHref}>
+                      <Settings2 className="me-1.5 h-3.5 w-3.5" aria-hidden />
+                      {t("peopleEvent.links.openEventPay")}
+                    </Link>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : (
           <table className="w-full min-w-[64rem] border-collapse text-sm">

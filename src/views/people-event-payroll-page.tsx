@@ -217,6 +217,7 @@ export default function PeopleEventPayrollPage() {
           : created.reused
             ? t("events.payroll.toasts.exists")
             : t("events.payroll.toasts.created"),
+        { description: t("peopleEvent.payroll.nextGenerate") },
       );
     } catch (e) {
       toast.error((e as Error).message);
@@ -452,6 +453,9 @@ export default function PeopleEventPayrollPage() {
             isLoading={periodsQ.isLoading}
             canCreate={canGenerate}
             createBusy={busy}
+            createDisabled={!eventId}
+            hasEvent={Boolean(eventId)}
+            setupHref={setupHref}
             onCreate={() => void createPeriod()}
             onExportCsv={exportCsv}
             locale={locale}
