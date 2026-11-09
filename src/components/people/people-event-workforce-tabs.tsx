@@ -6,6 +6,7 @@ import {
   Banknote,
   CalendarClock,
   CalendarDays,
+  FileBarChart,
   FolderKanban,
   LayoutDashboard,
   Settings2,
@@ -24,6 +25,7 @@ export type PeopleEventWorkforceTabId =
   | "roles"
   | "shifts"
   | "attendance"
+  | "reports"
   | "payroll";
 
 type TabDef = {
@@ -69,6 +71,13 @@ const TABS: readonly TabDef[] = [
     labelKey: "peopleEvent.tabs.attendance",
     icon: CalendarDays,
     capabilities: ["attendance.view"],
+  },
+  {
+    id: "reports",
+    href: "/events/reports",
+    labelKey: "peopleEvent.tabs.reports",
+    icon: FileBarChart,
+    capabilities: ["events.view"],
   },
   {
     id: "payroll",

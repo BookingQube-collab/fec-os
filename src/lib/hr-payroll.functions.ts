@@ -56,14 +56,19 @@ import {
 } from "@/lib/attendance-hr/payroll";
 import { withPayrollScheduleContext } from "@/lib/attendance-hr/payroll-schedule-context.server";
 import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
+import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
 import {
   collectEventPaidDays,
   excludeEventPaidDaysFromMonthly,
   payrollExportMonthLabel,
-  staffIdsForEventPayRun,
+  staffIdsForEventPayRunByTrack,
   sumLabourDayPayUnitsForStaff,
 } from "@/lib/events/event-payroll";
+import {
+  resolveLabourDayRateQar,
+  resolveLabourHoursPerDay,
+} from "@/lib/events/event-roles";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import {
   lateDeductPolicyFromSection,
@@ -198,6 +203,38 @@ export const listPayrollPeriods = createAuthenticatedAction(
     if (error && tableMissing(error.message)) return [];
     if (error) throw error;
     return (rows ?? []).map((r) => mapPeriod(r as Record<string, unknown>));
+  },
+  { auth: { capability: "payroll.view" } },
+);
+
+/** Lightweight line aggregates for Event Payroll hub KPIs / table (additive). */
+export const listPayrollPeriodLineStats = createAuthenticatedAction(
+  z.object({
+    periodIds: z.array(z.string().uuid()).max(64),
+  }),
+  async (data, context) => {
+    requireCap(context, "payroll.view");
+    if (!data.periodIds.length) return [] as Array<{
+      periodId: string;
+      staffId: string;
+      netQar: number;
+      workingHours: number | null;
+    }>;
+    const { data: rows, error } = await context.supabase
+      .from("hr_payroll_lines")
+      .select("period_id, staff_id, net_qar, working_hours")
+      .in("period_id", data.periodIds);
+    if (error && tableMissing(error.message)) return [];
+    if (error) throw error;
+    return (rows ?? []).map((r) => ({
+      periodId: String((r as { period_id: string }).period_id),
+      staffId: String((r as { staff_id: string }).staff_id),
+      netQar: Number((r as { net_qar: number | null }).net_qar) || 0,
+      workingHours:
+        (r as { working_hours: number | null }).working_hours == null
+          ? null
+          : Number((r as { working_hours: number | null }).working_hours),
+    }));
   },
   { auth: { capability: "payroll.view" } },
 );
@@ -479,23 +516,111 @@ export const generatePayrollLines = createAuthenticatedAction(
     const lateDeductPolicy = await readLateDeductPolicy(context);
 
     let eventStaffIds: string[] | null = null;
+    const eventLabourByStaff = new Map<
+      string,
+      { hoursPerDay: number; dayRateQar: number | null }
+    >();
     if (isEventPeriod && eventId) {
-      const { data: assignments, error: assignErr } = await supabaseAdmin
+      let assignRes = await supabaseAdmin
         .from("event_staff_assignments")
-        .select("staff_id, assignment_type, date_from, date_to, pay_on_event_run")
+        .select(
+          "staff_id, assignment_type, role_label, event_role_id, hours_per_day, day_rate_qar, date_from, date_to, pay_on_event_run",
+        )
         .eq("event_id", eventId);
-      if (assignErr && !/event_staff_assignments|schema cache/i.test(assignErr.message)) throw assignErr;
-      eventStaffIds = staffIdsForEventPayRun(
-        (assignments ?? []).map((a) => ({
-          staff_id: a.staff_id as string,
-          assignment_type: String(a.assignment_type),
-          date_from: String(a.date_from).slice(0, 10),
-          date_to: String(a.date_to).slice(0, 10),
-          pay_on_event_run: Boolean(a.pay_on_event_run),
-        })),
+      if (
+        assignRes.error &&
+        /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(assignRes.error.message)
+      ) {
+        assignRes = await supabaseAdmin
+          .from("event_staff_assignments")
+          .select("staff_id, assignment_type, role_label, date_from, date_to, pay_on_event_run")
+          .eq("event_id", eventId);
+      }
+      if (assignRes.error && !/event_staff_assignments|schema cache/i.test(assignRes.error.message)) {
+        throw assignRes.error;
+      }
+      const assignments = assignRes.data ?? [];
+
+      const { data: eventRoleRows } = await supabaseAdmin
+        .from("event_roles")
+        .select("id, kind, default_hours_per_day, default_day_rate_qar")
+        .eq("event_id", eventId);
+      const roleById = new Map(
+        (eventRoleRows ?? []).map((r) => [
+          r.id as string,
+          {
+            kind: String(r.kind ?? "shift"),
+            default_hours_per_day: Number(r.default_hours_per_day) || 10,
+            default_day_rate_qar:
+              r.default_day_rate_qar == null ? null : Number(r.default_day_rate_qar),
+          },
+        ]),
+      );
+
+      const assignmentStaffIds = [
+        ...new Set(assignments.map((a) => a.staff_id as string).filter(Boolean)),
+      ];
+      const { data: hoLoc } = await context.supabase
+        .from("locations")
+        .select("id")
+        .eq("code", HEAD_OFFICE_LOCATION_CODE)
+        .maybeSingle();
+      const headOfficeLocationId = (hoLoc?.id as string | undefined) ?? null;
+      const { data: assignmentStaffMeta } = assignmentStaffIds.length
+        ? await context.supabase
+            .from("staff")
+            .select("id, job_title, location_id")
+            .in("id", assignmentStaffIds)
+        : { data: [] as Array<{ id: string; job_title: string | null; location_id: string | null }> };
+      const staffMetaById = new Map(
+        (assignmentStaffMeta ?? []).map((s) => [
+          s.id as string,
+          {
+            job_title: (s.job_title as string | null) ?? null,
+            is_head_office: Boolean(
+              headOfficeLocationId && (s.location_id as string | null) === headOfficeLocationId,
+            ),
+          },
+        ]),
+      );
+
+      const trackSplit = staffIdsForEventPayRunByTrack(
+        assignments.map((a) => {
+          const meta = staffMetaById.get(a.staff_id as string);
+          const roleId = (a as { event_role_id?: string | null }).event_role_id ?? null;
+          const role = roleId ? roleById.get(roleId) : null;
+          return {
+            staff_id: a.staff_id as string,
+            assignment_type: String(a.assignment_type),
+            date_from: String(a.date_from).slice(0, 10),
+            date_to: String(a.date_to).slice(0, 10),
+            pay_on_event_run: Boolean(a.pay_on_event_run),
+            role_label: (a.role_label as string | null) ?? null,
+            role_kind: role?.kind ?? null,
+            job_title: meta?.job_title ?? null,
+            is_head_office: meta?.is_head_office ?? false,
+          };
+        }),
         dateFrom,
         dateTo,
       );
+      eventStaffIds = trackSplit.all;
+      for (const a of assignments) {
+        const staffId = a.staff_id as string;
+        if (!trackSplit.labour.includes(staffId)) continue;
+        const roleId = (a as { event_role_id?: string | null }).event_role_id ?? null;
+        const role = roleId ? roleById.get(roleId) : null;
+        eventLabourByStaff.set(staffId, {
+          hoursPerDay: resolveLabourHoursPerDay({
+            hours_per_day: (a as { hours_per_day?: number | null }).hours_per_day ?? null,
+            role_default_hours_per_day: role?.default_hours_per_day ?? null,
+          }),
+          dayRateQar: resolveLabourDayRateQar({
+            day_rate_qar: (a as { day_rate_qar?: number | null }).day_rate_qar ?? null,
+            role_default_day_rate_qar: role?.default_day_rate_qar ?? null,
+          }),
+        });
+      }
       if (!eventStaffIds.length) {
         return {
           inserted: 0,
@@ -772,12 +897,17 @@ export const generatePayrollLines = createAuthenticatedAction(
       }
       const exitDate = ext?.last_working_date ?? ext?.releasing_date ?? null;
       const employmentCategory = ext?.employment_category ?? s.employment_type;
-      const { dailyPay, dayRateQar } = resolveDailyRatePayroll({
+      const labourMeta = isEventPeriod ? eventLabourByStaff.get(s.id) : undefined;
+      const resolved = resolveDailyRatePayroll({
         employmentType: s.employment_type,
         employmentCategory,
         monthlySalaryQar: monthlyStored,
-        dailyRateQar: dailyStored,
+        dailyRateQar:
+          labourMeta?.dayRateQar != null ? labourMeta.dayRateQar : dailyStored,
       });
+      const dailyPay = labourMeta != null ? true : resolved.dailyPay;
+      const dayRateQar =
+        labourMeta?.dayRateQar != null ? labourMeta.dayRateQar : resolved.dayRateQar;
       const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? {
         absent: 0,
         unpaidLeave: 0,
@@ -800,11 +930,11 @@ export const generatePayrollLines = createAuthenticatedAction(
       const lateDates = listPayrollLateWorkedDates(dayInputs, s.id, paidBounds);
       // Late deduct from HR payroll policy (default: each late → half day).
       const lateUnits = sumPaidUnitsWithLatePolicy(paidDates, lateDates, lateDeductPolicy);
-      // Event pay + day-rate / joker labour: (hours_worked / 10) × day rate (can exceed 1.0/day).
-      // Monthly periods keep whole-day + late units. Crew/Management on monthly salary unchanged.
+      // Labour roles: (hours_worked / hours_in_day) × day charge. Staff track: paid day units + late.
+      // Management is already excluded from the event staff set.
       const workedDays =
-        isEventPeriod && dailyPay
-          ? sumLabourDayPayUnitsForStaff(dayInputs, s.id, paidBounds)
+        labourMeta != null
+          ? sumLabourDayPayUnitsForStaff(dayInputs, s.id, paidBounds, labourMeta.hoursPerDay)
           : lateUnits.units;
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;

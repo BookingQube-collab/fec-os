@@ -5,6 +5,33 @@
     "theme": "studied-DNA",
     "theme_axes": "light / grotesk-sans / cool",
     "enrichment": "none",
+    "brief": "Event Payroll (/people/event-payroll) pixel-faithful to attached purple mockup — 5 KPIs, filters, periods table, Reports+Payroll tabs",
+    "scope": "page"
+  },
+  {
+    "date": "2026-11-09",
+    "macrostructure": "Stat-Led",
+    "theme": "studied-DNA",
+    "theme_axes": "light / grotesk-sans / cool",
+    "enrichment": "none",
+    "brief": "Event Attendance records (/people/event-attendance) pixel-faithful to attached purple mockup — 6 KPIs, donut+trend, Modify Punch table",
+    "scope": "page"
+  },
+  {
+    "date": "2026-11-09",
+    "macrostructure": "Stat-Led",
+    "theme": "studied-DNA",
+    "theme_axes": "light / grotesk-sans / cool",
+    "enrichment": "none",
+    "brief": "Event Roles (/people/event-roles) pixel-faithful to attached purple mockup — KPI strip, filters, shift/labour columns, add-role panel",
+    "scope": "page"
+  },
+  {
+    "date": "2026-11-09",
+    "macrostructure": "Stat-Led",
+    "theme": "studied-DNA",
+    "theme_axes": "light / grotesk-sans / cool",
+    "enrichment": "none",
     "brief": "Event Crew (/people/event-crew) pixel-faithful to attached purple mockup — KPI strip, filters, assignments table/cards",
     "scope": "page"
   },

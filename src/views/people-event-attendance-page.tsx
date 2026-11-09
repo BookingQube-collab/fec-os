@@ -1,43 +1,80 @@
 "use client";
 
+/* Hallmark · redesign · Event Attendance records · mockup-faithful
+ * macrostructure: Stat-Led workbench · theme: studied-DNA (mockup purple #7c3aed)
+ * design-system: FEC People/HR · designed-as-app · sibling: Overview / Crew
+ * previous: HrSection + AttendanceKpiStrip + AttendanceRecordsTable
+ * this: 6 KPIs · status donut + trend · records table with Modify Punch toolbar
+ */
+
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarClock, Download, ExternalLink } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarDays,
+  Download,
+  ExternalLink,
+  MapPin,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { AttendanceKpiStrip } from "@/components/people/attendance-kpi-strip";
-import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
+import { EventAttendanceKpiStrip } from "@/components/people/event-attendance-kpi-strip";
+import { EventAttendanceRecordsPanel } from "@/components/people/event-attendance-records-panel";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
-import { PeopleEventFilters } from "@/components/people/people-event-filters";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
+import { buildAttendanceCsv } from "@/lib/attendance-display";
 import {
-  buildAttendanceCsv,
-  computeAttendanceKpis,
-  type AttendanceListingSource,
-} from "@/lib/attendance-display";
-import {
-  isEventMissedPunchRow,
+  buildEventAttendancePageKpis,
+  buildEventAttendanceStatusCounts,
+  buildEventAttendanceTrendForRange,
   mayModifyEventMissedPunch,
-  toEventAttendanceListingSource,
+  previousEqualRange,
   toEventAttendanceSummaryRow,
 } from "@/lib/people-event-attendance-display";
+import { defaultOverviewRange, formatRangeLabel } from "@/lib/people-event-attendance-overview";
 import {
   listPeopleEventAttendance,
   listPeopleEventOptions,
-  type PeopleEventAttendanceRow,
 } from "@/lib/people-event-workforce.functions";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { downloadCsvContent } from "@/lib/staff-import";
+import { cn } from "@/lib/utils";
+
+const EventAttendanceCharts = dynamic(
+  () =>
+    import("@/components/people/event-attendance-charts").then((m) => m.EventAttendanceCharts),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-72 rounded-2xl" />
+        <Skeleton className="h-72 rounded-2xl" />
+      </div>
+    ),
+  },
+);
 
 function uuidOrEmpty(v: string | null): string {
   return v && /^[0-9a-f-]{36}$/i.test(v) ? v : "";
@@ -48,7 +85,7 @@ function ymdOrEmpty(v: string | null): string {
 }
 
 export default function PeopleEventAttendancePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const searchParams = useSearchParams();
   const { data: sites } = useSites();
   const { profile } = useAuth();
@@ -58,11 +95,21 @@ export default function PeopleEventAttendancePage() {
     jobTitle: profile?.job_title,
   });
 
+  const initialRange = useMemo(() => defaultOverviewRange(), []);
   const [eventId, setEventId] = useState(() => uuidOrEmpty(searchParams.get("eventId")));
   const [locationId, setLocationId] = useState(() => uuidOrEmpty(searchParams.get("locationId")));
-  const [dateFrom, setDateFrom] = useState(() => ymdOrEmpty(searchParams.get("from")));
-  const [dateTo, setDateTo] = useState(() => ymdOrEmpty(searchParams.get("to")));
+  const [dateFrom, setDateFrom] = useState(
+    () => ymdOrEmpty(searchParams.get("from")) || initialRange.from,
+  );
+  const [dateTo, setDateTo] = useState(
+    () => ymdOrEmpty(searchParams.get("to")) || initialRange.to,
+  );
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
+  const rangeLabel = formatRangeLabel(dateFrom, dateTo, locale);
+  const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
 
   const eventsQ = useQuery({
     queryKey: [...queryKeys.people.all, "event-options", locationId || null],
@@ -74,6 +121,7 @@ export default function PeopleEventAttendancePage() {
     queryKey: [
       ...queryKeys.people.all,
       "event-attendance",
+      "records",
       eventId || null,
       locationId || null,
       dateFrom || null,
@@ -87,62 +135,77 @@ export default function PeopleEventAttendancePage() {
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
         search: search.trim() || null,
+        limit: 2000,
       }),
     staleTime: STALE.people,
+  });
+
+  const previousQ = useQuery({
+    queryKey: [
+      ...queryKeys.people.all,
+      "event-attendance",
+      "records-prev",
+      eventId || null,
+      locationId || null,
+      prevRange.from,
+      prevRange.to,
+    ],
+    queryFn: () =>
+      listPeopleEventAttendance({
+        eventId: eventId || null,
+        locationId: locationId || null,
+        dateFrom: prevRange.from,
+        dateTo: prevRange.to,
+        limit: 2000,
+      }),
+    staleTime: STALE.people,
+    enabled: Boolean(dateFrom && dateTo),
   });
 
   const rows = attendanceQ.data?.rows ?? [];
   const events = eventsQ.data?.events ?? [];
 
-  const rowById = useMemo(() => {
-    const map = new Map<string, PeopleEventAttendanceRow>();
-    for (const row of rows) map.set(row.id, row);
-    return map;
-  }, [rows]);
-
-  const listingRows = useMemo(() => rows.map(toEventAttendanceListingSource), [rows]);
-  const summaryRows = useMemo(() => rows.map(toEventAttendanceSummaryRow), [rows]);
-  const kpis = useMemo(() => computeAttendanceKpis(summaryRows), [summaryRows]);
-  const openMissedCount = useMemo(
-    () => rows.filter(isEventMissedPunchRow).length,
-    [rows],
+  const kpis = useMemo(
+    () =>
+      buildEventAttendancePageKpis({
+        rows,
+        previousRows: previousQ.data?.rows ?? [],
+      }),
+    [rows, previousQ.data?.rows],
   );
 
-  const exportCsv = () => {
-    const csv = buildAttendanceCsv(summaryRows);
-    downloadCsvContent(csv, `event-attendance-${dateFrom || "all"}-${dateTo || "all"}.csv`);
-  };
+  const statusCounts = useMemo(() => buildEventAttendanceStatusCounts(rows), [rows]);
+  const trend = useMemo(
+    () => buildEventAttendanceTrendForRange(rows, dateFrom, dateTo, locale),
+    [rows, dateFrom, dateTo, locale],
+  );
 
-  const renderActions = (listing: AttendanceListingSource) => {
-    const source = listing.id ? rowById.get(listing.id) : undefined;
-    if (!source) return null;
-    const missed = isEventMissedPunchRow(source);
-    if (!missed) {
-      return (
-        <Button asChild size="sm" variant="ghost">
-          <Link href={`/people/event-shifts?eventId=${encodeURIComponent(source.eventId)}`}>
-            {t("peopleEvent.links.openShifts")}
-          </Link>
-        </Button>
-      );
-    }
-    if (canModifyMissed) {
-      return (
-        <Button asChild size="sm" variant="secondary">
-          <Link href={`/events/${source.eventId}/corrections#mp-${source.id}`}>
-            {t("peopleEvent.attendance.modifyMissed")}
-          </Link>
-        </Button>
-      );
-    }
-    return (
-      <Button asChild size="sm" variant="ghost">
-        <Link href={`/events/${source.eventId}/corrections#mp-${source.id}`}>
-          {t("peopleEvent.attendance.viewMissed")}
-        </Link>
-      </Button>
+  const exportCsv = (onlySelected = false) => {
+    const source = onlySelected ? rows.filter((r) => selected.has(r.id)) : rows;
+    if (!source.length) return;
+    const csv = buildAttendanceCsv(source.map(toEventAttendanceSummaryRow));
+    downloadCsvContent(
+      csv,
+      `event-attendance-${dateFrom || "all"}-${dateTo || "all"}.csv`,
     );
   };
+
+  function toggleAll(on: boolean) {
+    setSelected(on ? new Set(rows.map((r) => r.id)) : new Set());
+  }
+
+  function toggleOne(id: string, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  const shiftsHref = eventId
+    ? `/people/event-shifts?eventId=${encodeURIComponent(eventId)}`
+    : "/people/event-shifts";
 
   return (
     <CapabilityGate
@@ -156,78 +219,223 @@ export default function PeopleEventAttendancePage() {
       }
     >
       <HrShell>
-        <HrSection
-          icon={CalendarClock}
-          kicker={t("peopleEvent.kicker")}
-          title={t("peopleEvent.attendance.title")}
-          subtitle={t("peopleEvent.attendance.subtitle")}
-          actions={
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!rows.length}
-                onClick={() => exportCsv()}
-              >
-                <Download className="me-1.5 h-3.5 w-3.5" />
-                {t("peopleEvent.bulk.exportCsv")}
-              </Button>
-              {eventId ? (
-                <Button asChild size="sm" variant="secondary">
-                  <Link href={`/people/event-shifts?eventId=${encodeURIComponent(eventId)}`}>
-                    <ExternalLink className="me-1.5 h-3.5 w-3.5" />
+        <div className="ea-event-attendance space-y-5">
+          <header className="relative overflow-hidden rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.55]"
+              aria-hidden
+              style={{
+                background:
+                  "radial-gradient(ellipse 80% 60% at 100% 0%, rgba(124,58,237,0.12), transparent 55%), radial-gradient(ellipse 50% 40% at 0% 100%, rgba(167,139,250,0.10), transparent 50%)",
+              }}
+            />
+            <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="mt-0.5 grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-violet-100 text-[#7c3aed]">
+                  <CalendarClock className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    <Link
+                      href="/people/events"
+                      className="hover:text-[#7c3aed] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]/40"
+                    >
+                      {t("peopleEvent.kicker")}
+                    </Link>
+                    <span aria-hidden> › </span>
+                    <span>{t("peopleEvent.attendance.title")}</span>
+                  </p>
+                  <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-foreground sm:text-[1.75rem]">
+                    {t("peopleEvent.attendance.title")}
+                  </h1>
+                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                    {t("peopleEvent.attendance.subtitle")}
+                  </p>
+                </div>
+              </div>
+
+              <div className="relative flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!rows.length}
+                  onClick={() => exportCsv(false)}
+                  className="h-10 rounded-xl border-border/80 bg-white"
+                >
+                  <Download className="me-1.5 h-3.5 w-3.5" aria-hidden />
+                  {t("peopleEvent.bulk.exportCsv")}
+                </Button>
+                <Button
+                  asChild
+                  size="sm"
+                  className="h-10 rounded-xl bg-[#7c3aed] px-4 text-white hover:bg-[#6d28d9] focus-visible:ring-[#7c3aed]/40"
+                >
+                  <Link href={shiftsHref}>
+                    <ExternalLink className="me-1.5 h-3.5 w-3.5" aria-hidden />
                     {t("peopleEvent.links.openShifts")}
                   </Link>
                 </Button>
-              ) : null}
+              </div>
             </div>
-          }
-        >
-          <PeopleEventWorkforceTabs active="attendance" variant="pills" />
-          <HrPanel delay={0}>
-            <PeopleEventFilters
-              events={events}
-              sites={sites ?? []}
-              eventId={eventId}
-              locationId={locationId}
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              search={search}
-              onEventId={setEventId}
-              onLocationId={setLocationId}
-              onDateFrom={setDateFrom}
-              onDateTo={setDateTo}
-              onSearch={setSearch}
-            />
-          </HrPanel>
+          </header>
 
-          <HrPanel delay={1}>
-            <div className="space-y-4 p-2 sm:p-4">
-              <AttendanceKpiStrip
-                kpis={kpis}
-                openExceptionsCount={openMissedCount}
-                isLoading={attendanceQ.isLoading}
-              />
-              <p className="text-xs text-muted-foreground">
-                {canModifyMissed
-                  ? t("peopleEvent.attendance.hooModifyHint")
-                  : t("peopleEvent.attendance.viewOnlyMissedHint")}
-              </p>
-              {attendanceQ.isLoading ? (
-                <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                  {t("common.loading")}
+          <PeopleEventWorkforceTabs active="attendance" variant="pills" />
+
+          <EventAttendanceKpiStrip
+            kpis={kpis}
+            isLoading={attendanceQ.isLoading}
+          />
+
+          <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.event")}
+                </label>
+                <div className="relative">
+                  <CalendarDays
+                    className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Select
+                    value={eventId || "all"}
+                    onValueChange={(v) => {
+                      setEventId(v === "all" ? "" : v);
+                      setSelected(new Set());
+                    }}
+                  >
+                    <SelectTrigger className="h-10 rounded-xl ps-9">
+                      <SelectValue placeholder={t("peopleEvent.filters.allEvents")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t("peopleEvent.filters.allEvents")}</SelectItem>
+                      {events.map((ev) => (
+                        <SelectItem key={ev.id} value={ev.id}>
+                          {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
+                          {ev.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              ) : (
-                <AttendanceRecordsTable
-                  rows={listingRows}
-                  empty={<HrEmptyState message={t("peopleEvent.attendance.empty")} icon={CalendarClock} />}
-                  rowActions={renderActions}
-                  actionsHeader={t("common.actions")}
-                />
-              )}
+              </div>
+
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.siteBranch")}
+                </label>
+                <div className="relative">
+                  <MapPin
+                    className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Select
+                    value={locationId || "all"}
+                    onValueChange={(v) => {
+                      setLocationId(v === "all" ? "" : v);
+                      setSelected(new Set());
+                    }}
+                  >
+                    <SelectTrigger className="h-10 rounded-xl ps-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t("common.allBranches")}</SelectItem>
+                      {(sites ?? []).map((site) => (
+                        <SelectItem key={site.id} value={site.id}>
+                          {formatLocationLabel(site.code, site.name)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.dateRange")}
+                </label>
+                <div
+                  className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-xl border border-input bg-white px-2.5 py-1 shadow-sm"
+                  title={rangeLabel}
+                >
+                  <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    max={dateTo || undefined}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      setSelected(new Set());
+                    }}
+                    className="h-8 w-[9.25rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
+                    aria-label={t("peopleEvent.filters.from")}
+                  />
+                  <span className="text-muted-foreground" aria-hidden>
+                    –
+                  </span>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={(e) => {
+                      setDateTo(e.target.value);
+                      setSelected(new Set());
+                    }}
+                    className="h-8 w-[9.25rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
+                    aria-label={t("peopleEvent.filters.to")}
+                  />
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.search")}
+                </label>
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Input
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setSelected(new Set());
+                    }}
+                    placeholder={t("peopleEvent.filters.searchPlaceholder")}
+                    className={cn("h-10 rounded-xl ps-9 pe-9")}
+                  />
+                  <SlidersHorizontal
+                    className="pointer-events-none absolute end-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                </div>
+              </div>
             </div>
-          </HrPanel>
-        </HrSection>
+          </section>
+
+          <EventAttendanceCharts
+            status={{
+              complete: statusCounts.complete,
+              late: statusCounts.late,
+              missing: statusCounts.missing,
+              total: statusCounts.total,
+            }}
+            attendanceTrend={trend}
+            avgAttendancePct={kpis.avgAttendancePct}
+          />
+
+          <EventAttendanceRecordsPanel
+            rows={rows}
+            isLoading={attendanceQ.isLoading}
+            canModifyMissed={canModifyMissed}
+            selected={selected}
+            onToggleAll={toggleAll}
+            onToggleOne={toggleOne}
+            onExportSelected={() => exportCsv(true)}
+          />
+        </div>
       </HrShell>
     </CapabilityGate>
   );

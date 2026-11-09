@@ -1,8 +1,28 @@
-/* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V4 — redesign-in-place, People HR tokens */
+/* Hallmark · redesign · Event Roles panel · mockup-faithful
+ * theme: studied-DNA (mockup purple #7c3aed · sibling Crew / Overview)
+ * pre-emit critique: P4 H5 E5 S4 R5 V4
+ */
 "use client";
 
-import { Clock3, Pencil, Plus, Trash2, Wallet } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  Brush,
+  CalendarDays,
+  HardHat,
+  Pencil,
+  Plus,
+  Settings2,
+  Trash2,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -60,6 +80,10 @@ type DeleteUsage = {
   inUse: boolean;
 };
 
+export type EventRolesPanelHandle = {
+  focusAddRole: () => void;
+};
+
 function toDraft(role: EventRoleRow | EventRoleDraft): RoleDraftState {
   return {
     id: "id" in role ? role.id : undefined,
@@ -85,23 +109,43 @@ function toEditDraft(row: RoleDraftState): EditDraft {
   };
 }
 
-export function EventRolesPanel({
-  eventId,
-  roles,
-  canEdit,
-  onChanged,
-  onDraftChange,
-  className,
-}: {
-  eventId?: string | null;
-  roles: Array<EventRoleRow | EventRoleDraft>;
-  canEdit: boolean;
-  onChanged?: () => void;
-  /** Create-flow: emit active drafts whenever local selection changes. */
-  onDraftChange?: (drafts: EventRoleDraft[]) => void;
-  className?: string;
-}) {
+function roleIconFor(code: string, kind: EventRoleKind): LucideIcon {
+  const key = code.toLowerCase();
+  if (key.includes("clean")) return Brush;
+  if (key.includes("mainten") || key.includes("tech")) return Settings2;
+  if (key.includes("labour") || key.includes("labor") || kind === "labour") return HardHat;
+  return Users;
+}
+
+export const EventRolesPanel = forwardRef<
+  EventRolesPanelHandle,
+  {
+    eventId?: string | null;
+    roles: Array<EventRoleRow | EventRoleDraft>;
+    canEdit: boolean;
+    onChanged?: () => void;
+    /** Create-flow: emit active drafts whenever local selection changes. */
+    onDraftChange?: (drafts: EventRoleDraft[]) => void;
+    className?: string;
+    /** `page` = People Event Roles mockup chrome; `embedded` = event builder. */
+    layout?: "page" | "embedded";
+  }
+>(function EventRolesPanel(
+  {
+    eventId,
+    roles,
+    canEdit,
+    onChanged,
+    onDraftChange,
+    className,
+    layout = "embedded",
+  },
+  ref,
+) {
   const { t } = useTranslation();
+  const isPage = layout === "page";
+  const addNameRef = useRef<HTMLInputElement>(null);
+  const addSectionRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [local, setLocal] = useState<RoleDraftState[]>(() =>
     (roles.length ? roles : DEFAULT_EVENT_ROLE_CATALOG).map(toDraft),
@@ -113,6 +157,13 @@ export function EventRolesPanel({
   const [pendingDelete, setPendingDelete] = useState<RoleDraftState | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<DeleteUsage | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
+
+  useImperativeHandle(ref, () => ({
+    focusAddRole: () => {
+      addSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => addNameRef.current?.focus(), 250);
+    },
+  }));
 
   useEffect(() => {
     if (!roles.length) return;
@@ -200,6 +251,32 @@ export function EventRolesPanel({
     const cat = DEFAULT_EVENT_ROLE_CATALOG.find((c) => c.code === code);
     if (!cat) return;
     pushLocal([...local, { ...toDraft(cat), is_active: true }]);
+  }
+
+  function selectAllKind(kind: EventRoleKind, on: boolean) {
+    if (!canEdit || busy) return;
+    const catalog = kind === "shift" ? catalogByKind.shift : catalogByKind.labour;
+    let next = [...local];
+    for (const cat of catalog) {
+      const idx = next.findIndex((r) => r.code === cat.code);
+      if (idx >= 0) {
+        next[idx] = { ...next[idx], is_active: on };
+      } else if (on) {
+        next.push({ ...toDraft(cat), is_active: true });
+      }
+    }
+    pushLocal(next);
+  }
+
+  function kindSelectAllState(kind: EventRoleKind): boolean | "indeterminate" {
+    const catalog = kind === "shift" ? catalogByKind.shift : catalogByKind.labour;
+    const selected = catalog.filter((cat) => {
+      const row = local.find((r) => r.code === cat.code);
+      return Boolean(row && row.is_active !== false);
+    }).length;
+    if (selected === 0) return false;
+    if (selected === catalog.length) return true;
+    return "indeterminate";
   }
 
   async function addCustom() {
@@ -368,11 +445,11 @@ export function EventRolesPanel({
   function renderEditForm() {
     if (!editDraft) return null;
     return (
-      <div className="mt-3 grid gap-3 rounded-xl border border-border/25 bg-muted/20 p-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-3 grid gap-3 rounded-xl border border-[#7c3aed]/20 bg-violet-50/40 p-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="space-y-1 text-xs text-muted-foreground">
           {t("common.name")}
           <Input
-            className="h-9"
+            className="h-9 rounded-xl"
             value={editDraft.name}
             disabled={busy}
             onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
@@ -385,7 +462,7 @@ export function EventRolesPanel({
             onValueChange={(v) => setEditDraft({ ...editDraft, kind: v as EventRoleKind })}
             disabled={busy}
           >
-            <SelectTrigger className="h-9">
+            <SelectTrigger className="h-9 rounded-xl">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -403,7 +480,7 @@ export function EventRolesPanel({
                 min={1}
                 max={24}
                 step={0.5}
-                className="h-9"
+                className="h-9 rounded-xl"
                 disabled={busy}
                 value={editDraft.default_hours_per_day}
                 onChange={(e) =>
@@ -420,7 +497,7 @@ export function EventRolesPanel({
                 type="number"
                 min={0}
                 step={1}
-                className="h-9"
+                className="h-9 rounded-xl"
                 disabled={busy}
                 placeholder={t("events.roles.dayRateOptional")}
                 value={editDraft.default_day_rate_qar ?? ""}
@@ -441,7 +518,7 @@ export function EventRolesPanel({
               type="number"
               min={0}
               step={1}
-              className="h-9 w-full max-w-[8rem]"
+              className="h-9 w-full max-w-[8rem] rounded-xl"
               disabled={busy}
               value={editDraft.sort_order}
               onChange={(e) =>
@@ -460,7 +537,7 @@ export function EventRolesPanel({
               type="number"
               min={0}
               step={1}
-              className="h-9"
+              className="h-9 rounded-xl"
               disabled={busy}
               value={editDraft.sort_order}
               onChange={(e) =>
@@ -489,6 +566,7 @@ export function EventRolesPanel({
               size="sm"
               disabled={busy || !editDraft.name.trim()}
               onClick={() => void saveEdit()}
+              className="rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
             >
               {t("common.save")}
             </Button>
@@ -510,58 +588,62 @@ export function EventRolesPanel({
     const isEditing = editingCode === row.code && Boolean(editDraft);
     const kind = isEditing && editDraft ? editDraft.kind : row.kind;
     const isLabour = kind === "labour";
+    const Icon = roleIconFor(row.code, kind);
 
     return (
       <div
         key={row.code}
         className={cn(
-          "rounded-xl border px-3 py-2.5 transition-colors",
+          "rounded-2xl border px-3.5 py-3 transition-colors",
           selected
-            ? "border-border/40 bg-card"
-            : "border-transparent bg-muted/15 opacity-80",
-          isEditing && "border-primary/35 bg-card",
+            ? "border-black/5 bg-white shadow-[0_2px_12px_rgba(124,58,237,0.05)]"
+            : "border-transparent bg-muted/20 opacity-75",
+          isEditing && "border-[#7c3aed]/35 bg-white",
         )}
       >
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-start gap-3">
           {catalog ? (
             <Checkbox
               checked={selected}
               disabled={!canEdit || busy || isEditing}
               onCheckedChange={(v) => toggleCatalog(row.code, Boolean(v))}
               aria-label={row.name}
+              className="mt-1 data-[state=checked]:border-[#7c3aed] data-[state=checked]:bg-[#7c3aed]"
             />
           ) : (
             <span
-              className={cn(
-                "inline-flex h-4 w-4 shrink-0 rounded-full",
-                isLabour ? "bg-primary/50" : "bg-foreground/35",
-              )}
+              className="mt-1 inline-flex h-4 w-4 shrink-0 rounded-sm border border-[#7c3aed] bg-[#7c3aed]"
               aria-hidden
             />
           )}
 
+          <span
+            className={cn(
+              "mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl",
+              isLabour ? "bg-orange-100 text-orange-700" : "bg-violet-100 text-[#7c3aed]",
+            )}
+          >
+            <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+          </span>
+
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-foreground">{row.name}</span>
+              <span className="text-sm font-semibold text-foreground">{row.name}</span>
               <Badge
                 variant="outline"
                 className={cn(
-                  "gap-1 text-[10px] font-medium",
-                  isLabour
-                    ? "border-primary/35 text-primary"
-                    : "border-border/50 text-muted-foreground",
+                  "rounded-full border-0 px-2 py-0.5 text-[10px] font-semibold",
+                  isLabour ? "bg-orange-50 text-orange-700" : "bg-muted text-muted-foreground",
                 )}
               >
-                {isLabour ? (
-                  <Wallet className="h-3 w-3" aria-hidden />
-                ) : (
-                  <Clock3 className="h-3 w-3" aria-hidden />
-                )}
                 {t(`events.roles.kinds.${kind}`)}
               </Badge>
             </div>
-            {selected && isLabour && !isEditing ? (
-              <p className="mt-0.5 text-xs text-muted-foreground">
+            {selected && !isLabour && !isEditing ? (
+              <p className="mt-1 text-xs text-muted-foreground">{t("events.roles.shiftHint")}</p>
+            ) : null}
+            {selected && isLabour && !isEditing && !canEdit ? (
+              <p className="mt-1 text-xs text-muted-foreground">
                 {row.default_day_rate_qar == null
                   ? t("events.roles.metaHours", { hours: row.default_hours_per_day })
                   : `${t("events.roles.metaHours", { hours: row.default_hours_per_day })} · ${t(
@@ -569,9 +651,6 @@ export function EventRolesPanel({
                       { rate: row.default_day_rate_qar },
                     )}`}
               </p>
-            ) : null}
-            {selected && !isLabour && !isEditing ? (
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("events.roles.shiftHint")}</p>
             ) : null}
           </div>
 
@@ -581,7 +660,7 @@ export function EventRolesPanel({
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-8 w-8"
+                className="h-8 w-8 text-muted-foreground hover:text-[#7c3aed]"
                 disabled={busy}
                 aria-label={t("common.edit")}
                 onClick={() => (isEditing ? cancelEdit() : startEdit(row))}
@@ -604,15 +683,15 @@ export function EventRolesPanel({
         </div>
 
         {selected && isLabour && !isEditing && canEdit ? (
-          <div className="mt-2 flex flex-wrap gap-2 border-t border-border/20 pt-2 ps-7">
-            <label className="space-y-1 text-[11px] text-muted-foreground">
+          <div className="mt-3 grid gap-2 border-t border-border/20 pt-3 ps-0 sm:grid-cols-2 sm:ps-12">
+            <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
               {t("events.roles.hoursPerDay")}
               <Input
                 type="number"
                 min={1}
                 max={24}
                 step={0.5}
-                className="h-8 w-24"
+                className="h-9 rounded-xl"
                 disabled={busy}
                 value={row.default_hours_per_day}
                 onChange={(e) =>
@@ -620,13 +699,13 @@ export function EventRolesPanel({
                 }
               />
             </label>
-            <label className="space-y-1 text-[11px] text-muted-foreground">
+            <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
               {t("events.roles.dayRate")}
               <Input
                 type="number"
                 min={0}
                 step={1}
-                className="h-8 w-28"
+                className="h-9 rounded-xl"
                 disabled={busy}
                 placeholder={t("events.roles.dayRateOptional")}
                 value={row.default_day_rate_qar ?? ""}
@@ -649,31 +728,67 @@ export function EventRolesPanel({
   function renderKindSection(kind: EventRoleKind) {
     const catalog = kind === "shift" ? catalogByKind.shift : catalogByKind.labour;
     const customs = kind === "shift" ? customShift : customLabour;
-    const Icon = kind === "labour" ? Wallet : Clock3;
     const count = kind === "shift" ? shiftActiveCount : labourActiveCount;
+    const SectionIcon = kind === "labour" ? HardHat : CalendarDays;
+    const selectAll = kindSelectAllState(kind);
 
     return (
       <section
         key={kind}
-        className="space-y-2"
+        className={cn(
+          "space-y-3 rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5",
+        )}
         aria-labelledby={`event-roles-${kind}-heading`}
       >
-        <div className="flex items-center gap-2 px-0.5">
-          <Icon
-            className={cn("h-4 w-4", kind === "labour" ? "text-primary" : "text-muted-foreground")}
-            aria-hidden
-          />
-          <h3
-            id={`event-roles-${kind}-heading`}
-            className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-          >
-            {t(`events.roles.sections.${kind}`)}
-          </h3>
-          <span className="text-[11px] tabular-nums text-muted-foreground/80">
-            {t("events.roles.sectionCount", { count })}
-          </span>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <SectionIcon
+                className={cn(
+                  "h-4 w-4",
+                  kind === "labour" ? "text-orange-600" : "text-[#7c3aed]",
+                )}
+                aria-hidden
+              />
+              <h3
+                id={`event-roles-${kind}-heading`}
+                className="text-sm font-semibold text-foreground"
+              >
+                {t(`events.roles.sections.${kind}`)} ({count})
+              </h3>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {kind === "shift"
+                ? t("events.roles.shiftSectionHint")
+                : t("events.roles.labourSectionHint")}
+            </p>
+          </div>
+
+          {kind === "shift" && canEdit ? (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={selectAll}
+                disabled={busy}
+                onCheckedChange={(v) => selectAllKind("shift", Boolean(v))}
+                className="data-[state=checked]:border-[#7c3aed] data-[state=checked]:bg-[#7c3aed] data-[state=indeterminate]:border-[#7c3aed] data-[state=indeterminate]:bg-[#7c3aed]"
+              />
+              {t("events.roles.selectAll")}
+            </label>
+          ) : null}
+
+          {kind === "labour" ? (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-[#7c3aed]">
+                {t("events.roles.summary.shift", { count: shiftActiveCount })}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground">
+                {t("events.roles.summary.labour", { count: labourActiveCount })}
+              </span>
+            </div>
+          ) : null}
         </div>
-        <div className="space-y-1.5">
+
+        <div className="space-y-2.5">
           {catalog.map((cat) => {
             const row = local.find((r) => r.code === cat.code);
             const selected = Boolean(row && row.is_active !== false);
@@ -692,38 +807,55 @@ export function EventRolesPanel({
 
   return (
     <section className={cn("space-y-4", className)}>
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h2 className="text-sm font-semibold text-foreground">{t("events.roles.title")}</h2>
-          <p className="max-w-2xl text-xs text-muted-foreground">{t("events.roles.hint")}</p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-1 text-[11px] text-muted-foreground">
-            <Clock3 className="h-3 w-3" aria-hidden />
-            {t("events.roles.summary.shift", { count: shiftActiveCount })}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] text-foreground">
-            <Wallet className="h-3 w-3" aria-hidden />
-            {t("events.roles.summary.labour", { count: labourActiveCount })}
-          </span>
-        </div>
-      </header>
+      {!isPage ? (
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <h2 className="text-sm font-semibold text-foreground">{t("events.roles.title")}</h2>
+            <p className="max-w-2xl text-xs text-muted-foreground">{t("events.roles.hint")}</p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted/30 px-2.5 py-1 text-[11px] text-muted-foreground">
+              <CalendarDays className="h-3 w-3" aria-hidden />
+              {t("events.roles.summary.shift", { count: shiftActiveCount })}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#7c3aed]/30 bg-violet-50 px-2.5 py-1 text-[11px] text-foreground">
+              <HardHat className="h-3 w-3" aria-hidden />
+              {t("events.roles.summary.labour", { count: labourActiveCount })}
+            </span>
+          </div>
+        </header>
+      ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         {renderKindSection("shift")}
         {renderKindSection("labour")}
       </div>
 
       {canEdit ? (
-        <div className="rounded-xl border border-dashed border-border/50 bg-muted/10 p-3">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div
+          ref={addSectionRef}
+          className={cn(
+            "rounded-2xl border p-4 sm:p-5",
+            isPage
+              ? "border-[#7c3aed]/20 bg-violet-50/60 shadow-[0_4px_20px_rgba(124,58,237,0.06)]"
+              : "border-dashed border-border/50 bg-muted/10",
+          )}
+        >
+          <p
+            className={cn(
+              "mb-3 text-sm font-semibold",
+              isPage ? "text-[#7c3aed]" : "text-muted-foreground",
+            )}
+          >
+            <Plus className="me-1 inline h-4 w-4 align-[-2px]" aria-hidden />
             {t("events.roles.addSection")}
           </p>
           <div className="flex flex-wrap items-end gap-2">
-            <label className="min-w-[12rem] flex-1 space-y-1 text-xs text-muted-foreground">
+            <label className="min-w-[12rem] flex-1 space-y-1 text-xs font-medium text-muted-foreground">
               {t("events.roles.customName")}
               <Input
-                className="h-9"
+                ref={addNameRef}
+                className="h-10 rounded-xl bg-white"
                 placeholder={t("events.roles.customNamePlaceholder")}
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
@@ -735,13 +867,13 @@ export function EventRolesPanel({
                 }}
               />
             </label>
-            <label className="w-36 space-y-1 text-xs text-muted-foreground">
+            <label className="w-36 space-y-1 text-xs font-medium text-muted-foreground">
               {t("events.roles.kindLabel")}
               <Select
                 value={customKind}
                 onValueChange={(v) => setCustomKind(v as EventRoleKind)}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-10 rounded-xl bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -752,8 +884,8 @@ export function EventRolesPanel({
             </label>
             <Button
               size="sm"
-              variant="outline"
-              className="h-9 gap-1.5"
+              variant="ghost"
+              className="h-10 gap-1.5 rounded-xl text-[#7c3aed] hover:bg-violet-100 hover:text-[#6d28d9]"
               disabled={busy || !customName.trim()}
               onClick={() => void addCustom()}
             >
@@ -763,7 +895,7 @@ export function EventRolesPanel({
             {eventId ? (
               <Button
                 size="sm"
-                className="h-9"
+                className="ms-auto h-10 rounded-xl bg-[#7c3aed] px-5 text-white hover:bg-[#6d28d9]"
                 disabled={busy || active.length === 0}
                 onClick={() => void saveAll()}
               >
@@ -771,7 +903,7 @@ export function EventRolesPanel({
               </Button>
             ) : null}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">{t("events.roles.labourHint")}</p>
+          <p className="mt-3 text-xs text-muted-foreground">{t("events.roles.labourHint")}</p>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">{t("events.roles.labourHint")}</p>
@@ -823,4 +955,6 @@ export function EventRolesPanel({
       </AlertDialog>
     </section>
   );
-}
+});
+
+EventRolesPanel.displayName = "EventRolesPanel";
