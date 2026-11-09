@@ -8,7 +8,7 @@
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Json } from "@/integrations/supabase/types";
+import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import {
   assertDemoDeleteConfirmation,
   buildDemoStaffPool,
@@ -102,7 +102,7 @@ async function ensureDemoStaffPool(locationId: string, userId: string): Promise<
   );
 
   const resolved: Array<DemoStaffSpec & { id: string }> = [];
-  const toInsert: Array<Record<string, unknown>> = [];
+  const toInsert: TablesInsert<"staff">[] = [];
 
   for (const spec of pool) {
     const found = byCode.get(spec.code);
@@ -450,7 +450,8 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
     }
 
     // Shifts for each day in From–To.
-    const slotRows: Array<Record<string, unknown>> = [];
+    type SlotInsert = TablesInsert<"event_schedule_slots">;
+    const slotRows: SlotInsert[] = [];
     staff.forEach((s, staffIndex) => {
       const times = demoShiftTimesForRole(s.roleCode);
       for (const workDate of days) {
@@ -481,7 +482,7 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
         res.error &&
         /event_role_id|hours_per_day|day_rate_qar|schema cache/i.test(res.error.message)
       ) {
-        const legacy = chunk.map(
+        const legacy: SlotInsert[] = chunk.map(
           ({ event_role_id: _r, hours_per_day: _h, day_rate_qar: _d, ...rest }) => rest,
         );
         res = await context.supabase.from("event_schedule_slots").insert(legacy);
@@ -501,8 +502,10 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
     // Attendance punches + daily summaries tagged with event_id only (not monthly roster).
     let punches = 0;
     let attendanceDays = 0;
-    const punchRows: Array<Record<string, unknown>> = [];
-    const summaryRows: Array<Record<string, unknown>> = [];
+    type PunchInsert = TablesInsert<"attendance_logs">;
+    type SummaryInsert = TablesInsert<"attendance_daily_summary">;
+    const punchRows: PunchInsert[] = [];
+    const summaryRows: SummaryInsert[] = [];
 
     staff.forEach((s, staffIndex) => {
       const times = demoShiftTimesForRole(s.roleCode);
@@ -588,9 +591,9 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
       const chunk = punchRows.slice(i, i + 100);
       const { error } = await supabaseAdmin.from("attendance_logs").insert(chunk);
       if (error) {
-        // Types may lag event_id column — retry without event_id then update.
+        // Runtime schema may lag event_id column — retry without event_id.
         if (/event_id|schema cache/i.test(error.message)) {
-          const stripped = chunk.map(({ event_id: _e, ...rest }) => rest);
+          const stripped: PunchInsert[] = chunk.map(({ event_id: _e, ...rest }) => rest);
           const { error: e2 } = await supabaseAdmin.from("attendance_logs").insert(stripped);
           if (e2) throw e2;
         } else {

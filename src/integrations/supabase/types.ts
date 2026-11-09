@@ -3904,6 +3904,7 @@ export type Database = {
           created_at: string
           device_id: string | null
           device_user_name: string | null
+          event_id: string | null
           excluded_from_calc: boolean
           id: string
           import_id: string | null
@@ -3928,6 +3929,7 @@ export type Database = {
           created_at?: string
           device_id?: string | null
           device_user_name?: string | null
+          event_id?: string | null
           excluded_from_calc?: boolean
           id?: string
           import_id?: string | null
@@ -3952,6 +3954,7 @@ export type Database = {
           created_at?: string
           device_id?: string | null
           device_user_name?: string | null
+          event_id?: string | null
           excluded_from_calc?: boolean
           id?: string
           import_id?: string | null
@@ -3982,6 +3985,13 @@ export type Database = {
             columns: ["device_id"]
             isOneToOne: false
             referencedRelation: "attendance_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_logs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
