@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -176,35 +177,17 @@ export function PeopleEventWorkforceDemoTools({
           </div>
 
           <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-white px-2.5 py-1.5 shadow-sm">
-              <label className="sr-only" htmlFor="demo-date-from">
-                {t("peopleEvent.filters.from")}
-              </label>
-              <Input
-                id="demo-date-from"
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                disabled={busy}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-8 w-[9.5rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-              />
-              <span className="text-muted-foreground" aria-hidden>
-                –
-              </span>
-              <label className="sr-only" htmlFor="demo-date-to">
-                {t("peopleEvent.filters.to")}
-              </label>
-              <Input
-                id="demo-date-to"
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                disabled={busy}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-8 w-[9.5rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-              />
-            </div>
+            <PeopleEventDateRangeControl
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onDateFrom={setDateFrom}
+              onDateTo={setDateTo}
+              fromId="demo-date-from"
+              toId="demo-date-to"
+              disabled={busy}
+              showIcon={false}
+              className="w-full min-w-[16rem] border-border/70 sm:w-auto sm:min-w-[18rem]"
+            />
 
             <Button
               type="button"

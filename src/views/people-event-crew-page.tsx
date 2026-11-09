@@ -72,7 +72,6 @@ import {
   assignmentOverlapsRange,
   buildCrewKpis,
   defaultCrewRange,
-  formatCrewDateRange,
 } from "@/lib/people-event-crew-display";
 import {
   eventSiteOptionsFromEvents,
@@ -96,7 +95,7 @@ function todayYmd(): string {
 }
 
 export default function PeopleEventCrewPage() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const canEdit = usePermission("events.edit");
@@ -128,8 +127,6 @@ export default function PeopleEventCrewPage() {
   const [individualOpen, setIndividualOpen] = useState(false);
   const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
 
-  const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
-  const rangeLabel = formatCrewDateRange(dateFrom, dateTo, locale);
   const today = useMemo(() => todayYmd(), []);
 
   const eventsQ = useQuery({
@@ -689,7 +686,6 @@ export default function PeopleEventCrewPage() {
           dateTo={dateTo}
           onDateFrom={setDateFrom}
           onDateTo={setDateTo}
-          rangeLabel={rangeLabel}
         />
       </div>
 

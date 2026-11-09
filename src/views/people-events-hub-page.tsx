@@ -15,11 +15,11 @@ import { useTranslation } from "react-i18next";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { PeopleEventWorkforceDashboard } from "@/components/people/people-event-workforce-dashboard";
 import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -30,17 +30,14 @@ import {
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { canActorPerform } from "@/lib/arcade/access";
 import { mayManageEventWorkforceDemo } from "@/lib/events/event-workforce-demo";
-import {
-  defaultOverviewRange,
-  formatRangeLabel,
-} from "@/lib/people-event-attendance-overview";
+import { defaultOverviewRange } from "@/lib/people-event-attendance-overview";
 import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
 import type { Capability } from "@/lib/rbac";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
 export default function PeopleEventsHubPage() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const roles = useUserRoles();
   const { profile } = useAuth();
   const actorOpts = {
@@ -53,9 +50,6 @@ export default function PeopleEventsHubPage() {
   const [dateFrom, setDateFrom] = useState(initialRange.from);
   const [dateTo, setDateTo] = useState(initialRange.to);
   const [demoEventId, setDemoEventId] = useState("");
-
-  const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
-  const rangeLabel = formatRangeLabel(dateFrom, dateTo, locale);
 
   const can = (caps: readonly Capability[]) =>
     caps.some((cap) => canActorPerform(roles, cap, actorOpts));
@@ -109,37 +103,15 @@ export default function PeopleEventsHubPage() {
             </div>
 
             <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
-              <div
-                className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-white/90 px-2.5 py-1.5 shadow-sm"
-                title={rangeLabel}
-              >
-                <CalendarDays className="h-4 w-4 shrink-0 text-[#7c3aed]" aria-hidden />
-                <label className="sr-only" htmlFor="ea-date-from">
-                  {t("peopleEvent.filters.from")}
-                </label>
-                <Input
-                  id="ea-date-from"
-                  type="date"
-                  value={dateFrom}
-                  max={dateTo}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="h-8 w-[9.75rem] border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-                />
-                <span className="text-muted-foreground" aria-hidden>
-                  –
-                </span>
-                <label className="sr-only" htmlFor="ea-date-to">
-                  {t("peopleEvent.filters.to")}
-                </label>
-                <Input
-                  id="ea-date-to"
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="h-8 w-[9.75rem] border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-                />
-              </div>
+              <PeopleEventDateRangeControl
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onDateFrom={setDateFrom}
+                onDateTo={setDateTo}
+                fromId="ea-date-from"
+                toId="ea-date-to"
+                className="w-full min-w-[16rem] border-border/70 bg-white/90 sm:w-auto sm:min-w-[18rem]"
+              />
 
               {canOpenEventsSetup ? (
                 <Button

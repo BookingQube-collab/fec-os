@@ -19,10 +19,10 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import {
   FecDropdown as DropdownMenu,
   FecDropdownContent as DropdownMenuContent,
@@ -163,7 +163,6 @@ export function EventCrewAssignmentsPanel({
   dateTo,
   onDateFrom,
   onDateTo,
-  rangeLabel,
 }: {
   rows: PeopleEventCrewRow[];
   isLoading?: boolean;
@@ -175,7 +174,6 @@ export function EventCrewAssignmentsPanel({
   dateTo: string;
   onDateFrom: (v: string) => void;
   onDateTo: (v: string) => void;
-  rangeLabel: string;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
@@ -227,43 +225,21 @@ export function EventCrewAssignmentsPanel({
         </div>
 
         <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-white px-2.5 py-1.5 shadow-sm">
-            <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="hidden text-sm font-medium text-foreground md:inline">
-              {rangeLabel}
-            </span>
-            <label className="sr-only" htmlFor="crew-date-from">
-              {t("peopleEvent.filters.from")}
-            </label>
-            <Input
-              id="crew-date-from"
-              type="date"
-              value={dateFrom}
-              max={dateTo || undefined}
-              onChange={(e) => {
-                onDateFrom(e.target.value);
-                setPage(1);
-              }}
-              className="h-8 w-[9.5rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-            />
-            <span className="text-muted-foreground" aria-hidden>
-              –
-            </span>
-            <label className="sr-only" htmlFor="crew-date-to">
-              {t("peopleEvent.filters.to")}
-            </label>
-            <Input
-              id="crew-date-to"
-              type="date"
-              value={dateTo}
-              min={dateFrom || undefined}
-              onChange={(e) => {
-                onDateTo(e.target.value);
-                setPage(1);
-              }}
-              className="h-8 w-[9.5rem] border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-            />
-          </div>
+          <PeopleEventDateRangeControl
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFrom={(v) => {
+              onDateFrom(v);
+              setPage(1);
+            }}
+            onDateTo={(v) => {
+              onDateTo(v);
+              setPage(1);
+            }}
+            fromId="crew-date-from"
+            toId="crew-date-to"
+            className="w-full min-w-[16rem] border-border/70 sm:w-auto sm:min-w-[18rem]"
+          />
 
           <div
             className="inline-flex rounded-full border border-border/70 bg-muted/30 p-1"

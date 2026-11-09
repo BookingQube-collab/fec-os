@@ -35,6 +35,7 @@ import {
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -440,28 +441,15 @@ export default function PeopleEventPayrollPage() {
                   <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {t("peopleEvent.payroll.dateRange")}
                   </label>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-white px-2.5 py-1.5 shadow-sm">
-                    <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    <Input
-                      type="date"
-                      value={dateFrom}
-                      max={dateTo || undefined}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      aria-label={t("peopleEvent.filters.from")}
-                      className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-                    />
-                    <span className="text-muted-foreground" aria-hidden>
-                      —
-                    </span>
-                    <Input
-                      type="date"
-                      value={dateTo}
-                      min={dateFrom || undefined}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      aria-label={t("peopleEvent.filters.to")}
-                      className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-1 focus-visible:ring-[#7c3aed]/40"
-                    />
-                  </div>
+                  <PeopleEventDateRangeControl
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    onDateFrom={setDateFrom}
+                    onDateTo={setDateTo}
+                    fromId="event-payroll-date-from"
+                    toId="event-payroll-date-to"
+                    className="border-border/70"
+                  />
                 </div>
               </div>
 
