@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * HOO-only Seed Demo Data / Delete event workforce tools.
+ * HOO-only Seed / Delete / Reset & seed event workforce tools.
  * Includes From–To shift date range. Event-scoped only (not monthly roster).
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Database, Loader2, Trash2 } from "lucide-react";
+import { Database, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ import {
 } from "@/lib/events/event-workforce-demo";
 import {
   deleteEventWorkforceDemo,
+  resetAndSeedEventWorkforceDemo,
   seedEventWorkforceDemo,
 } from "@/lib/people-event-workforce-demo.functions";
 import { queryKeys } from "@/lib/query-keys";
@@ -86,6 +87,7 @@ export function PeopleEventWorkforceDemoTools({
   const setDateFrom = onDateFromChange ?? setInternalFrom;
   const setDateTo = onDateToChange ?? setInternalTo;
   const [seedOpen, setSeedOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [phrase, setPhrase] = useState("");
   const [wipeAll, setWipeAll] = useState(true);
@@ -103,9 +105,35 @@ export function PeopleEventWorkforceDemoTools({
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-attendance"] });
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-crew"] });
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-options"] });
+    void qc.invalidateQueries({
+      queryKey: queryKeys.people.hrPayrollPeriods({ periodKind: "event" }),
+    });
+    void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-payroll-line-stats"] });
     // Hub overview aggregates share these prefixes — ensure seeded data refreshes there too.
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all] });
     void qc.invalidateQueries({ queryKey: queryKeys.events.all });
+  };
+
+  const toastSeedSuccess = (result: {
+    days: number;
+    staffEnsured: number;
+    shifts: number;
+    attendanceDays: number;
+    payrollLines: number;
+    payrollHint: string | null;
+  }) => {
+    toast.success(
+      t("peopleEvent.demo.seedSuccess", {
+        days: result.days,
+        staff: result.staffEnsured,
+        shifts: result.shifts,
+        attendance: result.attendanceDays,
+        payroll: result.payrollLines,
+      }),
+    );
+    if (result.payrollHint) {
+      toast.message(result.payrollHint);
+    }
   };
 
   const seedMut = useMutation({
@@ -116,18 +144,28 @@ export function PeopleEventWorkforceDemoTools({
         dateTo,
       }),
     onSuccess: (result) => {
-      toast.success(
-        t("peopleEvent.demo.seedSuccess", {
-          days: result.days,
-          staff: result.staffEnsured,
-          shifts: result.shifts,
-          attendance: result.attendanceDays,
-        }),
-      );
+      toastSeedSuccess(result);
       setSeedOpen(false);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message || t("peopleEvent.demo.seedFailed")),
+  });
+
+  const resetMut = useMutation({
+    mutationFn: () =>
+      resetAndSeedEventWorkforceDemo({
+        eventId: eventId!,
+        dateFrom,
+        dateTo,
+        confirmation: phrase.trim(),
+      }),
+    onSuccess: (result) => {
+      toastSeedSuccess(result);
+      setResetOpen(false);
+      setPhrase("");
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message || t("peopleEvent.demo.resetFailed")),
   });
 
   const deleteMut = useMutation({
@@ -144,6 +182,7 @@ export function PeopleEventWorkforceDemoTools({
           shifts: result.shifts,
           assignments: result.assignments,
           roles: result.rolesRemoved,
+          payroll: result.payrollPeriods,
         }),
       );
       setDeleteOpen(false);
@@ -153,7 +192,7 @@ export function PeopleEventWorkforceDemoTools({
     onError: (e: Error) => toast.error(e.message || t("peopleEvent.demo.deleteFailed")),
   });
 
-  const busy = seedMut.isPending || deleteMut.isPending;
+  const busy = seedMut.isPending || deleteMut.isPending || resetMut.isPending;
 
   return (
     <>
@@ -191,6 +230,19 @@ export function PeopleEventWorkforceDemoTools({
               className="w-full border-border/70 sm:min-w-[18rem]"
             />
 
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canSeed || busy}
+              onClick={() => {
+                setPhrase("");
+                setResetOpen(true);
+              }}
+              className="h-10 rounded-xl bg-amber-700 px-4 text-white hover:bg-amber-800"
+            >
+              <RotateCcw className="me-1.5 h-3.5 w-3.5" aria-hidden />
+              {t("peopleEvent.demo.resetSeed")}
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -237,11 +289,14 @@ export function PeopleEventWorkforceDemoTools({
                     labour: EVENT_WORKFORCE_DEMO_COUNTS.labour,
                   })}
                 </p>
-                <p>{t("peopleEvent.demo.seedDialogRates", {
-                  labour: QATAR_EVENT_DEMO_DAY_RATES_QAR.labour,
-                  cleaner: QATAR_EVENT_DEMO_DAY_RATES_QAR.cleaner,
-                  maintenance: QATAR_EVENT_DEMO_DAY_RATES_QAR.maintenance,
-                })}</p>
+                <p>
+                  {t("peopleEvent.demo.seedDialogRates", {
+                    labour: QATAR_EVENT_DEMO_DAY_RATES_QAR.labour,
+                    cleaner: QATAR_EVENT_DEMO_DAY_RATES_QAR.cleaner,
+                    maintenance: QATAR_EVENT_DEMO_DAY_RATES_QAR.maintenance,
+                  })}
+                </p>
+                <p className="text-xs">{t("peopleEvent.demo.seedDialogPayroll")}</p>
                 <p className="text-xs">{t("peopleEvent.demo.rosterBoundary")}</p>
               </div>
             </AlertDialogDescription>
@@ -256,6 +311,68 @@ export function PeopleEventWorkforceDemoTools({
             >
               {seedMut.isPending ? <Loader2 className="animate-spin" /> : null}
               {t("peopleEvent.demo.seedConfirm")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={resetOpen}
+        onOpenChange={(o) => {
+          if (busy) return;
+          setResetOpen(o);
+          if (!o) setPhrase("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("peopleEvent.demo.resetDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {t("peopleEvent.demo.resetDialogBody", {
+                    from: dateFrom,
+                    to: dateTo,
+                  })}
+                </p>
+                <ul className="list-disc space-y-0.5 ps-4">
+                  <li>{t("peopleEvent.demo.deleteItemAttendance")}</li>
+                  <li>{t("peopleEvent.demo.deleteItemShifts")}</li>
+                  <li>{t("peopleEvent.demo.deleteItemAssignments")}</li>
+                  <li>{t("peopleEvent.demo.deleteItemRoles")}</li>
+                  <li>{t("peopleEvent.demo.deleteItemPayroll")}</li>
+                </ul>
+                <p className="text-xs">{t("peopleEvent.demo.seedDialogPayroll")}</p>
+                <p className="text-xs font-medium text-foreground">
+                  {t("peopleEvent.demo.deleteKeepsEvent")}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="demo-reset-confirm">
+              {t("peopleEvent.demo.typeLabel", { phrase: EVENT_WORKFORCE_DEMO_DELETE_CONFIRMATION })}
+            </Label>
+            <Input
+              id="demo-reset-confirm"
+              value={phrase}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
+              placeholder={EVENT_WORKFORCE_DEMO_DELETE_CONFIRMATION}
+              onChange={(e) => setPhrase(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t("common.cancel")}</AlertDialogCancel>
+            <Button
+              type="button"
+              disabled={!confirmed || busy || !canSeed}
+              className="bg-amber-700 text-white hover:bg-amber-800"
+              onClick={() => resetMut.mutate()}
+            >
+              {resetMut.isPending ? <Loader2 className="animate-spin" /> : null}
+              {t("peopleEvent.demo.resetConfirm")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -280,6 +397,7 @@ export function PeopleEventWorkforceDemoTools({
                   <li>{t("peopleEvent.demo.deleteItemShifts")}</li>
                   <li>{t("peopleEvent.demo.deleteItemAssignments")}</li>
                   <li>{t("peopleEvent.demo.deleteItemRoles")}</li>
+                  <li>{t("peopleEvent.demo.deleteItemPayroll")}</li>
                 </ul>
                 <p className="text-xs font-medium text-foreground">
                   {t("peopleEvent.demo.deleteKeepsEvent")}

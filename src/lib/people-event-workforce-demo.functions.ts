@@ -24,10 +24,16 @@ import {
   type DemoStaffSpec,
 } from "@/lib/events/event-workforce-demo";
 import {
+  eventPayrollBatchLabel,
+  eventPeriodMonthAnchor,
+} from "@/lib/events/event-payroll";
+import {
   deriveEventDayStatus,
   enumerateDatesInclusive,
   normalizeTimeHHMM,
 } from "@/lib/events/event-schedule";
+import { generatePayrollLines } from "@/lib/hr-payroll.functions";
+import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -227,33 +233,130 @@ async function ensureDemoRoles(
   return roleIdByCode;
 }
 
-async function deleteDemoScopedForEvent(
+async function deleteIdsInChunks(
+  table:
+    | "attendance_logs"
+    | "attendance_daily_summary"
+    | "event_schedule_slots"
+    | "event_staff_assignments"
+    | "event_roles"
+    | "hr_payroll_periods",
+  ids: string[],
+  client: "admin" | "user",
+  context: AuthContext,
+): Promise<number> {
+  let removed = 0;
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const db = client === "admin" ? supabaseAdmin : context.supabase;
+    const { error } = await db.from(table).delete().in("id", chunk);
+    if (error) throw error;
+    removed += chunk.length;
+  }
+  return removed;
+}
+
+/**
+ * Clear event payroll period(s) + cascaded hr_payroll_lines for one event.
+ * Force-deletes even advanced statuses so demo reset is not stuck on a QAR 0 shell.
+ * Does not touch monthly (period_kind=monthly) payroll.
+ */
+async function deleteEventPayrollForEvent(
   context: AuthContext,
   eventId: string,
-  locationId: string,
+): Promise<{ periodsRemoved: number; linesRemoved: number }> {
+  const { data: periods, error } = await supabaseAdmin
+    .from("hr_payroll_periods")
+    .select("id")
+    .eq("period_kind", "event")
+    .eq("event_id", eventId);
+  if (error) {
+    if (/period_kind|event_id|schema cache|does not exist/i.test(error.message)) {
+      return { periodsRemoved: 0, linesRemoved: 0 };
+    }
+    throw error;
+  }
+  const periodIds = (periods ?? []).map((p) => p.id as string);
+  if (!periodIds.length) return { periodsRemoved: 0, linesRemoved: 0 };
+
+  let linesRemoved = 0;
+  {
+    const { data: lines, error: lineErr } = await supabaseAdmin
+      .from("hr_payroll_lines")
+      .select("id")
+      .in("period_id", periodIds);
+    if (lineErr && !/hr_payroll_lines|schema cache|does not exist/i.test(lineErr.message)) {
+      throw lineErr;
+    }
+    linesRemoved = (lines ?? []).length;
+  }
+
+  for (const periodId of periodIds) {
+    // Release OT / air-ticket links before period delete (same as deletePayrollPeriod).
+    await supabaseAdmin
+      .from("hr_ot_claims")
+      .update({
+        status: "gm_approved",
+        payroll_posted_by: null,
+        payroll_posted_at: null,
+        payroll_period_id: null,
+      })
+      .eq("payroll_period_id", periodId)
+      .eq("status", "payroll_posted");
+    await supabaseAdmin
+      .from("hr_air_ticket_issues")
+      .update({
+        payroll_payment_status: "unpaid",
+        payroll_period_id: null,
+      })
+      .eq("payroll_period_id", periodId)
+      .in("payroll_payment_status", ["pending", "unpaid"]);
+  }
+
+  const periodsRemoved = await deleteIdsInChunks(
+    "hr_payroll_periods",
+    periodIds,
+    "admin",
+    context,
+  );
+  return { periodsRemoved, linesRemoved };
+}
+
+/**
+ * Full event-scoped workforce wipe for one event (selected via ?eventId=).
+ * Clears attendance, shifts, assignments, roles, and event payroll — never monthly roster.
+ */
+async function wipeEventWorkforceForEvent(
+  context: AuthContext,
+  eventId: string,
+  options?: { demoMarkedOnly?: boolean },
 ): Promise<{
   attendanceSummaries: number;
   attendanceLogs: number;
   shifts: number;
   assignments: number;
   rolesRemoved: number;
+  payrollPeriods: number;
+  payrollLines: number;
 }> {
-  // 1) Event-tagged attendance summaries (event-scoped — not monthly roster).
+  const demoOnly = options?.demoMarkedOnly === true;
+
+  // 1) Event-tagged attendance summaries.
   const { data: summaries, error: sumErr } = await supabaseAdmin
     .from("attendance_daily_summary")
     .select("id, hr_remarks")
     .eq("event_id", eventId);
   if (sumErr && !/event_id|schema cache/i.test(sumErr.message)) throw sumErr;
 
-  // Prefer demo-marked; if none marked, clear all event-tagged rows for this event only.
   const markedSummaryIds = (summaries ?? [])
     .filter((s) => notesIsDemo(s.hr_remarks as string | null))
     .map((s) => s.id as string);
-  const deleteSummaryIds = markedSummaryIds.length
-    ? markedSummaryIds
-    : (summaries ?? []).map((s) => s.id as string);
+  const deleteSummaryIds =
+    demoOnly && markedSummaryIds.length
+      ? markedSummaryIds
+      : (summaries ?? []).map((s) => s.id as string);
 
-  // 2) Event-tagged punches (source or raw_payload marker).
+  // 2) Event-tagged punches.
   let logCount = 0;
   {
     const { data: logs, error: logErr } = await supabaseAdmin
@@ -266,22 +369,20 @@ async function deleteDemoScopedForEvent(
       const raw = l.raw_payload as { note?: string } | null;
       return notesIsDemo(raw?.note);
     });
-    const ids = (demoLogs.length ? demoLogs : logs ?? []).map((l) => l.id as string);
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const { error } = await supabaseAdmin.from("attendance_logs").delete().in("id", chunk);
-      if (error) throw error;
-      logCount += chunk.length;
-    }
+    const ids = (
+      demoOnly && demoLogs.length ? demoLogs : logs ?? []
+    ).map((l) => l.id as string);
+    logCount = await deleteIdsInChunks("attendance_logs", ids, "admin", context);
   }
 
-  for (let i = 0; i < deleteSummaryIds.length; i += 200) {
-    const chunk = deleteSummaryIds.slice(i, i + 200);
-    const { error } = await supabaseAdmin.from("attendance_daily_summary").delete().in("id", chunk);
-    if (error) throw error;
-  }
+  const attendanceSummaries = await deleteIdsInChunks(
+    "attendance_daily_summary",
+    deleteSummaryIds,
+    "admin",
+    context,
+  );
 
-  // 3) Demo schedule slots (notes marker); fall back to all slots for event if unmarked.
+  // 3) Schedule slots — demo-marked first; otherwise all for this event.
   let shiftCount = 0;
   {
     const { data: slots, error } = await context.supabase
@@ -290,45 +391,33 @@ async function deleteDemoScopedForEvent(
       .eq("event_id", eventId);
     if (error) throw error;
     const marked = (slots ?? []).filter((s) => notesIsDemo(s.notes));
-    const ids = (marked.length ? marked : slots ?? []).map((s) => s.id as string);
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const { error: delErr } = await context.supabase
-        .from("event_schedule_slots")
-        .delete()
-        .in("id", chunk);
-      if (delErr) throw delErr;
-      shiftCount += chunk.length;
-    }
+    const ids = (
+      demoOnly && marked.length ? marked : slots ?? []
+    ).map((s) => s.id as string);
+    shiftCount = await deleteIdsInChunks("event_schedule_slots", ids, "user", context);
   }
 
-  // 4) Demo assignments.
+  // 4) Assignments — demo-marked first; fall back to all so Crew is empty after delete.
   let assignmentCount = 0;
-  const demoStaffIds = new Set<string>();
   {
     const { data: rows, error } = await context.supabase
       .from("event_staff_assignments")
-      .select("id, notes, staff_id")
+      .select("id, notes")
       .eq("event_id", eventId);
     if (error) throw error;
     const marked = (rows ?? []).filter((r) => notesIsDemo(r.notes));
-    const target = marked.length ? marked : [];
-    for (const r of target) {
-      if (r.staff_id) demoStaffIds.add(r.staff_id as string);
-    }
-    const ids = target.map((r) => r.id as string);
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const { error: delErr } = await context.supabase
-        .from("event_staff_assignments")
-        .delete()
-        .in("id", chunk);
-      if (delErr) throw delErr;
-      assignmentCount += chunk.length;
-    }
+    const ids = (
+      demoOnly && marked.length ? marked : rows ?? []
+    ).map((r) => r.id as string);
+    assignmentCount = await deleteIdsInChunks(
+      "event_staff_assignments",
+      ids,
+      "user",
+      context,
+    );
   }
 
-  // 5) Soft-remove demo-only roles that no longer have assignments (keep catalog defaults if still used).
+  // 5) Roles — hard-clear when full wipe (seed recreates catalog). Demo-only: drop unused roles.
   let rolesRemoved = 0;
   {
     const { data: roles, error } = await context.supabase
@@ -336,34 +425,241 @@ async function deleteDemoScopedForEvent(
       .select("id, code")
       .eq("event_id", eventId);
     if (error && !/event_roles|schema cache/i.test(error.message)) throw error;
-    const { data: remaining } = await context.supabase
-      .from("event_staff_assignments")
-      .select("event_role_id")
-      .eq("event_id", eventId);
-    const used = new Set(
-      (remaining ?? []).map((r) => r.event_role_id as string | null).filter(Boolean),
-    );
-    // Only delete cashier if we added it for demo and nothing else uses it; deactivate labour rate resets optional.
-    for (const role of roles ?? []) {
-      if (String(role.code).toLowerCase() !== "cashier") continue;
-      if (used.has(role.id as string)) continue;
-      const { error: delErr } = await context.supabase
-        .from("event_roles")
-        .delete()
-        .eq("id", role.id);
-      if (!delErr) rolesRemoved += 1;
+    if (!demoOnly) {
+      const ids = (roles ?? []).map((r) => r.id as string);
+      if (ids.length) {
+        rolesRemoved = await deleteIdsInChunks("event_roles", ids, "user", context);
+      }
+    } else {
+      const { data: remaining } = await context.supabase
+        .from("event_staff_assignments")
+        .select("event_role_id")
+        .eq("event_id", eventId);
+      const used = new Set(
+        (remaining ?? []).map((r) => r.event_role_id as string | null).filter(Boolean),
+      );
+      const catalogCodes = new Set(
+        EVENT_WORKFORCE_DEMO_ROLE_CATALOG.map((r) => r.code.toLowerCase()),
+      );
+      const ids = (roles ?? [])
+        .filter((r) => {
+          if (used.has(r.id as string)) return false;
+          return catalogCodes.has(String(r.code).toLowerCase());
+        })
+        .map((r) => r.id as string);
+      if (ids.length) {
+        rolesRemoved = await deleteIdsInChunks("event_roles", ids, "user", context);
+      }
     }
   }
 
-  void locationId;
-  void demoStaffIds;
+  // 6) Event payroll periods + lines (so Payroll is not stuck with empty QAR 0).
+  const payroll = await deleteEventPayrollForEvent(context, eventId);
+
   return {
-    attendanceSummaries: deleteSummaryIds.length,
+    attendanceSummaries,
     attendanceLogs: logCount,
     shifts: shiftCount,
     assignments: assignmentCount,
     rolesRemoved,
+    payrollPeriods: payroll.periodsRemoved,
+    payrollLines: payroll.linesRemoved,
   };
+}
+
+/**
+ * Create (or replace) an event pay period for the seed From–To window and generate lines.
+ * Uses payroll.generate when the caller has it; otherwise inserts demo day-rate lines via admin
+ * so Payroll is testable for HOO without that capability.
+ */
+async function ensureDemoEventPayroll(
+  context: AuthContext,
+  input: {
+    eventId: string;
+    eventName: string;
+    locationId: string;
+    dateFrom: string;
+    dateTo: string;
+  },
+): Promise<{
+  periodId: string | null;
+  payrollLines: number;
+  generatedVia: "payroll.generate" | "demo_day_rates" | "skipped";
+  hint: string | null;
+}> {
+  await deleteEventPayrollForEvent(context, input.eventId);
+
+  const label = eventPayrollBatchLabel(input.eventName);
+  const month = eventPeriodMonthAnchor(input.dateFrom);
+  const { data: period, error: periodErr } = await supabaseAdmin
+    .from("hr_payroll_periods")
+    .insert({
+      month,
+      date_from: input.dateFrom,
+      date_to: input.dateTo,
+      status: "draft",
+      currency: "QAR",
+      notes: `${EVENT_WORKFORCE_DEMO_MARKER} Demo event pay run ${input.dateFrom}→${input.dateTo}`,
+      created_by: context.userId,
+      period_kind: "event",
+      event_id: input.eventId,
+      display_name: label,
+      source: "event_generated",
+    })
+    .select("id")
+    .single();
+  if (periodErr) {
+    if (/period_kind|event_id|schema cache|does not exist/i.test(periodErr.message)) {
+      return {
+        periodId: null,
+        payrollLines: 0,
+        generatedVia: "skipped",
+        hint: "Event payroll tables missing — apply latest migrations, then Generate on Payroll.",
+      };
+    }
+    throw periodErr;
+  }
+  const periodId = period.id as string;
+
+  await writeEventAudit(context, {
+    action: "workforce_demo_payroll_period",
+    entityType: "hr_payroll_period",
+    eventId: input.eventId,
+    locationId: input.locationId,
+    after: { periodId, dateFrom: input.dateFrom, dateTo: input.dateTo },
+  });
+
+  if (canUserDo(context.roles ?? [], "payroll.generate")) {
+    try {
+      const gen = await generatePayrollLines({ periodId });
+      return {
+        periodId,
+        payrollLines: gen.inserted,
+        generatedVia: "payroll.generate",
+        hint:
+          gen.inserted > 0
+            ? null
+            : "Pay period created but Generate inserted 0 lines — check assignments / day rates on Payroll.",
+      };
+    } catch (e) {
+      // Fall through to demo day-rate lines so Payroll still shows amounts.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/Missing capability|Forbidden|payroll\.generate/i.test(msg)) {
+        // Non-auth failure: still try demo lines.
+      }
+    }
+  }
+
+  const lines = await insertDemoDayRatePayrollLines(context, {
+    periodId,
+    eventId: input.eventId,
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+  });
+  return {
+    periodId,
+    payrollLines: lines,
+    generatedVia: "demo_day_rates",
+    hint:
+      lines > 0
+        ? null
+        : "Pay period created with no lines — open Payroll and click Generate if you have payroll.generate.",
+  };
+}
+
+/** Lightweight day-rate × paid attendance days so HOO can test Payroll without payroll.generate. */
+async function insertDemoDayRatePayrollLines(
+  context: AuthContext,
+  input: { periodId: string; eventId: string; dateFrom: string; dateTo: string },
+): Promise<number> {
+  const { data: assigns, error: asgErr } = await supabaseAdmin
+    .from("event_staff_assignments")
+    .select("staff_id, day_rate_qar, pay_on_event_run, date_from, date_to")
+    .eq("event_id", input.eventId)
+    .eq("pay_on_event_run", true);
+  if (asgErr) throw asgErr;
+
+  const rateByStaff = new Map<string, number>();
+  for (const a of assigns ?? []) {
+    const staffId = a.staff_id as string;
+    const from = String(a.date_from).slice(0, 10);
+    const to = String(a.date_to).slice(0, 10);
+    if (to < input.dateFrom || from > input.dateTo) continue;
+    const rate = a.day_rate_qar == null ? 0 : Number(a.day_rate_qar);
+    if (!(rate > 0)) continue;
+    rateByStaff.set(staffId, rate);
+  }
+  if (!rateByStaff.size) return 0;
+
+  const staffIds = [...rateByStaff.keys()];
+  const { data: summaries, error: sumErr } = await supabaseAdmin
+    .from("attendance_daily_summary")
+    .select("staff_id, work_date, status, worked_minutes")
+    .eq("event_id", input.eventId)
+    .gte("work_date", input.dateFrom)
+    .lte("work_date", input.dateTo)
+    .in("staff_id", staffIds);
+  if (sumErr && !/event_id|schema cache/i.test(sumErr.message)) throw sumErr;
+
+  const paidDaysByStaff = new Map<string, number>();
+  for (const row of summaries ?? []) {
+    const status = String(row.status ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    const paid =
+      status === "present" ||
+      status === "late" ||
+      status === "overtime" ||
+      status === "short_hours" ||
+      (Number(row.worked_minutes ?? 0) > 0 &&
+        (status === "incomplete" || status === "missed_punch"));
+    if (!paid) continue;
+    const staffId = row.staff_id as string;
+    paidDaysByStaff.set(staffId, (paidDaysByStaff.get(staffId) ?? 0) + 1);
+  }
+
+  const inserts: TablesInsert<"hr_payroll_lines">[] = [];
+  for (const [staffId, dayRate] of rateByStaff) {
+    const workedDays = paidDaysByStaff.get(staffId) ?? 0;
+    if (workedDays <= 0) continue;
+    const gross = Math.round((dayRate * workedDays + Number.EPSILON) * 100) / 100;
+    inserts.push({
+      period_id: input.periodId,
+      staff_id: staffId,
+      payment_method: "cash",
+      earnings: [
+        {
+          code: "basic",
+          label: "Daily rate × paid days",
+          amountQar: gross,
+          meta: { dayRateQar: dayRate, workedDays, demo: true },
+        },
+      ] as unknown as Json,
+      deductions: [] as unknown as Json,
+      gross_qar: gross,
+      net_qar: gross,
+      wps_eligible: false,
+      working_days: workedDays,
+      notes: EVENT_WORKFORCE_DEMO_MARKER,
+      snapshot: {
+        presentDays: workedDays,
+        dayRateQar: dayRate,
+        demo: true,
+        workingDays: workedDays,
+        grossSalary: gross,
+      } as unknown as Json,
+      line_source: "generated",
+    });
+  }
+
+  for (let i = 0; i < inserts.length; i += 80) {
+    const chunk = inserts.slice(i, i + 80);
+    const { error } = await supabaseAdmin.from("hr_payroll_lines").insert(chunk);
+    if (error) throw error;
+  }
+  void context;
+  return inserts.length;
 }
 
 export type SeedEventWorkforceDemoResult = {
@@ -379,29 +675,26 @@ export type SeedEventWorkforceDemoResult = {
   shifts: number;
   attendanceDays: number;
   punches: number;
+  payrollPeriodId: string | null;
+  payrollLines: number;
+  payrollGeneratedVia: "payroll.generate" | "demo_day_rates" | "skipped";
+  payrollHint: string | null;
 };
 
-/**
- * Seed demo roles, crew, shifts, and attendance for one event across From–To.
- * Does not touch monthly roster tables.
- */
-export const seedEventWorkforceDemo = createAuthenticatedAction(
-  z.object({
-    eventId: Uuid,
-    dateFrom: Ymd,
-    dateTo: Ymd,
-  }),
-  async (data, context): Promise<SeedEventWorkforceDemoResult> => {
-    assertHoo(context);
+async function runSeedEventWorkforceDemo(
+  data: { eventId: string; dateFrom: string; dateTo: string },
+  context: AuthContext,
+): Promise<SeedEventWorkforceDemoResult> {
     const rangeErr = validateDemoDateRange(data.dateFrom, data.dateTo);
     if (rangeErr) throw new Error(rangeErr);
 
     const event = await loadEventOrThrow(context, data.eventId);
     const locationId = event.location_id as string;
     const days = enumerateDatesInclusive(data.dateFrom, data.dateTo);
+    const eventName = String(event.name || event.event_name || "Event");
 
-    // Clear prior demo rows for this event so re-seed is idempotent (event-scoped only).
-    await deleteDemoScopedForEvent(context, data.eventId, locationId);
+    // Full wipe so re-seed is idempotent (event-scoped only — includes payroll).
+    await wipeEventWorkforceForEvent(context, data.eventId);
 
     const staff = await ensureDemoStaffPool(locationId, context.userId);
     const roleIdByCode = await ensureDemoRoles(context, data.eventId);
@@ -630,6 +923,14 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
       if (error) throw error;
     }
 
+    const payroll = await ensureDemoEventPayroll(context, {
+      eventId: data.eventId,
+      eventName,
+      locationId,
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+    });
+
     await writeEventAudit(context, {
       action: "workforce_demo_seed",
       entityType: "event_workforce_demo",
@@ -643,12 +944,15 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
         shifts: shiftsInserted,
         attendanceDays,
         punches,
+        payrollPeriodId: payroll.periodId,
+        payrollLines: payroll.payrollLines,
+        payrollGeneratedVia: payroll.generatedVia,
       },
     });
 
     return {
       eventId: data.eventId,
-      eventName: String(event.name || event.event_name || "Event"),
+      eventName,
       locationId,
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
@@ -659,7 +963,26 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
       shifts: shiftsInserted,
       attendanceDays,
       punches,
+      payrollPeriodId: payroll.periodId,
+      payrollLines: payroll.payrollLines,
+      payrollGeneratedVia: payroll.generatedVia,
+      payrollHint: payroll.hint,
     };
+}
+
+/**
+ * Seed demo roles, crew, shifts, attendance, and event payroll for one event across From–To.
+ * Fully clears prior event workforce + event payroll first. Does not touch monthly roster.
+ */
+export const seedEventWorkforceDemo = createAuthenticatedAction(
+  z.object({
+    eventId: Uuid,
+    dateFrom: Ymd,
+    dateTo: Ymd,
+  }),
+  async (data, context): Promise<SeedEventWorkforceDemoResult> => {
+    assertHoo(context);
+    return runSeedEventWorkforceDemo(data, context);
   },
   { auth: { anyCapability: ["events.edit", "events.view", "attendance.view", "people.view_roster"] } },
 );
@@ -671,17 +994,23 @@ export type DeleteEventWorkforceDemoResult = {
   shifts: number;
   assignments: number;
   rolesRemoved: number;
+  payrollPeriods: number;
+  payrollLines: number;
 };
 
 /**
- * Delete demo (or all event-tagged) attendance, shifts, and demo assignments for an event.
- * Does not delete the event. Does not touch monthly roster.
+ * Delete attendance, shifts, assignments, roles, and event payroll for the selected event.
+ * Does not delete the event. Does not touch monthly roster / Place Vendôme monthly data.
  */
 export const deleteEventWorkforceDemo = createAuthenticatedAction(
   z.object({
     eventId: Uuid,
     confirmation: z.string().max(80),
-    /** When true, clears all event-tagged attendance + all shifts + all assignments (strong). */
+    /**
+     * When true (default), clears all event-scoped workforce + payroll.
+     * When false, prefers demo-marked rows but still falls back to full event wipe
+     * for assignments/shifts/attendance when markers are absent, and always clears payroll.
+     */
     wipeAllEventWorkforce: z.boolean().optional(),
   }),
   async (data, context): Promise<DeleteEventWorkforceDemoResult> => {
@@ -690,128 +1019,45 @@ export const deleteEventWorkforceDemo = createAuthenticatedAction(
     const event = await loadEventOrThrow(context, data.eventId);
     const locationId = event.location_id as string;
 
-    if (data.wipeAllEventWorkforce) {
-      // Strong wipe: all event-tagged attendance/logs, all shifts, all assignments — still not the event / monthly roster.
-      let attendanceLogs = 0;
-      {
-        const { data: logs, error } = await supabaseAdmin
-          .from("attendance_logs")
-          .select("id")
-          .eq("event_id", data.eventId);
-        if (error && !/event_id|schema cache/i.test(error.message)) throw error;
-        const ids = (logs ?? []).map((l) => l.id as string);
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          const { error: delErr } = await supabaseAdmin
-            .from("attendance_logs")
-            .delete()
-            .in("id", chunk);
-          if (delErr) throw delErr;
-          attendanceLogs += chunk.length;
-        }
-      }
+    const wipeAll = data.wipeAllEventWorkforce !== false;
+    const result = await wipeEventWorkforceForEvent(context, data.eventId, {
+      demoMarkedOnly: !wipeAll,
+    });
 
-      let attendanceSummaries = 0;
-      {
-        const { data: rows, error } = await supabaseAdmin
-          .from("attendance_daily_summary")
-          .select("id")
-          .eq("event_id", data.eventId);
-        if (error && !/event_id|schema cache/i.test(error.message)) throw error;
-        const ids = (rows ?? []).map((r) => r.id as string);
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          const { error: delErr } = await supabaseAdmin
-            .from("attendance_daily_summary")
-            .delete()
-            .in("id", chunk);
-          if (delErr) throw delErr;
-          attendanceSummaries += chunk.length;
-        }
-      }
-
-      const { data: slots, error: slotErr } = await context.supabase
-        .from("event_schedule_slots")
-        .select("id")
-        .eq("event_id", data.eventId);
-      if (slotErr) throw slotErr;
-      const slotIds = (slots ?? []).map((s) => s.id as string);
-      for (let i = 0; i < slotIds.length; i += 200) {
-        const chunk = slotIds.slice(i, i + 200);
-        const { error } = await context.supabase
-          .from("event_schedule_slots")
-          .delete()
-          .in("id", chunk);
-        if (error) throw error;
-      }
-
-      const { data: assigns, error: asgErr } = await context.supabase
-        .from("event_staff_assignments")
-        .select("id")
-        .eq("event_id", data.eventId);
-      if (asgErr) throw asgErr;
-      const asgIds = (assigns ?? []).map((a) => a.id as string);
-      for (let i = 0; i < asgIds.length; i += 200) {
-        const chunk = asgIds.slice(i, i + 200);
-        const { error } = await context.supabase
-          .from("event_staff_assignments")
-          .delete()
-          .in("id", chunk);
-        if (error) throw error;
-      }
-
-      // Roles: delete all for this event (user asked roles wipe).
-      let rolesRemoved = 0;
-      {
-        const { data: roles, error } = await context.supabase
-          .from("event_roles")
-          .select("id")
-          .eq("event_id", data.eventId);
-        if (error && !/event_roles|schema cache/i.test(error.message)) throw error;
-        const ids = (roles ?? []).map((r) => r.id as string);
-        if (ids.length) {
-          const { error: delErr } = await context.supabase
-            .from("event_roles")
-            .delete()
-            .in("id", ids);
-          if (delErr) throw delErr;
-          rolesRemoved = ids.length;
-        }
-      }
-
-      await writeEventAudit(context, {
-        action: "workforce_demo_wipe",
-        entityType: "event_workforce_demo",
-        eventId: data.eventId,
-        locationId,
-        after: {
-          attendanceSummaries,
-          attendanceLogs,
-          shifts: slotIds.length,
-          assignments: asgIds.length,
-          rolesRemoved,
-        },
-      });
-
-      return {
-        eventId: data.eventId,
-        attendanceSummaries,
-        attendanceLogs,
-        shifts: slotIds.length,
-        assignments: asgIds.length,
-        rolesRemoved,
-      };
-    }
-
-    const result = await deleteDemoScopedForEvent(context, data.eventId, locationId);
     await writeEventAudit(context, {
-      action: "workforce_demo_delete",
+      action: wipeAll ? "workforce_demo_wipe" : "workforce_demo_delete",
       entityType: "event_workforce_demo",
       eventId: data.eventId,
       locationId,
       after: result,
     });
     return { eventId: data.eventId, ...result };
+  },
+  { auth: { anyCapability: ["events.edit", "events.view", "attendance.view", "people.view_roster"] } },
+);
+
+/**
+ * Convenience: full wipe then seed for the current From–To (same as Seed after strengthened clear).
+ */
+export const resetAndSeedEventWorkforceDemo = createAuthenticatedAction(
+  z.object({
+    eventId: Uuid,
+    dateFrom: Ymd,
+    dateTo: Ymd,
+    confirmation: z.string().max(80),
+  }),
+  async (data, context): Promise<SeedEventWorkforceDemoResult> => {
+    assertHoo(context);
+    assertDemoDeleteConfirmation(data.confirmation);
+    // runSeed already full-wipes then dumps; confirmation gates the Reset & seed UX.
+    return runSeedEventWorkforceDemo(
+      {
+        eventId: data.eventId,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+      },
+      context,
+    );
   },
   { auth: { anyCapability: ["events.edit", "events.view", "attendance.view", "people.view_roster"] } },
 );
