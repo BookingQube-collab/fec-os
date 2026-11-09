@@ -1,18 +1,17 @@
 "use client";
 
-/* Hallmark · redesign · HR Event Reports · sibling to Event Attendance
- * macrostructure: Stat-Led workbench · theme: studied-DNA (mockup purple #7c3aed)
+/* Hallmark · redesign · HR Event Operations Report
+ * Coverage, exceptions & cost readiness — complements Event Attendance (not a clone)
+ * macrostructure: Report workbench · theme: studied-DNA (purple #7c3aed)
  * design-system: FEC People/HR · designed-as-app
  */
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Briefcase,
-  Download,
   ExternalLink,
   FileBarChart,
   MapPin,
@@ -22,7 +21,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { EventAttendanceKpiStrip } from "@/components/people/event-attendance-kpi-strip";
+import { EventOperationsReportKpiStrip } from "@/components/people/event-operations-report-kpi-strip";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
@@ -44,24 +43,19 @@ import {
 import { useEventRoles } from "@/hooks/queries/useEvents";
 import { usePeopleEventSelection } from "@/hooks/use-people-event-selection";
 import { useReportExport } from "@/hooks/use-report-export";
-import { buildAttendanceCsv } from "@/lib/attendance-display";
 import { toCsv } from "@/lib/csv-parse";
 import { EVENT_WORKFORCE_DEMO_MAX_DAYS } from "@/lib/events/event-workforce-demo";
-import {
-  buildEventAttendancePageKpis,
-  buildEventAttendanceStatusCounts,
-  buildEventAttendanceTrendForRange,
-  filterEventAttendanceRowsByRole,
-  previousEqualRange,
-  toEventAttendanceSummaryRow,
-} from "@/lib/people-event-attendance-display";
+import { filterEventAttendanceRowsByRole } from "@/lib/people-event-attendance-display";
 import {
   defaultOverviewRange,
   rangeForSelectedEvent,
 } from "@/lib/people-event-attendance-overview";
 import {
+  buildEventOperationsReportKpis,
   buildEventReportsByRole,
-  buildEventReportsDailySummary,
+  buildEventReportsDailyCoverageMatrix,
+  buildEventReportsExceptions,
+  type EventReportsRoleOption,
 } from "@/lib/people-event-reports-display";
 import { peopleEventHref } from "@/lib/people-event-selection";
 import { eventSiteOptionsFromEvents } from "@/lib/people-event-site-options";
@@ -74,26 +68,17 @@ import { STALE } from "@/lib/query-client";
 import { downloadCsvContent } from "@/lib/staff-import";
 import { cn } from "@/lib/utils";
 
-const EventAttendanceCharts = dynamic(
-  () =>
-    import("@/components/people/event-attendance-charts").then((m) => m.EventAttendanceCharts),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-72 rounded-2xl" />
-        <Skeleton className="h-72 rounded-2xl" />
-      </div>
-    ),
-  },
-);
-
 function uuidOrEmpty(v: string | null): string {
   return v && /^[0-9a-f-]{36}$/i.test(v) ? v : "";
 }
 
 function ymdOrEmpty(v: string | null): string {
   return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
+}
+
+function formatQarPlain(value: number | null): string {
+  if (value == null) return "";
+  return String(value);
 }
 
 export default function PeopleEventReportsPage() {
@@ -117,7 +102,6 @@ export default function PeopleEventReportsPage() {
   const prevEventIdRef = useRef<string | undefined>(undefined);
 
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
-  const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
 
   const eventsQ = useQuery({
     queryKey: [...queryKeys.people.all, "event-options"],
@@ -129,7 +113,7 @@ export default function PeopleEventReportsPage() {
     queryKey: [
       ...queryKeys.people.all,
       "event-attendance",
-      "reports",
+      "ops-report",
       eventId || null,
       locationId || null,
       dateFrom || null,
@@ -148,41 +132,19 @@ export default function PeopleEventReportsPage() {
     staleTime: STALE.people,
   });
 
-  const previousQ = useQuery({
-    queryKey: [
-      ...queryKeys.people.all,
-      "event-attendance",
-      "reports-prev",
-      eventId || null,
-      locationId || null,
-      prevRange.from,
-      prevRange.to,
-    ],
-    queryFn: () =>
-      listPeopleEventAttendance({
-        eventId: eventId || null,
-        locationId: locationId || null,
-        dateFrom: prevRange.from,
-        dateTo: prevRange.to,
-        limit: 2000,
-      }),
-    staleTime: STALE.people,
-    enabled: Boolean(dateFrom && dateTo),
-  });
-
   const rolesQ = useEventRoles(eventId || null);
-  const roleOptions = useMemo(
+  const roleOptions: EventReportsRoleOption[] = useMemo(
     () =>
       (rolesQ.data?.roles ?? []).map((r) => ({
         id: r.id,
         code: r.code,
         name: r.name,
+        defaultDayRateQar: r.default_day_rate_qar ?? null,
       })),
     [rolesQ.data?.roles],
   );
 
   const rawRows = attendanceQ.data?.rows ?? [];
-  const rawPreviousRows = previousQ.data?.rows ?? [];
   const roleFilterReady = !roleId || rolesQ.isSuccess;
   const rows = useMemo(
     () =>
@@ -190,13 +152,6 @@ export default function PeopleEventReportsPage() {
         ? filterEventAttendanceRowsByRole(rawRows, roleId || null, roleOptions)
         : rawRows,
     [rawRows, roleId, roleOptions, roleFilterReady],
-  );
-  const previousRows = useMemo(
-    () =>
-      roleFilterReady
-        ? filterEventAttendanceRowsByRole(rawPreviousRows, roleId || null, roleOptions)
-        : rawPreviousRows,
-    [rawPreviousRows, roleId, roleOptions, roleFilterReady],
   );
   const allEvents = eventsQ.data?.events ?? [];
   const eventSites = useMemo(
@@ -239,26 +194,20 @@ export default function PeopleEventReportsPage() {
   }, [roleId, roleOptions, rolesQ.isSuccess]);
 
   const kpis = useMemo(
-    () =>
-      buildEventAttendancePageKpis({
-        rows,
-        previousRows,
-      }),
-    [rows, previousRows],
-  );
-
-  const statusCounts = useMemo(() => buildEventAttendanceStatusCounts(rows), [rows]);
-  const trend = useMemo(
-    () => buildEventAttendanceTrendForRange(rows, dateFrom, dateTo, locale),
-    [rows, dateFrom, dateTo, locale],
+    () => buildEventOperationsReportKpis(rows, roleOptions),
+    [rows, roleOptions],
   );
   const byRole = useMemo(
     () => buildEventReportsByRole(rows, roleOptions),
     [rows, roleOptions],
   );
-  const daily = useMemo(
-    () => buildEventReportsDailySummary(rows, dateFrom, dateTo),
-    [rows, dateFrom, dateTo],
+  const coverageMatrix = useMemo(
+    () => buildEventReportsDailyCoverageMatrix(rows, dateFrom, dateTo, roleOptions),
+    [rows, dateFrom, dateTo, roleOptions],
+  );
+  const exceptions = useMemo(
+    () => buildEventReportsExceptions(rows, roleOptions),
+    [rows, roleOptions],
   );
 
   const venueLabel = selectedEvent
@@ -271,20 +220,21 @@ export default function PeopleEventReportsPage() {
       byRole.map((r) => ({
         role: r.roleLabel,
         staff: r.staffCount,
-        records: r.records,
+        assigned: r.assigned,
         present: r.present,
         late: r.late,
         absent: r.absent,
-        complete: r.complete,
-        missingPunch: r.missingPunch,
-        overtimeHours: r.overtimeHours,
+        coveragePct: r.coveragePct,
         attendancePct: r.attendancePct,
+        labourHours: r.labourHours,
+        estimatedCostQar: r.estimatedCostQar ?? "",
+        dayRateQar: r.dayRateQar ?? "",
       })),
     [byRole],
   );
 
   const { exportPdf, exportExcel } = useReportExport({
-    pageKey: "HR_Event_Reports",
+    pageKey: "HR_Event_Operations_Report",
     title: t("peopleEvent.reports.title"),
     venueLabel,
     filters: {
@@ -299,24 +249,41 @@ export default function PeopleEventReportsPage() {
       search: search.trim() || null,
     },
     kpis: [
-      { label: t("peopleEvent.attendance.kpiTotalRecords"), value: kpis.totalRecords },
-      { label: t("peopleEvent.attendance.kpiStaff"), value: kpis.staffWithAttendance },
-      { label: t("peopleEvent.attendance.kpiComplete"), value: kpis.complete },
-      { label: t("peopleEvent.attendance.kpiMissing"), value: kpis.missingPunch },
-      { label: t("peopleEvent.attendance.kpiOvertime"), value: `${kpis.overtimeHours} h` },
-      { label: t("peopleEvent.attendance.kpiLate"), value: kpis.lateEarlyLeave },
+      { label: t("peopleEvent.reports.kpiScheduledCrew"), value: kpis.scheduledCrew },
+      { label: t("peopleEvent.reports.kpiCoverage"), value: `${kpis.coveragePct}%` },
+      {
+        label: t("peopleEvent.reports.kpiAttendanceRate"),
+        value: `${kpis.attendanceRatePct}%`,
+      },
+      { label: t("peopleEvent.reports.kpiLabourHours"), value: `${kpis.labourHours} h` },
+      {
+        label: t("peopleEvent.reports.kpiLabourCost"),
+        value:
+          kpis.estimatedLabourCostQar != null
+            ? `QAR ${kpis.estimatedLabourCostQar}`
+            : "—",
+      },
+      { label: t("peopleEvent.reports.kpiExceptions"), value: kpis.openExceptions },
     ],
     columns: [
       { key: "role", header: t("peopleEvent.reports.colRole") },
       { key: "staff", header: t("peopleEvent.reports.colStaff") },
-      { key: "records", header: t("peopleEvent.reports.colRecords") },
+      { key: "assigned", header: t("peopleEvent.reports.colAssigned") },
       { key: "present", header: t("peopleEvent.dashboard.colPresent") },
       { key: "late", header: t("peopleEvent.dashboard.colLate") },
       { key: "absent", header: t("peopleEvent.dashboard.colAbsent") },
-      { key: "complete", header: t("peopleEvent.attendance.statusComplete") },
-      { key: "missingPunch", header: t("peopleEvent.attendance.statusMissing") },
-      { key: "overtimeHours", header: t("peopleEvent.attendance.kpiOvertime") },
-      { key: "attendancePct", header: t("peopleEvent.dashboard.colAttendance"), format: "pct" },
+      { key: "coveragePct", header: t("peopleEvent.reports.colCoverage"), format: "pct" },
+      {
+        key: "attendancePct",
+        header: t("peopleEvent.reports.colAttendanceRate"),
+        format: "pct",
+      },
+      { key: "labourHours", header: t("peopleEvent.reports.colLabourHours") },
+      {
+        key: "estimatedCostQar",
+        header: t("peopleEvent.reports.colEstimatedCost"),
+        format: "qar",
+      },
     ],
     rows: exportTableRows,
   });
@@ -326,70 +293,93 @@ export default function PeopleEventReportsPage() {
       [
         t("peopleEvent.reports.colRole"),
         t("peopleEvent.reports.colStaff"),
-        t("peopleEvent.reports.colRecords"),
+        t("peopleEvent.reports.colAssigned"),
         t("peopleEvent.dashboard.colPresent"),
         t("peopleEvent.dashboard.colLate"),
         t("peopleEvent.dashboard.colAbsent"),
-        t("peopleEvent.attendance.statusComplete"),
-        t("peopleEvent.attendance.statusMissing"),
-        t("peopleEvent.attendance.kpiOvertime"),
-        t("peopleEvent.dashboard.colAttendance"),
+        t("peopleEvent.reports.colCoverage"),
+        t("peopleEvent.reports.colAttendanceRate"),
+        t("peopleEvent.reports.colLabourHours"),
+        t("peopleEvent.reports.colDayRate"),
+        t("peopleEvent.reports.colEstimatedCost"),
       ],
       byRole.map((r) => [
         r.roleLabel,
         r.staffCount,
-        r.records,
+        r.assigned,
         r.present,
         r.late,
         r.absent,
-        r.complete,
-        r.missingPunch,
-        r.overtimeHours,
+        r.coveragePct,
         r.attendancePct,
+        r.labourHours,
+        formatQarPlain(r.dayRateQar),
+        formatQarPlain(r.estimatedCostQar),
       ]),
     );
-    const dayCsv = toCsv(
+
+    const matrixHeader = [
+      t("peopleEvent.columns.date"),
+      t("peopleEvent.reports.colCoverage"),
+      ...coverageMatrix.roleKeys.map((r) => r.label),
+    ];
+    const matrixCsv = toCsv(
+      matrixHeader,
+      coverageMatrix.days
+        .filter((d) => d.assigned > 0)
+        .map((d) => [
+          d.date,
+          d.coveragePct,
+          ...coverageMatrix.roleKeys.map((role) => {
+            const cell = d.byRole[role.key];
+            if (!cell) return "";
+            return `${cell.present + cell.late}/${cell.assigned} (${cell.coveragePct}%)`;
+          }),
+        ]),
+    );
+
+    const exceptionCsv = toCsv(
       [
         t("peopleEvent.columns.date"),
-        t("peopleEvent.reports.colRecords"),
-        t("peopleEvent.dashboard.colPresent"),
-        t("peopleEvent.dashboard.colLate"),
-        t("peopleEvent.dashboard.colAbsent"),
-        t("peopleEvent.attendance.statusMissing"),
-        t("peopleEvent.attendance.kpiOvertime"),
-        t("peopleEvent.dashboard.colAttendance"),
+        t("peopleEvent.columns.person"),
+        t("peopleEvent.reports.colRole"),
+        t("peopleEvent.reports.colException"),
       ],
-      daily.map((d) => [
-        d.date,
-        d.records,
-        d.present,
-        d.late,
-        d.absent,
-        d.missingPunch,
-        d.overtimeHours,
-        d.attendancePct,
+      exceptions.map((e) => [
+        e.workDate,
+        [e.employeeCode, e.staffName].filter(Boolean).join(" · "),
+        e.roleLabel,
+        t(`peopleEvent.reports.exception.${e.kind}`),
       ]),
     );
-    const attendanceCsv = rows.length
-      ? buildAttendanceCsv(rows.map(toEventAttendanceSummaryRow))
-      : "";
+
     const chunks = [
+      `# ${t("peopleEvent.reports.title")}`,
       `# ${t("peopleEvent.reports.byRoleTitle")}`,
       roleCsv,
       "",
-      `# ${t("peopleEvent.reports.byDayTitle")}`,
-      dayCsv,
+      `# ${t("peopleEvent.reports.coverageMatrixTitle")}`,
+      matrixCsv,
+      "",
+      `# ${t("peopleEvent.reports.exceptionsTitle")}`,
+      exceptionCsv,
     ];
-    if (attendanceCsv) {
-      chunks.push("", `# ${t("peopleEvent.attendance.tableTitle", { n: rows.length })}`, attendanceCsv);
-    }
     downloadCsvContent(
       chunks.join("\n"),
-      `hr-event-reports-${dateFrom || "all"}-${dateTo || "all"}.csv`,
+      `hr-event-operations-report-${dateFrom || "all"}-${dateTo || "all"}.csv`,
     );
   };
 
-  const attendanceHref = peopleEventHref("/people/event-attendance", eventId);
+  const attendanceHref = peopleEventHref("/people/event-attendance", eventId, {
+    from: dateFrom || undefined,
+    to: dateTo || undefined,
+  });
+
+  const exceptionKindClass = (kind: string) => {
+    if (kind === "missing_punch") return "bg-orange-50 text-orange-800";
+    if (kind === "uncovered") return "bg-rose-50 text-rose-800";
+    return "bg-amber-50 text-amber-900";
+  };
 
   return (
     <CapabilityGate
@@ -403,7 +393,7 @@ export default function PeopleEventReportsPage() {
       }
     >
       <HrShell>
-        <div className="ea-event-reports space-y-5">
+        <div className="ea-event-operations-report space-y-5">
           <header className="relative overflow-hidden rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5">
             <div
               className="pointer-events-none absolute inset-0 opacity-[0.55]"
@@ -452,18 +442,19 @@ export default function PeopleEventReportsPage() {
                   onExcel={() => void exportExcel()}
                   disabled={!rows.length && !byRole.length}
                   label={t("peopleEvent.reports.download")}
-                  csvLabel={t("peopleEvent.bulk.exportCsv")}
+                  csvLabel={t("peopleEvent.reports.exportCsvSummary")}
                   pdfLabel={t("peopleEvent.reports.exportPdf")}
                   excelLabel={t("peopleEvent.reports.exportExcel")}
                 />
                 <Button
                   asChild
                   size="sm"
-                  className="h-10 rounded-xl bg-[#7c3aed] px-4 text-white hover:bg-[#6d28d9] focus-visible:ring-[#7c3aed]/40"
+                  variant="outline"
+                  className="h-10 rounded-xl border-border/80 bg-white px-4 focus-visible:ring-[#7c3aed]/40"
                 >
                   <Link href={attendanceHref}>
                     <ExternalLink className="me-1.5 h-3.5 w-3.5" aria-hidden />
-                    {t("peopleEvent.links.openAttendance")}
+                    {t("peopleEvent.reports.openAttendancePunches")}
                   </Link>
                 </Button>
               </div>
@@ -472,7 +463,11 @@ export default function PeopleEventReportsPage() {
 
           <PeopleEventWorkforceTabs active="reports" variant="pills" eventId={eventId} />
 
-          <EventAttendanceKpiStrip kpis={kpis} isLoading={attendanceQ.isLoading} />
+          <EventOperationsReportKpiStrip
+            kpis={kpis}
+            isLoading={attendanceQ.isLoading}
+            locale={locale}
+          />
 
           <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
             <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -585,32 +580,16 @@ export default function PeopleEventReportsPage() {
             onDateToChange={setDateTo}
           />
 
-          <EventAttendanceCharts
-            status={{
-              complete: statusCounts.complete,
-              late: statusCounts.late,
-              missing: statusCounts.missing,
-              total: statusCounts.total,
-            }}
-            attendanceTrend={trend}
-            avgAttendancePct={kpis.avgAttendancePct}
-          />
-
           <section className="rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
-                {t("peopleEvent.reports.byRoleTitle")}
-              </h2>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!byRole.length}
-                onClick={exportCsvPack}
-                className="h-9 rounded-xl border-border/80 bg-white"
-              >
-                <Download className="me-1.5 h-3.5 w-3.5" aria-hidden />
-                {t("peopleEvent.bulk.exportCsv")}
-              </Button>
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
+                  {t("peopleEvent.reports.byRoleTitle")}
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("peopleEvent.reports.byRoleHint")}
+                </p>
+              </div>
             </div>
             {attendanceQ.isLoading ? (
               <Skeleton className="h-40 rounded-xl" />
@@ -621,18 +600,18 @@ export default function PeopleEventReportsPage() {
               />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[48rem] border-collapse text-sm">
+                <table className="w-full min-w-[52rem] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border/70 text-start text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       <th className="px-2 py-2 text-start">{t("peopleEvent.reports.colRole")}</th>
                       <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colStaff")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colRecords")}</th>
+                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colAssigned")}</th>
                       <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colPresent")}</th>
                       <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colLate")}</th>
                       <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colAbsent")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.attendance.statusMissing")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.attendance.kpiOvertime")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colAttendance")}</th>
+                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colCoverage")}</th>
+                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colLabourHours")}</th>
+                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colEstimatedCost")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -640,16 +619,18 @@ export default function PeopleEventReportsPage() {
                       <tr key={r.roleKey} className="border-b border-border/40 last:border-0">
                         <td className="px-2 py-2.5 font-medium text-foreground">{r.roleLabel}</td>
                         <td className="px-2 py-2.5 text-end tabular-nums">{r.staffCount}</td>
-                        <td className="px-2 py-2.5 text-end tabular-nums">{r.records}</td>
+                        <td className="px-2 py-2.5 text-end tabular-nums">{r.assigned}</td>
                         <td className="px-2 py-2.5 text-end tabular-nums text-emerald-700">{r.present}</td>
                         <td className="px-2 py-2.5 text-end tabular-nums text-amber-700">{r.late}</td>
                         <td className="px-2 py-2.5 text-end tabular-nums text-rose-700">{r.absent}</td>
-                        <td className="px-2 py-2.5 text-end tabular-nums text-orange-700">
-                          {r.missingPunch}
-                        </td>
-                        <td className="px-2 py-2.5 text-end tabular-nums">{r.overtimeHours} h</td>
                         <td className="px-2 py-2.5 text-end tabular-nums font-semibold text-[#7c3aed]">
-                          {r.attendancePct}%
+                          {r.coveragePct}%
+                        </td>
+                        <td className="px-2 py-2.5 text-end tabular-nums">{r.labourHours} h</td>
+                        <td className="px-2 py-2.5 text-end tabular-nums">
+                          {r.estimatedCostQar != null
+                            ? `QAR ${r.estimatedCostQar.toLocaleString()}`
+                            : "—"}
                         </td>
                       </tr>
                     ))}
@@ -660,47 +641,129 @@ export default function PeopleEventReportsPage() {
           </section>
 
           <section className="rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5">
-            <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-foreground">
-              {t("peopleEvent.reports.byDayTitle")}
-            </h2>
+            <div className="mb-3">
+              <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
+                {t("peopleEvent.reports.coverageMatrixTitle")}
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t("peopleEvent.reports.coverageMatrixHint")}
+              </p>
+            </div>
             {attendanceQ.isLoading ? (
               <Skeleton className="h-40 rounded-xl" />
-            ) : daily.every((d) => d.records === 0) ? (
+            ) : coverageMatrix.roleKeys.length === 0 ||
+              coverageMatrix.days.every((d) => d.assigned === 0) ? (
               <HrEmptyState message={t("peopleEvent.reports.empty")} />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[40rem] border-collapse text-sm">
+                <table className="w-full min-w-[36rem] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border/70 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       <th className="px-2 py-2 text-start">{t("peopleEvent.columns.date")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colRecords")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colPresent")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colLate")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colAbsent")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.attendance.statusMissing")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.attendance.kpiOvertime")}</th>
-                      <th className="px-2 py-2 text-end">{t("peopleEvent.dashboard.colAttendance")}</th>
+                      <th className="px-2 py-2 text-end">{t("peopleEvent.reports.colDayCoverage")}</th>
+                      {coverageMatrix.roleKeys.map((role) => (
+                        <th key={role.key} className="px-2 py-2 text-end">
+                          {role.label}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {daily
-                      .filter((d) => d.records > 0)
+                    {coverageMatrix.days
+                      .filter((d) => d.assigned > 0)
                       .map((d) => (
                         <tr key={d.date} className="border-b border-border/40 last:border-0">
                           <td className="px-2 py-2.5 font-medium tabular-nums">{d.date}</td>
-                          <td className="px-2 py-2.5 text-end tabular-nums">{d.records}</td>
-                          <td className="px-2 py-2.5 text-end tabular-nums text-emerald-700">{d.present}</td>
-                          <td className="px-2 py-2.5 text-end tabular-nums text-amber-700">{d.late}</td>
-                          <td className="px-2 py-2.5 text-end tabular-nums text-rose-700">{d.absent}</td>
-                          <td className="px-2 py-2.5 text-end tabular-nums text-orange-700">
-                            {d.missingPunch}
-                          </td>
-                          <td className="px-2 py-2.5 text-end tabular-nums">{d.overtimeHours} h</td>
                           <td className="px-2 py-2.5 text-end tabular-nums font-semibold text-[#7c3aed]">
-                            {d.attendancePct}%
+                            {d.coveragePct}%
                           </td>
+                          {coverageMatrix.roleKeys.map((role) => {
+                            const cell = d.byRole[role.key];
+                            if (!cell) {
+                              return (
+                                <td
+                                  key={role.key}
+                                  className="px-2 py-2.5 text-end text-muted-foreground"
+                                >
+                                  —
+                                </td>
+                              );
+                            }
+                            return (
+                              <td key={role.key} className="px-2 py-2.5 text-end tabular-nums">
+                                <span className="text-foreground">
+                                  {cell.present + cell.late}/{cell.assigned}
+                                </span>
+                                <span className="ms-1 text-[11px] text-muted-foreground">
+                                  ({cell.coveragePct}%)
+                                </span>
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-5">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
+                  {t("peopleEvent.reports.exceptionsTitle")}
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("peopleEvent.reports.exceptionsHint")}
+                </p>
+              </div>
+              <Button
+                asChild
+                size="sm"
+                className="h-9 rounded-xl bg-[#7c3aed] px-3 text-white hover:bg-[#6d28d9]"
+              >
+                <Link href={attendanceHref}>
+                  <ExternalLink className="me-1.5 h-3.5 w-3.5" aria-hidden />
+                  {t("peopleEvent.reports.openAttendancePunches")}
+                </Link>
+              </Button>
+            </div>
+            {attendanceQ.isLoading ? (
+              <Skeleton className="h-32 rounded-xl" />
+            ) : exceptions.length === 0 ? (
+              <HrEmptyState message={t("peopleEvent.reports.exceptionsEmpty")} />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[36rem] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border/70 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="px-2 py-2 text-start">{t("peopleEvent.columns.date")}</th>
+                      <th className="px-2 py-2 text-start">{t("peopleEvent.columns.person")}</th>
+                      <th className="px-2 py-2 text-start">{t("peopleEvent.reports.colRole")}</th>
+                      <th className="px-2 py-2 text-start">{t("peopleEvent.reports.colException")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exceptions.map((e) => (
+                      <tr key={e.id} className="border-b border-border/40 last:border-0">
+                        <td className="px-2 py-2.5 tabular-nums">{e.workDate}</td>
+                        <td className="px-2 py-2.5 font-medium">
+                          {[e.employeeCode, e.staffName].filter(Boolean).join(" · ")}
+                        </td>
+                        <td className="px-2 py-2.5 text-muted-foreground">{e.roleLabel}</td>
+                        <td className="px-2 py-2.5">
+                          <span
+                            className={cn(
+                              "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                              exceptionKindClass(e.kind),
+                            )}
+                          >
+                            {t(`peopleEvent.reports.exception.${e.kind}`)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
