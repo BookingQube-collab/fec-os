@@ -103,6 +103,8 @@ export function PeopleEventWorkforceDemoTools({
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-attendance"] });
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-crew"] });
     void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-options"] });
+    // Hub overview aggregates share these prefixes — ensure seeded data refreshes there too.
+    void qc.invalidateQueries({ queryKey: [...queryKeys.people.all] });
     void qc.invalidateQueries({ queryKey: queryKeys.events.all });
   };
 

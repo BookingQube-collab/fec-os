@@ -7,7 +7,6 @@
  */
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,6 +35,7 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
+import { PeopleEventSharedEventSelect } from "@/components/people/people-event-shared-event-select";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { usePeopleEventSelection } from "@/hooks/use-people-event-selection";
 import { usePermission } from "@/hooks/use-permission";
 import { toCsv } from "@/lib/csv-parse";
 import { createEventPayrollPeriod } from "@/lib/event-payroll.functions";
@@ -61,24 +62,20 @@ import {
   eventPayrollUiStatus,
   formatHours,
 } from "@/lib/people-event-payroll-display";
+import { peopleEventHref } from "@/lib/people-event-selection";
 import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { downloadCsvContent } from "@/lib/staff-import";
-
-function uuidOrEmpty(v: string | null): string {
-  return v && /^[0-9a-f-]{36}$/i.test(v) ? v : "";
-}
 
 type UiStatusFilter = "all" | "completed" | "open" | "in_review";
 
 export default function PeopleEventPayrollPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
-  const searchParams = useSearchParams();
+  const { eventId, setEventId } = usePeopleEventSelection();
   const canGenerate = usePermission("payroll.generate");
 
-  const [eventId, setEventId] = useState(() => uuidOrEmpty(searchParams.get("eventId")));
   const [statusFilter, setStatusFilter] = useState<UiStatusFilter>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -296,7 +293,7 @@ export default function PeopleEventPayrollPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-muted-foreground">
                     <Link
-                      href="/people/events"
+                      href={peopleEventHref("/people/events", eventId)}
                       className="hover:text-[#7c3aed] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]/40"
                     >
                       {t("peopleEvent.payroll.breadcrumb")}
@@ -311,7 +308,14 @@ export default function PeopleEventPayrollPage() {
                 </div>
               </div>
 
-              <div className="relative flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+              <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto lg:justify-end">
+                <PeopleEventSharedEventSelect
+                  eventId={eventId}
+                  events={events}
+                  onEventIdChange={setEventId}
+                  className="w-full sm:w-auto"
+                  triggerClassName="border-border/80 bg-white"
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -367,7 +371,7 @@ export default function PeopleEventPayrollPage() {
             </div>
           </header>
 
-          <PeopleEventWorkforceTabs active="payroll" variant="pills" />
+          <PeopleEventWorkforceTabs active="payroll" variant="pills" eventId={eventId} />
 
           <EventPayrollKpiStrip
             kpis={kpis}
@@ -377,36 +381,7 @@ export default function PeopleEventPayrollPage() {
 
           <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="min-w-0">
-                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("peopleEvent.filters.event")}
-                  </label>
-                  <div className="relative">
-                    <CalendarDays
-                      className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <Select
-                      value={eventId || "all"}
-                      onValueChange={(v) => setEventId(v === "all" ? "" : v)}
-                    >
-                      <SelectTrigger className="h-10 rounded-xl ps-9">
-                        <SelectValue placeholder={t("peopleEvent.filters.allEvents")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">{t("peopleEvent.filters.allEvents")}</SelectItem>
-                        {events.map((ev) => (
-                          <SelectItem key={ev.id} value={ev.id}>
-                            {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
-                            {ev.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
+              <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {t("peopleEvent.filters.status")}

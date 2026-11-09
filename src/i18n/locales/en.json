@@ -9123,7 +9123,7 @@
       "rosterBoundary": "Event-scoped only — does not upload or change the monthly FEC roster.",
       "eventForSeed": "Event for seed / delete",
       "pickEvent": "Select an event",
-      "needEvent": "Select an event first.",
+      "needEvent": "Select an event in the header first.",
       "seed": "Seed demo data",
       "delete": "Delete event workforce data",
       "seedDialogTitle": "Seed demo data for this event?",

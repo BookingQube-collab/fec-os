@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { peopleEventHref } from "@/lib/people-event-selection";
 
 type Focus = "crew" | "shifts" | "attendance" | "payroll" | "corrections";
 
@@ -19,11 +20,11 @@ export function EventWorkforcePeopleLinks({
   focus?: Focus;
 }) {
   const { t } = useTranslation();
-  const attendanceHref = `/people/event-attendance?eventId=${encodeURIComponent(eventId)}`;
-  const crewHref = `/people/event-crew?eventId=${encodeURIComponent(eventId)}`;
-  const shiftsHref = `/people/event-shifts?eventId=${encodeURIComponent(eventId)}`;
-  const payrollHref = `/people/event-payroll?eventId=${encodeURIComponent(eventId)}`;
-  const rolesHref = `/people/event-roles?eventId=${encodeURIComponent(eventId)}`;
+  const attendanceHref = peopleEventHref("/people/event-attendance", eventId);
+  const crewHref = peopleEventHref("/people/event-crew", eventId);
+  const shiftsHref = peopleEventHref("/people/event-shifts", eventId);
+  const payrollHref = peopleEventHref("/people/event-payroll", eventId);
+  const rolesHref = peopleEventHref("/people/event-roles", eventId);
   const primary =
     focus === "attendance"
       ? { href: attendanceHref, label: t("peopleEvent.links.openAttendance") }

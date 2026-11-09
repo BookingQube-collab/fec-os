@@ -7,7 +7,7 @@
  */
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,21 +16,22 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
+import { PeopleEventSharedEventSelect } from "@/components/people/people-event-shared-event-select";
 import { PeopleEventWorkforceDashboard } from "@/components/people/people-event-workforce-dashboard";
 import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
+import { usePeopleEventSelection } from "@/hooks/use-people-event-selection";
 import { canActorPerform } from "@/lib/arcade/access";
-import { mayManageEventWorkforceDemo } from "@/lib/events/event-workforce-demo";
-import { defaultOverviewRange } from "@/lib/people-event-attendance-overview";
+import {
+  EVENT_WORKFORCE_DEMO_MAX_DAYS,
+  mayManageEventWorkforceDemo,
+} from "@/lib/events/event-workforce-demo";
+import {
+  defaultOverviewRange,
+  rangeForSelectedEvent,
+} from "@/lib/people-event-attendance-overview";
 import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
 import type { Capability } from "@/lib/rbac";
 import { STALE } from "@/lib/query-client";
@@ -40,6 +41,7 @@ export default function PeopleEventsHubPage() {
   const { t } = useTranslation();
   const roles = useUserRoles();
   const { profile } = useAuth();
+  const { eventId, setEventId } = usePeopleEventSelection();
   const actorOpts = {
     jobTitle: profile?.job_title,
     staffRole: profile?.staff_role,
@@ -49,7 +51,7 @@ export default function PeopleEventsHubPage() {
   const initialRange = useMemo(() => defaultOverviewRange(), []);
   const [dateFrom, setDateFrom] = useState(initialRange.from);
   const [dateTo, setDateTo] = useState(initialRange.to);
-  const [demoEventId, setDemoEventId] = useState("");
+  const prevEventIdRef = useRef<string | undefined>(undefined);
 
   const can = (caps: readonly Capability[]) =>
     caps.some((cap) => canActorPerform(roles, cap, actorOpts));
@@ -64,13 +66,31 @@ export default function PeopleEventsHubPage() {
     jobTitle: profile?.job_title,
   });
 
-  const demoEventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", "demo-tools"],
-    queryFn: () => listPeopleEventOptions({ limit: 120 }),
+  const eventsQ = useQuery({
+    queryKey: [...queryKeys.people.all, "event-options", "hub"],
+    queryFn: () => listPeopleEventOptions({ limit: 200 }),
     staleTime: STALE.events,
-    enabled: canHooDemo && hasAnyModule,
+    enabled: hasAnyModule,
   });
-  const demoEvents = demoEventsQ.data?.events ?? [];
+  const events = eventsQ.data?.events ?? [];
+
+  // Align From–To to the selected event so seeded attendance appears on Overview.
+  useEffect(() => {
+    const listed = eventsQ.data?.events;
+    if (!eventsQ.isSuccess || !listed) return;
+    const prev = prevEventIdRef.current;
+    if (prev === eventId) return;
+    if (!eventId) {
+      prevEventIdRef.current = eventId;
+      return;
+    }
+    const ev = listed.find((e) => e.id === eventId);
+    if (!ev) return;
+    prevEventIdRef.current = eventId;
+    const next = rangeForSelectedEvent(ev, initialRange, EVENT_WORKFORCE_DEMO_MAX_DAYS);
+    setDateFrom(next.from);
+    setDateTo(next.to);
+  }, [eventId, eventsQ.isSuccess, eventsQ.data?.events, initialRange]);
 
   return (
     <HrShell>
@@ -102,16 +122,32 @@ export default function PeopleEventsHubPage() {
               </div>
             </div>
 
-            <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
-              <PeopleEventDateRangeControl
-                dateFrom={dateFrom}
-                dateTo={dateTo}
-                onDateFrom={setDateFrom}
-                onDateTo={setDateTo}
-                fromId="ea-date-from"
-                toId="ea-date-to"
-                className="w-full min-w-[16rem] border-border/70 bg-white/90 sm:w-auto sm:min-w-[18rem]"
+            <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto lg:justify-end">
+              <PeopleEventSharedEventSelect
+                eventId={eventId}
+                events={events}
+                onEventIdChange={setEventId}
+                disabled={eventsQ.isLoading}
+                className="w-full sm:w-auto"
+                triggerClassName="border-border/70 bg-white/90"
               />
+              <div className="min-w-0">
+                <label
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  htmlFor="ea-date-from"
+                >
+                  {t("peopleEvent.filters.dateRange")}
+                </label>
+                <PeopleEventDateRangeControl
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onDateFrom={setDateFrom}
+                  onDateTo={setDateTo}
+                  fromId="ea-date-from"
+                  toId="ea-date-to"
+                  className="w-full min-w-[16rem] border-border/70 bg-white/90 sm:w-auto sm:min-w-[18rem]"
+                />
+              </div>
 
               {canOpenEventsSetup ? (
                 <Button
@@ -135,40 +171,19 @@ export default function PeopleEventsHubPage() {
           </HrPanel>
         ) : (
           <>
-            <PeopleEventWorkforceTabs active="overview" variant="pills" />
+            <PeopleEventWorkforceTabs
+              active="overview"
+              variant="pills"
+              eventId={eventId}
+            />
             {canHooDemo ? (
-              <div className="space-y-3">
-                <div className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
-                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t("peopleEvent.demo.eventForSeed")}
-                  </label>
-                  <Select
-                    value={demoEventId || "none"}
-                    onValueChange={(v) => setDemoEventId(v === "none" ? "" : v)}
-                  >
-                    <SelectTrigger className="h-10 max-w-xl rounded-xl">
-                      <SelectValue placeholder={t("peopleEvent.filters.event")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{t("peopleEvent.demo.pickEvent")}</SelectItem>
-                      {demoEvents.map((ev) => (
-                        <SelectItem key={ev.id} value={ev.id}>
-                          {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
-                          {ev.name}
-                          {ev.locationName ? ` · ${ev.locationName}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <PeopleEventWorkforceDemoTools
-                  eventId={demoEventId || null}
-                  dateFrom={dateFrom}
-                  dateTo={dateTo}
-                  onDateFromChange={setDateFrom}
-                  onDateToChange={setDateTo}
-                />
-              </div>
+              <PeopleEventWorkforceDemoTools
+                eventId={eventId || null}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onDateFromChange={setDateFrom}
+                onDateToChange={setDateTo}
+              />
             ) : null}
             <PeopleEventWorkforceDashboard
               canCrew={canCrew}
@@ -176,6 +191,7 @@ export default function PeopleEventsHubPage() {
               canPayroll={canPayroll}
               dateFrom={dateFrom}
               dateTo={dateTo}
+              eventId={eventId || null}
             />
           </>
         )}

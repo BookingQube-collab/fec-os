@@ -15,7 +15,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Briefcase,
   CalendarClock,
-  CalendarDays,
   Download,
   ExternalLink,
   MapPin,
@@ -31,6 +30,7 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
+import { PeopleEventSharedEventSelect } from "@/components/people/people-event-shared-event-select";
 import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { useEventRoles } from "@/hooks/queries/useEvents";
+import { usePeopleEventSelection } from "@/hooks/use-people-event-selection";
 import { buildAttendanceCsv } from "@/lib/attendance-display";
 import { EVENT_WORKFORCE_DEMO_MAX_DAYS } from "@/lib/events/event-workforce-demo";
 import {
@@ -60,10 +61,8 @@ import {
   defaultOverviewRange,
   rangeForSelectedEvent,
 } from "@/lib/people-event-attendance-overview";
-import {
-  eventSiteOptionsFromEvents,
-  filterPeopleEventsByLocation,
-} from "@/lib/people-event-site-options";
+import { peopleEventHref } from "@/lib/people-event-selection";
+import { eventSiteOptionsFromEvents } from "@/lib/people-event-site-options";
 import {
   listPeopleEventAttendance,
   listPeopleEventOptions,
@@ -98,6 +97,7 @@ function ymdOrEmpty(v: string | null): string {
 export default function PeopleEventAttendancePage() {
   const { t, i18n } = useTranslation();
   const searchParams = useSearchParams();
+  const { eventId, setEventId } = usePeopleEventSelection();
   const { profile } = useAuth();
   const roles = useUserRoles();
   const canModifyMissed = mayModifyEventMissedPunch({
@@ -109,7 +109,6 @@ export default function PeopleEventAttendancePage() {
   const urlHadRange = Boolean(
     ymdOrEmpty(searchParams.get("from")) && ymdOrEmpty(searchParams.get("to")),
   );
-  const [eventId, setEventId] = useState(() => uuidOrEmpty(searchParams.get("eventId")));
   const [locationId, setLocationId] = useState(() => uuidOrEmpty(searchParams.get("locationId")));
   const [dateFrom, setDateFrom] = useState(
     () => ymdOrEmpty(searchParams.get("from")) || initialRange.from,
@@ -210,10 +209,6 @@ export default function PeopleEventAttendancePage() {
     () => eventSiteOptionsFromEvents(allEvents, eventId || null),
     [allEvents, eventId],
   );
-  const events = useMemo(
-    () => filterPeopleEventsByLocation(allEvents, locationId || null),
-    [allEvents, locationId],
-  );
 
   useEffect(() => {
     if (!locationId || !eventsQ.isSuccess) return;
@@ -288,9 +283,7 @@ export default function PeopleEventAttendancePage() {
     });
   }
 
-  const shiftsHref = eventId
-    ? `/people/event-shifts?eventId=${encodeURIComponent(eventId)}`
-    : "/people/event-shifts";
+  const shiftsHref = peopleEventHref("/people/event-shifts", eventId);
 
   return (
     <CapabilityGate
@@ -322,7 +315,7 @@ export default function PeopleEventAttendancePage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-muted-foreground">
                     <Link
-                      href="/people/events"
+                      href={peopleEventHref("/people/events", eventId)}
                       className="hover:text-[#7c3aed] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]/40"
                     >
                       {t("peopleEvent.kicker")}
@@ -339,7 +332,17 @@ export default function PeopleEventAttendancePage() {
                 </div>
               </div>
 
-              <div className="relative flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+              <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto lg:justify-end">
+                <PeopleEventSharedEventSelect
+                  eventId={eventId}
+                  events={allEvents}
+                  onEventIdChange={(next) => {
+                    setEventId(next);
+                    setSelected(new Set());
+                  }}
+                  className="w-full sm:w-auto"
+                  triggerClassName="border-border/80 bg-white"
+                />
                 <Button
                   size="sm"
                   variant="outline"
@@ -364,7 +367,7 @@ export default function PeopleEventAttendancePage() {
             </div>
           </header>
 
-          <PeopleEventWorkforceTabs active="attendance" variant="pills" />
+          <PeopleEventWorkforceTabs active="attendance" variant="pills" eventId={eventId} />
 
           <EventAttendanceKpiStrip
             kpis={kpis}
@@ -372,40 +375,7 @@ export default function PeopleEventAttendancePage() {
           />
 
           <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="min-w-0">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("peopleEvent.filters.event")}
-                </label>
-                <div className="relative">
-                  <CalendarDays
-                    className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Select
-                    value={eventId || "all"}
-                    onValueChange={(v) => {
-                      const next = v === "all" ? "" : v;
-                      setEventId(next);
-                      setSelected(new Set());
-                    }}
-                  >
-                    <SelectTrigger className="h-10 rounded-xl ps-9">
-                      <SelectValue placeholder={t("peopleEvent.filters.allEvents")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t("peopleEvent.filters.allEvents")}</SelectItem>
-                      {events.map((ev) => (
-                        <SelectItem key={ev.id} value={ev.id}>
-                          {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
-                          {ev.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="min-w-0">
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t("peopleEvent.filters.siteBranch")}

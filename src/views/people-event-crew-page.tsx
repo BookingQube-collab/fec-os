@@ -12,7 +12,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
-  CalendarDays,
   ChevronDown,
   Download,
   Layers,
@@ -41,6 +40,7 @@ import { EventCrewKpiStrip } from "@/components/people/event-crew-kpi-strip";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import { PeopleEventSharedEventSelect } from "@/components/people/people-event-shared-event-select";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
+import { usePeopleEventSelection } from "@/hooks/use-people-event-selection";
 import { usePermission } from "@/hooks/use-permission";
 import { canActorPerform } from "@/lib/arcade/access";
 import { toCsv } from "@/lib/csv-parse";
@@ -73,6 +74,7 @@ import {
   buildCrewKpis,
   defaultCrewRange,
 } from "@/lib/people-event-crew-display";
+import { peopleEventHref } from "@/lib/people-event-selection";
 import {
   eventSiteOptionsFromEvents,
   filterPeopleEventsByLocation,
@@ -98,6 +100,7 @@ export default function PeopleEventCrewPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const searchParams = useSearchParams();
+  const { eventId, setEventId } = usePeopleEventSelection();
   const canEdit = usePermission("events.edit");
   const canHire = usePermission("people.edit_roster");
   const roles = useUserRoles();
@@ -113,7 +116,6 @@ export default function PeopleEventCrewPage() {
   const canAttendance = canActorPerform(roles, "attendance.view", actorOpts);
 
   const initialRange = useMemo(() => defaultCrewRange(), []);
-  const [eventId, setEventId] = useState(() => uuidOrEmpty(searchParams.get("eventId")));
   const [locationId, setLocationId] = useState(() => uuidOrEmpty(searchParams.get("locationId")));
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [assignmentType, setAssignmentType] = useState("all");
@@ -402,7 +404,7 @@ export default function PeopleEventCrewPage() {
               <div className="min-w-0">
                 <p className="text-sm font-medium text-muted-foreground">
                   <Link
-                    href="/people/events"
+                    href={peopleEventHref("/people/events", eventId)}
                     className="hover:text-[#7c3aed] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]/40"
                   >
                     {t("peopleEvent.hub.breadcrumb")}
@@ -417,7 +419,14 @@ export default function PeopleEventCrewPage() {
               </div>
             </div>
 
-            <div className="relative flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+            <div className="relative flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto lg:justify-end">
+              <PeopleEventSharedEventSelect
+                eventId={eventId}
+                events={allEvents}
+                onEventIdChange={setEventId}
+                className="w-full sm:w-auto"
+                triggerClassName="border-border/80 bg-white"
+              />
               {canEdit ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -456,7 +465,7 @@ export default function PeopleEventCrewPage() {
           </div>
         </header>
 
-        <PeopleEventWorkforceTabs active="crew" variant="pills" />
+        <PeopleEventWorkforceTabs active="crew" variant="pills" eventId={eventId} />
 
         <EventCrewKpiStrip
           kpis={kpis}
@@ -466,36 +475,7 @@ export default function PeopleEventCrewPage() {
 
         <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="min-w-0">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("peopleEvent.filters.event")}
-                </label>
-                <div className="relative">
-                  <CalendarDays
-                    className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Select
-                    value={eventId || "all"}
-                    onValueChange={(v) => setEventId(v === "all" ? "" : v)}
-                  >
-                    <SelectTrigger className="h-10 rounded-xl ps-9">
-                      <SelectValue placeholder={t("peopleEvent.filters.allEvents")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t("peopleEvent.filters.allEvents")}</SelectItem>
-                      {events.map((ev) => (
-                        <SelectItem key={ev.id} value={ev.id}>
-                          {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
-                          {ev.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="min-w-0">
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t("peopleEvent.filters.site")}

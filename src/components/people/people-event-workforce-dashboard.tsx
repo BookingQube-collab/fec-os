@@ -34,6 +34,7 @@ import {
   buildOverviewKpis,
   previousEqualRange,
 } from "@/lib/people-event-attendance-overview";
+import { peopleEventHref } from "@/lib/people-event-selection";
 import {
   listPeopleEventAttendance,
   listPeopleEventCrew,
@@ -129,38 +130,62 @@ export function PeopleEventWorkforceDashboard({
   canPayroll,
   dateFrom,
   dateTo,
+  eventId = null,
 }: {
   canCrew: boolean;
   canAttendance: boolean;
   canPayroll: boolean;
   dateFrom: string;
   dateTo: string;
+  /** When set, KPIs/charts scope to this event (shared People Events selection). */
+  eventId?: string | null;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
+  const selectedEventId = eventId || null;
 
   const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", "hub", dateFrom, dateTo],
+    queryKey: [...queryKeys.people.all, "event-options", "hub", dateFrom, dateTo, selectedEventId],
     queryFn: () => listPeopleEventOptions({ limit: 200 }),
     staleTime: STALE.events,
     enabled: canCrew || canAttendance || canPayroll,
   });
 
   const crewQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-crew", "hub-overview", dateFrom, dateTo],
-    queryFn: () => listPeopleEventCrew({ status: "all", limit: 2000 }),
+    queryKey: [
+      ...queryKeys.people.all,
+      "event-crew",
+      "hub-overview",
+      dateFrom,
+      dateTo,
+      selectedEventId,
+    ],
+    queryFn: () =>
+      listPeopleEventCrew({
+        status: "all",
+        limit: 2000,
+        eventId: selectedEventId,
+      }),
     staleTime: STALE.people,
     enabled: canCrew,
   });
 
   const attendanceQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-attendance", "hub-overview", dateFrom, dateTo],
+    queryKey: [
+      ...queryKeys.people.all,
+      "event-attendance",
+      "hub-overview",
+      dateFrom,
+      dateTo,
+      selectedEventId,
+    ],
     queryFn: () =>
       listPeopleEventAttendance({
         limit: 2000,
         dateFrom,
         dateTo,
+        eventId: selectedEventId,
       }),
     staleTime: STALE.people,
     enabled: canAttendance,
@@ -173,18 +198,25 @@ export function PeopleEventWorkforceDashboard({
       "hub-overview-prev",
       prevRange.from,
       prevRange.to,
+      selectedEventId,
     ],
     queryFn: () =>
       listPeopleEventAttendance({
         limit: 2000,
         dateFrom: prevRange.from,
         dateTo: prevRange.to,
+        eventId: selectedEventId,
       }),
     staleTime: STALE.people,
     enabled: canAttendance,
   });
 
-  const events = eventsQ.data?.events ?? [];
+  const allEvents = eventsQ.data?.events ?? [];
+  const events = useMemo(
+    () =>
+      selectedEventId ? allEvents.filter((ev) => ev.id === selectedEventId) : allEvents,
+    [allEvents, selectedEventId],
+  );
   const crewRows = crewQ.data?.rows ?? [];
   const attendanceRows = attendanceQ.data?.rows ?? [];
   const previousAttendanceRows = prevAttendanceQ.data?.rows ?? [];
@@ -251,7 +283,7 @@ export function PeopleEventWorkforceDashboard({
     },
     {
       id: "assign",
-      href: "/people/event-crew",
+      href: peopleEventHref("/people/event-crew", selectedEventId),
       titleKey: "peopleEvent.dashboard.actionAssignCrew",
       subtitleKey: "peopleEvent.dashboard.actionAssignCrewHint",
       icon: UserPlus,
@@ -260,7 +292,7 @@ export function PeopleEventWorkforceDashboard({
     },
     {
       id: "mark",
-      href: "/people/event-attendance",
+      href: peopleEventHref("/people/event-attendance", selectedEventId),
       titleKey: "peopleEvent.dashboard.actionMarkAttendance",
       subtitleKey: "peopleEvent.dashboard.actionMarkAttendanceHint",
       icon: ClipboardCheck,
@@ -269,7 +301,7 @@ export function PeopleEventWorkforceDashboard({
     },
     {
       id: "coverage",
-      href: "/people/event-shifts",
+      href: peopleEventHref("/people/event-shifts", selectedEventId),
       titleKey: "peopleEvent.dashboard.actionShiftCoverage",
       subtitleKey: "peopleEvent.dashboard.actionShiftCoverageHint",
       icon: Clock3,
@@ -278,7 +310,7 @@ export function PeopleEventWorkforceDashboard({
     },
     {
       id: "report",
-      href: "/people/event-attendance",
+      href: peopleEventHref("/people/event-attendance", selectedEventId),
       titleKey: "peopleEvent.dashboard.actionAttendanceReport",
       subtitleKey: "peopleEvent.dashboard.actionAttendanceReportHint",
       icon: FileBarChart2,
@@ -384,7 +416,7 @@ export function PeopleEventWorkforceDashboard({
               {t("peopleEvent.dashboard.eventWiseTitle")}
             </h3>
             <Link
-              href="/people/event-attendance"
+              href={peopleEventHref("/people/event-attendance", selectedEventId)}
               className="text-sm font-medium text-[#7c3aed] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed]/40"
             >
               {t("peopleEvent.dashboard.viewAllEvents")}
