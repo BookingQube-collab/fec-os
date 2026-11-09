@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarClock, CalendarDays, Download, MapPin, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -28,14 +28,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSites } from "@/hooks/queries/useSites";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { canActorPerform } from "@/lib/arcade/access";
 import { toCsv } from "@/lib/csv-parse";
 import { getEventSchedule } from "@/lib/event-schedule.functions";
-import { formatLocationLabel } from "@/lib/locations/normalize";
 import { buildShiftKpis, groupScheduleShifts } from "@/lib/people-event-shifts-display";
+import {
+  eventSiteOptionsFromEvents,
+  filterPeopleEventsByLocation,
+} from "@/lib/people-event-site-options";
 import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
 import type { Capability } from "@/lib/rbac";
 import { queryKeys } from "@/lib/query-keys";
@@ -49,7 +51,6 @@ function uuidOrEmpty(v: string | null): string {
 export default function PeopleEventShiftsPage() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
-  const { data: sites } = useSites();
   const canEdit = usePermission("events.edit");
   const roles = useUserRoles();
   const { profile } = useAuth();
@@ -65,8 +66,8 @@ export default function PeopleEventShiftsPage() {
   const [locationId, setLocationId] = useState(() => uuidOrEmpty(searchParams.get("locationId")));
 
   const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", locationId || null],
-    queryFn: () => listPeopleEventOptions({ locationId: locationId || null }),
+    queryKey: [...queryKeys.people.all, "event-options"],
+    queryFn: () => listPeopleEventOptions({ locationId: null }),
     staleTime: STALE.events,
     enabled: canView,
   });
@@ -121,7 +122,21 @@ export default function PeopleEventShiftsPage() {
     );
   }
 
-  const events = eventsQ.data?.events ?? [];
+  const allEvents = eventsQ.data?.events ?? [];
+  const eventSites = useMemo(
+    () => eventSiteOptionsFromEvents(allEvents, eventId || null),
+    [allEvents, eventId],
+  );
+  const events = useMemo(
+    () => filterPeopleEventsByLocation(allEvents, locationId || null),
+    [allEvents, locationId],
+  );
+
+  useEffect(() => {
+    if (!locationId || !eventsQ.isSuccess) return;
+    if (eventSites.some((site) => site.id === locationId)) return;
+    setLocationId("");
+  }, [locationId, eventSites, eventsQ.isSuccess]);
 
   return (
     <HrShell>
@@ -243,9 +258,9 @@ export default function PeopleEventShiftsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t("common.allBranches")}</SelectItem>
-                    {(sites ?? []).map((site) => (
+                    {eventSites.map((site) => (
                       <SelectItem key={site.id} value={site.id}>
-                        {formatLocationLabel(site.code, site.name)}
+                        {site.label}
                       </SelectItem>
                     ))}
                   </SelectContent>

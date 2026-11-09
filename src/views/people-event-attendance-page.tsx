@@ -10,7 +10,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarClock,
@@ -41,7 +41,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
-import { useSites } from "@/hooks/queries/useSites";
 import { buildAttendanceCsv } from "@/lib/attendance-display";
 import {
   buildEventAttendancePageKpis,
@@ -53,10 +52,13 @@ import {
 } from "@/lib/people-event-attendance-display";
 import { defaultOverviewRange, formatRangeLabel } from "@/lib/people-event-attendance-overview";
 import {
+  eventSiteOptionsFromEvents,
+  filterPeopleEventsByLocation,
+} from "@/lib/people-event-site-options";
+import {
   listPeopleEventAttendance,
   listPeopleEventOptions,
 } from "@/lib/people-event-workforce.functions";
-import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { downloadCsvContent } from "@/lib/staff-import";
@@ -87,7 +89,6 @@ function ymdOrEmpty(v: string | null): string {
 export default function PeopleEventAttendancePage() {
   const { t, i18n } = useTranslation();
   const searchParams = useSearchParams();
-  const { data: sites } = useSites();
   const { profile } = useAuth();
   const roles = useUserRoles();
   const canModifyMissed = mayModifyEventMissedPunch({
@@ -112,8 +113,8 @@ export default function PeopleEventAttendancePage() {
   const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
 
   const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", locationId || null],
-    queryFn: () => listPeopleEventOptions({ locationId: locationId || null }),
+    queryKey: [...queryKeys.people.all, "event-options"],
+    queryFn: () => listPeopleEventOptions({ locationId: null }),
     staleTime: STALE.events,
   });
 
@@ -163,7 +164,21 @@ export default function PeopleEventAttendancePage() {
   });
 
   const rows = attendanceQ.data?.rows ?? [];
-  const events = eventsQ.data?.events ?? [];
+  const allEvents = eventsQ.data?.events ?? [];
+  const eventSites = useMemo(
+    () => eventSiteOptionsFromEvents(allEvents, eventId || null),
+    [allEvents, eventId],
+  );
+  const events = useMemo(
+    () => filterPeopleEventsByLocation(allEvents, locationId || null),
+    [allEvents, locationId],
+  );
+
+  useEffect(() => {
+    if (!locationId || !eventsQ.isSuccess) return;
+    if (eventSites.some((site) => site.id === locationId)) return;
+    setLocationId("");
+  }, [locationId, eventSites, eventsQ.isSuccess]);
 
   const kpis = useMemo(
     () =>
@@ -341,9 +356,9 @@ export default function PeopleEventAttendancePage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t("common.allBranches")}</SelectItem>
-                      {(sites ?? []).map((site) => (
+                      {eventSites.map((site) => (
                         <SelectItem key={site.id} value={site.id}>
-                          {formatLocationLabel(site.code, site.name)}
+                          {site.label}
                         </SelectItem>
                       ))}
                     </SelectContent>

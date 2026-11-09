@@ -15,8 +15,13 @@ import {
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import type { PeopleEventOption } from "@/lib/people-event-workforce.functions";
 
-type Site = { id: string; code?: string | null; name?: string | null };
+type Site = { id: string; code?: string | null; name?: string | null; label?: string | null };
 
+/**
+ * Shared People → Event workforce filter bar.
+ * Pass `sites` already scoped to event-linked locations (see `eventSiteOptionsFromEvents`) —
+ * never the full FEC mall roster from `useSites()`.
+ */
 export function PeopleEventFilters({
   events,
   sites,
@@ -81,7 +86,7 @@ export function PeopleEventFilters({
               <SelectItem value="all">{t("common.allBranches")}</SelectItem>
               {sites.map((site) => (
                 <SelectItem key={site.id} value={site.id}>
-                  {formatLocationLabel(site.code, site.name)}
+                  {site.label?.trim() || formatLocationLabel(site.code, site.name)}
                 </SelectItem>
               ))}
             </SelectContent>

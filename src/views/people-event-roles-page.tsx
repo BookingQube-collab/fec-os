@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Download, Layers, MapPin, Plus, Settings2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -29,14 +29,16 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEventRoles } from "@/hooks/queries/useEvents";
-import { useSites } from "@/hooks/queries/useSites";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { canActorPerform } from "@/lib/arcade/access";
 import { toCsv } from "@/lib/csv-parse";
 import type { Capability } from "@/lib/rbac";
+import {
+  eventSiteOptionsFromEvents,
+  filterPeopleEventsByLocation,
+} from "@/lib/people-event-site-options";
 import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
-import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { downloadCsvContent } from "@/lib/staff-import";
@@ -49,7 +51,6 @@ export default function PeopleEventRolesPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const searchParams = useSearchParams();
-  const { data: sites } = useSites();
   const canEdit = usePermission("events.edit");
   const roles = useUserRoles();
   const { profile } = useAuth();
@@ -66,19 +67,33 @@ export default function PeopleEventRolesPage() {
   const panelRef = useRef<EventRolesPanelHandle>(null);
 
   const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", locationId || null],
-    queryFn: () => listPeopleEventOptions({ locationId: locationId || null }),
+    queryKey: [...queryKeys.people.all, "event-options"],
+    queryFn: () => listPeopleEventOptions({ locationId: null }),
     staleTime: STALE.events,
     enabled: canView,
   });
 
   const rolesQ = useEventRoles(eventId || null);
 
-  const events = eventsQ.data?.events ?? [];
-  const selectedEvent = useMemo(
-    () => events.find((ev) => ev.id === eventId) ?? null,
-    [events, eventId],
+  const allEvents = eventsQ.data?.events ?? [];
+  const eventSites = useMemo(
+    () => eventSiteOptionsFromEvents(allEvents, eventId || null),
+    [allEvents, eventId],
   );
+  const events = useMemo(
+    () => filterPeopleEventsByLocation(allEvents, locationId || null),
+    [allEvents, locationId],
+  );
+  const selectedEvent = useMemo(
+    () => allEvents.find((ev) => ev.id === eventId) ?? events.find((ev) => ev.id === eventId) ?? null,
+    [allEvents, events, eventId],
+  );
+
+  useEffect(() => {
+    if (!locationId || !eventsQ.isSuccess) return;
+    if (eventSites.some((site) => site.id === locationId)) return;
+    setLocationId("");
+  }, [locationId, eventSites, eventsQ.isSuccess]);
 
   const roleRows = rolesQ.data?.roles ?? [];
   const activeRoles = useMemo(
@@ -264,9 +279,9 @@ export default function PeopleEventRolesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t("common.allBranches")}</SelectItem>
-                    {(sites ?? []).map((site) => (
+                    {eventSites.map((site) => (
                       <SelectItem key={site.id} value={site.id}>
-                        {formatLocationLabel(site.code, site.name)}
+                        {site.label}
                       </SelectItem>
                     ))}
                   </SelectContent>

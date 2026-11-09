@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -51,7 +51,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSites } from "@/hooks/queries/useSites";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { canActorPerform } from "@/lib/arcade/access";
@@ -76,11 +75,14 @@ import {
   formatCrewDateRange,
 } from "@/lib/people-event-crew-display";
 import {
+  eventSiteOptionsFromEvents,
+  filterPeopleEventsByLocation,
+} from "@/lib/people-event-site-options";
+import {
   listPeopleEventAttendance,
   listPeopleEventCrew,
   listPeopleEventOptions,
 } from "@/lib/people-event-workforce.functions";
-import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { downloadCsvContent } from "@/lib/staff-import";
@@ -97,7 +99,6 @@ export default function PeopleEventCrewPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const searchParams = useSearchParams();
-  const { data: sites } = useSites();
   const canEdit = usePermission("events.edit");
   const canHire = usePermission("people.edit_roster");
   const roles = useUserRoles();
@@ -132,8 +133,8 @@ export default function PeopleEventCrewPage() {
   const today = useMemo(() => todayYmd(), []);
 
   const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", locationId || null],
-    queryFn: () => listPeopleEventOptions({ locationId: locationId || null }),
+    queryKey: [...queryKeys.people.all, "event-options"],
+    queryFn: () => listPeopleEventOptions({ locationId: null }),
     staleTime: STALE.events,
   });
 
@@ -199,7 +200,21 @@ export default function PeopleEventCrewPage() {
     () => allRows.filter((r) => assignmentOverlapsRange(r, dateFrom, dateTo)),
     [allRows, dateFrom, dateTo],
   );
-  const events = eventsQ.data?.events ?? [];
+  const allEvents = eventsQ.data?.events ?? [];
+  const eventSites = useMemo(
+    () => eventSiteOptionsFromEvents(allEvents, eventId || null),
+    [allEvents, eventId],
+  );
+  const events = useMemo(
+    () => filterPeopleEventsByLocation(allEvents, locationId || null),
+    [allEvents, locationId],
+  );
+
+  useEffect(() => {
+    if (!locationId || !eventsQ.isSuccess) return;
+    if (eventSites.some((site) => site.id === locationId)) return;
+    setLocationId("");
+  }, [locationId, eventSites, eventsQ.isSuccess]);
   const createEvents = useMemo(
     () =>
       events.map((ev) => ({
@@ -502,9 +517,9 @@ export default function PeopleEventCrewPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t("common.allBranches")}</SelectItem>
-                      {(sites ?? []).map((site) => (
+                      {eventSites.map((site) => (
                         <SelectItem key={site.id} value={site.id}>
-                          {formatLocationLabel(site.code, site.name)}
+                          {site.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
