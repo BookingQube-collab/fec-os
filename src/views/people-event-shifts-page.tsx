@@ -18,6 +18,7 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { EventShiftsKpiStrip } from "@/components/people/event-shifts-kpi-strip";
+import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -190,6 +191,8 @@ export default function PeopleEventShiftsPage() {
           isLoading={Boolean(eventId) && scheduleQ.isLoading}
           hasEvent={Boolean(eventId)}
         />
+
+        <PeopleEventWorkforceDemoTools eventId={eventId || null} />
 
         <section className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">

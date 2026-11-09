@@ -384,10 +384,14 @@ export function EventAttendanceRecordsPanel({
                             </Avatar>
                             <div className="min-w-0">
                               <p className="truncate font-semibold text-foreground">
-                                {row.staffName ?? "—"}
+                                {row.employeeCode?.trim()
+                                  ? `${row.employeeCode.trim()} · ${row.staffName ?? "—"}`
+                                  : (row.staffName ?? "—")}
                               </p>
                               <p className="truncate text-xs text-muted-foreground">
-                                {row.employeeCode ?? "—"}
+                                {row.biometricUserId?.trim()
+                                  ? row.biometricUserId.trim()
+                                  : row.employeeCode ?? "—"}
                               </p>
                             </div>
                           </div>

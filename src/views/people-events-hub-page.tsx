@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -15,16 +16,28 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventWorkforceDashboard } from "@/components/people/people-event-workforce-dashboard";
+import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { canActorPerform } from "@/lib/arcade/access";
+import { mayManageEventWorkforceDemo } from "@/lib/events/event-workforce-demo";
 import {
   defaultOverviewRange,
   formatRangeLabel,
 } from "@/lib/people-event-attendance-overview";
+import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
 import type { Capability } from "@/lib/rbac";
+import { STALE } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 
 export default function PeopleEventsHubPage() {
   const { t, i18n } = useTranslation();
@@ -39,6 +52,7 @@ export default function PeopleEventsHubPage() {
   const initialRange = useMemo(() => defaultOverviewRange(), []);
   const [dateFrom, setDateFrom] = useState(initialRange.from);
   const [dateTo, setDateTo] = useState(initialRange.to);
+  const [demoEventId, setDemoEventId] = useState("");
 
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const rangeLabel = formatRangeLabel(dateFrom, dateTo, locale);
@@ -51,6 +65,18 @@ export default function PeopleEventsHubPage() {
   const canPayroll = can(["payroll.view"]);
   const canOpenEventsSetup = can(["events.view"]);
   const hasAnyModule = canCrew || canAttendance || canPayroll;
+  const canHooDemo = mayManageEventWorkforceDemo({
+    roles,
+    jobTitle: profile?.job_title,
+  });
+
+  const demoEventsQ = useQuery({
+    queryKey: [...queryKeys.people.all, "event-options", "demo-tools"],
+    queryFn: () => listPeopleEventOptions({ limit: 120 }),
+    staleTime: STALE.events,
+    enabled: canHooDemo && hasAnyModule,
+  });
+  const demoEvents = demoEventsQ.data?.events ?? [];
 
   return (
     <HrShell>
@@ -138,6 +164,34 @@ export default function PeopleEventsHubPage() {
         ) : (
           <>
             <PeopleEventWorkforceTabs active="overview" variant="pills" />
+            {canHooDemo ? (
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-black/5 bg-white p-3 shadow-[0_4px_20px_rgba(124,58,237,0.06)] sm:p-4">
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("peopleEvent.demo.eventForSeed")}
+                  </label>
+                  <Select
+                    value={demoEventId || "none"}
+                    onValueChange={(v) => setDemoEventId(v === "none" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-10 max-w-xl rounded-xl">
+                      <SelectValue placeholder={t("peopleEvent.filters.event")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t("peopleEvent.demo.pickEvent")}</SelectItem>
+                      {demoEvents.map((ev) => (
+                        <SelectItem key={ev.id} value={ev.id}>
+                          {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
+                          {ev.name}
+                          {ev.locationName ? ` · ${ev.locationName}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <PeopleEventWorkforceDemoTools eventId={demoEventId || null} />
+              </div>
+            ) : null}
             <PeopleEventWorkforceDashboard
               canCrew={canCrew}
               canAttendance={canAttendance}

@@ -109,15 +109,18 @@ function mapSlot(
   row: Record<string, unknown>,
   staff?: {
     full_name?: string | null;
+    employee_code?: string | null;
     job_title?: string | null;
     is_head_office?: boolean;
   } | null,
 ): EventScheduleSlotRow {
+  const code = staff?.employee_code?.trim() || null;
+  const name = staff?.full_name?.trim() || null;
   return {
     id: String(row.id),
     event_id: String(row.event_id),
     staff_id: String(row.staff_id),
-    staff_name: staff?.full_name ?? null,
+    staff_name: code && name ? `${code} · ${name}` : name,
     staff_job_title: staff?.job_title ?? null,
     staff_is_head_office: Boolean(staff?.is_head_office),
     assignment_id: (row.assignment_id as string | null) ?? null,
@@ -170,12 +173,13 @@ export const getEventSchedule = createAuthenticatedAction(
     const { data: staff } = staffIds.length
       ? await context.supabase
           .from("staff")
-          .select("id, full_name, job_title, location_id")
+          .select("id, full_name, employee_code, job_title, location_id")
           .in("id", staffIds)
       : {
           data: [] as Array<{
             id: string;
             full_name: string;
+            employee_code: string | null;
             job_title: string | null;
             location_id: string | null;
           }>,
@@ -185,6 +189,7 @@ export const getEventSchedule = createAuthenticatedAction(
         s.id as string,
         {
           full_name: s.full_name as string,
+          employee_code: (s.employee_code as string | null) ?? null,
           job_title: (s.job_title as string | null) ?? null,
           is_head_office: Boolean(
             headOfficeLocationId && (s.location_id as string | null) === headOfficeLocationId,
@@ -228,7 +233,13 @@ export const getEventSchedule = createAuthenticatedAction(
       attendance: (att ?? []).map((a) => ({
         id: a.id as string,
         staff_id: a.staff_id as string,
-        staff_name: staffById.get(a.staff_id as string)?.full_name ?? null,
+        staff_name: (() => {
+          const s = staffById.get(a.staff_id as string);
+          if (!s) return null;
+          const code = s.employee_code?.trim();
+          const name = s.full_name?.trim();
+          return code && name ? `${code} · ${name}` : name ?? null;
+        })(),
         work_date: String(a.work_date).slice(0, 10),
         status: String(a.status ?? ""),
         actual_in: (a.actual_in as string | null) ?? null,

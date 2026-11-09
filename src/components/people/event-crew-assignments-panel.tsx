@@ -30,6 +30,7 @@ import {
   FecDropdownTrigger as DropdownMenuTrigger,
 } from "@/components/fec";
 import { assignmentTypeLabel } from "@/lib/events/staff-assignments";
+import { formatStaffCodeBeforeName } from "@/lib/events/event-workforce-demo";
 import {
   formatCrewDateRange,
   personInitials,
@@ -129,8 +130,9 @@ function PersonCell({ row }: { row: PeopleEventCrewRow }) {
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0">
-        <p className="truncate font-medium text-foreground">{row.staffName ?? "—"}</p>
-        <p className="truncate text-xs text-muted-foreground">{row.employeeCode ?? "—"}</p>
+        <p className="truncate font-medium text-foreground">
+          {formatStaffCodeBeforeName(row.employeeCode, row.staffName)}
+        </p>
       </div>
     </div>
   );

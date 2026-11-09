@@ -47,12 +47,14 @@ export function eventAttendanceLocationBadge(row: PeopleEventAttendanceRow): str
 export function toEventAttendanceListingSource(
   row: PeopleEventAttendanceRow,
 ): AttendanceListingSource {
+  const code = row.employeeCode?.trim();
+  const name = row.staffName?.trim();
   return {
     id: row.id,
     locationId: row.locationId ?? undefined,
     locationLabel: eventAttendanceLocationLabel(row),
-    userName: row.staffName ?? "—",
-    deviceUserId: row.biometricUserId,
+    userName: code && name ? `${code} · ${name}` : name || code || "—",
+    deviceUserId: row.biometricUserId ?? row.employeeCode,
     employeeCode: row.employeeCode,
     work_date: row.workDate,
     actual_in: row.actualIn,
