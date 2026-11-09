@@ -33,6 +33,7 @@ import {
   FecDropdownItem as DropdownMenuItem,
   FecDropdownTrigger as DropdownMenuTrigger,
 } from "@/components/fec";
+import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -180,7 +181,6 @@ export function EventSchedulePanel({
   const [addRole, setAddRole] = useState<EventCrewScheduleCategory>("crew");
   const [addEventRoleId, setAddEventRoleId] = useState<string>("");
   const [staffId, setStaffId] = useState("");
-  const [workDate, setWorkDate] = useState(defaultDate);
   const [dateFrom, setDateFrom] = useState(defaultDate);
   const [dateTo, setDateTo] = useState(defaultDate);
   const [scheduledIn, setScheduledIn] = useState("09:00");
@@ -426,11 +426,7 @@ export function EventSchedulePanel({
   }
 
   async function addSlot() {
-    if (addShiftMode === "labour_days") {
-      if (!dateFrom || !dateTo) return;
-    } else if (!workDate) {
-      return;
-    }
+    if (!dateFrom || !dateTo) return;
     setBusy(true);
     try {
       const res = await addEventScheduleForRole({
@@ -439,9 +435,9 @@ export function EventSchedulePanel({
         category: selectedEventRole ? undefined : addRole,
         staff_id: staffId || null,
         fallback_staff_ids: staffForAddRole.map((s) => s.id),
-        work_date: addShiftMode === "event_day" ? workDate : null,
-        date_from: addShiftMode === "labour_days" ? dateFrom : null,
-        date_to: addShiftMode === "labour_days" ? dateTo : null,
+        work_date: null,
+        date_from: dateFrom,
+        date_to: dateTo,
         scheduled_in:
           addShiftMode === "labour_days" ? LABOUR_DAY_DEFAULT_SCHEDULED_IN : scheduledIn,
         scheduled_out:
@@ -463,7 +459,7 @@ export function EventSchedulePanel({
         toast.success(
           addShiftMode === "labour_days"
             ? t("events.schedule.toasts.savedLabourDays", { n: res.inserted })
-            : t("events.schedule.toasts.saved"),
+            : t("events.schedule.toasts.savedRange", { n: res.inserted }),
         );
       } else if (addShiftMode === "labour_days") {
         toast.success(
@@ -845,7 +841,8 @@ export function EventSchedulePanel({
             id="event-shift-add"
             ref={addSectionRef}
             className={cn(
-              "h-fit rounded-2xl border bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)]",
+              "min-w-0 self-start rounded-2xl border bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)]",
+              "xl:sticky xl:top-3 xl:max-h-[calc(100dvh-4.5rem)] xl:overflow-y-auto xl:overflow-x-hidden xl:overscroll-contain",
               slots.length === 0 ? "border-[#7c3aed]/35 ring-1 ring-[#7c3aed]/15" : "border-black/5",
             )}
           >
@@ -910,105 +907,85 @@ export function EventSchedulePanel({
                   })}
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 min-w-0 space-y-3">
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
+                  {addShiftMode === "labour_days"
+                    ? t("peopleEvent.filters.dateRange")
+                    : t("peopleEvent.shifts.shiftDateRange")}
+                </label>
+                <PeopleEventDateRangeControl
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onDateFrom={setDateFrom}
+                  onDateTo={setDateTo}
+                  fromId="event-shift-date-from"
+                  toId="event-shift-date-to"
+                  className="border-border/80"
+                />
+              </div>
+
               {addShiftMode === "labour_days" ? (
-                <>
-                  <div>
+                <div className="grid min-w-0 grid-cols-2 gap-2">
+                  <div className="min-w-0">
                     <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                      {t("events.schedule.dateFrom")}
+                      {t("events.roles.hoursPerDay")}
                     </label>
                     <Input
-                      type="date"
-                      className="h-10 rounded-xl"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
+                      type="number"
+                      min={1}
+                      max={24}
+                      step={0.5}
+                      className="h-10 min-w-0 rounded-xl"
+                      value={
+                        labourHours ||
+                        String(selectedEventRole?.default_hours_per_day || labourBaselineHours)
+                      }
+                      onChange={(e) => setLabourHours(e.target.value)}
                     />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                      {t("events.schedule.dateTo")}
+                      {t("events.roles.dayRate")}
                     </label>
                     <Input
-                      type="date"
-                      className="h-10 rounded-xl"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
+                      type="number"
+                      min={0}
+                      className="h-10 min-w-0 rounded-xl"
+                      value={labourDayRate}
+                      onChange={(e) => setLabourDayRate(e.target.value)}
+                      placeholder={t("events.roles.dayRateOptional")}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                        {t("events.roles.hoursPerDay")}
-                      </label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={24}
-                        step={0.5}
-                        className="h-10 rounded-xl"
-                        value={
-                          labourHours ||
-                          String(selectedEventRole?.default_hours_per_day || labourBaselineHours)
-                        }
-                        onChange={(e) => setLabourHours(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                        {t("events.roles.dayRate")}
-                      </label>
-                      <Input
-                        type="number"
-                        min={0}
-                        className="h-10 rounded-xl"
-                        value={labourDayRate}
-                        onChange={(e) => setLabourDayRate(e.target.value)}
-                        placeholder={t("events.roles.dayRateOptional")}
-                      />
-                    </div>
-                  </div>
-                </>
+                </div>
               ) : (
-                <>
-                  <div>
+                <div className="grid min-w-0 grid-cols-2 gap-2">
+                  <div className="min-w-0">
                     <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                      {t("peopleEvent.shifts.shiftDate")}
+                      {t("events.schedule.scheduledIn")}
                     </label>
                     <Input
-                      type="date"
-                      className="h-10 rounded-xl"
-                      value={workDate}
-                      onChange={(e) => setWorkDate(e.target.value)}
+                      type="time"
+                      className="h-10 min-w-0 rounded-xl"
+                      value={scheduledIn}
+                      onChange={(e) => setScheduledIn(e.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                        {t("events.schedule.scheduledIn")}
-                      </label>
-                      <Input
-                        type="time"
-                        className="h-10 rounded-xl"
-                        value={scheduledIn}
-                        onChange={(e) => setScheduledIn(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                        {t("events.schedule.scheduledOut")}
-                      </label>
-                      <Input
-                        type="time"
-                        className="h-10 rounded-xl"
-                        value={scheduledOut}
-                        onChange={(e) => setScheduledOut(e.target.value)}
-                      />
-                    </div>
+                  <div className="min-w-0">
+                    <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
+                      {t("events.schedule.scheduledOut")}
+                    </label>
+                    <Input
+                      type="time"
+                      className="h-10 min-w-0 rounded-xl"
+                      value={scheduledOut}
+                      onChange={(e) => setScheduledOut(e.target.value)}
+                    />
                   </div>
-                </>
+                </div>
               )}
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">
                   {t("peopleEvent.shifts.assignCrew")}
                 </label>
@@ -1040,10 +1017,7 @@ export function EventSchedulePanel({
 
               <Button
                 className="h-11 w-full rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
-                disabled={
-                  busy ||
-                  (addShiftMode === "labour_days" ? !dateFrom || !dateTo : !workDate)
-                }
+                disabled={busy || !dateFrom || !dateTo}
                 onClick={() => void addSlot()}
               >
                 <Plus className="me-1.5 h-4 w-4" aria-hidden />
@@ -1059,7 +1033,9 @@ export function EventSchedulePanel({
               <div className="flex items-start gap-2 rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2.5 text-xs text-sky-900">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 <p>
-                  {t("events.schedule.addModeEventDayHint")}{" "}
+                  {addShiftMode === "labour_days"
+                    ? t("events.schedule.addModeLabourHint")
+                    : t("events.schedule.addModeEventDayHint")}{" "}
                   <Link
                     href={`/events/${eventId}/corrections`}
                     className="font-semibold underline underline-offset-2"

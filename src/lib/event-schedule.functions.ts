@@ -688,8 +688,12 @@ export const addEventScheduleForRole = createAuthenticatedAction(
       if (!data.date_from || !data.date_to) {
         throw new Error('Labour roles require date_from and date_to');
       }
-    } else if (!data.work_date) {
-      throw new Error('Shift roles require work_date');
+    } else {
+      const shiftFrom = data.date_from || data.work_date;
+      const shiftTo = data.date_to || data.work_date;
+      if (!shiftFrom || !shiftTo) {
+        throw new Error('Shift roles require a From–To date range (or work_date)');
+      }
     }
 
     const targets = selectedRole
@@ -780,29 +784,35 @@ export const addEventScheduleForRole = createAuthenticatedAction(
         }
       }
     } else {
-      const workDate = data.work_date!;
+      const dateFrom = data.date_from || data.work_date!;
+      const dateTo = data.date_to || data.work_date!;
+      if (dateTo < dateFrom) throw new Error('End date must be on or after start');
+      const dates = enumerateDatesInclusive(dateFrom, dateTo);
+      if (!dates.length) throw new Error('Invalid date range');
       const scheduledIn = normalizeTimeHHMM(data.scheduled_in?.trim() || '09:00');
       const scheduledOut = normalizeTimeHHMM(data.scheduled_out?.trim() || '18:00');
       const timeErr = validateScheduleSlotTimes(scheduledIn, scheduledOut);
       if (timeErr) throw new Error(timeErr);
 
       for (const target of targets) {
-        await insertSlot({
-          event_id: data.eventId,
-          staff_id: target.staff_id,
-          assignment_id: target.assignment_id ?? null,
-          work_date: workDate,
-          scheduled_in: scheduledIn + ':00',
-          scheduled_out: scheduledOut + ':00',
-          location_id: event.location_id as string,
-          role_label: roleLabel,
-          event_role_id: eventRoleId,
-          hours_per_day: null,
-          day_rate_qar: null,
-          notes,
-          created_by: context.userId,
-          updated_by: context.userId,
-        });
+        for (const work_date of dates) {
+          await insertSlot({
+            event_id: data.eventId,
+            staff_id: target.staff_id,
+            assignment_id: target.assignment_id ?? null,
+            work_date,
+            scheduled_in: scheduledIn + ':00',
+            scheduled_out: scheduledOut + ':00',
+            location_id: event.location_id as string,
+            role_label: roleLabel,
+            event_role_id: eventRoleId,
+            hours_per_day: null,
+            day_rate_qar: null,
+            notes,
+            created_by: context.userId,
+            updated_by: context.userId,
+          });
+        }
       }
     }
 
