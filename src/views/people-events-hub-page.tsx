@@ -189,7 +189,13 @@ export default function PeopleEventsHubPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <PeopleEventWorkforceDemoTools eventId={demoEventId || null} />
+                <PeopleEventWorkforceDemoTools
+                  eventId={demoEventId || null}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onDateFromChange={setDateFrom}
+                  onDateToChange={setDateTo}
+                />
               </div>
             ) : null}
             <PeopleEventWorkforceDashboard

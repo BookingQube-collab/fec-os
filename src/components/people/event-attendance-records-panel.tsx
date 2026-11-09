@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  CalendarClock,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -23,7 +24,6 @@ import {
   FecDropdownItem as DropdownMenuItem,
   FecDropdownTrigger as DropdownMenuTrigger,
 } from "@/components/fec";
-import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -304,11 +304,21 @@ export function EventAttendanceRecordsPanel({
 
       <div className="p-2 sm:p-4">
         {isLoading ? (
-          <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border/80 bg-muted/10 p-10 text-center text-sm text-muted-foreground">
             {t("common.loading")}
           </div>
         ) : total === 0 ? (
-          <HrEmptyState message={t("peopleEvent.attendance.empty")} />
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 bg-muted/10 px-6 py-14 text-center">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-violet-100 text-[#7c3aed]">
+              <CalendarClock className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+            </span>
+            <p className="text-sm font-semibold text-foreground">
+              {t("peopleEvent.attendance.empty")}
+            </p>
+            <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
+              {t("peopleEvent.attendance.emptyHint")}
+            </p>
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto rounded-xl border border-border/70">

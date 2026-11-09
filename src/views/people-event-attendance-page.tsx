@@ -10,7 +10,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarClock,
@@ -29,6 +29,7 @@ import { EventAttendanceRecordsPanel } from "@/components/people/event-attendanc
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { buildAttendanceCsv } from "@/lib/attendance-display";
+import { EVENT_WORKFORCE_DEMO_MAX_DAYS } from "@/lib/events/event-workforce-demo";
 import {
   buildEventAttendancePageKpis,
   buildEventAttendanceStatusCounts,
@@ -50,7 +52,11 @@ import {
   previousEqualRange,
   toEventAttendanceSummaryRow,
 } from "@/lib/people-event-attendance-display";
-import { defaultOverviewRange, formatRangeLabel } from "@/lib/people-event-attendance-overview";
+import {
+  defaultOverviewRange,
+  formatRangeLabel,
+  rangeForSelectedEvent,
+} from "@/lib/people-event-attendance-overview";
 import {
   eventSiteOptionsFromEvents,
   filterPeopleEventsByLocation,
@@ -97,6 +103,9 @@ export default function PeopleEventAttendancePage() {
   });
 
   const initialRange = useMemo(() => defaultOverviewRange(), []);
+  const urlHadRange = Boolean(
+    ymdOrEmpty(searchParams.get("from")) && ymdOrEmpty(searchParams.get("to")),
+  );
   const [eventId, setEventId] = useState(() => uuidOrEmpty(searchParams.get("eventId")));
   const [locationId, setLocationId] = useState(() => uuidOrEmpty(searchParams.get("locationId")));
   const [dateFrom, setDateFrom] = useState(
@@ -107,6 +116,7 @@ export default function PeopleEventAttendancePage() {
   );
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const prevEventIdRef = useRef<string | undefined>(undefined);
 
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const rangeLabel = formatRangeLabel(dateFrom, dateTo, locale);
@@ -179,6 +189,26 @@ export default function PeopleEventAttendancePage() {
     if (eventSites.some((site) => site.id === locationId)) return;
     setLocationId("");
   }, [locationId, eventSites, eventsQ.isSuccess]);
+
+  // Align From–To to the selected event so seeded punches land inside the filter.
+  useEffect(() => {
+    const listed = eventsQ.data?.events;
+    if (!eventsQ.isSuccess || !listed) return;
+    const prev = prevEventIdRef.current;
+    if (prev === eventId) return;
+    const isFirst = prev === undefined;
+    if (!eventId) {
+      prevEventIdRef.current = eventId;
+      return;
+    }
+    const ev = listed.find((e) => e.id === eventId);
+    if (!ev) return;
+    prevEventIdRef.current = eventId;
+    if (isFirst && urlHadRange) return;
+    const next = rangeForSelectedEvent(ev, initialRange, EVENT_WORKFORCE_DEMO_MAX_DAYS);
+    setDateFrom(next.from);
+    setDateTo(next.to);
+  }, [eventId, eventsQ.isSuccess, eventsQ.data?.events, urlHadRange, initialRange]);
 
   const kpis = useMemo(
     () =>
@@ -315,7 +345,8 @@ export default function PeopleEventAttendancePage() {
                   <Select
                     value={eventId || "all"}
                     onValueChange={(v) => {
-                      setEventId(v === "all" ? "" : v);
+                      const next = v === "all" ? "" : v;
+                      setEventId(next);
                       setSelected(new Set());
                     }}
                   >
@@ -429,6 +460,20 @@ export default function PeopleEventAttendancePage() {
               </div>
             </div>
           </section>
+
+          <PeopleEventWorkforceDemoTools
+            eventId={eventId || null}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={(v) => {
+              setDateFrom(v);
+              setSelected(new Set());
+            }}
+            onDateToChange={(v) => {
+              setDateTo(v);
+              setSelected(new Set());
+            }}
+          />
 
           <EventAttendanceCharts
             status={{

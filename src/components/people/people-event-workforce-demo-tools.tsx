@@ -54,10 +54,19 @@ function defaultRange(): { from: string; to: string } {
 export function PeopleEventWorkforceDemoTools({
   eventId,
   className,
+  dateFrom: controlledFrom,
+  dateTo: controlledTo,
+  onDateFromChange,
+  onDateToChange,
 }: {
   /** Required for seed/delete — event-scoped location only. */
   eventId: string | null | undefined;
   className?: string;
+  /** Optional controlled From–To (e.g. Event Attendance page filters). */
+  dateFrom?: string;
+  dateTo?: string;
+  onDateFromChange?: (value: string) => void;
+  onDateToChange?: (value: string) => void;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -69,8 +78,12 @@ export function PeopleEventWorkforceDemoTools({
   });
 
   const initial = useMemo(() => defaultRange(), []);
-  const [dateFrom, setDateFrom] = useState(initial.from);
-  const [dateTo, setDateTo] = useState(initial.to);
+  const [internalFrom, setInternalFrom] = useState(initial.from);
+  const [internalTo, setInternalTo] = useState(initial.to);
+  const dateFrom = controlledFrom ?? internalFrom;
+  const dateTo = controlledTo ?? internalTo;
+  const setDateFrom = onDateFromChange ?? setInternalFrom;
+  const setDateTo = onDateToChange ?? setInternalTo;
   const [seedOpen, setSeedOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [phrase, setPhrase] = useState("");

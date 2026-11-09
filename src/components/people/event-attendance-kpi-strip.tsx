@@ -101,22 +101,23 @@ export function EventAttendanceKpiStrip({
 
   const totalDelta = formatDelta(kpis.totalDeltaPct);
   const staffDelta = formatDelta(kpis.staffDeltaPct);
+  const hasRows = kpis.totalRecords > 0;
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <KpiCard
         title={t("peopleEvent.attendance.kpiTotalRecords")}
         value={kpis.totalRecords.toLocaleString()}
-        meta={totalDelta ?? undefined}
+        meta={hasRows ? (totalDelta ?? undefined) : undefined}
         metaTone="up"
-        hint={totalDelta ? t("peopleEvent.attendance.kpiVsPrevious") : undefined}
+        hint={hasRows && totalDelta ? t("peopleEvent.attendance.kpiVsPrevious") : undefined}
         icon={FileSpreadsheet}
         iconClass="bg-violet-100 text-[#7c3aed]"
       />
       <KpiCard
         title={t("peopleEvent.attendance.kpiStaff")}
         value={kpis.staffWithAttendance.toLocaleString()}
-        meta={staffDelta ?? undefined}
+        meta={hasRows ? (staffDelta ?? undefined) : undefined}
         metaTone="up"
         icon={Users}
         iconClass="bg-emerald-50 text-emerald-600"
@@ -124,7 +125,7 @@ export function EventAttendanceKpiStrip({
       <KpiCard
         title={t("peopleEvent.attendance.kpiComplete")}
         value={kpis.complete.toLocaleString()}
-        meta={`${kpis.completePct}%`}
+        meta={hasRows ? `${kpis.completePct}%` : undefined}
         metaTone="blue"
         icon={CheckCircle2}
         iconClass="bg-sky-50 text-sky-600"
@@ -132,7 +133,7 @@ export function EventAttendanceKpiStrip({
       <KpiCard
         title={t("peopleEvent.attendance.kpiMissing")}
         value={kpis.missingPunch.toLocaleString()}
-        meta={`${kpis.missingPct}%`}
+        meta={hasRows ? `${kpis.missingPct}%` : undefined}
         metaTone={kpis.missingPunch > 0 ? "red" : "muted"}
         icon={AlertTriangle}
         iconClass="bg-orange-50 text-orange-600"
@@ -146,7 +147,7 @@ export function EventAttendanceKpiStrip({
       <KpiCard
         title={t("peopleEvent.attendance.kpiLate")}
         value={kpis.lateEarlyLeave.toLocaleString()}
-        meta={`${kpis.latePct}%`}
+        meta={hasRows ? `${kpis.latePct}%` : undefined}
         metaTone={kpis.lateEarlyLeave > 0 ? "red" : "muted"}
         icon={UserRound}
         iconClass="bg-rose-50 text-rose-500"

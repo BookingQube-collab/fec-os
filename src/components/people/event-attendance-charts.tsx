@@ -20,7 +20,6 @@ import {
 } from "recharts";
 import { useTranslation } from "react-i18next";
 
-import { ChartEmpty } from "@/components/charts/chart-card";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import {
   CHART_MARGIN,
@@ -149,7 +148,9 @@ export function EventAttendanceCharts({
     <div className="grid min-w-0 gap-4 lg:grid-cols-2">
       <Panel title={t("peopleEvent.attendance.chartByStatus")}>
         {status.total === 0 ? (
-          <ChartEmpty label={empty} className="h-56" />
+          <div className="flex h-56 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 text-center">
+            <p className="text-sm text-muted-foreground">{empty}</p>
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
             <div className="relative h-48 w-48 shrink-0">
@@ -212,7 +213,9 @@ export function EventAttendanceCharts({
         }
       >
         {trendEmpty ? (
-          <ChartEmpty label={empty} />
+          <div className="flex h-56 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 text-center">
+            <p className="text-sm text-muted-foreground">{empty}</p>
+          </div>
         ) : (
           <div className="h-56 min-w-0 sm:h-64">
             <p className="mb-2 text-xs text-muted-foreground">

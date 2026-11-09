@@ -126,6 +126,59 @@ export function defaultOverviewRange(today = new Date()): { from: string; to: st
   return { from: ymd(start), to: ymd(end) };
 }
 
+function isYmd(value: string | null | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function inclusiveDayCount(from: string, to: string): number {
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+}
+
+function addDaysYmdUtc(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Date filter for a selected event so attendance rows are visible after seed.
+ * Uses event start/end; when longer than `maxInclusiveDays`, prefers a window
+ * that includes today (if the event is ongoing), otherwise the first N days.
+ * Falls back when the event has no usable dates.
+ */
+export function rangeForSelectedEvent(
+  event: { dateFrom: string | null; dateTo: string | null } | null | undefined,
+  fallback: { from: string; to: string },
+  maxInclusiveDays = 14,
+  today = new Date(),
+): { from: string; to: string } {
+  if (!isYmd(event?.dateFrom)) return fallback;
+  const from = event.dateFrom;
+  let to = isYmd(event.dateTo) ? event.dateTo : from;
+  if (to < from) to = from;
+
+  const maxDays = Math.max(1, maxInclusiveDays);
+  if (inclusiveDayCount(from, to) <= maxDays) return { from, to };
+
+  const todayYmd = new Date(
+    Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()),
+  )
+    .toISOString()
+    .slice(0, 10);
+
+  if (todayYmd >= from && todayYmd <= to) {
+    const windowEnd = todayYmd;
+    let windowFrom = addDaysYmdUtc(windowEnd, -(maxDays - 1));
+    if (windowFrom < from) windowFrom = from;
+    return { from: windowFrom, to: windowEnd };
+  }
+
+  const cappedTo = addDaysYmdUtc(from, maxDays - 1);
+  return { from, to: cappedTo > to ? to : cappedTo };
+}
+
 export function previousEqualRange(from: string, to: string): { from: string; to: string } {
   const start = new Date(`${from}T00:00:00Z`);
   const end = new Date(`${to}T00:00:00Z`);
