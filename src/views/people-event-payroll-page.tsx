@@ -52,6 +52,7 @@ import { usePermission } from "@/hooks/use-permission";
 import { toCsv } from "@/lib/csv-parse";
 import { createEventPayrollPeriod } from "@/lib/event-payroll.functions";
 import {
+  generatePayrollLines,
   listPayrollPeriodLineStats,
   listPayrollPeriods,
 } from "@/lib/hr-payroll.functions";
@@ -202,6 +203,25 @@ export default function PeopleEventPayrollPage() {
     ]);
   }
 
+  async function generateForPeriod(periodId: string) {
+    setBusy(true);
+    try {
+      const res = await generatePayrollLines({ periodId });
+      await refresh();
+      if (res.inserted <= 0) {
+        toast.warning(t("peopleEvent.payroll.generateEmpty"), {
+          description: t("peopleEvent.payroll.generateEmptyHint"),
+        });
+        return;
+      }
+      toast.success(t("events.payroll.toasts.generated", { n: res.inserted }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createPeriod() {
     if (!eventId) {
       toast.error(t("peopleEvent.payroll.needEvent"));
@@ -210,7 +230,6 @@ export default function PeopleEventPayrollPage() {
     setBusy(true);
     try {
       const created = await createEventPayrollPeriod({ eventId });
-      await refresh();
       toast.success(
         created.windowSynced
           ? t("events.payroll.toasts.windowSynced")
@@ -219,12 +238,37 @@ export default function PeopleEventPayrollPage() {
             : t("events.payroll.toasts.created"),
         { description: t("peopleEvent.payroll.nextGenerate") },
       );
+      // Create alone leaves KPIs at 0 — generate lines immediately for the selected event.
+      try {
+        const res = await generatePayrollLines({ periodId: created.id });
+        await refresh();
+        if (res.inserted > 0) {
+          toast.success(t("events.payroll.toasts.generated", { n: res.inserted }));
+        } else {
+          toast.warning(t("peopleEvent.payroll.generateEmpty"), {
+            description: t("peopleEvent.payroll.generateEmptyHint"),
+          });
+        }
+      } catch (genErr) {
+        await refresh();
+        toast.error((genErr as Error).message);
+      }
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
+
+  const generateTargetPeriodId = useMemo(() => {
+    if (!eventId) return null;
+    const forEvent = filteredPeriods.filter(
+      (p) => ((p as { eventId?: string | null }).eventId ?? null) === eventId,
+    );
+    if (!forEvent.length) return null;
+    const withoutLines = forEvent.find((p) => (statsByPeriod.get(p.id)?.crewCount ?? 0) === 0);
+    return (withoutLines ?? forEvent[0])!.id;
+  }, [eventId, filteredPeriods, statsByPeriod]);
 
   function exportCsv() {
     if (!tableRows.length) return;
@@ -456,7 +500,24 @@ export default function PeopleEventPayrollPage() {
             createDisabled={!eventId}
             hasEvent={Boolean(eventId)}
             setupHref={setupHref}
+            canGenerate={canGenerate}
+            generateBusy={busy}
+            generateDisabled={!generateTargetPeriodId}
+            generateNeedsLines={
+              Boolean(
+                generateTargetPeriodId &&
+                  (statsByPeriod.get(generateTargetPeriodId)?.crewCount ?? 0) === 0,
+              )
+            }
             onCreate={() => void createPeriod()}
+            onGenerate={() => {
+              if (!generateTargetPeriodId) {
+                toast.error(t("peopleEvent.payroll.needPeriodToGenerate"));
+                return;
+              }
+              void generateForPeriod(generateTargetPeriodId);
+            }}
+            onGeneratePeriod={(periodId) => void generateForPeriod(periodId)}
             onExportCsv={exportCsv}
             locale={locale}
           />

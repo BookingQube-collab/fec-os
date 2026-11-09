@@ -27,17 +27,16 @@ export const EVENT_WORKFORCE_DEMO_COUNTS = {
 } as const;
 
 /**
- * Qatar market day rates (QAR) used for labour-kind roles / overrides.
- * Shift roles (crew, cashier) keep null day rate — paid via shift/attendance hours.
+ * Qatar market day rates (QAR) for demo event pay.
+ * Labour uses role kind=labour; crew/cashier are shift-kind but still carry day rates
+ * so Event Payroll generate can produce QAR without monthly compensation rows.
  */
 export const QATAR_EVENT_DEMO_DAY_RATES_QAR = {
   /** General event labour (10h day). */
   labour: 150,
   cleaner: 130,
   maintenance: 180,
-  /** Reference only — cashier is shift-kind, not charged as labour day. */
   cashier: 200,
-  /** Reference only — crew is shift-kind. */
   crew: 180,
 } as const;
 
@@ -62,7 +61,7 @@ export const EVENT_WORKFORCE_DEMO_ROLE_CATALOG: readonly EventRoleDraft[] = [
     name: "Crew",
     kind: "shift",
     default_hours_per_day: LABOUR_DAY_BASELINE_HOURS,
-    default_day_rate_qar: null,
+    default_day_rate_qar: QATAR_EVENT_DEMO_DAY_RATES_QAR.crew,
     sort_order: 0,
   },
   {
@@ -70,7 +69,7 @@ export const EVENT_WORKFORCE_DEMO_ROLE_CATALOG: readonly EventRoleDraft[] = [
     name: "Cashier",
     kind: "shift",
     default_hours_per_day: LABOUR_DAY_BASELINE_HOURS,
-    default_day_rate_qar: null,
+    default_day_rate_qar: QATAR_EVENT_DEMO_DAY_RATES_QAR.cashier,
     sort_order: 1,
   },
   {
@@ -221,7 +220,7 @@ export function buildDemoStaffPool(): DemoStaffSpec[] {
       jobTitle: "Event Crew",
       staffRole: "crew",
       roleCode: "crew",
-      dayRateQar: null,
+      dayRateQar: QATAR_EVENT_DEMO_DAY_RATES_QAR.crew,
     });
   }
   for (let i = 1; i <= EVENT_WORKFORCE_DEMO_COUNTS.cashier; i += 1) {
@@ -232,7 +231,7 @@ export function buildDemoStaffPool(): DemoStaffSpec[] {
       jobTitle: "Cashier",
       staffRole: "cashier",
       roleCode: "cashier",
-      dayRateQar: null,
+      dayRateQar: QATAR_EVENT_DEMO_DAY_RATES_QAR.cashier,
     });
   }
   for (let i = 1; i <= EVENT_WORKFORCE_DEMO_COUNTS.labour; i += 1) {

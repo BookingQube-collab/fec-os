@@ -174,11 +174,11 @@ describe("event pay eligibility and tracks", () => {
     expect(split.all.sort()).toEqual(["clean1", "crew1", "lab1"]);
   });
 
-  it("encodes labour hours÷hours_in_day × day charge policy", () => {
+  it("encodes labour day rate × paid calendar days policy", () => {
     expect(EVENT_PAY_POLICY.paidWindow).toBe("event_open_dates");
-    expect(EVENT_PAY_POLICY.labourTrack).toBe("hours_over_day_charge");
+    expect(EVENT_PAY_POLICY.labourTrack).toBe("day_rate_times_paid_days");
     expect(EVENT_PAY_POLICY.managementExcluded).toBe(true);
-    expect(EVENT_PAY_POLICY.labourDayPayUsesHoursOverBaseline).toBe(true);
+    expect(EVENT_PAY_POLICY.labourDayPayUsesHoursOverBaseline).toBe(false);
   });
 });
 

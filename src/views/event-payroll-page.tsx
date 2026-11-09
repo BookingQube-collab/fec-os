@@ -102,7 +102,11 @@ export default function EventPayrollPage() {
       if (!periodId) periodId = await ensurePeriod();
       if (!periodId) return;
       const res = await generatePayrollLines({ periodId });
-      await qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id), "payroll"] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: [...queryKeys.events.staffing(id), "payroll"] }),
+        qc.invalidateQueries({ queryKey: queryKeys.people.hrPayrollPeriods({ periodKind: "event" }) }),
+        qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-payroll-line-stats"] }),
+      ]);
       toast.success(t("events.payroll.toasts.generated", { n: res.inserted }));
     } catch (e) {
       toast.error((e as Error).message);

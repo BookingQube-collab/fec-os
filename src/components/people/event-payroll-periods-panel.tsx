@@ -12,6 +12,7 @@ import {
   Eye,
   Plus,
   Settings2,
+  WandSparkles,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -95,6 +96,12 @@ export function EventPayrollPeriodsPanel({
   createBusy,
   createDisabled,
   onCreate,
+  canGenerate,
+  generateBusy,
+  generateDisabled,
+  generateNeedsLines,
+  onGenerate,
+  onGeneratePeriod,
   onExportCsv,
   setupHref,
   hasEvent,
@@ -107,6 +114,13 @@ export function EventPayrollPeriodsPanel({
   /** True when Create should stay visible but inactive (e.g. no shared eventId). */
   createDisabled?: boolean;
   onCreate?: () => void;
+  canGenerate?: boolean;
+  generateBusy?: boolean;
+  generateDisabled?: boolean;
+  /** Highlight Generate when the selected event period still has no lines. */
+  generateNeedsLines?: boolean;
+  onGenerate?: () => void;
+  onGeneratePeriod?: (periodId: string) => void;
   onExportCsv?: () => void;
   /** Deep link to Event pay (setup) for the selected event. */
   setupHref?: string | null;
@@ -182,6 +196,27 @@ export function EventPayrollPeriodsPanel({
               {t("peopleEvent.payroll.createPeriod")}
             </Button>
           ) : null}
+          {canGenerate ? (
+            <Button
+              size="sm"
+              disabled={generateBusy || generateDisabled}
+              title={
+                generateDisabled
+                  ? t("peopleEvent.payroll.needPeriodToGenerate")
+                  : t("peopleEvent.payroll.generateHint")
+              }
+              onClick={onGenerate}
+              className={
+                generateNeedsLines
+                  ? "h-10 rounded-xl bg-[#7c3aed] px-4 text-white hover:bg-[#6d28d9]"
+                  : "h-10 rounded-xl border-border/80 bg-white"
+              }
+              variant={generateNeedsLines ? "default" : "outline"}
+            >
+              <WandSparkles className="me-1.5 h-3.5 w-3.5" aria-hidden />
+              {t("peopleEvent.payroll.generate")}
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
@@ -237,8 +272,19 @@ export function EventPayrollPeriodsPanel({
                     {t("peopleEvent.payroll.createPeriod")}
                   </Button>
                 ) : null}
+                {canGenerate ? (
+                  <Button
+                    size="sm"
+                    disabled={generateBusy || generateDisabled}
+                    onClick={onGenerate}
+                    className="h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
+                  >
+                    <WandSparkles className="me-1.5 h-3.5 w-3.5" aria-hidden />
+                    {t("peopleEvent.payroll.generate")}
+                  </Button>
+                ) : null}
                 {setupHref ? (
-                  <Button asChild size="sm" className="h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]">
+                  <Button asChild size="sm" variant="outline" className="h-9 rounded-xl">
                     <Link href={setupHref}>
                       <Settings2 className="me-1.5 h-3.5 w-3.5" aria-hidden />
                       {t("peopleEvent.links.openEventPay")}
@@ -319,6 +365,19 @@ export function EventPayrollPeriodsPanel({
                     </td>
                     <td className="px-4 py-3 align-middle">
                       <div className="flex items-center justify-end gap-0.5">
+                        {canGenerate && stats.crewCount === 0 ? (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            disabled={generateBusy}
+                            className="h-8 w-8 text-[#7c3aed]"
+                            aria-label={t("peopleEvent.payroll.generate")}
+                            title={t("peopleEvent.payroll.generateHint")}
+                            onClick={() => onGeneratePeriod?.(row.id)}
+                          >
+                            <WandSparkles className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                         <Button
                           asChild
                           size="icon"

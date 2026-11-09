@@ -406,6 +406,26 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
     const staff = await ensureDemoStaffPool(locationId, context.userId);
     const roleIdByCode = await ensureDemoRoles(context, data.eventId);
 
+    // Day rates on compensation so Generate lines can pay even if assignment rate columns lag.
+    const compensationRows = staff
+      .filter((s) => s.dayRateQar != null && s.dayRateQar > 0)
+      .map((s) => ({
+        staff_id: s.id,
+        daily_rate_qar: s.dayRateQar,
+        monthly_salary_qar: null as number | null,
+        updated_by: context.userId,
+        updated_at: new Date().toISOString(),
+      }));
+    for (let i = 0; i < compensationRows.length; i += 100) {
+      const chunk = compensationRows.slice(i, i + 100);
+      const { error: compErr } = await supabaseAdmin
+        .from("staff_compensation")
+        .upsert(chunk, { onConflict: "staff_id" });
+      if (compErr && !/staff_compensation|schema cache|does not exist/i.test(compErr.message)) {
+        throw compErr;
+      }
+    }
+
     // Assignments for the selected range only.
     const assignmentRows = staff.map((s) => ({
       event_id: data.eventId,
@@ -413,7 +433,7 @@ export const seedEventWorkforceDemo = createAuthenticatedAction(
       assignment_type: "event_hire" as const,
       role_label: s.roleCode,
       event_role_id: roleIdByCode.get(s.roleCode) ?? null,
-      hours_per_day: s.bucket === "labour" ? 10 : null,
+      hours_per_day: 10,
       day_rate_qar: s.dayRateQar,
       date_from: data.dateFrom,
       date_to: data.dateTo,

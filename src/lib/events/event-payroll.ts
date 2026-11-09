@@ -12,7 +12,7 @@ import { isPayrollPaidNonWorkDay, isPayrollPresentDay, type PayrollDayInput } fr
  * event_pay_policy — product defaults.
  *
  * - Paid window = event open dates (event_start → event_end)
- * - Labour track = per-day charges (day rate × paid event days)
+ * - Labour track = day rate × paid event days (attendance paid-day units + late policy)
  * - Staff track = crew / maintenance / cleaners (salary day units + late policy)
  * - Management / HO management = excluded from the event pay run
  * - Loaned with pay_on_event_run → those days excluded from monthly generate
@@ -20,17 +20,17 @@ import { isPayrollPaidNonWorkDay, isPayrollPresentDay, type PayrollDayInput } fr
  */
 export const EVENT_PAY_POLICY = {
   paidWindow: "event_open_dates",
-  /** Labour roles: (hours_worked / hours_in_day) × per_day_charge. */
-  labourTrack: "hours_over_day_charge",
+  /** Labour roles: day_rate × paid calendar days in the event open window. */
+  labourTrack: "day_rate_times_paid_days",
   staffTrack: "crew_maintenance_cleaners_salary_days",
   managementExcluded: true,
   venue: "existing_location_or_add_site",
   punches: "host_site_devices_or_event_device_set",
   loanedPayOnEventExcludedFromMonthly: true,
   eventOnlyAndJokerOnEventRun: true,
-  /** Labour: (hours_worked / hours_in_day) × per_day_charge. */
+  /** Schedule/UI helper baseline; event generate uses paid calendar day units. */
   labourDayBaselineHours: LABOUR_DAY_BASELINE_HOURS,
-  labourDayPayUsesHoursOverBaseline: true,
+  labourDayPayUsesHoursOverBaseline: false,
 } as const;
 
 export type EventPayTrack = "labour" | "staff";

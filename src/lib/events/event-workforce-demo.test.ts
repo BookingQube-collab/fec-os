@@ -45,6 +45,20 @@ describe("event workforce demo pool", () => {
     expect(QATAR_EVENT_DEMO_DAY_RATES_QAR.cleaner).toBe(130);
     expect(QATAR_EVENT_DEMO_DAY_RATES_QAR.maintenance).toBe(180);
   });
+
+  it("gives crew and cashier day rates so event generate can produce QAR", () => {
+    const pool = buildDemoStaffPool();
+    expect(pool.every((p) => p.dayRateQar != null && p.dayRateQar > 0)).toBe(true);
+    expect(pool.find((p) => p.bucket === "crew")?.dayRateQar).toBe(
+      QATAR_EVENT_DEMO_DAY_RATES_QAR.crew,
+    );
+    expect(pool.find((p) => p.bucket === "cashier")?.dayRateQar).toBe(
+      QATAR_EVENT_DEMO_DAY_RATES_QAR.cashier,
+    );
+    expect(pool.find((p) => p.bucket === "labour")?.dayRateQar).toBe(
+      QATAR_EVENT_DEMO_DAY_RATES_QAR.labour,
+    );
+  });
 });
 
 describe("demo date range", () => {

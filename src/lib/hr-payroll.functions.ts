@@ -63,7 +63,6 @@ import {
   excludeEventPaidDaysFromMonthly,
   payrollExportMonthLabel,
   staffIdsForEventPayRunByTrack,
-  sumLabourDayPayUnitsForStaff,
 } from "@/lib/events/event-payroll";
 import {
   resolveLabourDayRateQar,
@@ -516,9 +515,10 @@ export const generatePayrollLines = createAuthenticatedAction(
     const lateDeductPolicy = await readLateDeductPolicy(context);
 
     let eventStaffIds: string[] | null = null;
-    const eventLabourByStaff = new Map<
+    /** Labour (always) + staff-track rows with an assignment/role day rate. */
+    const eventDayRateByStaff = new Map<
       string,
-      { hoursPerDay: number; dayRateQar: number | null }
+      { hoursPerDay: number; dayRateQar: number | null; track: "labour" | "staff" }
     >();
     if (isEventPeriod && eventId) {
       let assignRes = await supabaseAdmin
@@ -617,20 +617,34 @@ export const generatePayrollLines = createAuthenticatedAction(
         dateTo,
       );
       eventStaffIds = trackSplit.all;
+      const labourSet = new Set(trackSplit.labour);
+      const staffSet = new Set(trackSplit.staff);
       for (const a of assignments) {
         const staffId = a.staff_id as string;
-        if (!trackSplit.labour.includes(staffId)) continue;
+        const track = labourSet.has(staffId)
+          ? ("labour" as const)
+          : staffSet.has(staffId)
+            ? ("staff" as const)
+            : null;
+        if (!track) continue;
         const roleId = (a as { event_role_id?: string | null }).event_role_id ?? null;
         const role = roleId ? roleById.get(roleId) : null;
-        eventLabourByStaff.set(staffId, {
+        const dayRateQar = resolveLabourDayRateQar({
+          day_rate_qar: (a as { day_rate_qar?: number | null }).day_rate_qar ?? null,
+          role_default_day_rate_qar: role?.default_day_rate_qar ?? null,
+        });
+        // Labour always uses role/assignment day charge; staff-track only when a day rate is set
+        // (demo event hires / day-rate temps without monthly compensation).
+        if (track === "staff" && !(dayRateQar != null && dayRateQar > 0)) continue;
+        const prev = eventDayRateByStaff.get(staffId);
+        if (prev?.track === "labour" && track === "staff") continue;
+        eventDayRateByStaff.set(staffId, {
           hoursPerDay: resolveLabourHoursPerDay({
             hours_per_day: (a as { hours_per_day?: number | null }).hours_per_day ?? null,
             role_default_hours_per_day: role?.default_hours_per_day ?? null,
           }),
-          dayRateQar: resolveLabourDayRateQar({
-            day_rate_qar: (a as { day_rate_qar?: number | null }).day_rate_qar ?? null,
-            role_default_day_rate_qar: role?.default_day_rate_qar ?? null,
-          }),
+          dayRateQar,
+          track,
         });
       }
       if (!eventStaffIds.length) {
@@ -909,17 +923,25 @@ export const generatePayrollLines = createAuthenticatedAction(
       }
       const exitDate = ext?.last_working_date ?? ext?.releasing_date ?? null;
       const employmentCategory = ext?.employment_category ?? s.employment_type;
-      const labourMeta = isEventPeriod ? eventLabourByStaff.get(s.id) : undefined;
+      const eventRateMeta = isEventPeriod ? eventDayRateByStaff.get(s.id) : undefined;
+      const useEventDayRate =
+        eventRateMeta != null &&
+        (eventRateMeta.track === "labour" ||
+          !(Number.isFinite(monthlyStored) && (monthlyStored as number) > 0));
       const resolved = resolveDailyRatePayroll({
         employmentType: s.employment_type,
         employmentCategory,
         monthlySalaryQar: monthlyStored,
         dailyRateQar:
-          labourMeta?.dayRateQar != null ? labourMeta.dayRateQar : dailyStored,
+          useEventDayRate && eventRateMeta?.dayRateQar != null
+            ? eventRateMeta.dayRateQar
+            : dailyStored,
       });
-      const dailyPay = labourMeta != null ? true : resolved.dailyPay;
+      const dailyPay = useEventDayRate ? true : resolved.dailyPay;
       const dayRateQar =
-        labourMeta?.dayRateQar != null ? labourMeta.dayRateQar : resolved.dayRateQar;
+        useEventDayRate && eventRateMeta?.dayRateQar != null
+          ? eventRateMeta.dayRateQar
+          : resolved.dayRateQar;
       const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? {
         absent: 0,
         unpaidLeave: 0,
@@ -942,12 +964,19 @@ export const generatePayrollLines = createAuthenticatedAction(
       const lateDates = listPayrollLateWorkedDates(dayInputs, s.id, paidBounds);
       // Late deduct from HR payroll policy (default: each late → half day).
       const lateUnits = sumPaidUnitsWithLatePolicy(paidDates, lateDates, lateDeductPolicy);
-      // Labour roles: (hours_worked / hours_in_day) × day charge. Staff track: paid day units + late.
-      // Management is already excluded from the event staff set.
-      const workedDays =
-        labourMeta != null
-          ? sumLabourDayPayUnitsForStaff(dayInputs, s.id, paidBounds, labourMeta.hoursPerDay)
-          : lateUnits.units;
+      // Event + monthly: paid calendar day units (+ late policy). Labour day charge × days;
+      // staff salary-day units use the same paid-day set. Management is already excluded.
+      const workedDays = lateUnits.units;
+      let workingHours = 0;
+      for (const day of dayInputs) {
+        if (day.staff_id !== s.id) continue;
+        const workDate = day.work_date ? String(day.work_date).slice(0, 10) : null;
+        if (!workDate) continue;
+        if (paidBounds.from && workDate < paidBounds.from) continue;
+        if (paidBounds.to && workDate > paidBounds.to) continue;
+        workingHours += Math.max(0, Number(day.worked_minutes) || 0) / 60;
+      }
+      workingHours = Math.round((workingHours + Number.EPSILON) * 100) / 100;
       const submittedOtMinutes = submittedOtMinutesByStaff.get(s.id) ?? 0;
       const approvedOtMinutes = approvedOtMinutesByStaff.get(s.id) ?? 0;
       const submittedOtHours = minutesToOtHours(submittedOtMinutes);
@@ -1110,6 +1139,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         variance_vs_prev: computed.varianceVsPrev,
         proration_factor: computed.prorationFactor,
         working_days: workedDays,
+        working_hours: workingHours > 0 ? workingHours : null,
         notes: noteParts.length ? noteParts.join("; ") : null,
         snapshot: {
           presentDays: workedDays,
@@ -1141,7 +1171,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           advancePay: 0,
           deduction: Math.round((deductionTotal + Number.EPSILON) * 100) / 100,
           workingDays: workedDays,
-          workingHours: null,
+          workingHours: workingHours > 0 ? workingHours : null,
           wps: paymentMethod === "wps" ? payNet : 0,
           cash: paymentMethod === "cash" ? payNet : 0,
           bankTransfer: paymentMethod === "bank_transfer" ? payNet : 0,
