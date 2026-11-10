@@ -12,6 +12,7 @@ export type LeaveInsightRequest = {
   dateFrom: string;
   dateTo: string;
   status: string;
+  plannerOverride?: boolean;
 };
 
 export type LeaveRosterDay = {
@@ -127,6 +128,23 @@ export function buildLeaveInsights(input: LeaveInsightInput): AssistResult {
   for (const item of dayItems.slice(0, 10)) {
     const { weight: _weight, ...rest } = item;
     items.push(rest);
+  }
+
+  for (const request of requests) {
+    if (!ACTIVE.has(request.status) || !request.plannerOverride) continue;
+    items.push({
+      id: `planner-override:${request.id}`,
+      titleKey: "hrAssist.leave.planner_override.title",
+      whyKey: "hrAssist.leave.planner_override.why",
+      evidenceKey: "hrAssist.leave.planner_override.evidence",
+      actionKey: "hrAssist.leave.action",
+      values: {
+        staffName: request.staffName.trim() || request.staffId,
+        leaveType: request.leaveType,
+        periodFrom: request.dateFrom.slice(0, 10),
+        periodTo: request.dateTo.slice(0, 10),
+      },
+    });
   }
 
   const patterns = new Map<string, { staffName: string; leaveType: string; count: number; from: string; to: string }>();

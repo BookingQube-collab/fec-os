@@ -282,6 +282,8 @@ export function MyDayLeaveApprovals({
       days: row.days,
       reason: row.reason,
       status: row.status,
+      plannerOverride: Boolean(row.plannerOverride),
+      plannerOverrideReasons: row.plannerOverrideReasons ?? [],
       steps: (row.steps ?? []).map((step) => ({
         stepRole: step.stepRole,
         status: step.status,
@@ -399,6 +401,20 @@ export function MyDayLeaveApprovals({
                     </div>
                     <span className="hd-approval__kind">{t(`hr.leave.types.${row.leaveType}`)}</span>
                   </header>
+                  {row.plannerOverride ? (
+                    <div className="hd-approval__block">
+                      <p className="hd-approval__label text-amber-800 dark:text-amber-200">
+                        {t("hr.leave.planner.overrideBadge", { defaultValue: "Planner override" })}
+                      </p>
+                      {(row.plannerOverrideReasons ?? []).length > 0 ? (
+                        <ul className="mt-1 list-disc ps-4 text-xs text-muted-foreground">
+                          {row.plannerOverrideReasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <dl className="hd-approval__facts">
                     <div className="hd-approval__fact">
                       <dt>{t("hr.leave.from")}</dt>

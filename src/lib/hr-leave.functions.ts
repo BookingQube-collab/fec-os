@@ -74,6 +74,7 @@ import {
   sumUsedLeaveDays,
 } from "@/lib/hr-advanced";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
+import { evaluateHoLeavePlannerForStaff } from "@/lib/hr-leave-planner.functions";
 import { policyNumber } from "@/lib/hr-policy";
 import { readLeaveAllotmentDefaults, readPolicySection } from "@/lib/hr-policy-read";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
@@ -218,6 +219,10 @@ function mapLeaveRow(
     emergencyTreatment: (row.emergency_treatment as string | null) ?? null,
     compassionateScope: (row.compassionate_scope as string | null) ?? null,
     requestNumber: (row.request_number as string | null) ?? null,
+    plannerOverride: Boolean(row.planner_override),
+    plannerOverrideReasons: Array.isArray(row.planner_override_reasons)
+      ? (row.planner_override_reasons as unknown[]).map((r) => String(r))
+      : [],
     documentId: document.documentId,
     documentFileName: document.documentFileName,
     createdAt: String(row.created_at),
@@ -854,7 +859,7 @@ export const listLeaveRequests = createAuthenticatedAction(
       const { data: rows, error } = await supabaseAdmin
         .from("hr_leave_requests")
         .select(
-          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
+          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, planner_override, planner_override_reasons, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
         )
         .in("id", leaveIds)
         .neq("status", "cancelled")
@@ -866,7 +871,7 @@ export const listLeaveRequests = createAuthenticatedAction(
           const { data: fallback, error: fallbackErr } = await supabaseAdmin
             .from("hr_leave_requests")
             .select(
-              "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
+              "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, planner_override, planner_override_reasons, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
             )
             .in("id", leaveIds)
             .neq("status", "cancelled")
@@ -945,7 +950,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     let query = leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
+        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, planner_override, planner_override_reasons, document_id, created_at, staff(full_name, employee_code, phone, job_title, department, location_id), document:hr_employee_documents!document_id(id, file_name)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -965,7 +970,7 @@ export const listLeaveRequests = createAuthenticatedAction(
       let fallback = leaveDb
         .from("hr_leave_requests")
         .select(
-          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
+          "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, planner_override, planner_override_reasons, created_at, staff(full_name, employee_code, phone, job_title, department, location_id)",
         )
         .order("created_at", { ascending: false })
         .limit(200);
@@ -1299,6 +1304,31 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
     const { assertCasualLeaveAllowedForStaff } = await import("@/lib/hr-warnings-guards");
     await assertCasualLeaveAllowedForStaff(context, staff.id, data.leaveType);
 
+    // HO Leave Planner: hard-block non-emergency DECLINE; emergency may override with stamp.
+    const planner = await evaluateHoLeavePlannerForStaff(context, {
+      staffId: String(staff.id),
+      locationId: staff.location_id as string | null,
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+      leaveType: data.leaveType,
+    });
+    if (planner && planner.result === "DECLINE" && data.leaveType !== "emergency") {
+      return {
+        id: null as string | null,
+        days,
+        conflicts: [] as Awaited<ReturnType<typeof loadLeaveConflicts>>,
+        requiresAck: false as const,
+        blocked: true as const,
+        plannerBlocked: true as const,
+        plannerReasons: planner.reasons,
+        plannerCodes: planner.codes,
+        finalized: false as const,
+        openingStep: null as string | null,
+      };
+    }
+    const plannerOverride = Boolean(planner?.wouldDecline && data.leaveType === "emergency");
+    const plannerOverrideReasons = plannerOverride ? planner!.reasons : [];
+
     if (data.leaveType === "comp_off") {
       if (!data.compOffBalanceId) throw new Error("Comp-off leave requires a balance row.");
       const { data: balance, error: balErr } = await context.supabase
@@ -1330,6 +1360,9 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         conflicts,
         requiresAck: false as const,
         blocked: true as const,
+        plannerBlocked: false as const,
+        plannerReasons: [] as string[],
+        plannerCodes: [] as string[],
         finalized: false as const,
         openingStep: null as string | null,
       };
@@ -1341,6 +1374,9 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         conflicts,
         requiresAck: true as const,
         blocked: false as const,
+        plannerBlocked: false as const,
+        plannerReasons: [] as string[],
+        plannerCodes: [] as string[],
         finalized: false as const,
         openingStep: null as string | null,
       };
@@ -1461,6 +1497,8 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         current_step_role: openingStep,
         payroll_impact: false,
         request_number: requestNumber,
+        planner_override: plannerOverride,
+        planner_override_reasons: plannerOverrideReasons,
       })
       .select("id, request_number")
       .single();
@@ -1515,6 +1553,10 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         conflicts,
         requiresAck: false as const,
         blocked: false as const,
+        plannerBlocked: false as const,
+        plannerReasons: [] as string[],
+        plannerCodes: [] as string[],
+        plannerOverride,
         finalized: true as const,
         openingStep: null as string | null,
         syncedDays: synced.syncedDays,
@@ -1551,6 +1593,10 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       conflicts,
       requiresAck: false as const,
       blocked: false as const,
+      plannerBlocked: false as const,
+      plannerReasons: [] as string[],
+      plannerCodes: [] as string[],
+      plannerOverride,
       finalized: false as const,
       openingStep: openingStep as string | null,
     };
@@ -2082,6 +2128,28 @@ export const recordLeaveForStaff = createAuthenticatedAction(
     const locationId = data.locationId ?? (staff.location_id as string | null) ?? null;
     if (!locationId) throw new Error("Staff has no home location; pick a location for leave sync.");
 
+    const planner = await evaluateHoLeavePlannerForStaff(context, {
+      staffId: String(staff.id),
+      locationId: staff.location_id as string | null,
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+      leaveType: data.leaveType,
+    });
+    if (planner && planner.result === "DECLINE" && data.leaveType !== "emergency") {
+      return {
+        id: null as string | null,
+        days,
+        conflicts: [] as Awaited<ReturnType<typeof loadLeaveConflicts>>,
+        requiresAck: false as const,
+        blocked: true as const,
+        plannerBlocked: true as const,
+        plannerReasons: planner.reasons,
+        syncedDays: 0,
+      };
+    }
+    const plannerOverride = Boolean(planner?.wouldDecline && data.leaveType === "emergency");
+    const plannerOverrideReasons = plannerOverride ? planner!.reasons : [];
+
     const conflicts = await loadLeaveConflicts(context, staff.id as string, data.dateFrom, data.dateTo);
     if (hasHardLeaveOverlap(conflicts)) {
       return {
@@ -2090,6 +2158,8 @@ export const recordLeaveForStaff = createAuthenticatedAction(
         conflicts,
         requiresAck: false as const,
         blocked: true as const,
+        plannerBlocked: false as const,
+        plannerReasons: [] as string[],
         syncedDays: 0,
       };
     }
@@ -2100,6 +2170,8 @@ export const recordLeaveForStaff = createAuthenticatedAction(
         conflicts,
         requiresAck: true as const,
         blocked: false as const,
+        plannerBlocked: false as const,
+        plannerReasons: [] as string[],
         syncedDays: 0,
       };
     }
@@ -2119,6 +2191,8 @@ export const recordLeaveForStaff = createAuthenticatedAction(
         current_step_role: "hr",
         payroll_impact: Boolean(data.payrollImpact),
         request_number: requestNumber,
+        planner_override: plannerOverride,
+        planner_override_reasons: plannerOverrideReasons,
       })
       .select("id, request_number")
       .single();

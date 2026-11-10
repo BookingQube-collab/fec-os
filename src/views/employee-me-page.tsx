@@ -15,6 +15,7 @@ import {
   LeaveDocumentLightbox,
   type LeaveDocumentPreviewTarget,
 } from "@/components/hr/leave-document-preview";
+import { LeavePlannerGateBanner } from "@/components/hr/leave-planner-gate";
 import { MeLeavePanel } from "@/components/hr/me-leave-panel";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
@@ -67,7 +68,7 @@ import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { invalidateLeaveLists } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
-import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
+import { HR_EMERGENCY_TREATMENTS, HR_LEAVE_TYPES } from "@/lib/hr-leave";
 import { type LeaveConflict } from "@/lib/hr-advanced";
 
 const INSTALL_DISMISS_KEY = "fec-employee-install-dismissed";
@@ -206,7 +207,10 @@ export default function EmployeeMePage() {
   const [leaveDocFile, setLeaveDocFile] = useState<File | null>(null);
   const [leaveDocInputKey, setLeaveDocInputKey] = useState(0);
   const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
+  const [emergencyTreatment, setEmergencyTreatment] =
+    useState<(typeof HR_EMERGENCY_TREATMENTS)[number]>("unpaid");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
+  const [plannerReasons, setPlannerReasons] = useState<string[]>([]);
   const [leavePreviewDoc, setLeavePreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
   const [leavePrintPayload, setLeavePrintPayload] = useState<
     LeaveRequestPrintPayload | LeaveRequestPrintPayload[] | null
@@ -361,6 +365,7 @@ export default function EmployeeMePage() {
         reason: leaveReason || null,
         acknowledgeConflicts: acknowledgeConflicts ?? false,
         compassionateScope: leaveType === "compassionate" ? compassionateScope : null,
+        emergencyTreatment: leaveType === "emergency" ? emergencyTreatment : null,
         staffId: selectedLeaveStaffId || null,
         document,
       });
@@ -368,8 +373,19 @@ export default function EmployeeMePage() {
       return result.data;
     },
     onSuccess: (res) => {
+      if ("plannerBlocked" in res && res.plannerBlocked) {
+        setPlannerReasons(res.plannerReasons ?? []);
+        setLeaveConflicts([]);
+        toast.error(
+          t("hr.leave.planner.blockedToast", {
+            defaultValue: "Leave planner blocked this request. Use Emergency leave if needed.",
+          }),
+        );
+        return;
+      }
       if ("blocked" in res && res.blocked) {
         setLeaveConflicts(res.conflicts);
+        setPlannerReasons([]);
         toast.error(t("hr.leave.overlapBlocked"));
         return;
       }
@@ -891,6 +907,63 @@ export default function EmployeeMePage() {
                         { value: "outside_qatar", label: t("hr.leave.compassionateOutside") },
                       ]}
                     />
+                  ) : null}
+                  {leaveType === "emergency" ? (
+                    <SearchableSelect
+                      className="mt-2"
+                      value={emergencyTreatment}
+                      onValueChange={(value) =>
+                        setEmergencyTreatment(value as (typeof HR_EMERGENCY_TREATMENTS)[number])
+                      }
+                      aria-label={t("hr.leave.emergencyTreatment", { defaultValue: "Emergency treatment" })}
+                      options={HR_EMERGENCY_TREATMENTS.map((value) => ({
+                        value,
+                        label: t(`hr.leave.emergencyTreatments.${value}`, {
+                          defaultValue:
+                            value === "deduct_annual"
+                              ? "Deduct from annual"
+                              : value === "partial"
+                                ? "Partial"
+                                : "Unpaid",
+                        }),
+                      }))}
+                    />
+                  ) : null}
+                  <LeavePlannerGateBanner
+                    dateFrom={leaveFrom}
+                    dateTo={leaveTo || leaveFrom}
+                    leaveType={leaveType}
+                    staffId={selectedLeaveStaffId || null}
+                    onSwitchToEmergency={() => setLeaveType("emergency")}
+                  />
+                  {plannerReasons.length > 0 ? (
+                    <div className="mt-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+                      <p className="font-medium">
+                        {t("hr.leave.planner.blocked", {
+                          defaultValue:
+                            "Leave planner: DECLINE — annual leave cannot be submitted for these dates.",
+                        })}
+                      </p>
+                      <ul className="mt-1 list-disc ps-4">
+                        {plannerReasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-2"
+                        variant="secondary"
+                        onClick={() => {
+                          setLeaveType("emergency");
+                          setPlannerReasons([]);
+                        }}
+                      >
+                        {t("hr.leave.planner.switchEmergency", {
+                          defaultValue: "Switch to Emergency leave",
+                        })}
+                      </Button>
+                    </div>
                   ) : null}
                   {leaveType === "sick" ? (
                     <div className="mt-2 space-y-1">

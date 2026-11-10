@@ -42,6 +42,13 @@ const NAV_SEARCH_ALIASES: Record<string, string[]> = {
   "/people/payroll": ["payroll", "salary", "workbook"],
   "/people/field": ["geofence", "gps", "field", "face"],
   "/people/leave": ["leave", "time off"],
+  "/people/leave-planner": [
+    "leave planner",
+    "annual leave planner",
+    "blackout",
+    "head office leave",
+    "leave quota",
+  ],
   "/people/employee-app": ["employee app", "pwa", "mobile"],
   "/people/extras": ["extras", "legacy", "duplicate", "roster"],
   "/daily-ops": ["daily ops", "ops"],

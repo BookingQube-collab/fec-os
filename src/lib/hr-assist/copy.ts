@@ -128,6 +128,11 @@ export const HR_ASSIST_COPY = {
       why: "Pattern requires HR review. {{staffName}} has {{count}} {{leaveTypeLabel}} requests between {{periodFrom}} and {{periodTo}}. A person in HR should look at the dates and decide.",
       evidence: "Request count {{count}}. Type {{leaveTypeLabel}}. First day {{periodFrom}}. Last day {{periodTo}}.",
     },
+    planner_override: {
+      title: "Emergency planner override",
+      why: "{{staffName}} submitted emergency leave for {{periodFrom}}–{{periodTo}} that overrides the Head Office leave planner block. Review coverage carefully before approving.",
+      evidence: "Leave type {{leaveType}}. Dates {{periodFrom}} to {{periodTo}}.",
+    },
   },
   openModule: "Open the record",
   viewEvidence: "View evidence",

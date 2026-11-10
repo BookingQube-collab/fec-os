@@ -277,7 +277,7 @@ export const getLeaveAssistInsights = createAuthenticatedAction(
     const requests = await loadPages(async (from, to) => {
       const { data: page, error } = await context.supabase
         .from("hr_leave_requests")
-        .select("id, staff_id, leave_type, date_from, date_to, status, staff(full_name, location_id)")
+        .select("id, staff_id, leave_type, date_from, date_to, status, planner_override, staff(full_name, location_id)")
         .in("status", ["pending", "approved", "rejected"])
         .lte("date_from", dateTo)
         .gte("date_to", dateFrom)
@@ -349,6 +349,7 @@ export const getLeaveAssistInsights = createAuthenticatedAction(
         dateFrom: text(row.date_from).slice(0, 10),
         dateTo: text(row.date_to).slice(0, 10),
         status: text(row.status),
+        plannerOverride: Boolean(row.planner_override),
       };
     });
     const locationIds = [...new Set(mappedRequests.map((row) => row.locationId).filter((id): id is string => Boolean(id)))];

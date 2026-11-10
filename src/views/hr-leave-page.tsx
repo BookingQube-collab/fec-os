@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palmtree } from "lucide-react";
+import { CalendarRange, Palmtree } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ import {
   LeaveDocumentLightbox,
   type LeaveDocumentPreviewTarget,
 } from "@/components/hr/leave-document-preview";
+import { LeavePlannerGateBanner } from "@/components/hr/leave-planner-gate";
 import {
   LeaveRequestPrintDialog,
   type LeaveRequestPrintPayload,
@@ -98,6 +100,8 @@ export function HrLeaveWorkspace({
     days: row.days,
     reason: row.reason,
     status: row.status,
+    plannerOverride: Boolean(row.plannerOverride),
+    plannerOverrideReasons: row.plannerOverrideReasons ?? [],
     steps: (row.steps ?? []).map((step) => ({
       stepRole: step.stepRole,
       status: step.status,
@@ -258,6 +262,15 @@ export function HrLeaveWorkspace({
   const recordLeave = useMutation({
     mutationFn: recordLeaveForStaff,
     onSuccess: (res) => {
+      if ("plannerBlocked" in res && res.plannerBlocked) {
+        toast.error(
+          (res.plannerReasons ?? [])[0] ||
+            t("hr.leave.planner.blockedToast", {
+              defaultValue: "Leave planner blocked this request. Use Emergency leave if needed.",
+            }),
+        );
+        return;
+      }
       if (res.blocked) {
         toast.error(t("hr.leave.overlapBlocked"));
         return;
@@ -330,6 +343,14 @@ export function HrLeaveWorkspace({
                 {t(`hr.leave.status.${value}`)}
               </button>
             ))}
+            {canManage && !embedded ? (
+              <Button asChild type="button" size="sm" variant="secondary" className="min-h-9 gap-1.5">
+                <Link href="/people/leave-planner">
+                  <CalendarRange className="size-3.5" aria-hidden />
+                  {t("nav.hrLeavePlanner", { defaultValue: "Leave planner" })}
+                </Link>
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
@@ -400,6 +421,11 @@ export function HrLeaveWorkspace({
                             <span className="ms-2 font-mono text-xs font-semibold text-muted-foreground">
                               {row.requestNumber}
                             </span>
+                          ) : null}
+                          {row.plannerOverride ? (
+                            <Badge variant="secondary" className="ms-2 align-middle text-[0.65rem]">
+                              {t("hr.leave.planner.overrideBadge", { defaultValue: "Planner override" })}
+                            </Badge>
                           ) : null}
                         </p>
                         <p className="text-xs text-muted-foreground">
@@ -533,6 +559,16 @@ export function HrLeaveWorkspace({
                 <div className="sm:col-span-2">
                   <Label>{t("hr.leave.reason")}</Label>
                   <Input value={recordReason} onChange={(e) => setRecordReason(e.target.value)} />
+                </div>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <LeavePlannerGateBanner
+                    dateFrom={recordFrom}
+                    dateTo={recordTo}
+                    leaveType={recordType}
+                    staffId={effectiveRecordStaffId || null}
+                    enabled={Boolean(effectiveRecordStaffId && recordFrom && recordTo)}
+                    onSwitchToEmergency={() => setRecordType("emergency")}
+                  />
                 </div>
                 <div className="flex items-end gap-2">
                   <Button

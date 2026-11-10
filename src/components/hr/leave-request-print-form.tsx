@@ -41,6 +41,9 @@ export type LeaveRequestPrintPayload = {
   days: number;
   reason: string | null;
   status?: HrLeaveStatus | null;
+  /** Emergency leave that overrode HO planner DECLINE. */
+  plannerOverride?: boolean;
+  plannerOverrideReasons?: string[];
   /** Approval trail — drives which signature cells fill after each seat approves. */
   steps?: LeaveRequestPrintStep[];
   /**
@@ -159,6 +162,21 @@ function LeaveRequestSheet({ payload }: { payload: LeaveRequestPrintPayload }) {
           value={formatLetterheadDisplayDate(payload.dateTo)}
         />
       </div>
+
+      {payload.plannerOverride ? (
+        <div className="mt-4 rounded border border-amber-600/40 bg-amber-50 px-3 py-2 text-[10px] text-amber-950">
+          <p className="font-bold uppercase tracking-wide">
+            {t("hr.leave.planner.overrideBadge", { defaultValue: "Planner override" })}
+          </p>
+          {(payload.plannerOverrideReasons ?? []).length > 0 ? (
+            <ul className="mt-1 list-disc ps-4">
+              {payload.plannerOverrideReasons!.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-5">
         <p className="text-[10px] font-bold uppercase tracking-wide text-neutral-800">
