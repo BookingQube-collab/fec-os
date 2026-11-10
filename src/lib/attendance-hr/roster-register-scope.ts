@@ -432,6 +432,133 @@ export function rosterAmendRecalcLocationIds(existingLocationId: string, nextLoc
   return [existingLocationId, nextLocationId];
 }
 
+/** UTC weekday index for a YYYY-MM-DD (0 = Sunday … 6 = Saturday). */
+export function rosterWeekdayUtc(ymd: string): number {
+  return new Date(`${ymd.slice(0, 10)}T12:00:00.000Z`).getUTCDay();
+}
+
+/** Clamp an apply window inside the visible roster period. */
+export function clampRosterPatternRange(
+  periodFrom: string,
+  periodTo: string,
+  applyFrom: string,
+  applyTo: string,
+): { dateFrom: string; dateTo: string } {
+  const from = applyFrom.slice(0, 10) < periodFrom.slice(0, 10) ? periodFrom.slice(0, 10) : applyFrom.slice(0, 10);
+  const to = applyTo.slice(0, 10) > periodTo.slice(0, 10) ? periodTo.slice(0, 10) : applyTo.slice(0, 10);
+  return { dateFrom: from, dateTo: to };
+}
+
+export type RosterPatternExistingDay = {
+  id: string;
+  workDate: string;
+  leaveType?: string | null;
+  isWeekOff?: boolean;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+  locationId?: string | null;
+};
+
+export type RosterPatternDayPlan =
+  | { workDate: string; action: "skip_leave"; dayStatus: RosterDayStatus }
+  | {
+      workDate: string;
+      action: "create" | "update";
+      dayStatus: "on_duty" | "weekly_off";
+      assignmentId?: string;
+      changed: boolean;
+    };
+
+/**
+ * Plan one staff member’s working / week-off pattern across a date range.
+ * Leave days (annual / sick / comp off) are left alone so bulk edit never clears HR leave.
+ */
+export function planRosterStaffPattern(input: {
+  dateFrom: string;
+  dateTo: string;
+  offWeekdays: readonly number[];
+  existing: readonly RosterPatternExistingDay[];
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+}): {
+  plans: RosterPatternDayPlan[];
+  createCount: number;
+  updateCount: number;
+  changeCount: number;
+  skipLeaveCount: number;
+  workingDayCount: number;
+  weekOffCount: number;
+} {
+  const offSet = new Set(input.offWeekdays.filter((d) => d >= 0 && d <= 6));
+  const byDate = new Map<string, RosterPatternExistingDay>();
+  for (const row of input.existing) {
+    const key = row.workDate.slice(0, 10);
+    if (!byDate.has(key)) byDate.set(key, row);
+  }
+
+  const plans: RosterPatternDayPlan[] = [];
+  let createCount = 0;
+  let updateCount = 0;
+  let changeCount = 0;
+  let skipLeaveCount = 0;
+  let workingDayCount = 0;
+  let weekOffCount = 0;
+
+  for (const workDate of enumerateYmd(input.dateFrom, input.dateTo)) {
+    const existing = byDate.get(workDate);
+    const currentStatus = existing
+      ? rosterDayStatusFromRow({
+          isWeekOff: Boolean(existing.isWeekOff),
+          leaveType: existing.leaveType,
+        })
+      : null;
+
+    if (currentStatus && isRosterLeaveType(currentStatus)) {
+      skipLeaveCount += 1;
+      plans.push({ workDate, action: "skip_leave", dayStatus: currentStatus });
+      continue;
+    }
+
+    const dayStatus: "on_duty" | "weekly_off" = offSet.has(rosterWeekdayUtc(workDate))
+      ? "weekly_off"
+      : "on_duty";
+    if (dayStatus === "weekly_off") weekOffCount += 1;
+    else workingDayCount += 1;
+
+    if (!existing) {
+      createCount += 1;
+      changeCount += 1;
+      plans.push({ workDate, action: "create", dayStatus, changed: true });
+      continue;
+    }
+
+    const timesMatch =
+      dayStatus === "weekly_off" ||
+      (String(existing.shiftStart ?? "").slice(0, 5) === String(input.shiftStart ?? "").slice(0, 5) &&
+        String(existing.shiftEnd ?? "").slice(0, 5) === String(input.shiftEnd ?? "").slice(0, 5));
+    const changed = currentStatus !== dayStatus || !timesMatch;
+    updateCount += 1;
+    if (changed) changeCount += 1;
+    plans.push({
+      workDate,
+      action: "update",
+      dayStatus,
+      assignmentId: existing.id,
+      changed,
+    });
+  }
+
+  return {
+    plans,
+    createCount,
+    updateCount,
+    changeCount,
+    skipLeaveCount,
+    workingDayCount,
+    weekOffCount,
+  };
+}
+
 /**
  * Walk PostgREST pages via .range(). A bare .limit(N) still stops at max_rows (~1000),
  * which truncates later FEC-month days when ordered work_date ASC.

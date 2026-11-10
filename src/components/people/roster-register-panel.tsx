@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileDown, FileSpreadsheet, LayoutGrid, LayoutList, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { CalendarClock, FileDown, FileSpreadsheet, LayoutGrid, LayoutList, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   forwardRef,
   memo,
@@ -21,6 +21,7 @@ import { ExportButton } from "@/components/export/export-button";
 import { FecLoader } from "@/components/fec";
 
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { RosterBulkPatternDialog } from "@/components/people/roster-bulk-pattern-dialog";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { useFileExport } from "@/hooks/use-file-export";
 import { e3RosterRegisterExportFilename } from "@/lib/attendance-hr/roster-register-export";
@@ -210,11 +211,13 @@ type RosterMatrixStaffRowProps = {
   canAmend: boolean;
   onEdit: (row: RosterRegisterRow) => void;
   onCreate: (workDate: string, staffId: string | null) => void;
+  onBulkPattern: (person: RosterMatrixStaff) => void;
   offLabel: string;
   annualLabel: string;
   sickLabel: string;
   compOffLabel: string;
   addDayLabel: (ymd: string) => string;
+  bulkPatternLabel: string;
 };
 
 /** One staff × month row — memoized so filter UI updates do not remount every cell. */
@@ -226,19 +229,36 @@ const RosterMatrixStaffRow = memo(function RosterMatrixStaffRow({
   canAmend,
   onEdit,
   onCreate,
+  onBulkPattern,
   offLabel,
   annualLabel,
   sickLabel,
   compOffLabel,
   addDayLabel,
+  bulkPatternLabel,
 }: RosterMatrixStaffRowProps) {
   return (
     <tr className="border-b border-border/50" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 3rem" }}>
       <td className={ROSTER_STICKY_NO}>{index + 1}</td>
       <td className={ROSTER_STICKY_STAFF}>
-        <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
-        <div className="truncate text-[10px] text-muted-foreground">
-          {person.employeeCode || person.qid || ""}
+        <div className="flex items-start gap-1">
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
+            <div className="truncate text-[10px] text-muted-foreground">
+              {person.employeeCode || person.qid || ""}
+            </div>
+          </div>
+          {canAmend ? (
+            <button
+              type="button"
+              className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              onClick={() => onBulkPattern(person)}
+              aria-label={bulkPatternLabel}
+              title={bulkPatternLabel}
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
       </td>
       {dates.map((ymd) => {
@@ -369,6 +389,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [draft, setDraft] = useState<Draft | null>(null);
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
     const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
+    const [bulkPatternPerson, setBulkPatternPerson] = useState<RosterMatrixStaff | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
     const [matrixScrollTop, setMatrixScrollTop] = useState(0);
 
@@ -822,6 +843,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       [defaultLocationId, locationId],
     );
 
+    const startBulkPattern = useCallback((person: RosterMatrixStaff) => {
+      setEditingId(null);
+      setCreateWorkDate(null);
+      setCreateStaffId("");
+      setDraft(null);
+      setBulkPatternPerson(person);
+    }, []);
+
     const cancelEdit = () => {
       setEditingId(null);
       setCreateWorkDate(null);
@@ -865,6 +894,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const cellAnnualLabel = t("people.roster.registerCellAnnual");
     const cellSickLabel = t("people.roster.registerCellSick");
     const cellCompOffLabel = t("people.roster.registerCellCompOff");
+    const bulkPatternLabel = t("people.roster.bulkPatternAction");
 
     const emptyMessage = sourceUploadOnly
       ? t("people.roster.registerEmpty")
@@ -1433,11 +1463,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                       canAmend={canAmend}
                       onEdit={startEdit}
                       onCreate={startCreate}
+                      onBulkPattern={startBulkPattern}
                       offLabel={cellOffLabel}
                       annualLabel={cellAnnualLabel}
                       sickLabel={cellSickLabel}
                       compOffLabel={cellCompOffLabel}
                       addDayLabel={addDayLabel}
+                      bulkPatternLabel={bulkPatternLabel}
                     />
                   );
                 })}
@@ -1734,6 +1766,20 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <RosterBulkPatternDialog
+          open={bulkPatternPerson != null}
+          onOpenChange={(open) => {
+            if (!open) setBulkPatternPerson(null);
+          }}
+          person={bulkPatternPerson}
+          periodFrom={dateFrom}
+          periodTo={dateTo}
+          defaultLocationId={locationId || defaultLocationId || ""}
+          locationOptions={locationOptions}
+          existingRows={rows}
+          onApplied={() => invalidateRosterCaches(qc)}
+        />
       </div>
     );
   },

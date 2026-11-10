@@ -37,11 +37,13 @@ import { matchShiftTemplate, parseTimeCell } from "@/lib/attendance-hr/roster-up
 import {
   assertRosterDeletePeriod,
   chunkIds,
+  clampRosterPatternRange,
   collectPagedRows,
   collectPagedRowsInWaves,
   isRosterAssignableStaffStatus,
-  rosterAmendRecalcLocationIds,
   isRosterLeaveType,
+  planRosterStaffPattern,
+  rosterAmendRecalcLocationIds,
   rosterHiddenStaffIds,
   rosterPatchFromDayStatus,
   rosterRowsForAssignedStaff,
@@ -1451,6 +1453,239 @@ export const updateRosterAssignment = createSafeAuthenticatedAction(
       shiftStart: patch.needsShiftTimes ? shiftStart : null,
       shiftEnd: patch.needsShiftTimes ? shiftEnd : null,
       shiftTemplateId: patch.needsShiftTimes ? shiftTemplateId : null,
+    };
+  },
+  rosterAmendAuth,
+);
+
+/**
+ * Apply one staff member’s weekday working / week-off pattern across a date range
+ * inside the current roster period. Leave days stay untouched. Same amend RBAC as
+ * single-cell create/update.
+ */
+export const applyRosterStaffPattern = createSafeAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    locationId: z.string().uuid(),
+    /** Visible roster period bounds (used to clamp the apply window). */
+    periodFrom: ymd,
+    periodTo: ymd,
+    /** Inclusive apply window; clamped to periodFrom–periodTo. */
+    dateFrom: ymd,
+    dateTo: ymd,
+    /** UTC weekdays marked week-off (0 = Sunday … 6 = Saturday). */
+    offWeekdays: z.array(z.number().int().min(0).max(6)).max(7),
+    shiftStart: z.string().nullable().optional(),
+    shiftEnd: z.string().nullable().optional(),
+    /** When true, move existing rows onto locationId. Default keeps each row’s site. */
+    overrideLocation: z.boolean().optional().default(false),
+  }),
+  async (data, context) => {
+    await assertCanAmendRoster(context);
+    const actor = await resolveRosterActor(context);
+    const db = actor.db;
+    assertRosterTeamStaff(actor, data.staffId);
+    await assertRosterWriteLocation(actor, context, data.locationId);
+    assertRosterDeletePeriod(data.periodFrom, data.periodTo);
+
+    const { dateFrom, dateTo } = clampRosterPatternRange(
+      data.periodFrom,
+      data.periodTo,
+      data.dateFrom,
+      data.dateTo,
+    );
+    if (dateFrom > dateTo) {
+      throw new Error("Apply range must fall inside the current roster period.");
+    }
+    assertRosterDeletePeriod(dateFrom, dateTo);
+
+    const offWeekdays = [...new Set(data.offWeekdays)].sort((a, b) => a - b);
+    const shiftStart = parseHm(data.shiftStart);
+    const shiftEnd = parseHm(data.shiftEnd);
+    if (offWeekdays.length < 7 && (!shiftStart || !shiftEnd)) {
+      throw new Error("Working days need both shift start and end times.");
+    }
+
+    const { data: assignmentRows, error: assignmentErr } = await db
+      .from("attendance_roster_assignments")
+      .select("id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source")
+      .eq("staff_id", data.staffId)
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .order("work_date", { ascending: true });
+    if (assignmentErr) throw assignmentErr;
+
+    const { data: leaveRows, error: leaveErr } = await db
+      .from("attendance_leave_records")
+      .select("leave_date, leave_type")
+      .eq("staff_id", data.staffId)
+      .gte("leave_date", dateFrom)
+      .lte("leave_date", dateTo);
+    if (leaveErr) throw leaveErr;
+
+    const leaveByDate = new Map<string, string>();
+    for (const row of leaveRows ?? []) {
+      const leaveDate = String(row.leave_date).slice(0, 10);
+      const leaveType = String(row.leave_type ?? "");
+      if (isRosterLeaveType(leaveType)) leaveByDate.set(leaveDate, leaveType);
+    }
+
+    const existing = (assignmentRows ?? []).map((row) => {
+      const workDate = String(row.work_date).slice(0, 10);
+      return {
+        id: String(row.id),
+        workDate,
+        isWeekOff: Boolean(row.is_week_off),
+        leaveType: leaveByDate.get(workDate) ?? null,
+        shiftStart: row.shift_start ? String(row.shift_start).slice(0, 5) : null,
+        shiftEnd: row.shift_end ? String(row.shift_end).slice(0, 5) : null,
+        locationId: String(row.location_id),
+        source: String(row.source ?? "manual"),
+        shiftTemplateId: (row.shift_template_id as string | null) ?? null,
+      };
+    });
+
+    // Leave can exist without an assignment row — still skip those days.
+    for (const [workDate, leaveType] of leaveByDate) {
+      if (existing.some((row) => row.workDate === workDate)) continue;
+      existing.push({
+        id: `leave:${workDate}`,
+        workDate,
+        isWeekOff: false,
+        leaveType,
+        shiftStart: null,
+        shiftEnd: null,
+        locationId: data.locationId,
+        source: "leave",
+        shiftTemplateId: null,
+      });
+    }
+
+    const plan = planRosterStaffPattern({
+      dateFrom,
+      dateTo,
+      offWeekdays,
+      existing,
+      shiftStart,
+      shiftEnd,
+    });
+
+    const shifts = await loadActiveShiftTemplates(db);
+    const shiftTemplateId =
+      shiftStart && shiftEnd ? matchShiftTemplate(shiftStart, shiftEnd, data.locationId, shifts) : null;
+
+    const byId = new Map(existing.filter((row) => !row.id.startsWith("leave:")).map((row) => [row.id, row]));
+    const recalcByLocation = new Map<string, { minDate: string; maxDate: string }>();
+    const touchLocation = (locationId: string, workDate: string) => {
+      const current = recalcByLocation.get(locationId);
+      if (!current) {
+        recalcByLocation.set(locationId, { minDate: workDate, maxDate: workDate });
+        return;
+      }
+      if (workDate < current.minDate) current.minDate = workDate;
+      if (workDate > current.maxDate) current.maxDate = workDate;
+    };
+
+    let created = 0;
+    let updated = 0;
+    let unchanged = 0;
+
+    for (const step of plan.plans) {
+      if (step.action === "skip_leave") continue;
+      if (step.action === "create") {
+        const patch = rosterPatchFromDayStatus(step.dayStatus);
+        const { error: insErr } = await db.from("attendance_roster_assignments").insert({
+          location_id: data.locationId,
+          staff_id: data.staffId,
+          work_date: step.workDate,
+          is_week_off: patch.isWeekOff,
+          shift_template_id: patch.needsShiftTimes ? shiftTemplateId : null,
+          shift_start: patch.needsShiftTimes ? shiftStart : null,
+          shift_end: patch.needsShiftTimes ? shiftEnd : null,
+          source: "manual",
+          created_by: context.userId,
+        });
+        if (insErr) throw insErr;
+        await syncRosterLeaveRecord(db, {
+          locationId: data.locationId,
+          staffId: data.staffId,
+          workDate: step.workDate,
+          leaveType: null,
+          userId: context.userId,
+        });
+        touchLocation(data.locationId, step.workDate);
+        created += 1;
+        continue;
+      }
+
+      const assignmentId = step.assignmentId;
+      if (!assignmentId) continue;
+      const current = byId.get(assignmentId);
+      if (!current) continue;
+
+      const nextLocationId = data.overrideLocation ? data.locationId : current.locationId;
+      if (nextLocationId !== current.locationId) {
+        await assertRosterWriteLocation(actor, context, nextLocationId);
+      }
+      await assertRosterWriteLocation(actor, context, current.locationId);
+
+      if (!step.changed && nextLocationId === current.locationId) {
+        unchanged += 1;
+        continue;
+      }
+
+      const patch = rosterPatchFromDayStatus(step.dayStatus);
+      const nextSource =
+        current.source === "upload" || current.source === "amend" ? "amend" : current.source;
+      const matchedTemplate =
+        patch.needsShiftTimes && shiftStart && shiftEnd
+          ? matchShiftTemplate(shiftStart, shiftEnd, nextLocationId, shifts)
+          : null;
+
+      const { error: updErr } = await db
+        .from("attendance_roster_assignments")
+        .update({
+          location_id: nextLocationId,
+          is_week_off: patch.isWeekOff,
+          shift_template_id: patch.needsShiftTimes ? matchedTemplate : null,
+          shift_start: patch.needsShiftTimes ? shiftStart : null,
+          shift_end: patch.needsShiftTimes ? shiftEnd : null,
+          source: nextSource,
+        })
+        .eq("id", assignmentId);
+      if (updErr) throw updErr;
+
+      await syncRosterLeaveRecord(db, {
+        locationId: nextLocationId,
+        staffId: data.staffId,
+        workDate: step.workDate,
+        leaveType: null,
+        userId: context.userId,
+      });
+
+      for (const locationId of rosterAmendRecalcLocationIds(current.locationId, nextLocationId)) {
+        touchLocation(locationId, step.workDate);
+      }
+      updated += 1;
+    }
+
+    for (const [locationId, range] of recalcByLocation) {
+      await recalculateAttendanceRange(db, locationId, range.minDate, range.maxDate, {
+        staffIds: [data.staffId],
+      });
+    }
+
+    return {
+      staffId: data.staffId,
+      dateFrom,
+      dateTo,
+      created,
+      updated,
+      unchanged,
+      skippedLeave: plan.skipLeaveCount,
+      workingDays: plan.workingDayCount,
+      weekOffDays: plan.weekOffCount,
+      changed: created + updated,
     };
   },
   rosterAmendAuth,

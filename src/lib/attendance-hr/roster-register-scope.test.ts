@@ -12,6 +12,8 @@ import {
   isRosterAssignableStaffStatus,
   rosterTeamStaffForLocationCode,
   isWeekendYmd,
+  clampRosterPatternRange,
+  planRosterStaffPattern,
   rosterAmendRecalcLocationIds,
   rosterDayStatusFromRow,
   rosterEmptyDayCanAdd,
@@ -19,6 +21,7 @@ import {
   rosterMatrixCellKey,
   rosterMonthSpans,
   rosterPatchFromDayStatus,
+  rosterWeekdayUtc,
   rosterRowsForAssignedStaff,
   rosterStaffIdsAtLocation,
   rosterHiddenStaffIds,
@@ -583,5 +586,70 @@ describe("roster register bulk-delete scope", () => {
     expect(atKds).toContain("mohamed-joker");
     expect(isRosterAssignableStaffStatus("joker")).toBe(true);
     expect(isRosterAssignableStaffStatus("active")).toBe(true);
+  });
+});
+
+describe("roster staff bulk pattern", () => {
+  it("maps UTC weekdays and clamps apply ranges inside the period", () => {
+    // 2026-11-06 is Friday.
+    expect(rosterWeekdayUtc("2026-11-06")).toBe(5);
+    expect(clampRosterPatternRange("2026-10-28", "2026-11-27", "2026-10-01", "2026-12-01")).toEqual({
+      dateFrom: "2026-10-28",
+      dateTo: "2026-11-27",
+    });
+    expect(clampRosterPatternRange("2026-10-28", "2026-11-27", "2026-11-01", "2026-11-07")).toEqual({
+      dateFrom: "2026-11-01",
+      dateTo: "2026-11-07",
+    });
+  });
+
+  it("plans Fri+Sat week offs, creates missing days, and skips leave", () => {
+    const plan = planRosterStaffPattern({
+      dateFrom: "2026-11-04",
+      dateTo: "2026-11-08",
+      offWeekdays: [5, 6],
+      shiftStart: "09:00",
+      shiftEnd: "18:00",
+      existing: [
+        {
+          id: "a1",
+          workDate: "2026-11-04",
+          isWeekOff: false,
+          leaveType: "annual_leave",
+          shiftStart: null,
+          shiftEnd: null,
+        },
+        {
+          id: "a2",
+          workDate: "2026-11-05",
+          isWeekOff: true,
+          leaveType: null,
+          shiftStart: null,
+          shiftEnd: null,
+        },
+        {
+          id: "a3",
+          workDate: "2026-11-06",
+          isWeekOff: false,
+          leaveType: null,
+          shiftStart: "13:00",
+          shiftEnd: "22:00",
+        },
+      ],
+    });
+
+    expect(plan.skipLeaveCount).toBe(1);
+    expect(plan.weekOffCount).toBe(2); // Fri 6 + Sat 7
+    expect(plan.workingDayCount).toBe(2); // Thu 5 + Sun 8 (Wed 4 skipped leave)
+    expect(plan.createCount).toBe(2); // Sat 7 + Sun 8
+    expect(plan.updateCount).toBe(2); // Thu 5 + Fri 6
+    expect(plan.changeCount).toBe(4);
+
+    const byDate = new Map(plan.plans.map((row) => [row.workDate, row]));
+    expect(byDate.get("2026-11-04")?.action).toBe("skip_leave");
+    expect(byDate.get("2026-11-05")).toMatchObject({ action: "update", dayStatus: "on_duty", changed: true });
+    expect(byDate.get("2026-11-06")).toMatchObject({ action: "update", dayStatus: "weekly_off", changed: true });
+    expect(byDate.get("2026-11-07")).toMatchObject({ action: "create", dayStatus: "weekly_off" });
+    expect(byDate.get("2026-11-08")).toMatchObject({ action: "create", dayStatus: "on_duty" });
   });
 });
