@@ -80,6 +80,7 @@ describe("mapHrNotifyEvent", () => {
     });
     expect(payload.title).toContain("LV-20260901-0003");
     expect(payload.body).toContain("LV-20260901-0003");
+    expect(payload.actionUrl).toBe("/hr/me?q=LV-20260901-0003#me-leave-approvals");
   });
 });
 

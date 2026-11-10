@@ -3,6 +3,7 @@
 import { Info, X } from "lucide-react";
 import Link from "next/link";
 
+import { followSamePathDeepLink } from "@/lib/app-href-nav";
 import { cn } from "@/lib/utils";
 
 type NotificationApprovalToastProps = {
@@ -56,7 +57,13 @@ export function NotificationApprovalToast({
 
         <Link
           href={actionUrl}
-          onClick={onReview}
+          onClick={(event) => {
+            onReview?.();
+            // Same-path #me-leave-approvals (etc.) must fire hashchange for My Day tabs.
+            if (followSamePathDeepLink(actionUrl)) {
+              event.preventDefault();
+            }
+          }}
           className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-full bg-[#4a2c6a] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#3d2459] sm:min-h-0 sm:w-auto"
         >
           {actionLabel}

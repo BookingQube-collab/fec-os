@@ -15,6 +15,7 @@ import {
 import { NOTIFICATION_CATEGORIES } from "@/lib/notifications/categories";
 import { useActionInbox, useMarkAllNotificationsRead } from "@/hooks/queries/useNotifications";
 import { useAuth } from "@/hooks/use-auth";
+import { followSamePathDeepLink } from "@/lib/app-href-nav";
 import { queryKeys } from "@/lib/query-keys";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -92,7 +93,13 @@ function NotificationsPage() {
                     </div>
                     {n.body && <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>}
                     {n.actionUrl && (
-                      <Link href={n.actionUrl} className="mt-1 inline-block text-xs text-primary hover:underline">
+                      <Link
+                        href={n.actionUrl}
+                        className="mt-1 inline-block text-xs text-primary hover:underline"
+                        onClick={(event) => {
+                          if (followSamePathDeepLink(n.actionUrl)) event.preventDefault();
+                        }}
+                      >
                         {t("inbox.open")}
                       </Link>
                     )}

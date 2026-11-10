@@ -2,6 +2,7 @@ import {
   ME_CORRECTION_HREF,
   ME_PUNCH_APPROVALS_HREF,
 } from "@/lib/attendance-hr/missed-punch-approval";
+import { leaveApprovalQueueHref } from "@/lib/hr-leave";
 
 export const HR_NOTIFY_CATEGORY = "people" as const;
 /** Leave request lifecycle uses dedicated preference category (Phase 11). */
@@ -70,7 +71,7 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
         ? ME_CORRECTION_HREF
         : event.kind.startsWith("leave")
           ? event.kind === "leave_submitted"
-            ? "/hr/me#me-leave-approvals"
+            ? leaveApprovalQueueHref(event.requestNumber)
             : "/hr/me"
           : event.kind === "geofence_exit" || event.kind === "restricted"
             ? "/people/field"

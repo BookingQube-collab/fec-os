@@ -28,6 +28,7 @@ import {
   useEscalations,
   useMarkAllNotificationsRead,
 } from "@/hooks/queries/useNotifications";
+import { followSamePathDeepLink } from "@/lib/app-href-nav";
 import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
 import {
   decideInboxAlert,
@@ -245,9 +246,13 @@ export function NotificationBell({
               <Link
                 key={item.id}
                 href={item.actionUrl || "/notifications"}
-                onClick={() => {
+                onClick={(event) => {
                   if (item.persisted && item.id.startsWith("notif:")) {
                     markRead.mutate(item.id.slice(6));
+                  }
+                  const href = item.actionUrl || "/notifications";
+                  if (followSamePathDeepLink(href)) {
+                    event.preventDefault();
                   }
                   close();
                 }}

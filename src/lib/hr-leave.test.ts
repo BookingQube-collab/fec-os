@@ -10,6 +10,7 @@ import {
   countLeaveDays,
   dedupeLeaveApprovalRows,
   defaultLeaveApprovalSteps,
+  leaveApprovalQueueHref,
   leaveApprovalStepsForRequester,
   leaveOpeningStepRole,
   leaveDisplayStepRole,
@@ -18,6 +19,7 @@ import {
   leavePrintSignatureDone,
   leavePrintUsesLegacySiteAsManager,
   leaveTeamSubmitOpening,
+  ME_LEAVE_APPROVALS_HREF,
   shouldFinalizeLeaveOnApprove,
 } from "./hr-leave";
 import {
@@ -39,6 +41,16 @@ import {
   hasHardLeaveOverlap,
 } from "./hr-advanced";
 import { HR_POLICY_DEFAULTS } from "./hr-policy";
+
+describe("leaveApprovalQueueHref", () => {
+  it("opens My Day Leave Approve, optionally focusing a request number", () => {
+    expect(leaveApprovalQueueHref()).toBe(ME_LEAVE_APPROVALS_HREF);
+    expect(leaveApprovalQueueHref("  ")).toBe(ME_LEAVE_APPROVALS_HREF);
+    expect(leaveApprovalQueueHref("LV-20261103-0004")).toBe(
+      "/hr/me?q=LV-20261103-0004#me-leave-approvals",
+    );
+  });
+});
 
 describe("leave status transitions", () => {
   it("lets an employee cancel a pending request only", () => {

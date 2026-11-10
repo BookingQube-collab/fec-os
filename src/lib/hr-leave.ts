@@ -1,3 +1,16 @@
+/** My Day Leave → Approve (toast / inbox Review for approvers, including HoO). */
+export const ME_LEAVE_APPROVALS_HREF = "/hr/me#me-leave-approvals";
+
+/**
+ * Deep-link into Leave Approve on My Day, optionally focusing a request number
+ * (e.g. LV-20261103-0004) via `?q=`.
+ */
+export function leaveApprovalQueueHref(requestNumber?: string | null): string {
+  const q = (requestNumber ?? "").trim();
+  if (!q) return ME_LEAVE_APPROVALS_HREF;
+  return `/hr/me?q=${encodeURIComponent(q)}#me-leave-approvals`;
+}
+
 export const HR_LEAVE_TYPES = [
   "annual",
   "sick",

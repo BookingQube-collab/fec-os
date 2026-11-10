@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -44,6 +45,7 @@ import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize
 import { invalidateLeaveLists, isLeaveListQuery } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { cn } from "@/lib/utils";
 
 export function MyDayCorrectionApprovals({
   jobTitle,
@@ -135,6 +137,8 @@ export function MyDayLeaveApprovals({
   const { t } = useTranslation();
   const roles = useUserRoles();
   const reports = useMyDirectReports();
+  const searchParams = useSearchParams();
+  const focusRequest = (searchParams.get("q") ?? "").trim();
   const hasDirectReports = (reports.data?.directReportStaffIds.length ?? 0) > 0;
   const show = mayReviewStaffLeaveOnMyDay({
     roles,
@@ -215,6 +219,16 @@ export function MyDayLeaveApprovals({
       (row) => filterApprovedHistoryRows([leaveHistoryRowLike(row)], historyFilters).length === 1,
     );
   }, [historyFilters, historyOnly, rawRows]);
+
+  useEffect(() => {
+    if (historyOnly || !focusRequest || displayRows.length === 0) return;
+    const match = displayRows.find(
+      (row) => row.requestNumber === focusRequest || row.id === focusRequest,
+    );
+    if (!match) return;
+    const el = document.getElementById(`leave-approval-${match.id}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [displayRows, focusRequest, historyOnly]);
 
   const siteById = useMemo(() => new Map((sites ?? []).map((site) => [site.id, site])), [sites]);
   const locationLabel = useMemo(() => {
@@ -360,10 +374,14 @@ export function MyDayLeaveApprovals({
               (row.status === "pending" &&
                 !canAct &&
                 (row.steps ?? []).some((step) => step.status === "approved"));
+            const focused =
+              Boolean(focusRequest) &&
+              (row.requestNumber === focusRequest || row.id === focusRequest);
             return (
               <li key={row.id}>
                 <article
-                  className="hd-approval"
+                  id={`leave-approval-${row.id}`}
+                  className={cn("hd-approval", focused && "ring-2 ring-primary/40")}
                   aria-busy={busy || undefined}
                   aria-labelledby={`leave-approval-${row.id}-name`}
                 >

@@ -408,7 +408,7 @@ async function fetchLeaveApprovalItems(context: AuthContext, roles: AppRole[]): 
     const { isFnbManager } = await import("@/lib/arcade/access");
     const { isLeaveSiteStepActor } = await import("@/lib/hr-leave-routing");
     const { canApproveLeaveOnMyDay } = await import("@/lib/hr/my-day-approvals");
-    const { leaveStepSeatLabel } = await import("@/lib/hr-leave");
+    const { leaveApprovalQueueHref, leaveStepSeatLabel } = await import("@/lib/hr-leave");
     const { opsApprovalLaneForStaff } = await import("@/lib/approval-ops-routing");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -435,7 +435,7 @@ async function fetchLeaveApprovalItems(context: AuthContext, roles: AppRole[]): 
     let query = supabaseAdmin
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, date_from, current_step_role, created_at, updated_at, staff(full_name, job_title, department)",
+        "id, staff_id, leave_type, date_from, current_step_role, created_at, updated_at, request_number, staff(full_name, job_title, department)",
       )
       .eq("status", "pending")
       .order("created_at", { ascending: false })
@@ -476,15 +476,18 @@ async function fetchLeaveApprovalItems(context: AuthContext, roles: AppRole[]): 
         const seat = leaveStepSeatLabel(row.current_step_role, {
           opsLane: opsApprovalLaneForStaff(subjectTitle, subjectDept),
         });
+        const requestNumber =
+          typeof row.request_number === "string" ? row.request_number.trim() : "";
+        const numberSuffix = requestNumber ? ` (${requestNumber})` : "";
         return item({
           id: `leave:${row.id}`,
           kind: "notification",
           category: "hr_leave",
           title: "Leave request needs your approval",
           titleKey: null,
-          body: `${who} submitted a leave request${date ? ` from ${date}` : ""}. Waiting on ${seat}.`,
+          body: `${who} submitted leave request${numberSuffix}${date ? ` from ${date}` : ""}. It is waiting for ${seat}.`,
           severity: "warning",
-          actionUrl: "/hr/me#me-leave-approvals",
+          actionUrl: leaveApprovalQueueHref(requestNumber || null),
           readAt: null,
           createdAt: asIso(row.updated_at ?? row.created_at),
           sourceType: "hr_leave",
