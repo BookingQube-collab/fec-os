@@ -1,0 +1,2410 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Operator and administrator guide for FEC Operations Command">
+      
+      
+      
+        <link rel="canonical" href="https://bookingqube-collab.github.io/fec-os/admin-panel/">
+      
+      
+        <link rel="prev" href="../administration/">
+      
+      
+        <link rel="next" href="../tips/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Admin panel (detail) - FEC-OS Operations Manual</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#administration-panel-how-to-use-each-page" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="FEC-OS Operations Manual" class="md-header__button md-logo" aria-label="FEC-OS Operations Manual" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FEC-OS Operations Manual
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Admin panel (detail)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/BookingQube-collab/fec-os" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    fec-os
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../workflows/duty-manager/" class="md-tabs__link">
+          
+  
+  
+  Role workflows
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../operations-command/" class="md-tabs__link">
+          
+  
+  
+  Operations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../people-directory/" class="md-tabs__link">
+          
+  
+  
+  People & HR
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../maintenance/" class="md-tabs__link">
+          
+  
+  
+  Facilities
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../procurement/" class="md-tabs__link">
+          
+  
+  
+  Commercial
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../compliance/" class="md-tabs__link">
+          
+  
+  
+  Compliance
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../administration/" class="md-tabs__link">
+          
+  
+  
+  Administration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../tips/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Tips
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../ar/overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  العربية
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../developer/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Developer reference
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="FEC-OS Operations Manual" class="md-nav__button md-logo" aria-label="FEC-OS Operations Manual" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    FEC-OS Operations Manual
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/BookingQube-collab/fec-os" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    fec-os
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Role workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/duty-manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Duty manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/general-manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    General manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/executive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operations-command/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations & Command
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../daily-operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Daily Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    People & HR
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    People & HR
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../people-directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    People directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../import-roster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import employee roster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../time-attendance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time & Attendance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance-sops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance, leaderboard, SOPs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Facilities
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Facilities
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintenance & Facilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inventory-utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inventory & Utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commercial
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commercial
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../procurement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Procurement
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../events/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Events (PM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guest-commercial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guest experience & revenue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compliance
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Compliance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compliance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compliance & Safety
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Administration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Administration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../administration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin panel (detail)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin panel (detail)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#remove-all-payroll-clean-retest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remove all payroll (clean retest)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remove all payroll (clean retest)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#released-not-deleted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Released, not deleted
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kept
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roles-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roles &amp; access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ai-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI Integrations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-explorer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Explorer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#planned-notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Planned Notifications
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#weekly-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weekly reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Weekly reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supervisor-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supervisor reports
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-or-edit-a-supervisor-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New or edit a supervisor report
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-queue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review queue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#executive-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive reports
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-executive-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One executive report
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tips/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tips
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ar/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    العربية
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#remove-all-payroll-clean-retest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remove all payroll (clean retest)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remove all payroll (clean retest)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#released-not-deleted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Released, not deleted
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kept
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roles-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roles &amp; access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ai-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI Integrations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-explorer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Explorer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#planned-notifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Planned Notifications
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#weekly-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weekly reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Weekly reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supervisor-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supervisor reports
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-or-edit-a-supervisor-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New or edit a supervisor report
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-queue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review queue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#executive-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive reports
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-executive-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One executive report
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="administration-panel-how-to-use-each-page">Administration panel — how to use each page<a class="headerlink" href="#administration-panel-how-to-use-each-page" title="Permanent link">&para;</a></h1>
+<p>This guide covers every page in the <strong>Administration</strong> section of the sidebar. Labels match the English product UI. Open the app, sign in, and use the left navigation. The Administration group is shown when your role can open at least one page in it.</p>
+<p>Default access (before anyone changes toggles on Roles &amp; access):</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>What they see in Administration</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CEO, COO</td>
+<td>Settings, Roles &amp; access, AI Integrations, Diagnostics, API Explorer, Planned Notifications, Weekly Reports</td>
+</tr>
+<tr>
+<td>Regional Operations</td>
+<td>Settings, Roles &amp; access, Diagnostics, API Explorer, Planned Notifications, Weekly Reports. The AI Integrations card is hidden, and the page itself refuses anyone below role level 95.</td>
+</tr>
+<tr>
+<td>General Manager</td>
+<td>Planned Notifications and Weekly Reports (review included). Not Settings.</td>
+</tr>
+<tr>
+<td>Duty Manager, Auditor</td>
+<td>Planned Notifications (view) and Weekly Reports (view; Duty Manager can also submit). Sync and Dispatch on Planned Notifications are rejected by the server.</td>
+</tr>
+<tr>
+<td>CFO, HR, and floor roles</td>
+<td>Administration settings are not in the menu. Payroll itself is under <strong>People → Payroll</strong>, not here.</td>
+</tr>
+</tbody>
+</table>
+<p>If a CEO changes a green tick or red cross on <strong>Roles &amp; access</strong>, that override replaces the defaults above for that role.</p>
+<h2 id="remove-all-payroll-clean-retest">Remove all payroll (clean retest)<a class="headerlink" href="#remove-all-payroll-clean-retest" title="Permanent link">&para;</a></h2>
+<p><strong>Where:</strong> Administration → <strong>Settings</strong> (<code>/admin</code>). The card is titled <strong>Remove all payroll</strong>. It is shown only when you can both open Administration (<code>admin.view</code>) and generate payroll (<code>payroll.generate</code>). With the default role map that is <strong>CEO and COO</strong>.</p>
+<p><strong>What it is for:</strong> Delete every payroll run so you can run payroll again from scratch. It is not the per-period delete on People → Payroll. That per-period delete only works for draft, attendance validation, and HR review, and it refuses locked or paid runs. This Settings action removes those too.</p>
+<p><strong>How to run it</strong></p>
+<ol>
+<li>Open <strong>Administration → Settings</strong> (<code>/admin</code>).</li>
+<li>Find the <strong>Remove all payroll</strong> card (red border).</li>
+<li>Click <strong>Remove all payroll</strong>.</li>
+<li>Read the dialog. It says the action cannot be undone and lists what is removed and what is kept.</li>
+<li>Type <code>REMOVE ALL PAYROLL</code> exactly (capital letters). The confirm button stays disabled until that phrase matches. Spaces at the ends are ignored; any other text is not accepted.</li>
+<li>Click <strong>Remove all payroll</strong> in the dialog.</li>
+<li>A success message lists how many periods, lines, payslips, locks, adjustments, overrides, import batches, payslip files, and payroll notifications were removed, and how many overtime claims and air-ticket payroll links were released.</li>
+<li><strong>Cancel</strong> closes the dialog and deletes nothing. Closing the dialog clears the typed phrase.</li>
+</ol>
+<p>The server checks the same two permissions. Someone who only has one of them, or who calls the action without the phrase, is rejected. The action is the server function <code>resetAllPayroll</code> in <code>src/lib/hr-payroll.functions.ts</code> (same pattern as the existing single-period delete). There is no separate public HTTP route.</p>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>All payroll periods, including draft, in review, processed, paid, locked, and Excel-imported runs</li>
+<li>Payroll lines (removed with the periods)</li>
+<li>Payslips, and stored payslip files whose path starts with <code>payroll/</code> in the employee-documents bucket</li>
+<li>Payroll lock and reopen rows</li>
+<li>Payroll adjustments</li>
+<li>Line amount overrides</li>
+<li>Excel import batches</li>
+<li>In-app notifications whose source is a payroll period (delivery logs for those notifications go with them)</li>
+</ul>
+<h3 id="released-not-deleted">Released, not deleted<a class="headerlink" href="#released-not-deleted" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Overtime claims</strong> stay. Claims that were posted to payroll, or still linked to a payroll period, go back to <strong>HR approved</strong>, and the payroll link is cleared so a new run can pick them up.</li>
+<li><strong>Air-ticket issues</strong> stay. If an issue was linked to a payroll period, that link is cleared and its payroll payment status returns to <strong>unpaid</strong>. Issues that were never linked to payroll are left as they are.</li>
+</ul>
+<h3 id="kept">Kept<a class="headerlink" href="#kept" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Employees, users, and roles</li>
+<li>Attendance, punches, device logs, and rosters</li>
+<li>Leave, documents, warnings, probation, resignations, and other HR records</li>
+<li>Payroll policy settings (currency, cycle, payment-method defaults)</li>
+<li>The audit log, including a new <code>hr.payroll.reset_all</code> entry</li>
+</ul>
+<p>Run it again only if you want another empty payroll. It is safe to run when payroll is already empty: the counts come back as zero.</p>
+<h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
+<p><strong>Route:</strong> <code>/admin</code><br />
+<strong>Menu:</strong> Administration → Settings<br />
+<strong>Who:</strong> CEO, COO, and Regional Operations (<code>admin.view</code>). The user list appears at role level 80 or higher. Below that, the page says you need executive or regional access.</p>
+<p><strong>What it is for:</strong> Assign roles to people, open the other administration tools, and (CEO/COO who also manage payroll) wipe payroll for a retest.</p>
+<p><strong>How to open:</strong> Sidebar → Administration → Settings.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Use the cards at the top to open <strong>Roles &amp; access</strong>, and, when your level allows, <strong>AI Integrations</strong> and <strong>Diagnostics</strong>.</li>
+<li>If the browser can install the app, an <strong>Install</strong> card offers <strong>Install app</strong> (or <strong>Add to Home Screen</strong> on iPhone). If the app is already installed, the card only says so.</li>
+<li>CEO or COO who can generate payroll also see <strong>Remove all payroll</strong>. See the section above.</li>
+<li>The lower half lists users. Each row shows the display name, employee code, and current role badges.</li>
+<li>To grant a role (controls are shown at role level 95 or higher): choose <strong>Role</strong>, choose <strong>Scope</strong> (<strong>All branches</strong> or one site), then <strong>Grant</strong>. A toast says <strong>Role granted</strong> and the badge appears.</li>
+<li>To remove a role, click the trash icon on that badge. A toast says <strong>Role removed</strong>.</li>
+</ol>
+<p><strong>Important fields</strong></p>
+<ul>
+<li><strong>Role</strong> — one of CEO, COO, CFO, Regional Operations, General Manager, Duty Manager, Maintenance Supervisor, Maintenance Technician, Cashier / Host, Auditor, Human Resources, Customer Service.</li>
+<li><strong>Scope</strong> — <strong>All branches</strong> stores no location limit. A specific site limits that role assignment to that branch.</li>
+</ul>
+<p><strong>After save:</strong> The role is stored immediately. The person must sign in again (or refresh their session) before new menus match the new role. There is no separate Save button for the whole page.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>The grant and revoke buttons are shown for role level 95 (CEO and COO), but the server only accepts <code>admin.manage_roles</code>, which defaults to <strong>CEO</strong>. A COO who clicks Grant can get <strong>Forbidden</strong>.</li>
+<li>Regional Operations can open Settings and read the user list. They do not see Grant, and they do not see <strong>Remove all payroll</strong> unless payroll generation has been turned on for their role.</li>
+<li>This page does not edit passwords, create login accounts, or delete employees.</li>
+<li>Deleting a role badge removes that role assignment only. It does not delete the user.</li>
+</ul>
+<h2 id="roles-access">Roles &amp; access<a class="headerlink" href="#roles-access" title="Permanent link">&para;</a></h2>
+<p><strong>Route:</strong> <code>/admin/roles</code><br />
+<strong>Menu:</strong> Administration → Roles &amp; access, or the card on Settings<br />
+<strong>Who:</strong> Anyone with <code>admin.view</code> (CEO, COO, Regional Operations) can view. Only CEO (<code>admin.manage_roles</code>) can change toggles.</p>
+<p><strong>What it is for:</strong> Turn page and capability access on or off for each role. This is the override layer on top of the built-in role map.</p>
+<p><strong>How to open:</strong> Settings card <strong>Roles &amp; access</strong>, or Administration → Roles &amp; access.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Choose a <strong>Role</strong> in the dropdown, or click a role in <strong>All roles</strong>. The badges show how many pages and capabilities that role can use.</li>
+<li>Under <strong>Pages &amp; modules</strong>, each row is a menu destination (route and capability name). A green tick means allowed. A red cross means denied.</li>
+<li>If you are CEO, click the tick or cross. It saves immediately. There is no Save button.</li>
+<li>Under <strong>Capabilities</strong>, the same tick/cross applies to each capability key, including ones that are not a menu page.</li>
+<li><strong>Assign roles to users</strong> goes back to Settings.</li>
+</ol>
+<p><strong>Important fields:</strong> The role selector, and each tick/cross. Green = allowed. Red = denied.</p>
+<p><strong>After save:</strong> The change is stored at once. A toast appears only if the save fails (<strong>Could not save access change</strong>). Other users pick up the new grants on their next permission refresh (typically a new request or a reload).</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>Viewers see the note that only the CEO can edit. Clicks do nothing for them.</li>
+<li>Turning off <code>admin.view</code> for your own role can hide this page from you.</li>
+<li>Turning on <code>payroll.generate</code> for a role that already has <code>admin.view</code> also lets that role use <strong>Remove all payroll</strong>.</li>
+<li>Page access and the capability list can disagree if you override only one of them. Check both sections when a menu item appears but an action is refused.</li>
+</ul>
+<h2 id="ai-integrations">AI Integrations<a class="headerlink" href="#ai-integrations" title="Permanent link">&para;</a></h2>
+<p><strong>Route:</strong> <code>/admin/ai-integrations</code><br />
+<strong>Menu:</strong> Administration → AI Integrations. The Settings card is shown only at role level 95 or higher.<br />
+<strong>Who:</strong> CEO and COO (role level 95 or higher). Everyone else sees: “Only CEO or COO (role level ≥ 95) can manage AI provider credentials.”</p>
+<p><strong>What it is for:</strong> Connect Gemini, Groq, and OpenRouter. Keys stay on the server. These providers feed AI Assist in other modules. This page does not run those assists itself.</p>
+<p><strong>How to open:</strong> Administration → AI Integrations, or the card on Settings.</p>
+<p><strong>Main actions — Providers tab</strong></p>
+<ol>
+<li>Open <strong>Providers</strong>.</li>
+<li>For Gemini, Groq, or OpenRouter, turn <strong>Enable provider</strong> on or off.</li>
+<li>Paste an <strong>API key</strong> (leave it blank to keep the saved key). Use the eye control to show or hide what you typed.</li>
+<li>Choose <strong>Default model</strong>, or <strong>Enter model manually</strong> and type a model id.</li>
+<li>Click <strong>Save</strong>. If a key already exists, confirm the replace dialog before the new key is stored.</li>
+<li>Click <strong>Test</strong> (<strong>Test Connection</strong>). A toast reports success or the provider error.</li>
+<li>Click <strong>Refresh models</strong> to reload the model list from the provider.</li>
+<li>Click <strong>Remove key</strong> and confirm. The key is deleted; the provider stays listed as not configured.</li>
+<li>Each provider card has a short how-to and a link to get a key.</li>
+</ol>
+<p><strong>Main actions — AI Routing tab</strong></p>
+<ol>
+<li>Choose the primary provider, or <strong>None</strong>.</li>
+<li>Set timeout, retries, <strong>Auto fallback</strong>, and an optional monthly limit (empty means unlimited).</li>
+<li>Click <strong>Save</strong>. A toast says the routing was saved.</li>
+</ol>
+<p><strong>Main actions — AI Usage tab</strong></p>
+<p>Read-only table: date, provider, model, module, success, fail, tokens, estimated cost, and latency. Empty until calls have been logged.</p>
+<p><strong>Important fields:</strong> API key, default model, enable switch, routing provider, timeout, retries, auto fallback, monthly limit.</p>
+<p><strong>After save:</strong> The key is stored encrypted on the server. The status badge moves among Connected, Not Configured, Disabled, Connection Failed, and Untested after a test. Other screens that use AI Assist start using the saved routing. This page does not rewrite old AI answers.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>If the banner says <code>AI_CREDENTIALS_ENCRYPTION_KEY</code> is not set, do not save keys until that server setting exists.</li>
+<li>Replacing a key needs the confirm dialog. Cancel leaves the old key.</li>
+<li>Free-tier limits, model names, and provider terms change. The page disclaimer says to check the provider’s own pages.</li>
+<li>CFO and Regional Operations do not manage keys here, even if they can open other Administration pages.</li>
+</ul>
+<h2 id="diagnostics">Diagnostics<a class="headerlink" href="#diagnostics" title="Permanent link">&para;</a></h2>
+<p><strong>Route:</strong> <code>/admin/diagnostics</code><br />
+<strong>Menu:</strong> Administration → Diagnostics. The Settings card is shown when you have diagnostics access and role level 80 or higher.<br />
+<strong>Who:</strong> CEO, COO, and Regional Operations (<code>admin.diagnostics</code>), and role level at least 80. Others see that executive or regional access is required.</p>
+<p><strong>What it is for:</strong> See whether the app is healthy, review crash incidents, check that expected database tables exist, and read recent audit rows. The hub refreshes about every 30 seconds.</p>
+<p><strong>How to open:</strong> Administration → Diagnostics, or the card on Settings.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Read the four tiles: database latency, open incidents, memory (heap), and the notification pipeline.</li>
+<li><strong>Run scan</strong> runs a health scan. A toast says the scan finished.</li>
+<li><strong>Export CSV</strong> downloads the crash incidents currently loaded.</li>
+<li><strong>Self-healing</strong> cards:</li>
+<li><strong>Purge</strong> clears server route and session cache entries. The toast includes how many were cleared.</li>
+<li><strong>Alert</strong> sends a crash alert to the configured recipients.</li>
+<li><strong>Client</strong> clears this browser’s cached app data and reloads the page. You stay signed in only if the session cookie is still valid; local caches are emptied.</li>
+<li><strong>Resolve</strong> marks all open incidents resolved.</li>
+<li>Tabs:</li>
+<li><strong>Incidents</strong> — filter Open or All, refresh, and <strong>Resolve</strong> on one row.</li>
+<li><strong>Schema</strong> — each expected table is Present or Missing.</li>
+<li><strong>Audit</strong> — recent audit actions, who did them, and the reason when one was stored.</li>
+</ol>
+<p><strong>Important fields:</strong> Incident severity, status, route, and message. Schema rows are present or missing. You do not type a form on this page except the open/all filter.</p>
+<p><strong>After an action:</strong> Incidents and counts refresh. Resolve does not delete the incident row; it marks it resolved. Purge does not delete business data (payroll, staff, attendance). The client clear reloads this browser only.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li><strong>Alert</strong> notifies people. Do not use it as a test unless you mean to.</li>
+<li><strong>Client</strong> reload drops unsaved work in other tabs of this browser.</li>
+<li>A missing schema row means a migration has not been applied. This page does not apply migrations.</li>
+<li>CFO does not have this capability by default.</li>
+</ul>
+<h2 id="api-explorer">API Explorer<a class="headerlink" href="#api-explorer" title="Permanent link">&para;</a></h2>
+<p><strong>Route:</strong> <code>/admin/api-explorer</code><br />
+<strong>Menu:</strong> Administration → API Explorer<br />
+<strong>Who:</strong> CEO, COO, and Regional Operations (<code>admin.view</code>). Others see that API Explorer requires that access.</p>
+<p><strong>What it is for:</strong> Look up the documented HTTP routes and send a real request from the browser.</p>
+<p><strong>How to open:</strong> Administration → API Explorer.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Search by path, method, or description.</li>
+<li>Filter by category, or leave <strong>All</strong>.</li>
+<li>Click an endpoint. The right side shows the method, path, auth requirement, and description.</li>
+<li>Open <strong>Try it</strong>. Method, path, query string, headers, and body are filled from the example. Edit them if you need to.</li>
+<li>Send the request. The <strong>Response</strong> tab shows status, headers, body, and how long it took.</li>
+</ol>
+<p><strong>Important fields:</strong> Method, path, query, headers (JSON), and body (JSON for writes). Auth labels tell you whether the route expects your session, an API key, a cron secret, or no auth.</p>
+<p><strong>After send:</strong> The request is executed against this app. A successful POST, PATCH, or DELETE changes data the same way the real screen would. GET reads data. The explorer does not add a second confirmation of its own.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>Treat <strong>Try it</strong> as live. Do not send a delete or a cron sweep unless you intend that effect.</li>
+<li>Cron routes need the cron secret header. Your login session is not enough for those.</li>
+<li>A 401 or 403 means the route’s own permission check failed. Changing the method in the form does not grant you that permission.</li>
+</ul>
+<h2 id="planned-notifications">Planned Notifications<a class="headerlink" href="#planned-notifications" title="Permanent link">&para;</a></h2>
+<p><strong>Route:</strong> <code>/notifications/planned</code><br />
+<strong>Menu:</strong> Administration → Planned Notifications<br />
+<strong>Who:</strong> CEO, COO, Regional Operations, General Manager, Duty Manager, and Auditor can open the page (<code>notifications.planned.view</code>). <strong>Sync reminders</strong> and <strong>Dispatch due</strong> require <code>notifications.planned.manage</code> (CEO, COO, Regional Operations, General Manager).</p>
+<p><strong>What it is for:</strong> See upcoming reminders for AMC renewals, service schedules, compliance documents, and preventive-maintenance due dates, then send the ones that are due into the notification inbox.</p>
+<p><strong>How to open:</strong> Administration → Planned Notifications.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Read the table: type, title, due date, scheduled time, and status. The list is upcoming reminders only.</li>
+<li>Click <strong>Sync reminders</strong> to scan those sources and add new reminder rows. The toast says how many were created. Existing reminders are not duplicated.</li>
+<li>Click <strong>Dispatch due</strong> to send reminders whose scheduled time has arrived. The toast says how many notifications were sent. They show up in the <strong>Notifications</strong> inbox (the link under the buttons).</li>
+</ol>
+<p><strong>Important fields:</strong> None to type. The table is the record.</p>
+<p><strong>After sync or dispatch:</strong> The table reloads. Dispatched items are notifications in the inbox. Sync does not email anyone by itself; dispatch creates the in-app notification.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>An empty table is normal before the first sync. The page says to click <strong>Sync reminders</strong>.</li>
+<li>Duty Manager and Auditor see the buttons, but the server refuses Sync and Dispatch. Use a General Manager or an executive account.</li>
+<li>This page does not edit the underlying AMC contract, document, or PM record. Fix those in their own modules, then sync again.</li>
+</ul>
+<h2 id="weekly-reports">Weekly reports<a class="headerlink" href="#weekly-reports" title="Permanent link">&para;</a></h2>
+<p>These pages sit in the Administration sidebar group and also share a bar at the top of the weekly-reports area: <strong>Supervisor Reports</strong>, <strong>Review Queue</strong> (if you can review), and <strong>Executive Reports</strong> (if you can generate them). The page title is <strong>Weekly Operations Reports</strong>.</p>
+<p>Default capabilities:</p>
+<ul>
+<li>View: CEO, COO, Regional Operations, General Manager, Duty Manager, Maintenance Supervisor, Auditor</li>
+<li>Submit: those, except Auditor</li>
+<li>Review: CEO, COO, Regional Operations, General Manager</li>
+<li>Executive generate: CEO, COO, Regional Operations</li>
+</ul>
+<p>Anyone without view sees “You do not have access to weekly operations reporting.”</p>
+<h3 id="supervisor-reports">Supervisor reports<a class="headerlink" href="#supervisor-reports" title="Permanent link">&para;</a></h3>
+<p><strong>Route:</strong> <code>/operations/weekly-reports</code><br />
+<strong>Menu:</strong> Administration → Weekly Reports, then the <strong>Supervisor Reports</strong> tab<br />
+<strong>Who:</strong> Anyone with weekly-reports view.</p>
+<p><strong>What it is for:</strong> See one week of location reports and export that list.</p>
+<p><strong>How to open:</strong> Administration → Weekly Reports. The first tab is this list.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Set <strong>Week</strong> (a date; the report week is the Monday of that week), <strong>Location</strong> (or all locations), and <strong>Status</strong> (or all statuses).</li>
+<li>Read the table: location, week, status, revenue, footfall, complaints, priority. Open a row to view or edit it.</li>
+<li><strong>Export PDF</strong> or <strong>Export Excel</strong> downloads the rows currently filtered.</li>
+<li>If you can submit, <strong>Add new report</strong> opens a blank form. On other weekly-report tabs, a smaller <strong>Add new report</strong> button does the same.</li>
+</ol>
+<p><strong>Statuses you will see:</strong> Draft, Submitted, Under Review, Sent Back, Approved, In Executive Report, Closed.</p>
+<p><strong>After filters change:</strong> The table reloads for that week and location. Export uses the same rows, not the whole history.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>The week filter is a single date. Pick a day inside the week you want; the stored week starts on Monday.</li>
+<li>An empty table means no report for that week and filter, not that the module is broken. Use <strong>Create your first weekly report</strong> when it is shown.</li>
+<li>Auditor can view and export, not create.</li>
+</ul>
+<h3 id="new-or-edit-a-supervisor-report">New or edit a supervisor report<a class="headerlink" href="#new-or-edit-a-supervisor-report" title="Permanent link">&para;</a></h3>
+<p><strong>Routes:</strong> <code>/operations/weekly-reports/new</code> and <code>/operations/weekly-reports/[id]</code><br />
+<strong>Menu:</strong> <strong>Add new report</strong>, or the sidebar item <strong>New Report</strong> when you can submit. Editing opens from a row on the list.<br />
+<strong>Who:</strong> Submit capability to change a report. Viewers can open an existing report read-only.</p>
+<p><strong>What it is for:</strong> One location’s weekly operations report for Head of Operations and the executive pack.</p>
+<p><strong>How to open:</strong> <strong>Add new report</strong>, or click a report on the list.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Work through the sections. A progress line shows how many are complete. <strong>Quick fill</strong> copies template hints into empty fields only.</li>
+<li><strong>Save draft</strong>. On a new report, the address changes to that report’s id and a toast says <strong>Draft saved</strong>. You can then attach photos.</li>
+<li><strong>Add photo</strong> after the first save (maintenance, incidents, or events; the hint says max 10 MB).</li>
+<li><strong>Submit report</strong>. A toast says <strong>Report submitted</strong> and you return to the supervisor list.</li>
+</ol>
+<p><strong>Sections and fields</strong></p>
+<ul>
+<li><strong>Week &amp; Location</strong> — location, week starting Monday, submitted-by name.</li>
+<li><strong>KPI Snapshot</strong> — revenue (QAR), footfall, and the numbers the executive dashboard reads.</li>
+<li><strong>People &amp; Customer</strong> — staff scheduled, staff present, absentees / late staff, complaint count, positive feedback, incident count and details. Attendance rate is calculated from present ÷ scheduled.</li>
+<li><strong>Operations</strong> — maintenance issues, maintenance open, maintenance closed, compliance updates, compliance score (0–100), inventory / stock issues, cashier / POS issues, marketing / events.</li>
+<li><strong>Highlights</strong> — top achievements, top challenges, support required, critical issues.</li>
+<li><strong>Next Week</strong> — priority (critical, high, medium, low) and the action plan.</li>
+<li><strong>Attachments</strong> — optional photos. Save a draft first.</li>
+</ul>
+<p><strong>After save:</strong> Draft stays editable. After submit, the report leaves the editable states. It can be edited again only if a reviewer <strong>Send back</strong> (status Sent Back) or while it is still Draft.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>Photos on a brand-new form fail until you save a draft. The form says so.</li>
+<li>Submitted, under review, approved, included in the executive report, and closed reports are read-only until sent back.</li>
+<li>Two reports for the same location and week can be rejected by the server. If save fails, open the existing row instead of starting another new form.</li>
+<li>Revenue is QAR.</li>
+</ul>
+<h3 id="review-queue">Review queue<a class="headerlink" href="#review-queue" title="Permanent link">&para;</a></h3>
+<p><strong>Route:</strong> <code>/operations/weekly-reports/review</code><br />
+<strong>Menu:</strong> <strong>Review Queue</strong> tab, shown when you can review<br />
+<strong>Who:</strong> CEO, COO, Regional Operations, General Manager. Others who can open weekly reports but cannot review see “You do not have permission to approve or review reports.”</p>
+<p><strong>What it is for:</strong> Compare location reports for a week, write remarks, and move each report along.</p>
+<p><strong>How to open:</strong> Weekly reports → <strong>Review Queue</strong>.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Set <strong>Week starting (Monday)</strong>.</li>
+<li>Click <strong>Review</strong> on a row. The panel shows that location and week.</li>
+<li>Type <strong>Review remarks</strong> and set <strong>Priority</strong> (critical, high, medium, low). The priority starts from the report’s current priority.</li>
+<li>Choose one:</li>
+<li><strong>Approve</strong></li>
+<li><strong>Send back</strong> — the supervisor can edit again</li>
+<li><strong>Mark reviewed</strong></li>
+<li><strong>Flag missing info</strong></li>
+<li><strong>Add remarks</strong> — saves an internal comment without the status buttons</li>
+<li>A toast says <strong>Review saved</strong> or <strong>Remarks saved</strong>. The selection clears after a review action.</li>
+</ol>
+<p><strong>After save:</strong> The list reloads. Send back is what unlocks the supervisor form. Approve does not by itself generate the executive PDF; that is the next page.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>Select a row before the buttons apply. With no selection, the panel only tells you to select a report.</li>
+<li>Remarks are the reviewer’s note. They are not a chat with the site unless the site opens the report and can see the sent-back state.</li>
+<li>Flag missing info marks the report; it does not email the supervisor from this screen.</li>
+</ul>
+<h3 id="executive-reports">Executive reports<a class="headerlink" href="#executive-reports" title="Permanent link">&para;</a></h3>
+<p><strong>Route:</strong> <code>/operations/weekly-reports/executive</code><br />
+<strong>Menu:</strong> <strong>Executive Reports</strong> tab<br />
+<strong>Who:</strong> CEO, COO, and Regional Operations can generate and delete (<code>weekly_reports.executive</code>). The tab is hidden without that capability.</p>
+<p><strong>What it is for:</strong> Build one CEO/GM pack for a week from the supervisor reports, then open, print, or download it.</p>
+<p><strong>How to open:</strong> Weekly reports → <strong>Executive Reports</strong>.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Set <strong>Week starting (Monday)</strong>.</li>
+<li>Click <strong>Generate Executive Report</strong>. On success you are taken to that report’s page. The toast says <strong>Executive report generated</strong>.</li>
+<li>The table lists existing packs: week, mode (<strong>AI generated</strong> or <strong>Rule-based synthesis</strong>), and created time. <strong>View report</strong> opens one.</li>
+<li><strong>Delete</strong> asks you to confirm, then removes that executive pack only. Supervisor reports are not deleted. The toast says the delete succeeded.</li>
+</ol>
+<p><strong>After generate:</strong> You land on <code>/operations/weekly-reports/executive/[id]</code>. If some locations did not submit, the report can still be created and will say submissions are missing. Generation uses AI when AI Integrations is connected; otherwise it uses the rule-based summary.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>Generating does not submit the site reports for you. Missing sites stay missing.</li>
+<li>Delete here removes the executive pack, not the supervisor weekly reports and not payroll.</li>
+<li>There is no separate publish button on the list. Opening the report is how you read it.</li>
+</ul>
+<h3 id="one-executive-report">One executive report<a class="headerlink" href="#one-executive-report" title="Permanent link">&para;</a></h3>
+<p><strong>Route:</strong> <code>/operations/weekly-reports/executive/[id]</code><br />
+<strong>Menu:</strong> <strong>View report</strong> from the executive list<br />
+<strong>Who:</strong> Same executive capability to delete. Anyone who can open the executive area can read a report they can reach.</p>
+<p><strong>What it is for:</strong> Read the consolidated week: location ranking, risks, decisions, and the head-of-operations assessment.</p>
+<p><strong>How to open:</strong> Executive list → <strong>View report</strong>.</p>
+<p><strong>Main actions</strong></p>
+<ol>
+<li>Read the report on the page.</li>
+<li><strong>Print</strong> uses the browser print dialog.</li>
+<li><strong>Download PDF</strong> saves a PDF of the structured report.</li>
+<li><strong>Delete</strong> confirms, removes this pack, and returns you to the executive list.</li>
+<li><strong>Back to executive reports</strong> returns to the list without deleting.</li>
+</ol>
+<p><strong>After print or PDF:</strong> Nothing is changed in the database. Delete is the only action here that removes data, and it removes this executive pack only.</p>
+<p><strong>Pitfalls</strong></p>
+<ul>
+<li>If the page says the report was not found, it was deleted or the link is wrong. Go back to the list.</li>
+<li>A decision section can say there are no decisions for the week. That is an empty section, not an error.</li>
+<li>PDF download needs the report content to be in the structured form. If download fails, the toast shows the error; the on-screen report is still there.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      FEC-OS · FEC Operations Command · Operator manual
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="/" target="_blank" rel="noopener" title="FEC Operations Command" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M384 512H96c-53 0-96-43-96-96V96C0 43 43 0 96 0h304c26.5 0 48 21.5 48 48v288c0 20.9-13.4 38.7-32 45.3V448c17.7 0 32 14.3 32 32s-14.3 32-32 32zM96 384c-17.7 0-32 14.3-32 32s14.3 32 32 32h256v-64zm32-232c0 13.3 10.7 24 24 24h176c13.3 0 24-10.7 24-24s-10.7-24-24-24H152c-13.3 0-24 10.7-24 24m24 72c-13.3 0-24 10.7-24 24s10.7 24 24 24h176c13.3 0 24-10.7 24-24s-10.7-24-24-24z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
