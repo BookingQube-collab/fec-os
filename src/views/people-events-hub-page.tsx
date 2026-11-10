@@ -30,6 +30,7 @@ import {
 } from "@/lib/events/event-workforce-demo";
 import {
   defaultOverviewRange,
+  rangeCoveringEvents,
   rangeForSelectedEvent,
 } from "@/lib/people-event-attendance-overview";
 import { listPeopleEventOptions } from "@/lib/people-event-workforce.functions";
@@ -74,16 +75,24 @@ export default function PeopleEventsHubPage() {
   });
   const events = eventsQ.data?.events ?? [];
 
-  // Align From–To to the selected event so seeded attendance appears on Overview.
+  // Align From–To: All events → cover company events; one event → that event window.
   useEffect(() => {
     const listed = eventsQ.data?.events;
     if (!eventsQ.isSuccess || !listed) return;
     const prev = prevEventIdRef.current;
     if (prev === eventId) return;
+
     if (!eventId) {
+      // Landing on / clearing to All events: fit range so Overview aggregates real data
+      // without requiring a single-event selection. Manual picker edits still stick
+      // afterward (this effect only runs when eventId changes).
       prevEventIdRef.current = eventId;
+      const next = rangeCoveringEvents(listed, initialRange, 31);
+      setDateFrom(next.from);
+      setDateTo(next.to);
       return;
     }
+
     const ev = listed.find((e) => e.id === eventId);
     if (!ev) return;
     prevEventIdRef.current = eventId;

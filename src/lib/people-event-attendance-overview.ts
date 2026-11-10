@@ -179,6 +179,36 @@ export function rangeForSelectedEvent(
   return { from, to: cappedTo > to ? to : cappedTo };
 }
 
+/**
+ * Date window covering all dated events (All events Overview).
+ * Uses the union of event start/end; when longer than `maxInclusiveDays`,
+ * keeps a window ending at the latest event end so recent ops stay visible.
+ */
+export function rangeCoveringEvents(
+  events: Array<{ dateFrom: string | null; dateTo: string | null }>,
+  fallback: { from: string; to: string },
+  maxInclusiveDays = 31,
+): { from: string; to: string } {
+  let min: string | null = null;
+  let max: string | null = null;
+  for (const ev of events) {
+    if (!isYmd(ev.dateFrom)) continue;
+    const from = ev.dateFrom;
+    const to = isYmd(ev.dateTo) ? ev.dateTo : from;
+    if (!min || from < min) min = from;
+    if (!max || to > max) max = to > from ? to : from;
+  }
+  if (!min || !max) return fallback;
+  if (max < min) max = min;
+
+  const maxDays = Math.max(1, maxInclusiveDays);
+  if (inclusiveDayCount(min, max) <= maxDays) return { from: min, to: max };
+
+  let windowFrom = addDaysYmdUtc(max, -(maxDays - 1));
+  if (windowFrom < min) windowFrom = min;
+  return { from: windowFrom, to: max };
+}
+
 export function previousEqualRange(from: string, to: string): { from: string; to: string } {
   const start = new Date(`${from}T00:00:00Z`);
   const end = new Date(`${to}T00:00:00Z`);
@@ -206,7 +236,11 @@ function countBuckets(rows: PeopleEventAttendanceRow[]) {
   return { present, late, absent, assigned: present + late + absent };
 }
 
-function eventsInRange(events: PeopleEventOption[], from: string, to: string): PeopleEventOption[] {
+export function eventsInRange(
+  events: PeopleEventOption[],
+  from: string,
+  to: string,
+): PeopleEventOption[] {
   return events.filter((ev) => {
     const start = ev.dateFrom ?? "";
     const end = ev.dateTo ?? start;
@@ -234,7 +268,7 @@ export function buildOverviewKpis(input: {
     prevRange.from,
     prevRange.to,
   ).length;
-  const totalEvents = scopedEvents.length || input.events.length;
+  const totalEvents = scopedEvents.length;
 
   return {
     totalEvents,
@@ -355,13 +389,26 @@ export function buildEventWiseSummary(
     map.set(row.eventId, entry);
   }
 
+  // Include events in the Overview scope even when they have no attendance yet.
+  for (const ev of events) {
+    if (map.has(ev.id)) continue;
+    map.set(ev.id, {
+      eventName: ev.name?.trim() || ev.id.slice(0, 8),
+      location: ev.locationName?.trim() || "—",
+      dateYmd: ev.dateFrom || "",
+      present: 0,
+      late: 0,
+      absent: 0,
+    });
+  }
+
   return [...map.entries()]
     .map(([eventId, v]) => {
       const assigned = v.present + v.late + v.absent;
       return {
         eventId,
         eventName: v.eventName,
-        dateLabel: formatShortDate(v.dateYmd, locale),
+        dateLabel: v.dateYmd ? formatShortDate(v.dateYmd, locale) : "—",
         location: v.location,
         assigned,
         present: v.present,
@@ -370,7 +417,7 @@ export function buildEventWiseSummary(
         attendancePct: pct(v.present + v.late, assigned),
       };
     })
-    .sort((a, b) => b.assigned - a.assigned)
+    .sort((a, b) => b.assigned - a.assigned || a.eventName.localeCompare(b.eventName))
     .slice(0, limit);
 }
 

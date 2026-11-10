@@ -32,6 +32,7 @@ import {
   buildAttendanceTrend,
   buildEventWiseSummary,
   buildOverviewKpis,
+  eventsInRange,
   previousEqualRange,
 } from "@/lib/people-event-attendance-overview";
 import { peopleEventHref } from "@/lib/people-event-selection";
@@ -144,6 +145,8 @@ export function PeopleEventWorkforceDashboard({
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
   const selectedEventId = eventId || null;
+  // Omit null so All-events queries are unscoped (do not send eventId: null).
+  const eventScope = selectedEventId ? { eventId: selectedEventId } : {};
 
   const eventsQ = useQuery({
     queryKey: [...queryKeys.people.all, "event-options", "hub", dateFrom, dateTo, selectedEventId],
@@ -165,7 +168,7 @@ export function PeopleEventWorkforceDashboard({
       listPeopleEventCrew({
         status: "all",
         limit: 2000,
-        eventId: selectedEventId,
+        ...eventScope,
       }),
     staleTime: STALE.people,
     enabled: canCrew,
@@ -185,7 +188,7 @@ export function PeopleEventWorkforceDashboard({
         limit: 2000,
         dateFrom,
         dateTo,
-        eventId: selectedEventId,
+        ...eventScope,
       }),
     staleTime: STALE.people,
     enabled: canAttendance,
@@ -205,18 +208,19 @@ export function PeopleEventWorkforceDashboard({
         limit: 2000,
         dateFrom: prevRange.from,
         dateTo: prevRange.to,
-        eventId: selectedEventId,
+        ...eventScope,
       }),
     staleTime: STALE.people,
     enabled: canAttendance,
   });
 
   const allEvents = eventsQ.data?.events ?? [];
-  const events = useMemo(
-    () =>
-      selectedEventId ? allEvents.filter((ev) => ev.id === selectedEventId) : allEvents,
-    [allEvents, selectedEventId],
-  );
+  const events = useMemo(() => {
+    const scoped = selectedEventId
+      ? allEvents.filter((ev) => ev.id === selectedEventId)
+      : allEvents;
+    return eventsInRange(scoped, dateFrom, dateTo);
+  }, [allEvents, selectedEventId, dateFrom, dateTo]);
   const crewRows = crewQ.data?.rows ?? [];
   const attendanceRows = attendanceQ.data?.rows ?? [];
   const previousAttendanceRows = prevAttendanceQ.data?.rows ?? [];
@@ -239,8 +243,10 @@ export function PeopleEventWorkforceDashboard({
     [crewRows, dateFrom, dateTo],
   );
 
+  // Prefer attendance-day headcount; fall back to active crew when All events
+  // has assignments but no attendance rows in the window yet.
   const assignedDisplay =
-    canAttendance && (attendanceQ.isFetching || kpis.assignedCrew > 0)
+    kpis.assignedCrew > 0
       ? kpis.assignedCrew
       : canCrew
         ? crewAssignedFallback
