@@ -236,7 +236,6 @@ export default function PeopleEventPayrollPage() {
           : created.reused
             ? t("events.payroll.toasts.exists")
             : t("events.payroll.toasts.created"),
-        { description: t("peopleEvent.payroll.nextGenerate") },
       );
       // Create alone leaves KPIs at 0 — generate lines immediately for the selected event.
       try {
@@ -269,6 +268,9 @@ export default function PeopleEventPayrollPage() {
     const withoutLines = forEvent.find((p) => (statsByPeriod.get(p.id)?.crewCount ?? 0) === 0);
     return (withoutLines ?? forEvent[0])!.id;
   }, [eventId, filteredPeriods, statsByPeriod]);
+
+  /** Selected event has no pay period yet — Create/Generate both create + generate. */
+  const noPeriodForEvent = Boolean(eventId) && !generateTargetPeriodId;
 
   function exportCsv() {
     if (!tableRows.length) return;
@@ -498,12 +500,14 @@ export default function PeopleEventPayrollPage() {
             canCreate={canGenerate}
             createBusy={busy}
             createDisabled={!eventId}
+            createAndGenerateMode={noPeriodForEvent}
             hasEvent={Boolean(eventId)}
             setupHref={setupHref}
             canGenerate={canGenerate}
             generateBusy={busy}
-            generateDisabled={!generateTargetPeriodId}
+            generateDisabled={!eventId}
             generateNeedsLines={
+              noPeriodForEvent ||
               Boolean(
                 generateTargetPeriodId &&
                   (statsByPeriod.get(generateTargetPeriodId)?.crewCount ?? 0) === 0,
@@ -511,8 +515,13 @@ export default function PeopleEventPayrollPage() {
             }
             onCreate={() => void createPeriod()}
             onGenerate={() => {
+              if (!eventId) {
+                toast.error(t("peopleEvent.payroll.needEvent"));
+                return;
+              }
+              // No period yet: same path as Create (create period + generate lines).
               if (!generateTargetPeriodId) {
-                toast.error(t("peopleEvent.payroll.needPeriodToGenerate"));
+                void createPeriod();
                 return;
               }
               void generateForPeriod(generateTargetPeriodId);

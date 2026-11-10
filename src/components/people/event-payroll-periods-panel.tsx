@@ -95,6 +95,7 @@ export function EventPayrollPeriodsPanel({
   canCreate,
   createBusy,
   createDisabled,
+  createAndGenerateMode,
   onCreate,
   canGenerate,
   generateBusy,
@@ -113,6 +114,8 @@ export function EventPayrollPeriodsPanel({
   createBusy?: boolean;
   /** True when Create should stay visible but inactive (e.g. no shared eventId). */
   createDisabled?: boolean;
+  /** Empty for selected event: Create label + Generate both create period and lines. */
+  createAndGenerateMode?: boolean;
   onCreate?: () => void;
   canGenerate?: boolean;
   generateBusy?: boolean;
@@ -186,23 +189,35 @@ export function EventPayrollPeriodsPanel({
           {canCreate ? (
             <Button
               size="sm"
-              variant="outline"
+              variant={createAndGenerateMode ? "default" : "outline"}
               disabled={createBusy || createDisabled}
-              title={createDisabled ? t("peopleEvent.payroll.needEvent") : undefined}
+              title={
+                createDisabled
+                  ? t("peopleEvent.payroll.needEvent")
+                  : createAndGenerateMode
+                    ? t("peopleEvent.payroll.createAndGenerateHint")
+                    : undefined
+              }
               onClick={onCreate}
-              className="h-10 rounded-xl border-border/80 bg-white"
+              className={
+                createAndGenerateMode
+                  ? "h-10 rounded-xl bg-[#7c3aed] px-4 text-white hover:bg-[#6d28d9]"
+                  : "h-10 rounded-xl border-border/80 bg-white"
+              }
             >
               <Plus className="me-1.5 h-3.5 w-3.5" aria-hidden />
-              {t("peopleEvent.payroll.createPeriod")}
+              {createAndGenerateMode
+                ? t("peopleEvent.payroll.createAndGenerate")
+                : t("peopleEvent.payroll.createPeriod")}
             </Button>
           ) : null}
-          {canGenerate ? (
+          {canGenerate && !createAndGenerateMode ? (
             <Button
               size="sm"
               disabled={generateBusy || generateDisabled}
               title={
                 generateDisabled
-                  ? t("peopleEvent.payroll.needPeriodToGenerate")
+                  ? t("peopleEvent.payroll.needEvent")
                   : t("peopleEvent.payroll.generateHint")
               }
               onClick={onGenerate}
@@ -262,22 +277,46 @@ export function EventPayrollPeriodsPanel({
                 {canCreate ? (
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant={createAndGenerateMode ? "default" : "outline"}
                     disabled={createBusy || createDisabled}
-                    title={createDisabled ? t("peopleEvent.payroll.needEvent") : undefined}
+                    title={
+                      createDisabled
+                        ? t("peopleEvent.payroll.needEvent")
+                        : createAndGenerateMode
+                          ? t("peopleEvent.payroll.createAndGenerateHint")
+                          : undefined
+                    }
                     onClick={onCreate}
-                    className="h-9 rounded-xl"
+                    className={
+                      createAndGenerateMode
+                        ? "h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
+                        : "h-9 rounded-xl"
+                    }
                   >
                     <Plus className="me-1.5 h-3.5 w-3.5" aria-hidden />
-                    {t("peopleEvent.payroll.createPeriod")}
+                    {createAndGenerateMode
+                      ? t("peopleEvent.payroll.createAndGenerate")
+                      : t("peopleEvent.payroll.createPeriod")}
                   </Button>
                 ) : null}
                 {canGenerate ? (
                   <Button
                     size="sm"
                     disabled={generateBusy || generateDisabled}
+                    title={
+                      generateDisabled
+                        ? t("peopleEvent.payroll.needEvent")
+                        : createAndGenerateMode
+                          ? t("peopleEvent.payroll.createAndGenerateHint")
+                          : t("peopleEvent.payroll.generateHint")
+                    }
                     onClick={onGenerate}
-                    className="h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
+                    className={
+                      createAndGenerateMode
+                        ? "h-9 rounded-xl border-border/80 bg-white"
+                        : "h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
+                    }
+                    variant={createAndGenerateMode ? "outline" : "default"}
                   >
                     <WandSparkles className="me-1.5 h-3.5 w-3.5" aria-hidden />
                     {t("peopleEvent.payroll.generate")}
