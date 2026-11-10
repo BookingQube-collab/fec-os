@@ -218,6 +218,62 @@ export function staffIdsForEventPayRunByTrack(
   return { labour: [...labour], staff: [...staff], all };
 }
 
+/** Counts explaining why event Generate produced 0 lines (for toasts / HOO debug). */
+export type EventPayGenerateBlockers = {
+  assignmentsTotal: number;
+  payOnEvent: number;
+  overlappingOpenWindow: number;
+  eligibleStaff: number;
+  labourEligible: number;
+  staffEligible: number;
+  managementExcluded: number;
+  attendanceDays: number;
+  staffWithDayRate: number;
+};
+
+/**
+ * Summarize eligibility blockers for an event pay generate attempt.
+ * `overlappingOpenWindow` is pay-on-event assignments intersecting dateFrom–dateTo;
+ * management is counted separately from labour/staff eligible sets.
+ */
+export function summarizeEventPayGenerateBlockers(
+  assignments: EventPayAssignmentWithRole[],
+  dateFrom: string,
+  dateTo: string,
+  extras?: { attendanceDays?: number; staffWithDayRate?: number },
+): EventPayGenerateBlockers {
+  let payOnEvent = 0;
+  let overlappingOpenWindow = 0;
+  let managementExcluded = 0;
+  const labour = new Set<string>();
+  const staff = new Set<string>();
+  for (const a of assignments) {
+    if (!a.pay_on_event_run) continue;
+    payOnEvent += 1;
+    if (a.date_to < dateFrom || a.date_from > dateTo) continue;
+    overlappingOpenWindow += 1;
+    const track = resolveEventPayTrack(a);
+    if (track == null) {
+      managementExcluded += 1;
+      continue;
+    }
+    if (track === "labour") labour.add(a.staff_id);
+    else staff.add(a.staff_id);
+  }
+  for (const id of labour) staff.delete(id);
+  return {
+    assignmentsTotal: assignments.length,
+    payOnEvent,
+    overlappingOpenWindow,
+    eligibleStaff: labour.size + staff.size,
+    labourEligible: labour.size,
+    staffEligible: staff.size,
+    managementExcluded,
+    attendanceDays: extras?.attendanceDays ?? 0,
+    staffWithDayRate: extras?.staffWithDayRate ?? 0,
+  };
+}
+
 /**
  * Filter monthly payroll day inputs: drop days that are covered by event pay for loaned staff.
  * Joker / event_hire are typically not on monthly at all; still exclude their event days if present.

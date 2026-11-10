@@ -203,6 +203,18 @@ export default function PeopleEventPayrollPage() {
     ]);
   }
 
+  function emptyGenerateDescription(res: Awaited<ReturnType<typeof generatePayrollLines>>) {
+    const b = res.blockers;
+    if (!b) return t("peopleEvent.payroll.generateEmptyHint");
+    return t("peopleEvent.payroll.generateEmptyHintCounts", {
+      eligible: b.eligibleStaff,
+      overlapping: b.overlappingOpenWindow,
+      attendance: b.attendanceDays,
+      rates: b.staffWithDayRate,
+      management: b.managementExcluded,
+    });
+  }
+
   async function generateForPeriod(periodId: string) {
     setBusy(true);
     try {
@@ -210,7 +222,7 @@ export default function PeopleEventPayrollPage() {
       await refresh();
       if (res.inserted <= 0) {
         toast.warning(t("peopleEvent.payroll.generateEmpty"), {
-          description: t("peopleEvent.payroll.generateEmptyHint"),
+          description: emptyGenerateDescription(res),
         });
         return;
       }
@@ -245,7 +257,7 @@ export default function PeopleEventPayrollPage() {
           toast.success(t("events.payroll.toasts.generated", { n: res.inserted }));
         } else {
           toast.warning(t("peopleEvent.payroll.generateEmpty"), {
-            description: t("peopleEvent.payroll.generateEmptyHint"),
+            description: emptyGenerateDescription(res),
           });
         }
       } catch (genErr) {

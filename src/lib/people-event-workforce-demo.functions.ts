@@ -20,10 +20,12 @@ import {
   EVENT_WORKFORCE_DEMO_ROLE_CATALOG,
   mayManageEventWorkforceDemo,
   notesIsDemo,
+  resolveDemoSeedPayWindow,
   validateDemoDateRange,
   type DemoStaffSpec,
 } from "@/lib/events/event-workforce-demo";
 import {
+  eventPayOpenWindow,
   eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
 } from "@/lib/events/event-payroll";
@@ -90,14 +92,16 @@ async function writeEventAudit(
   });
 }
 
-async function ensureDemoStaffPool(locationId: string, userId: string): Promise<
-  Array<DemoStaffSpec & { id: string }>
-> {
+async function ensureDemoStaffPool(
+  locationId: string,
+  userId: string,
+  hireDate: string,
+): Promise<Array<DemoStaffSpec & { id: string }>> {
   const pool = buildDemoStaffPool();
   const codes = pool.map((p) => p.code);
   const { data: existing, error } = await supabaseAdmin
     .from("staff")
-    .select("id, employee_code, full_name, location_id, department, deleted_at")
+    .select("id, employee_code, full_name, location_id, department, deleted_at, hire_date")
     .in("employee_code", codes);
   if (error) throw error;
 
@@ -109,11 +113,15 @@ async function ensureDemoStaffPool(locationId: string, userId: string): Promise<
 
   const resolved: Array<DemoStaffSpec & { id: string }> = [];
   const toInsert: TablesInsert<"staff">[] = [];
+  const hireBackfillIds: string[] = [];
 
   for (const spec of pool) {
     const found = byCode.get(spec.code);
     if (found) {
       resolved.push({ ...spec, id: found.id as string });
+      const existingHire = found.hire_date ? String(found.hire_date).slice(0, 10) : null;
+      // Keep hire on/before the seed window so generate proration does not zero paid days.
+      if (!existingHire || existingHire > hireDate) hireBackfillIds.push(found.id as string);
       continue;
     }
     toInsert.push({
@@ -125,9 +133,20 @@ async function ensureDemoStaffPool(locationId: string, userId: string): Promise<
       staff_role: spec.staffRole,
       employment_type: "temporary",
       status: "active",
-      hire_date: new Date().toISOString().slice(0, 10),
+      hire_date: hireDate,
       is_roaming: true,
     });
+  }
+
+  if (hireBackfillIds.length) {
+    for (let i = 0; i < hireBackfillIds.length; i += 100) {
+      const chunk = hireBackfillIds.slice(i, i + 100);
+      const { error: hireErr } = await supabaseAdmin
+        .from("staff")
+        .update({ hire_date: hireDate, updated_at: new Date().toISOString() })
+        .in("id", chunk);
+      if (hireErr && !/hire_date|schema cache/i.test(hireErr.message)) throw hireErr;
+    }
   }
 
   if (toInsert.length) {
@@ -468,9 +487,10 @@ async function wipeEventWorkforceForEvent(
 }
 
 /**
- * Create (or replace) an event pay period for the seed From–To window and generate lines.
- * Uses payroll.generate when the caller has it; otherwise inserts demo day-rate lines via admin
- * so Payroll is testable for HOO without that capability.
+ * Create (or replace) an event pay period on the event open window and generate lines.
+ * Period dates match createEventPayrollPeriod so Create & generate does not sync away
+ * from seeded assignment/attendance windows. Uses payroll.generate when available;
+ * otherwise inserts demo day-rate lines via admin.
  */
 async function ensureDemoEventPayroll(
   context: AuthContext,
@@ -478,8 +498,12 @@ async function ensureDemoEventPayroll(
     eventId: string;
     eventName: string;
     locationId: string;
-    dateFrom: string;
-    dateTo: string;
+    /** Event open window (period date_from / date_to). */
+    periodFrom: string;
+    periodTo: string;
+    /** Seed attendance / assignment window (must overlap period). */
+    seedFrom: string;
+    seedTo: string;
   },
 ): Promise<{
   periodId: string | null;
@@ -490,16 +514,16 @@ async function ensureDemoEventPayroll(
   await deleteEventPayrollForEvent(context, input.eventId);
 
   const label = eventPayrollBatchLabel(input.eventName);
-  const month = eventPeriodMonthAnchor(input.dateFrom);
+  const month = eventPeriodMonthAnchor(input.periodFrom);
   const { data: period, error: periodErr } = await supabaseAdmin
     .from("hr_payroll_periods")
     .insert({
       month,
-      date_from: input.dateFrom,
-      date_to: input.dateTo,
+      date_from: input.periodFrom,
+      date_to: input.periodTo,
       status: "draft",
       currency: "QAR",
-      notes: `${EVENT_WORKFORCE_DEMO_MARKER} Demo event pay run ${input.dateFrom}→${input.dateTo}`,
+      notes: `${EVENT_WORKFORCE_DEMO_MARKER} Demo event pay run ${input.periodFrom}→${input.periodTo} (seed ${input.seedFrom}→${input.seedTo})`,
       created_by: context.userId,
       period_kind: "event",
       event_id: input.eventId,
@@ -526,7 +550,13 @@ async function ensureDemoEventPayroll(
     entityType: "hr_payroll_period",
     eventId: input.eventId,
     locationId: input.locationId,
-    after: { periodId, dateFrom: input.dateFrom, dateTo: input.dateTo },
+    after: {
+      periodId,
+      dateFrom: input.periodFrom,
+      dateTo: input.periodTo,
+      seedFrom: input.seedFrom,
+      seedTo: input.seedTo,
+    },
   });
 
   if (canUserDo(context.roles ?? [], "payroll.generate")) {
@@ -539,7 +569,9 @@ async function ensureDemoEventPayroll(
         hint:
           gen.inserted > 0
             ? null
-            : "Pay period created but Generate inserted 0 lines — check assignments / day rates on Payroll.",
+            : gen.blockers
+              ? `Pay period created but Generate inserted 0 lines — eligible ${gen.blockers.eligibleStaff}, overlapping pay-on-event ${gen.blockers.overlappingOpenWindow}, attendance days ${gen.blockers.attendanceDays}, with rates ${gen.blockers.staffWithDayRate}.`
+              : "Pay period created but Generate inserted 0 lines — check assignments / day rates on Payroll.",
       };
     } catch (e) {
       // Fall through to demo day-rate lines so Payroll still shows amounts.
@@ -553,8 +585,8 @@ async function ensureDemoEventPayroll(
   const lines = await insertDemoDayRatePayrollLines(context, {
     periodId,
     eventId: input.eventId,
-    dateFrom: input.dateFrom,
-    dateTo: input.dateTo,
+    dateFrom: input.periodFrom,
+    dateTo: input.periodTo,
   });
   return {
     periodId,
@@ -690,13 +722,29 @@ async function runSeedEventWorkforceDemo(
 
     const event = await loadEventOrThrow(context, data.eventId);
     const locationId = event.location_id as string;
-    const days = enumerateDatesInclusive(data.dateFrom, data.dateTo);
     const eventName = String(event.name || event.event_name || "Event");
+    const open = eventPayOpenWindow({
+      event_start: (event.event_start as string | null) ?? null,
+      event_end: (event.event_end as string | null) ?? null,
+      venue_access: (event.venue_access as string | null) ?? null,
+      setup_start: (event.setup_start as string | null) ?? null,
+      dismantle_end: (event.dismantle_end as string | null) ?? null,
+    });
+    // Align seed assignments/attendance with the same open window Create & generate uses.
+    const seedWindow = resolveDemoSeedPayWindow({
+      requestedFrom: data.dateFrom,
+      requestedTo: data.dateTo,
+      openFrom: open.dateFrom,
+      openTo: open.dateTo,
+    });
+    const dateFrom = seedWindow.dateFrom;
+    const dateTo = seedWindow.dateTo;
+    const days = enumerateDatesInclusive(dateFrom, dateTo);
 
     // Full wipe so re-seed is idempotent (event-scoped only — includes payroll).
     await wipeEventWorkforceForEvent(context, data.eventId);
 
-    const staff = await ensureDemoStaffPool(locationId, context.userId);
+    const staff = await ensureDemoStaffPool(locationId, context.userId, dateFrom);
     const roleIdByCode = await ensureDemoRoles(context, data.eventId);
 
     // Day rates on compensation so Generate lines can pay even if assignment rate columns lag.
@@ -719,7 +767,7 @@ async function runSeedEventWorkforceDemo(
       }
     }
 
-    // Assignments for the selected range only.
+    // Assignments for the open-aligned seed window (must overlap event pay period).
     const assignmentRows = staff.map((s) => ({
       event_id: data.eventId,
       staff_id: s.id,
@@ -728,8 +776,8 @@ async function runSeedEventWorkforceDemo(
       event_role_id: roleIdByCode.get(s.roleCode) ?? null,
       hours_per_day: 10,
       day_rate_qar: s.dayRateQar,
-      date_from: data.dateFrom,
-      date_to: data.dateTo,
+      date_from: dateFrom,
+      date_to: dateTo,
       pay_on_event_run: true,
       notes: `${EVENT_WORKFORCE_DEMO_MARKER} Demo assignment`,
       status: "active",
@@ -927,9 +975,23 @@ async function runSeedEventWorkforceDemo(
       eventId: data.eventId,
       eventName,
       locationId,
-      dateFrom: data.dateFrom,
-      dateTo: data.dateTo,
+      periodFrom: open.dateFrom,
+      periodTo: open.dateTo,
+      seedFrom: dateFrom,
+      seedTo: dateTo,
     });
+
+    const windowHintParts: string[] = [];
+    if (seedWindow.usedOpenFallback) {
+      windowHintParts.push(
+        `Requested From–To was outside event open dates — seeded ${dateFrom}→${dateTo} (open window).`,
+      );
+    } else if (seedWindow.clippedToMaxDays) {
+      windowHintParts.push(`Seed clipped to ${days.length} days within event open dates.`);
+    } else if (dateFrom !== data.dateFrom || dateTo !== data.dateTo) {
+      windowHintParts.push(`Seed aligned to event open overlap ${dateFrom}→${dateTo}.`);
+    }
+    const payrollHint = [payroll.hint, ...windowHintParts].filter(Boolean).join(" ") || null;
 
     await writeEventAudit(context, {
       action: "workforce_demo_seed",
@@ -937,8 +999,12 @@ async function runSeedEventWorkforceDemo(
       eventId: data.eventId,
       locationId,
       after: {
-        dateFrom: data.dateFrom,
-        dateTo: data.dateTo,
+        requestedFrom: data.dateFrom,
+        requestedTo: data.dateTo,
+        dateFrom,
+        dateTo,
+        openFrom: open.dateFrom,
+        openTo: open.dateTo,
         days: days.length,
         staff: staff.length,
         shifts: shiftsInserted,
@@ -947,6 +1013,7 @@ async function runSeedEventWorkforceDemo(
         payrollPeriodId: payroll.periodId,
         payrollLines: payroll.payrollLines,
         payrollGeneratedVia: payroll.generatedVia,
+        usedOpenFallback: seedWindow.usedOpenFallback,
       },
     });
 
@@ -954,8 +1021,8 @@ async function runSeedEventWorkforceDemo(
       eventId: data.eventId,
       eventName,
       locationId,
-      dateFrom: data.dateFrom,
-      dateTo: data.dateTo,
+      dateFrom,
+      dateTo,
       days: days.length,
       staffEnsured: staff.length,
       rolesUpserted: roleIdByCode.size,
@@ -966,7 +1033,7 @@ async function runSeedEventWorkforceDemo(
       payrollPeriodId: payroll.periodId,
       payrollLines: payroll.payrollLines,
       payrollGeneratedVia: payroll.generatedVia,
-      payrollHint: payroll.hint,
+      payrollHint,
     };
 }
 

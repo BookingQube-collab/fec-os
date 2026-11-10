@@ -63,6 +63,8 @@ import {
   excludeEventPaidDaysFromMonthly,
   payrollExportMonthLabel,
   staffIdsForEventPayRunByTrack,
+  summarizeEventPayGenerateBlockers,
+  type EventPayGenerateBlockers,
 } from "@/lib/events/event-payroll";
 import {
   resolveLabourDayRateQar,
@@ -515,6 +517,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     const lateDeductPolicy = await readLateDeductPolicy(context);
 
     let eventStaffIds: string[] | null = null;
+    let eventGenerateBlockers: EventPayGenerateBlockers | null = null;
     /** Labour (always) + staff-track rows with an assignment/role day rate. */
     const eventDayRateByStaff = new Map<
       string,
@@ -596,26 +599,23 @@ export const generatePayrollLines = createAuthenticatedAction(
         ]),
       );
 
-      const trackSplit = staffIdsForEventPayRunByTrack(
-        assignments.map((a) => {
-          const meta = staffMetaById.get(a.staff_id as string);
-          const roleId = (a as { event_role_id?: string | null }).event_role_id ?? null;
-          const role = roleId ? roleById.get(roleId) : null;
-          return {
-            staff_id: a.staff_id as string,
-            assignment_type: String(a.assignment_type),
-            date_from: String(a.date_from).slice(0, 10),
-            date_to: String(a.date_to).slice(0, 10),
-            pay_on_event_run: Boolean(a.pay_on_event_run),
-            role_label: (a.role_label as string | null) ?? null,
-            role_kind: role?.kind ?? null,
-            job_title: meta?.job_title ?? null,
-            is_head_office: meta?.is_head_office ?? false,
-          };
-        }),
-        dateFrom,
-        dateTo,
-      );
+      const assignmentPayload = assignments.map((a) => {
+        const meta = staffMetaById.get(a.staff_id as string);
+        const roleId = (a as { event_role_id?: string | null }).event_role_id ?? null;
+        const role = roleId ? roleById.get(roleId) : null;
+        return {
+          staff_id: a.staff_id as string,
+          assignment_type: String(a.assignment_type),
+          date_from: String(a.date_from).slice(0, 10),
+          date_to: String(a.date_to).slice(0, 10),
+          pay_on_event_run: Boolean(a.pay_on_event_run),
+          role_label: (a.role_label as string | null) ?? null,
+          role_kind: role?.kind ?? null,
+          job_title: meta?.job_title ?? null,
+          is_head_office: meta?.is_head_office ?? false,
+        };
+      });
+      const trackSplit = staffIdsForEventPayRunByTrack(assignmentPayload, dateFrom, dateTo);
       eventStaffIds = trackSplit.all;
       const labourSet = new Set(trackSplit.labour);
       const staffSet = new Set(trackSplit.staff);
@@ -647,6 +647,9 @@ export const generatePayrollLines = createAuthenticatedAction(
           track,
         });
       }
+      eventGenerateBlockers = summarizeEventPayGenerateBlockers(assignmentPayload, dateFrom, dateTo, {
+        staffWithDayRate: eventDayRateByStaff.size,
+      });
       if (!eventStaffIds.length) {
         return {
           inserted: 0,
@@ -656,6 +659,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           attendanceBlocked: 0,
           dateFrom,
           dateTo,
+          blockers: eventGenerateBlockers,
         };
       }
     }
@@ -679,6 +683,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         attendanceBlocked: 0,
         dateFrom,
         dateTo,
+        blockers: eventGenerateBlockers,
       };
     }
 
@@ -1228,12 +1233,21 @@ export const generatePayrollLines = createAuthenticatedAction(
         .in("id", airToMark);
     }
 
+    if (eventGenerateBlockers) {
+      eventGenerateBlockers = {
+        ...eventGenerateBlockers,
+        attendanceDays: dayInputs.length,
+        staffWithDayRate: eventDayRateByStaff.size,
+      };
+    }
+
     await auditPayroll(context, "hr.payroll.lines.generate", data.periodId, {
       inserted: inserts.length,
       otConsumed: otToConsume.length,
       airPending: airToMark.length,
       missingCompensation,
       attendanceBlocked,
+      blockers: eventGenerateBlockers,
     });
 
     return {
@@ -1244,6 +1258,7 @@ export const generatePayrollLines = createAuthenticatedAction(
       attendanceBlocked,
       dateFrom,
       dateTo,
+      blockers: eventGenerateBlockers,
     };
   },
   { auth: { capability: "payroll.generate" } },

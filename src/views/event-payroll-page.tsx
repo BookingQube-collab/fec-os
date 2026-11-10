@@ -107,6 +107,21 @@ export default function EventPayrollPage() {
         qc.invalidateQueries({ queryKey: queryKeys.people.hrPayrollPeriods({ periodKind: "event" }) }),
         qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "event-payroll-line-stats"] }),
       ]);
+      if (res.inserted <= 0) {
+        const b = res.blockers;
+        toast.warning(t("peopleEvent.payroll.generateEmpty"), {
+          description: b
+            ? t("peopleEvent.payroll.generateEmptyHintCounts", {
+                eligible: b.eligibleStaff,
+                overlapping: b.overlappingOpenWindow,
+                attendance: b.attendanceDays,
+                rates: b.staffWithDayRate,
+                management: b.managementExcluded,
+              })
+            : t("peopleEvent.payroll.generateEmptyHint"),
+        });
+        return;
+      }
       toast.success(t("events.payroll.toasts.generated", { n: res.inserted }));
     } catch (e) {
       toast.error((e as Error).message);

@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 
+import { eventPayOpenWindow } from "@/lib/events/event-payroll";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 
 const Ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -109,10 +110,16 @@ export const listPeopleEventOptions = createAuthenticatedAction(
 
     return {
       events: (rows ?? []).map((r) => {
-        const dateFrom = String(
-          r.venue_access ?? r.setup_start ?? r.event_start ?? "",
-        ).slice(0, 10) || null;
-        const dateTo = String(r.dismantle_end ?? r.event_end ?? dateFrom ?? "").slice(0, 10) || null;
+        // Same open-window policy as event payroll Create & generate (event_start → event_end).
+        const open = eventPayOpenWindow({
+          event_start: (r.event_start as string | null) ?? null,
+          event_end: (r.event_end as string | null) ?? null,
+          venue_access: (r.venue_access as string | null) ?? null,
+          setup_start: (r.setup_start as string | null) ?? null,
+          dismantle_end: (r.dismantle_end as string | null) ?? null,
+        });
+        const dateFrom = open.dateFrom || null;
+        const dateTo = open.dateTo || dateFrom;
         return {
           id: r.id as string,
           name: String(r.name || r.event_name || "Event"),

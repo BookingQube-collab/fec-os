@@ -261,6 +261,60 @@ export function validateDemoDateRange(dateFrom: string, dateTo: string): string 
   return null;
 }
 
+/**
+ * Align demo seed From–To with the event pay open window (event_start → event_end).
+ * Create & generate uses that same window; seeding outside it yields 0 payroll lines.
+ * When the requested range does not intersect open dates, fall back to the open window
+ * (clipped to maxDays from the open start).
+ */
+export function resolveDemoSeedPayWindow(input: {
+  requestedFrom: string;
+  requestedTo: string;
+  openFrom: string;
+  openTo: string;
+  maxDays?: number;
+}): {
+  dateFrom: string;
+  dateTo: string;
+  usedOpenFallback: boolean;
+  clippedToMaxDays: boolean;
+} {
+  const maxDays = input.maxDays ?? EVENT_WORKFORCE_DEMO_MAX_DAYS;
+  const openFrom = String(input.openFrom).slice(0, 10);
+  let openTo = String(input.openTo).slice(0, 10);
+  if (!openFrom || !/^\d{4}-\d{2}-\d{2}$/.test(openFrom)) {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      dateFrom: today,
+      dateTo: today,
+      usedOpenFallback: true,
+      clippedToMaxDays: false,
+    };
+  }
+  if (!openTo || openTo < openFrom) openTo = openFrom;
+
+  const reqFrom = String(input.requestedFrom).slice(0, 10);
+  const reqTo = String(input.requestedTo).slice(0, 10);
+  let dateFrom = reqFrom > openFrom ? reqFrom : openFrom;
+  let dateTo = reqTo < openTo ? reqTo : openTo;
+  let usedOpenFallback = false;
+
+  if (dateFrom > dateTo) {
+    dateFrom = openFrom;
+    dateTo = openTo;
+    usedOpenFallback = true;
+  }
+
+  const days = enumerateDatesInclusive(dateFrom, dateTo);
+  let clippedToMaxDays = false;
+  if (days.length > maxDays) {
+    dateTo = days[maxDays - 1]!;
+    clippedToMaxDays = true;
+  }
+
+  return { dateFrom, dateTo, usedOpenFallback, clippedToMaxDays };
+}
+
 export function assertDemoDeleteConfirmation(value: string): void {
   if (value.trim() !== EVENT_WORKFORCE_DEMO_DELETE_CONFIRMATION) {
     throw new Error(`Type ${EVENT_WORKFORCE_DEMO_DELETE_CONFIRMATION} to confirm.`);

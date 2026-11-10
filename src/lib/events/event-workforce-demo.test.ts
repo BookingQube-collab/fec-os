@@ -10,6 +10,7 @@ import {
   EVENT_WORKFORCE_DEMO_MAX_DAYS,
   formatStaffCodeBeforeName,
   QATAR_EVENT_DEMO_DAY_RATES_QAR,
+  resolveDemoSeedPayWindow,
   validateDemoDateRange,
   assertDemoDeleteConfirmation,
 } from "./event-workforce-demo";
@@ -68,6 +69,48 @@ describe("demo date range", () => {
       new RegExp(String(EVENT_WORKFORCE_DEMO_MAX_DAYS)),
     );
     expect(validateDemoDateRange("2026-12-01", "2026-12-03")).toBeNull();
+  });
+
+  it("aligns seed window to event open dates when requested range misses", () => {
+    const resolved = resolveDemoSeedPayWindow({
+      requestedFrom: "2026-11-23",
+      requestedTo: "2026-12-06",
+      openFrom: "2026-11-02",
+      openTo: "2026-11-08",
+    });
+    expect(resolved.usedOpenFallback).toBe(true);
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-11-02",
+      dateTo: "2026-11-08",
+    });
+  });
+
+  it("keeps intersection of requested range and open window", () => {
+    const resolved = resolveDemoSeedPayWindow({
+      requestedFrom: "2026-11-05",
+      requestedTo: "2026-11-20",
+      openFrom: "2026-11-02",
+      openTo: "2026-11-08",
+    });
+    expect(resolved.usedOpenFallback).toBe(false);
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-11-05",
+      dateTo: "2026-11-08",
+    });
+  });
+
+  it("clips open fallback to max demo days", () => {
+    const resolved = resolveDemoSeedPayWindow({
+      requestedFrom: "2026-01-01",
+      requestedTo: "2026-01-02",
+      openFrom: "2026-11-01",
+      openTo: "2026-12-31",
+      maxDays: 14,
+    });
+    expect(resolved.usedOpenFallback).toBe(true);
+    expect(resolved.clippedToMaxDays).toBe(true);
+    expect(resolved.dateFrom).toBe("2026-11-01");
+    expect(resolved.dateTo).toBe("2026-11-14");
   });
 
   it("requires delete confirmation phrase", () => {

@@ -19,6 +19,7 @@ import {
   resolveEventPayTrack,
   staffIdsForEventPayRun,
   staffIdsForEventPayRunByTrack,
+  summarizeEventPayGenerateBlockers,
   sumLabourDayPayUnitsForStaff,
 } from "@/lib/events/event-payroll";
 
@@ -172,6 +173,39 @@ describe("event pay eligibility and tracks", () => {
     expect(split.labour.sort()).toEqual(["lab1"]);
     expect(split.staff.sort()).toEqual(["clean1", "crew1"]);
     expect(split.all.sort()).toEqual(["clean1", "crew1", "lab1"]);
+  });
+
+  it("returns zero eligible staff when seed assignment dates miss the open window", () => {
+    const seededOutsideOpen = [
+      {
+        staff_id: "lab1",
+        assignment_type: "event_hire",
+        role_label: "Labourer",
+        date_from: "2026-11-23",
+        date_to: "2026-12-06",
+        pay_on_event_run: true,
+      },
+      {
+        staff_id: "crew1",
+        assignment_type: "event_hire",
+        role_label: "Crew",
+        date_from: "2026-11-23",
+        date_to: "2026-12-06",
+        pay_on_event_run: true,
+      },
+    ];
+    // Period synced to event open dates that do not overlap seed From–To.
+    expect(staffIdsForEventPayRunByTrack(seededOutsideOpen, "2026-11-02", "2026-11-08").all).toEqual(
+      [],
+    );
+    const blockers = summarizeEventPayGenerateBlockers(
+      seededOutsideOpen,
+      "2026-11-02",
+      "2026-11-08",
+    );
+    expect(blockers.payOnEvent).toBe(2);
+    expect(blockers.overlappingOpenWindow).toBe(0);
+    expect(blockers.eligibleStaff).toBe(0);
   });
 
   it("encodes labour day rate × paid calendar days policy", () => {
