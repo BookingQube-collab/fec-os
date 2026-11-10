@@ -9205,7 +9205,10 @@
       "manageDevices": "Manage Devices",
       "devicesNoneLinked": "No dedicated devices linked — host-site punches are used until you link Event pool devices.",
       "viewOnlyHint": "View only — Events edit permission is required to add shifts, seed from crew, or process attendance.",
-      "filterSite": "Site / Branch"
+      "filterSite": "Site / Branch",
+      "filteredOf": "Showing {{filtered}} of {{total}}",
+      "clearFilters": "Clear filters",
+      "emptyFiltered": "No scheduled shifts match these filters."
     },
     "dashboard": {
       "kpiOpenEvents": "Open events",

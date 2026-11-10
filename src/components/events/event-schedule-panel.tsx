@@ -11,8 +11,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
+  Briefcase,
   CheckCircle2,
-  Filter,
   HardHat,
   Info,
   Layers,
@@ -194,7 +194,43 @@ export function EventSchedulePanel({
   const [devicesEditing, setDevicesEditing] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<EventCrewScheduleCategory | "all">("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  /** List filters for Scheduled Shifts (independent of add-form / process dates). */
+  const [listDateFrom, setListDateFrom] = useState("");
+  const [listDateTo, setListDateTo] = useState("");
+  const [coverageFilter, setCoverageFilter] = useState<"all" | "covered" | "uncovered">("all");
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  /** When true, list From–To tracks the full scheduled-shift bounds for the event. */
+  const autoListDatesRef = useRef(true);
+
+  const slotDateBounds = useMemo(() => {
+    if (slots.length === 0) {
+      return { from: defaultDate || "", to: defaultDate || "" };
+    }
+    let from = slots[0]!.work_date;
+    let to = slots[0]!.work_date;
+    for (const slot of slots) {
+      if (slot.work_date < from) from = slot.work_date;
+      if (slot.work_date > to) to = slot.work_date;
+    }
+    return { from, to };
+  }, [slots, defaultDate]);
+
+  useEffect(() => {
+    autoListDatesRef.current = true;
+    setRoleFilter("all");
+    setCategoryFilter("all");
+    setCoverageFilter("all");
+    setListDateFrom(slotDateBounds.from);
+    setListDateTo(slotDateBounds.to);
+    // Bounds may still be empty on first event switch; next effect fills when slots arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
+
+  useEffect(() => {
+    if (!autoListDatesRef.current) return;
+    setListDateFrom(slotDateBounds.from);
+    setListDateTo(slotDateBounds.to);
+  }, [slotDateBounds.from, slotDateBounds.to]);
 
   function focusAddSection(mode: "role" | "individual") {
     if (mode === "role") setStaffId("");
@@ -271,35 +307,116 @@ export function EventSchedulePanel({
     });
   }
 
-  const filteredSlots = useEventRoles
-    ? roleFilter === "all"
-      ? slots
-      : slots.filter((slot) => roleForSlot(slot)?.id === roleFilter)
-    : categoryFilter === "all"
-      ? slots
-      : slots.filter((slot) => categoryForSlot(slot) === categoryFilter);
+  const dateScopedSlots = useMemo(() => {
+    let rows = slots;
+    if (listDateFrom) rows = rows.filter((slot) => slot.work_date >= listDateFrom);
+    if (listDateTo) rows = rows.filter((slot) => slot.work_date <= listDateTo);
+    return rows;
+  }, [slots, listDateFrom, listDateTo]);
 
-  const shiftGroups = useMemo(() => {
-    return groupScheduleShifts(filteredSlots, attendance, {
-      roleLabelOf: (slot) => {
-        const role = roleForSlot(slot);
-        if (role) return role.name;
-        return slot.role_label?.trim() || categoryLabel(categoryForSlot(slot));
-      },
-      roleKeyOf: (slot) => {
-        const role = roleForSlot(slot);
-        if (role) return role.code || role.name;
-        return categoryForSlot(slot);
-      },
-      isLabourOf: (slot) => {
-        const role = roleForSlot(slot);
-        if (role) return isLabourEventRole(role);
-        return isLabourStyleEventCrewCategory(categoryForSlot(slot));
-      },
-    });
+  const filteredSlots = useMemo(() => {
+    if (useEventRoles) {
+      return roleFilter === "all"
+        ? dateScopedSlots
+        : dateScopedSlots.filter((slot) => roleForSlot(slot)?.id === roleFilter);
+    }
+    return categoryFilter === "all"
+      ? dateScopedSlots
+      : dateScopedSlots.filter((slot) => categoryForSlot(slot) === categoryFilter);
+    // Helpers close over latest role/staff maps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    dateScopedSlots,
+    roleFilter,
+    categoryFilter,
+    useEventRoles,
+    activeRoles,
+    headOfficeLocationId,
+    staff,
+  ]);
+
+  const groupShiftOptions = {
+    roleLabelOf: (slot: EventScheduleSlotRow) => {
+      const role = roleForSlot(slot);
+      if (role) return role.name;
+      return slot.role_label?.trim() || categoryLabel(categoryForSlot(slot));
+    },
+    roleKeyOf: (slot: EventScheduleSlotRow) => {
+      const role = roleForSlot(slot);
+      if (role) return role.code || role.name;
+      return categoryForSlot(slot);
+    },
+    isLabourOf: (slot: EventScheduleSlotRow) => {
+      const role = roleForSlot(slot);
+      if (role) return isLabourEventRole(role);
+      return isLabourStyleEventCrewCategory(categoryForSlot(slot));
+    },
+  };
+
+  const totalShiftGroups = useMemo(() => {
+    return groupScheduleShifts(slots, attendance, groupShiftOptions);
     // Helpers close over latest role/staff maps; language refreshes labels.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots, attendance, activeRoles, useEventRoles, headOfficeLocationId, staff, locale]);
+
+  const dateScopedGroups = useMemo(() => {
+    return groupScheduleShifts(dateScopedSlots, attendance, groupShiftOptions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateScopedSlots, attendance, activeRoles, useEventRoles, headOfficeLocationId, staff, locale]);
+
+  const roleFilteredGroups = useMemo(() => {
+    return groupScheduleShifts(filteredSlots, attendance, groupShiftOptions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredSlots, attendance, activeRoles, useEventRoles, headOfficeLocationId, staff, locale]);
+
+  const shiftGroups = useMemo(() => {
+    if (coverageFilter === "all") return roleFilteredGroups;
+    return roleFilteredGroups.filter((group) =>
+      coverageFilter === "covered" ? group.covered : !group.covered,
+    );
+  }, [roleFilteredGroups, coverageFilter]);
+
+  const roleGroupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const group of dateScopedGroups) {
+      const sample = group.slots[0];
+      if (!sample) continue;
+      const role = roleForSlot(sample);
+      const key = role?.id ?? `cat:${group.roleKey}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateScopedGroups, activeRoles, headOfficeLocationId, staff]);
+
+  const categoryGroupCounts = useMemo(() => {
+    const counts: Record<EventCrewScheduleCategory | "all", number> = {
+      all: dateScopedGroups.length,
+      crew: 0,
+      cleaner: 0,
+      maintenance: 0,
+      management: 0,
+    };
+    for (const group of dateScopedGroups) {
+      const cat = group.roleKey as EventCrewScheduleCategory;
+      if (cat in counts && cat !== "all") counts[cat] += 1;
+    }
+    return counts;
+  }, [dateScopedGroups]);
+
+  const dateFilterNarrowed =
+    Boolean(listDateFrom && slotDateBounds.from && listDateFrom > slotDateBounds.from) ||
+    Boolean(listDateTo && slotDateBounds.to && listDateTo < slotDateBounds.to);
+
+  const listFiltersActive =
+    roleFilter !== "all" ||
+    categoryFilter !== "all" ||
+    dateFilterNarrowed ||
+    coverageFilter !== "all";
+
+  useEffect(() => {
+    setSelectedGroups(new Set());
+  }, [roleFilter, categoryFilter, listDateFrom, listDateTo, coverageFilter]);
 
   const groupedSlots = useEventRoles
     ? (() => {
@@ -357,15 +474,23 @@ export function EventSchedulePanel({
         ).length > 0,
       );
 
-  const categoryCounts: Record<EventCrewScheduleCategory | "all", number> = {
-    all: slots.length,
-    crew: 0,
-    cleaner: 0,
-    maintenance: 0,
-    management: 0,
-  };
-  for (const slot of slots) {
-    categoryCounts[categoryForSlot(slot)] += 1;
+  function clearListFilters() {
+    autoListDatesRef.current = true;
+    setRoleFilter("all");
+    setCategoryFilter("all");
+    setListDateFrom(slotDateBounds.from);
+    setListDateTo(slotDateBounds.to);
+    setCoverageFilter("all");
+  }
+
+  function setListDateFromFilter(value: string) {
+    autoListDatesRef.current = false;
+    setListDateFrom(value);
+  }
+
+  function setListDateToFilter(value: string) {
+    autoListDatesRef.current = false;
+    setListDateTo(value);
   }
 
   function selectAddRole(next: EventCrewScheduleCategory) {
@@ -803,28 +928,27 @@ export function EventSchedulePanel({
                 <Users className="me-1.5 h-3.5 w-3.5" aria-hidden />
                 {t("events.schedule.seedFromCrew")}
               </Button>
-              <Input
-                type="date"
-                className="h-9 w-auto rounded-xl"
-                value={processFrom}
-                onChange={(e) => setProcessFrom(e.target.value)}
-                aria-label={t("events.schedule.processFrom")}
-              />
-              <span className="text-muted-foreground" aria-hidden>
-                –
-              </span>
-              <Input
-                type="date"
-                className="h-9 w-auto rounded-xl"
-                value={processTo}
-                onChange={(e) => setProcessTo(e.target.value)}
-                aria-label={t("events.schedule.processTo")}
-              />
+              <div className="min-w-[16rem] max-w-[20rem] flex-1">
+                <PeopleEventDateRangeControl
+                  dateFrom={processFrom}
+                  dateTo={processTo}
+                  onDateFrom={setProcessFrom}
+                  onDateTo={setProcessTo}
+                  fromId="event-shift-process-from"
+                  toId="event-shift-process-to"
+                  className="h-9 border-border/80"
+                />
+              </div>
               <Button
                 size="sm"
                 className="h-9 rounded-xl bg-[#7c3aed] text-white hover:bg-[#6d28d9]"
                 disabled={busy || slots.length === 0}
                 onClick={() => void process()}
+                title={
+                  processFrom || processTo
+                    ? undefined
+                    : t("events.schedule.processAttendance")
+                }
               >
                 <Play className="me-1.5 h-3.5 w-3.5" aria-hidden />
                 {t("events.schedule.processAttendance")}
@@ -1056,52 +1180,124 @@ export function EventSchedulePanel({
 
         {/* Scheduled shifts table */}
         <section className="rounded-2xl border border-black/5 bg-white p-4 shadow-[0_4px_20px_rgba(124,58,237,0.06)]">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-foreground">
-              {t("peopleEvent.shifts.tableTitle", { n: shiftGroups.length })}
-            </h2>
-            <div className="flex items-center gap-2">
-              {useEventRoles ? (
-                <Select value={roleFilter} onValueChange={setRoleFilter}>
-                  <SelectTrigger className="h-9 w-[10.5rem] rounded-xl text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">
-                      {t("events.schedule.categories.all")} ({slots.length})
-                    </SelectItem>
-                    {activeRoles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
+          <div className="mb-3 space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-foreground">
+                  {t("peopleEvent.shifts.tableTitle", { n: shiftGroups.length })}
+                </h2>
+                {listFiltersActive && shiftGroups.length !== totalShiftGroups.length ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {t("peopleEvent.shifts.filteredOf", {
+                      filtered: shiftGroups.length,
+                      total: totalShiftGroups.length,
+                    })}
+                  </p>
+                ) : null}
+              </div>
+              {listFiltersActive ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 rounded-xl text-xs"
+                  onClick={clearListFilters}
+                >
+                  {t("peopleEvent.shifts.clearFilters")}
+                </Button>
+              ) : null}
+            </div>
+
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.role")}
+                </label>
+                <div className="relative">
+                  <Briefcase
+                    className="pointer-events-none absolute start-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  {useEventRoles ? (
+                    <Select value={roleFilter} onValueChange={setRoleFilter}>
+                      <SelectTrigger className="h-10 rounded-xl ps-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          {t("peopleEvent.filters.allRoles")} ({dateScopedGroups.length})
+                        </SelectItem>
+                        {activeRoles.map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            {role.name} ({roleGroupCounts.get(role.id) ?? 0})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select
+                      value={categoryFilter}
+                      onValueChange={(v) =>
+                        setCategoryFilter(v as EventCrewScheduleCategory | "all")
+                      }
+                    >
+                      <SelectTrigger className="h-10 rounded-xl ps-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          {t("peopleEvent.filters.allRoles")} ({categoryGroupCounts.all})
+                        </SelectItem>
+                        {EVENT_CREW_SCHEDULE_CATEGORY_ORDER.map((cat) => (
+                          <SelectItem key={cat} value={cat}>
+                            {categoryLabel(cat)} ({categoryGroupCounts[cat]})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
+
+              <div className="min-w-0 sm:col-span-2 xl:col-span-1 xl:min-w-[18rem]">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.dateRange")}
+                </label>
+                <PeopleEventDateRangeControl
+                  dateFrom={listDateFrom}
+                  dateTo={listDateTo}
+                  onDateFrom={setListDateFromFilter}
+                  onDateTo={setListDateToFilter}
+                  fromId="event-shift-list-date-from"
+                  toId="event-shift-list-date-to"
+                  className="border-border/80"
+                />
+              </div>
+
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("peopleEvent.filters.status")}
+                </label>
                 <Select
-                  value={categoryFilter}
+                  value={coverageFilter}
                   onValueChange={(v) =>
-                    setCategoryFilter(v as EventCrewScheduleCategory | "all")
+                    setCoverageFilter(v as "all" | "covered" | "uncovered")
                   }
                 >
-                  <SelectTrigger className="h-9 w-[10.5rem] rounded-xl text-xs">
+                  <SelectTrigger className="h-10 rounded-xl text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">
-                      {t("events.schedule.categories.all")} ({categoryCounts.all})
+                    <SelectItem value="all">{t("common.allStatuses")}</SelectItem>
+                    <SelectItem value="covered">
+                      {t("peopleEvent.shifts.statusCovered")}
                     </SelectItem>
-                    {EVENT_CREW_SCHEDULE_CATEGORY_ORDER.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {categoryLabel(cat)} ({categoryCounts[cat]})
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="uncovered">
+                      {t("peopleEvent.shifts.statusUncovered")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
-              )}
-              <span className="grid h-9 w-9 place-items-center rounded-xl border border-border/70 text-muted-foreground">
-                <Filter className="h-3.5 w-3.5" aria-hidden />
-              </span>
+              </div>
             </div>
           </div>
 
@@ -1113,7 +1309,11 @@ export function EventSchedulePanel({
               ) : null}
             </div>
           ) : shiftGroups.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("events.schedule.emptyCategory")}</p>
+            <p className="text-sm text-muted-foreground">
+              {listFiltersActive
+                ? t("peopleEvent.shifts.emptyFiltered")
+                : t("events.schedule.emptyCategory")}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
