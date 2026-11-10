@@ -42,8 +42,26 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Documentation
 
+### Operations manual (MkDocs Material)
+
+The **FEC-OS user / ops manual** is published from the `manual/` folder (`mkdocs.yml` at repo root). In the app: **Help → Open operations manual** or **Training → Ops manual** (`/help/manual`).
+
+```powershell
+python -m venv .venv-docs
+.\.venv-docs\Scripts\Activate.ps1
+pip install -r requirements-docs.txt
+mkdocs serve
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+**Published manual:** [https://bookingqube-collab.github.io/fec-os/](https://bookingqube-collab.github.io/fec-os/) (GitHub Pages; deploys on push to `master` when `manual/`, `mkdocs.yml`, or `.github/workflows/docs.yml` change). Set `NEXT_PUBLIC_OPS_MANUAL_URL` in `.env.local` (see `.env.example`) so in-app **Help → Open operations manual** points at the live site.
+
+Local build: `mkdocs build` → `site/` (gitignored).
+
 | Doc | Description |
 |-----|-------------|
+| [manual/index.md](manual/index.md) | Operator manual (MkDocs source) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | App structure, data flow, auth |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Environment, build, deploy |
 | [docs/DATABASE.md](docs/DATABASE.md) | Migrations, schema overview |

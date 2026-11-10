@@ -1,0 +1,105 @@
+# FEC-OS Operations Manual — MkDocs Material
+# Content root: manual/ (developer markdown stays in docs/)
+
+site_name: FEC-OS Operations Manual
+site_description: Operator and administrator guide for FEC Operations Command
+site_url: https://bookingqube-collab.github.io/fec-os/
+repo_url: https://github.com/BookingQube-collab/fec-os
+repo_name: fec-os
+edit_uri: edit/main/manual/
+
+docs_dir: manual
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+plugins:
+  - search:
+      lang:
+        - en
+        - ar
+
+nav:
+  - Home: index.md
+  - Role workflows:
+    - Duty manager: workflows/duty-manager.md
+    - General manager: workflows/general-manager.md
+    - Executive: workflows/executive.md
+  - Operations:
+    - Operations & Command: operations-command.md
+    - Daily Operations: daily-operations.md
+  - People & HR:
+    - People directory: people-directory.md
+    - Import employee roster: import-roster.md
+    - Time & Attendance: time-attendance.md
+    - Performance, leaderboard, SOPs: performance-sops.md
+  - Facilities:
+    - Maintenance & Facilities: maintenance.md
+    - Inventory & Utilities: inventory-utilities.md
+  - Commercial:
+    - Procurement: procurement.md
+    - Events (PM): events.md
+    - Guest experience & revenue: guest-commercial.md
+  - Compliance:
+    - Compliance & Safety: compliance.md
+  - Administration:
+    - Overview: administration.md
+    - Admin panel (detail): admin-panel.md
+  - Tips: tips.md
+  - العربية: ar/overview.md
+  - Developer reference: developer/index.md
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra:
+  social:
+    - icon: fontawesome/solid/book
+      link: /
+      name: FEC Operations Command
+
+copyright: FEC-OS · FEC Operations Command · Operator manual
