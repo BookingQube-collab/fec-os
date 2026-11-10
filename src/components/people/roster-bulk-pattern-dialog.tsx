@@ -330,8 +330,8 @@ export function RosterBulkPatternDialog({
               start={shiftStart}
               end={shiftEnd}
               disabled={offWeekdays.length >= 7}
-              onStartChange={setShiftStart}
-              onEndChange={setShiftEnd}
+              onStartChange={(value) => setShiftStart(value ?? "")}
+              onEndChange={(value) => setShiftEnd(value ?? "")}
             />
           </div>
 

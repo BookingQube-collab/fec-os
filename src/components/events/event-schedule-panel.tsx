@@ -399,7 +399,7 @@ export function EventSchedulePanel({
     };
     for (const group of dateScopedGroups) {
       const cat = group.roleKey as EventCrewScheduleCategory;
-      if (cat in counts && cat !== "all") counts[cat] += 1;
+      if (cat in counts) counts[cat] += 1;
     }
     return counts;
   }, [dateScopedGroups]);
