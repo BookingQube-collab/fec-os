@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Globe, LogOut, Search } from "lucide-react";
+import { BookOpen, Globe, LogOut, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +10,7 @@ import { HeaderSearch } from "@/components/layout/header-search";
 import { MobileNotificationBell } from "@/components/layout/mobile-notification-bell";
 import { useAuth } from "@/hooks/use-auth";
 import type { SupportedLanguage } from "@/i18n";
+import { OPS_MANUAL_URL } from "@/lib/ops-manual";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -73,6 +74,24 @@ export function MobileAppHeader({ className }: { className?: string }) {
         >
           <Globe className="h-4 w-4 stroke-[1.5]" />
           {language === "en" ? "عربي" : "EN"}
+        </Button>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10 shrink-0"
+          asChild
+        >
+          <a
+            href={OPS_MANUAL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t("layout.helpOpsManualLink")}
+            aria-label={t("layout.helpOpsManualLink")}
+          >
+            <BookOpen className="h-4 w-4 stroke-[1.5]" />
+          </a>
         </Button>
 
         <MobileNotificationBell />

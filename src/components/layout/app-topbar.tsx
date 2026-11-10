@@ -2,6 +2,7 @@
 
 import {
   Bell,
+  BookOpen,
   Globe,
   HelpCircle,
   Keyboard,
@@ -39,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HeaderSearch } from "@/components/layout/header-search";
+import { OPS_MANUAL_URL } from "@/lib/ops-manual";
 
 function greetingKey() {
   const h = new Date().getHours();
@@ -239,6 +241,24 @@ export function AppTopbar() {
             {language === "en" ? "العربية" : "English"}
           </Button>
 
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            asChild
+          >
+            <a
+              href={OPS_MANUAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t("layout.helpOpsManualLink")}
+              aria-label={t("layout.helpOpsManualLink")}
+            >
+              <BookOpen className="h-4 w-4" />
+            </a>
+          </Button>
+
           <Popover
             open={helpOpen}
             onOpenChange={setHelpOpen}
@@ -277,7 +297,20 @@ export function AppTopbar() {
                   <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <span>{t("layout.helpShellFx")}</span>
                 </li>
+                <li className="flex items-start gap-2.5">
+                  <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("layout.helpOpsManual")}</span>
+                </li>
               </ul>
+              <a
+                href={OPS_MANUAL_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex text-sm font-medium text-foreground hover:underline"
+                onClick={() => setHelpOpen(false)}
+              >
+                {t("layout.helpOpsManualLink")}
+              </a>
               <Link
                 href="/notifications"
                 className="mt-3 inline-flex text-sm font-medium text-foreground hover:underline"

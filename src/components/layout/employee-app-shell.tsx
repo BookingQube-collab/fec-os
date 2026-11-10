@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { BookOpen, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { MobileNotificationBell } from "@/components/layout/mobile-notification-bell";
 import { useAuth } from "@/hooks/use-auth";
 import type { SupportedLanguage } from "@/i18n";
+import { OPS_MANUAL_URL } from "@/lib/ops-manual";
 import { useAppStore } from "@/stores/app-store";
 
 /**
@@ -55,6 +56,23 @@ export function EmployeeMobileHeader() {
           </Button>
           <Button type="button" size="sm" variant="ghost" className="h-9 px-2" asChild>
             <Link href="/">{t("hr.me.opsConsole")}</Link>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            asChild
+          >
+            <a
+              href={OPS_MANUAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t("layout.helpOpsManualLink")}
+              aria-label={t("layout.helpOpsManualLink")}
+            >
+              <BookOpen className="h-4 w-4 stroke-[1.5]" />
+            </a>
           </Button>
           <MobileNotificationBell />
           <Button

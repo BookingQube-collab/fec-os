@@ -7876,7 +7876,9 @@
     "helpSearchShortcut": "Press / to focus search",
     "helpNotifications": "Bell opens notifications on this page. View all for the full inbox.",
     "helpSurge": "Surge mode tightens the header and nav so exceptions stay in view.",
-    "helpShellFx": "Shell effects toggle Aurora and click sparks. They stay off on heavy People / attendance / chat pages."
+    "helpShellFx": "Shell effects toggle Aurora and click sparks. They stay off on heavy People / attendance / chat pages.",
+    "helpOpsManual": "Full FEC-OS operations manual (MkDocs): modules, workflows, compliance, and RBAC.",
+    "helpOpsManualLink": "Open operations manual"
   },
   "roles": {
     "ceo": "Chief Executive Officer",
@@ -14343,7 +14345,8 @@
     "paths": "Learning paths",
     "matrix": "Matrix",
     "links": "Requirements",
-    "reports": "Reports"
+    "reports": "Reports",
+    "opsManual": "Ops manual"
   },
   "trainingCertificates": {
     "title": "Certificates",
