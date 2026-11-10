@@ -82,6 +82,7 @@ import {
   updateRosterAssignment,
   type RosterRegisterRow,
 } from "@/lib/attendance-hr/roster-register.functions";
+import { excludeEventOnlyLocationsFromMonthlyRoster } from "@/lib/attendance-hr/roster-location-coverage";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import {
   buildRosterMatrix,
@@ -408,9 +409,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       () => orgDepartmentIdsFor(departments, showOnlyOrgDepartments),
       [departments, showOnlyOrgDepartments],
     );
+    const rosterSites = useMemo(
+      () => excludeEventOnlyLocationsFromMonthlyRoster(sites.data ?? []),
+      [sites.data],
+    );
     const selectedLocationCode = useMemo(
-      () => (sites.data ?? []).find((site) => site.id === deferredLocationId)?.code ?? null,
-      [sites.data, deferredLocationId],
+      () => rosterSites.find((site) => site.id === deferredLocationId)?.code ?? null,
+      [rosterSites, deferredLocationId],
     );
     // Omit staffId from the fetch: server staff scoping shrinks rows/teamStaff to the
     // selected person, which starves the Staff dropdown. Grid still filters client-side.
@@ -574,7 +579,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       if (sourceUploadOnly) p.set("sourceUploadOnly", "1");
       else if (sourceFilter !== "all") p.set("source", sourceFilter);
 
-      const location = (sites.data ?? []).find((site) => site.id === locationId);
+      const location = rosterSites.find((site) => site.id === locationId);
       p.set(
         "locationLabel",
         location
@@ -619,13 +624,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       showOnlyOrgDepartments,
       sourceUploadOnly,
       sourceFilter,
-      sites.data,
+      rosterSites,
       staffOptions,
       t,
     ]);
 
     const exportLocationToken =
-      (sites.data ?? []).find((site) => site.id === locationId)?.code ??
+      rosterSites.find((site) => site.id === locationId)?.code ??
       filtered.find((row) => row.locationCode)?.locationCode ??
       null;
 
@@ -931,15 +936,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
 
     const locationOptions = useMemo(
       () =>
-        (sites.data ?? []).map((loc) => ({
+        rosterSites.map((loc) => ({
           value: loc.id,
           label: formatLocationLabel(loc.code, loc.name),
           keywords: [loc.code, loc.name].filter(Boolean).join(" "),
         })),
-      [sites.data],
+      [rosterSites],
     );
 
-    const rosterLocationCode = (sites.data ?? []).find((site) => site.id === locationId)?.code ?? null;
+    const rosterLocationCode = rosterSites.find((site) => site.id === locationId)?.code ?? null;
     const departmentOptions = useMemo(
       () =>
         dedupeDepartmentOptionsByAlias(
@@ -1176,7 +1181,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             value={locationId}
             onValueChange={onLocationFilter}
             emptyOption={{ value: "", label: t("people.roster.registerAllLocations") }}
-            options={(sites.data ?? []).map((loc) => ({
+            options={rosterSites.map((loc) => ({
               value: loc.id,
               label: formatLocationLabel(loc.code, loc.name),
             }))}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  excludeEventOnlyLocationsFromMonthlyRoster,
+  isEventOnlyMonthlyRosterLocationCode,
   locationRosterCoverage,
   locationsForRosterCards,
   rosterScopeAssignedLocationIds,
@@ -14,6 +16,27 @@ const sites: LocationRosterSite[] = [
 ];
 
 const label = (site: LocationRosterSite) => site.name ?? site.id;
+
+describe("event-only monthly roster locations", () => {
+  it("recognizes Place Vendôme as an event host code", () => {
+    expect(isEventOnlyMonthlyRosterLocationCode("PLACE-VEDOME-MALL")).toBe(true);
+    expect(isEventOnlyMonthlyRosterLocationCode(" place-vedome-mall ")).toBe(true);
+    expect(isEventOnlyMonthlyRosterLocationCode("CB-VM")).toBe(false);
+    expect(isEventOnlyMonthlyRosterLocationCode(null)).toBe(false);
+  });
+
+  it("drops event hosts from monthly roster site lists", () => {
+    const mixed: LocationRosterSite[] = [
+      ...sites,
+      { id: "vendome", code: "PLACE-VEDOME-MALL", name: "Place Vendome Mall" },
+    ];
+    expect(excludeEventOnlyLocationsFromMonthlyRoster(mixed).map((site) => site.code)).toEqual([
+      "INF-CC",
+      "KDS-DM",
+      "CB-VM",
+    ]);
+  });
+});
 
 describe("locationRosterCoverage", () => {
   it("marks a location uploaded when the period has rows, and counts staff once", () => {
@@ -40,6 +63,16 @@ describe("locationRosterCoverage", () => {
     expect(items).toHaveLength(3);
     expect(items.every((item) => !item.uploaded)).toBe(true);
   });
+
+  it("never shows Place Vendôme as Missing on monthly roster coverage", () => {
+    const withEventHost: LocationRosterSite[] = [
+      ...sites,
+      { id: "vendome", code: "PLACE-VEDOME-MALL", name: "Place Vendome Mall" },
+    ];
+    const items = locationRosterCoverage(withEventHost, [], label);
+    expect(items.map((item) => item.id)).toEqual(["inf", "kds", "cb"]);
+    expect(items.some((item) => item.id === "vendome")).toBe(false);
+  });
 });
 
 describe("roster location cards", () => {
@@ -50,13 +83,29 @@ describe("roster location cards", () => {
     { id: "ua", code: "UA-DM", name: "Urban Arena" },
   ];
 
-  it("keeps a company roster on every site", () => {
+  it("keeps a company roster on every operational site", () => {
     expect(locationsForRosterCards(catalog, null).map((site) => site.code)).toEqual([
       "CAR-AP",
       "INF-CC",
       "KDS-CC",
       "UA-DM",
     ]);
+  });
+
+  it("omits event-only hosts from company and assigned card lists", () => {
+    const withEventHost: LocationRosterSite[] = [
+      ...catalog,
+      { id: "vendome", code: "PLACE-VEDOME-MALL", name: "Place Vendome Mall" },
+    ];
+    expect(locationsForRosterCards(withEventHost, null).map((site) => site.code)).toEqual([
+      "CAR-AP",
+      "INF-CC",
+      "KDS-CC",
+      "UA-DM",
+    ]);
+    expect(
+      locationsForRosterCards(withEventHost, ["car", "vendome", "ua"]).map((site) => site.code),
+    ).toEqual(["CAR-AP", "UA-DM"]);
   });
 
   it("uses home and extra sites, and drops a site that only has punches or shift rows", () => {
