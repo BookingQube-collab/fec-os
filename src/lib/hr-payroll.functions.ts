@@ -61,9 +61,13 @@ import { enumerateDatesInclusive } from "@/lib/events/event-schedule";
 import {
   collectEventPaidDays,
   excludeEventPaidDaysFromMonthly,
+  eventPeriodMonthAnchor,
+  normalizeEventPayDateSpan,
   payrollExportMonthLabel,
+  resolveEventPayPeriodWindow,
   staffIdsForEventPayRunByTrack,
   summarizeEventPayGenerateBlockers,
+  type EventPayDateSpan,
   type EventPayGenerateBlockers,
 } from "@/lib/events/event-payroll";
 import {
@@ -508,8 +512,8 @@ export const generatePayrollLines = createAuthenticatedAction(
       throw new Error("Lines can only be regenerated in draft, attendance validation, or HR review.");
     }
 
-    const dateFrom = String(periodRow.date_from).slice(0, 10);
-    const dateTo = String(periodRow.date_to).slice(0, 10);
+    let dateFrom = String(periodRow.date_from).slice(0, 10);
+    let dateTo = String(periodRow.date_to).slice(0, 10);
     const periodKind = String(periodRow.period_kind ?? "monthly");
     const eventId = (periodRow.event_id as string | null) ?? null;
     const isEventPeriod = periodKind === "event" && Boolean(eventId);
@@ -524,6 +528,92 @@ export const generatePayrollLines = createAuthenticatedAction(
       { hoursPerDay: number; dayRateQar: number | null; track: "labour" | "staff" }
     >();
     if (isEventPeriod && eventId) {
+      // Align draft period window to open dates, or assignment/attendance span when
+      // open dates miss all pay-on-event workforce (avoids all-zero eligibility).
+      {
+        const { data: eventRow } = await supabaseAdmin
+          .from("events")
+          .select("event_start, event_end, venue_access, setup_start, dismantle_end")
+          .eq("id", eventId)
+          .maybeSingle();
+        const { data: assignSpanRows } = await supabaseAdmin
+          .from("event_staff_assignments")
+          .select("date_from, date_to")
+          .eq("event_id", eventId)
+          .eq("pay_on_event_run", true);
+        let assignmentSpan: EventPayDateSpan | null = null;
+        for (const row of assignSpanRows ?? []) {
+          const span = normalizeEventPayDateSpan(
+            row.date_from as string | null,
+            row.date_to as string | null,
+          );
+          if (!span) continue;
+          if (!assignmentSpan) {
+            assignmentSpan = { ...span };
+            continue;
+          }
+          if (span.dateFrom < assignmentSpan.dateFrom) assignmentSpan.dateFrom = span.dateFrom;
+          if (span.dateTo > assignmentSpan.dateTo) assignmentSpan.dateTo = span.dateTo;
+        }
+        let attendanceSpan: EventPayDateSpan | null = null;
+        const { data: attMin } = await supabaseAdmin
+          .from("attendance_daily_summary")
+          .select("work_date")
+          .eq("event_id", eventId)
+          .order("work_date", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (attMin?.work_date) {
+          const { data: attMax } = await supabaseAdmin
+            .from("attendance_daily_summary")
+            .select("work_date")
+            .eq("event_id", eventId)
+            .order("work_date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          attendanceSpan = normalizeEventPayDateSpan(
+            attMin.work_date as string,
+            (attMax?.work_date as string | null) ?? (attMin.work_date as string),
+          );
+        }
+        const resolved = resolveEventPayPeriodWindow({
+          event: {
+            event_start: (eventRow?.event_start as string | null) ?? null,
+            event_end: (eventRow?.event_end as string | null) ?? null,
+            venue_access: (eventRow?.venue_access as string | null) ?? null,
+            setup_start: (eventRow?.setup_start as string | null) ?? null,
+            dismantle_end: (eventRow?.dismantle_end as string | null) ?? null,
+          },
+          assignmentSpan,
+          attendanceSpan,
+        });
+        if (resolved.dateFrom !== dateFrom || resolved.dateTo !== dateTo) {
+          try {
+            assertCanDeletePayrollPeriod(status);
+            const nextMonth = eventPeriodMonthAnchor(resolved.dateFrom);
+            const { error: syncErr } = await context.supabase
+              .from("hr_payroll_periods")
+              .update({
+                date_from: resolved.dateFrom,
+                date_to: resolved.dateTo,
+                month: nextMonth,
+                updated_at: new Date().toISOString(),
+                updated_by: context.userId,
+              })
+              .eq("id", data.periodId);
+            if (!syncErr) {
+              dateFrom = resolved.dateFrom;
+              dateTo = resolved.dateTo;
+              periodRow.date_from = resolved.dateFrom;
+              periodRow.date_to = resolved.dateTo;
+              periodRow.month = nextMonth;
+            }
+          } catch {
+            // Locked periods keep stored window; eligibility may still be empty.
+          }
+        }
+      }
+
       let assignRes = await supabaseAdmin
         .from("event_staff_assignments")
         .select(

@@ -291,6 +291,51 @@ export function excludeEventPaidDaysFromMonthly(
   });
 }
 
+export type EventPayDateSpan = { dateFrom: string; dateTo: string };
+
+export type EventPayPeriodWindowSource =
+  | "open"
+  | "assignments"
+  | "attendance"
+  | "today";
+
+function ymdOrEmpty(value: string | null | undefined): string {
+  const d = String(value ?? "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : "";
+}
+
+export function normalizeEventPayDateSpan(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): EventPayDateSpan | null {
+  const dateFrom = ymdOrEmpty(from);
+  if (!dateFrom) return null;
+  let dateTo = ymdOrEmpty(to) || dateFrom;
+  if (dateTo < dateFrom) dateTo = dateFrom;
+  return { dateFrom, dateTo };
+}
+
+export function eventPayDateSpansOverlap(a: EventPayDateSpan, b: EventPayDateSpan): boolean {
+  return !(a.dateTo < b.dateFrom || a.dateFrom > b.dateTo);
+}
+
+/** True when the event row declares any open/venue/setup/dismantle date. */
+export function hasDeclaredEventPayDates(event: {
+  event_start?: string | null;
+  event_end?: string | null;
+  venue_access?: string | null;
+  setup_start?: string | null;
+  dismantle_end?: string | null;
+}): boolean {
+  return Boolean(
+    ymdOrEmpty(event.event_start) ||
+      ymdOrEmpty(event.event_end) ||
+      ymdOrEmpty(event.venue_access) ||
+      ymdOrEmpty(event.setup_start) ||
+      ymdOrEmpty(event.dismantle_end),
+  );
+}
+
 /**
  * Event pay calendar window = open dates only (event_start → event_end).
  * Falls back to venue/setup/dismantle only when open dates are missing.
@@ -301,13 +346,66 @@ export function eventPayOpenWindow(event: {
   venue_access?: string | null;
   setup_start?: string | null;
   dismantle_end?: string | null;
-}): { dateFrom: string; dateTo: string } {
+}): EventPayDateSpan {
   const dateFrom =
-    String(event.event_start ?? event.venue_access ?? event.setup_start ?? "").slice(0, 10) ||
+    ymdOrEmpty(event.event_start) ||
+    ymdOrEmpty(event.venue_access) ||
+    ymdOrEmpty(event.setup_start) ||
     new Date().toISOString().slice(0, 10);
   const dateTo =
-    String(event.event_end ?? event.dismantle_end ?? dateFrom).slice(0, 10) || dateFrom;
+    ymdOrEmpty(event.event_end) || ymdOrEmpty(event.dismantle_end) || dateFrom;
   return { dateFrom, dateTo: dateTo < dateFrom ? dateFrom : dateTo };
+}
+
+/**
+ * Resolve the event payroll period window end-to-end:
+ * - Prefer declared open dates (event_start → event_end, else venue/setup/dismantle)
+ *   when they overlap existing pay-on-event assignments / event attendance, or when
+ *   no workforce span exists yet.
+ * - If open dates are missing, or they miss all workforce data (common when demo
+ *   seed used setup dates while open is later), fall back to assignment then
+ *   attendance min–max so Create & generate can find eligible staff.
+ */
+export function resolveEventPayPeriodWindow(input: {
+  event: {
+    event_start?: string | null;
+    event_end?: string | null;
+    venue_access?: string | null;
+    setup_start?: string | null;
+    dismantle_end?: string | null;
+  };
+  assignmentSpan?: EventPayDateSpan | null;
+  attendanceSpan?: EventPayDateSpan | null;
+}): EventPayDateSpan & { source: EventPayPeriodWindowSource; open: EventPayDateSpan } {
+  const open = eventPayOpenWindow(input.event);
+  const assignmentSpan = input.assignmentSpan
+    ? normalizeEventPayDateSpan(input.assignmentSpan.dateFrom, input.assignmentSpan.dateTo)
+    : null;
+  const attendanceSpan = input.attendanceSpan
+    ? normalizeEventPayDateSpan(input.attendanceSpan.dateFrom, input.attendanceSpan.dateTo)
+    : null;
+  const declared = hasDeclaredEventPayDates(input.event);
+
+  if (declared) {
+    const workforceOverlapsOpen =
+      (assignmentSpan != null && eventPayDateSpansOverlap(open, assignmentSpan)) ||
+      (attendanceSpan != null && eventPayDateSpansOverlap(open, attendanceSpan));
+    const noWorkforceSpan = assignmentSpan == null && attendanceSpan == null;
+    if (workforceOverlapsOpen || noWorkforceSpan) {
+      return { ...open, source: "open", open };
+    }
+  }
+
+  if (assignmentSpan) {
+    return { ...assignmentSpan, source: "assignments", open };
+  }
+  if (attendanceSpan) {
+    return { ...attendanceSpan, source: "attendance", open };
+  }
+  if (declared) {
+    return { ...open, source: "open", open };
+  }
+  return { ...open, source: "today", open };
 }
 
 /** Synthetic YYYY-MM for event period row (sorting); uniqueness is on event_id. */

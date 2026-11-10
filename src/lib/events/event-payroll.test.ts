@@ -6,16 +6,20 @@ import {
   computeLabourDayPayQar,
   EVENT_PAY_POLICY,
   eventPaidDayKey,
+  eventPayDateSpansOverlap,
   eventPayOpenWindow,
   eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
   excludeEventPaidDaysFromMonthly,
+  hasDeclaredEventPayDates,
   isEventLabourerRole,
   isEventPayrollEligibleCategory,
   isEventPayrollPeriod,
   labourDayPayUnits,
   labourDayPayUnitsFromMinutes,
+  normalizeEventPayDateSpan,
   payrollExportMonthLabel,
+  resolveEventPayPeriodWindow,
   resolveEventPayTrack,
   staffIdsForEventPayRun,
   staffIdsForEventPayRunByTrack,
@@ -238,6 +242,144 @@ describe("event pay open window", () => {
         dismantle_end: "2026-11-14",
       }),
     ).toEqual({ dateFrom: "2026-11-08", dateTo: "2026-11-14" });
+  });
+
+  it("detects declared dates and normalizes spans", () => {
+    expect(
+      hasDeclaredEventPayDates({
+        event_start: "2026-12-16",
+        event_end: "2026-12-31",
+      }),
+    ).toBe(true);
+    expect(
+      hasDeclaredEventPayDates({
+        event_start: null,
+        event_end: null,
+        venue_access: null,
+        setup_start: null,
+        dismantle_end: null,
+      }),
+    ).toBe(false);
+    expect(normalizeEventPayDateSpan("2026-11-23", "2026-12-06")).toEqual({
+      dateFrom: "2026-11-23",
+      dateTo: "2026-12-06",
+    });
+    expect(
+      eventPayDateSpansOverlap(
+        { dateFrom: "2026-12-16", dateTo: "2026-12-31" },
+        { dateFrom: "2026-11-23", dateTo: "2026-12-06" },
+      ),
+    ).toBe(false);
+    expect(
+      eventPayDateSpansOverlap(
+        { dateFrom: "2026-12-01", dateTo: "2026-12-31" },
+        { dateFrom: "2026-11-23", dateTo: "2026-12-06" },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("resolveEventPayPeriodWindow", () => {
+  const legoLike = {
+    event_start: "2026-12-16",
+    event_end: "2026-12-31",
+    venue_access: null,
+    setup_start: "2026-11-23",
+    dismantle_end: "2027-01-09",
+  };
+
+  it("uses open dates when workforce span overlaps open window", () => {
+    const resolved = resolveEventPayPeriodWindow({
+      event: legoLike,
+      assignmentSpan: { dateFrom: "2026-12-16", dateTo: "2026-12-29" },
+    });
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-12-16",
+      dateTo: "2026-12-31",
+      source: "open",
+    });
+  });
+
+  it("falls back to assignment span when open dates miss all seeded crew (EVT-2026-0009)", () => {
+    const resolved = resolveEventPayPeriodWindow({
+      event: legoLike,
+      assignmentSpan: { dateFrom: "2026-11-23", dateTo: "2026-12-06" },
+      attendanceSpan: { dateFrom: "2026-11-23", dateTo: "2026-12-06" },
+    });
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-11-23",
+      dateTo: "2026-12-06",
+      source: "assignments",
+    });
+    // Eligibility against that window is non-empty for pay-on-event seed.
+    expect(
+      staffIdsForEventPayRunByTrack(
+        [
+          {
+            staff_id: "lab1",
+            assignment_type: "event_hire",
+            role_label: "Labourer",
+            date_from: "2026-11-23",
+            date_to: "2026-12-06",
+            pay_on_event_run: true,
+          },
+          {
+            staff_id: "crew1",
+            assignment_type: "event_hire",
+            role_label: "Crew",
+            date_from: "2026-11-23",
+            date_to: "2026-12-06",
+            pay_on_event_run: true,
+          },
+        ],
+        resolved.dateFrom,
+        resolved.dateTo,
+      ).all.sort(),
+    ).toEqual(["crew1", "lab1"]);
+  });
+
+  it("falls back to attendance when assignments are missing but open misses punches", () => {
+    const resolved = resolveEventPayPeriodWindow({
+      event: legoLike,
+      assignmentSpan: null,
+      attendanceSpan: { dateFrom: "2026-11-23", dateTo: "2026-12-06" },
+    });
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-11-23",
+      dateTo: "2026-12-06",
+      source: "attendance",
+    });
+  });
+
+  it("uses assignment span when open dates are undeclared", () => {
+    const resolved = resolveEventPayPeriodWindow({
+      event: {
+        event_start: null,
+        event_end: null,
+        venue_access: null,
+        setup_start: null,
+        dismantle_end: null,
+      },
+      assignmentSpan: { dateFrom: "2026-11-01", dateTo: "2026-11-10" },
+    });
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-11-01",
+      dateTo: "2026-11-10",
+      source: "assignments",
+    });
+  });
+
+  it("keeps open dates when no workforce data exists yet", () => {
+    const resolved = resolveEventPayPeriodWindow({
+      event: legoLike,
+      assignmentSpan: null,
+      attendanceSpan: null,
+    });
+    expect(resolved).toMatchObject({
+      dateFrom: "2026-12-16",
+      dateTo: "2026-12-31",
+      source: "open",
+    });
   });
 });
 

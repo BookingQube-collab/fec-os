@@ -7,7 +7,7 @@
  */
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -36,6 +36,7 @@ import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { PeopleEventDateRangeControl } from "@/components/people/people-event-date-range-control";
 import { PeopleEventSharedEventSelect } from "@/components/people/people-event-shared-event-select";
+import { PeopleEventWorkforceDemoTools } from "@/components/people/people-event-workforce-demo-tools";
 import { PeopleEventWorkforceTabs } from "@/components/people/people-event-workforce-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,8 @@ export default function PeopleEventPayrollPage() {
   const [statusFilter, setStatusFilter] = useState<UiStatusFilter>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [demoFrom, setDemoFrom] = useState("");
+  const [demoTo, setDemoTo] = useState("");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -195,6 +198,12 @@ export default function PeopleEventPayrollPage() {
     : selectedEvent
       ? `/events/${selectedEvent.id}/pay`
       : null;
+
+  useEffect(() => {
+    if (!selectedEvent?.dateFrom || !selectedEvent?.dateTo) return;
+    setDemoFrom(selectedEvent.dateFrom);
+    setDemoTo(selectedEvent.dateTo);
+  }, [selectedEvent?.id, selectedEvent?.dateFrom, selectedEvent?.dateTo]);
 
   async function refresh() {
     await Promise.all([
@@ -431,6 +440,16 @@ export default function PeopleEventPayrollPage() {
           </header>
 
           <PeopleEventWorkforceTabs active="payroll" variant="pills" eventId={eventId} />
+
+          {eventId ? (
+            <PeopleEventWorkforceDemoTools
+              eventId={eventId}
+              dateFrom={demoFrom || undefined}
+              dateTo={demoTo || undefined}
+              onDateFromChange={setDemoFrom}
+              onDateToChange={setDemoTo}
+            />
+          ) : null}
 
           <EventPayrollKpiStrip
             kpis={kpis}

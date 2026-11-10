@@ -25,9 +25,9 @@ import {
   type DemoStaffSpec,
 } from "@/lib/events/event-workforce-demo";
 import {
-  eventPayOpenWindow,
   eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
+  resolveEventPayPeriodWindow,
 } from "@/lib/events/event-payroll";
 import {
   deriveEventDayStatus,
@@ -723,19 +723,22 @@ async function runSeedEventWorkforceDemo(
     const event = await loadEventOrThrow(context, data.eventId);
     const locationId = event.location_id as string;
     const eventName = String(event.name || event.event_name || "Event");
-    const open = eventPayOpenWindow({
+    const eventDates = {
       event_start: (event.event_start as string | null) ?? null,
       event_end: (event.event_end as string | null) ?? null,
       venue_access: (event.venue_access as string | null) ?? null,
       setup_start: (event.setup_start as string | null) ?? null,
       dismantle_end: (event.dismantle_end as string | null) ?? null,
-    });
-    // Align seed assignments/attendance with the same open window Create & generate uses.
+    };
+    // After wipe there is no workforce span yet — prefer declared open dates.
+    const payWindow = resolveEventPayPeriodWindow({ event: eventDates });
+    const open = payWindow.open;
+    // Align seed assignments/attendance with the same window Create & generate uses.
     const seedWindow = resolveDemoSeedPayWindow({
       requestedFrom: data.dateFrom,
       requestedTo: data.dateTo,
-      openFrom: open.dateFrom,
-      openTo: open.dateTo,
+      openFrom: payWindow.dateFrom,
+      openTo: payWindow.dateTo,
     });
     const dateFrom = seedWindow.dateFrom;
     const dateTo = seedWindow.dateTo;
@@ -971,12 +974,14 @@ async function runSeedEventWorkforceDemo(
       if (error) throw error;
     }
 
+    // Period dates must match seeded assignment/attendance window (not a wider open
+    // range) so Create & generate does not sync away from eligible staff.
     const payroll = await ensureDemoEventPayroll(context, {
       eventId: data.eventId,
       eventName,
       locationId,
-      periodFrom: open.dateFrom,
-      periodTo: open.dateTo,
+      periodFrom: dateFrom,
+      periodTo: dateTo,
       seedFrom: dateFrom,
       seedTo: dateTo,
     });

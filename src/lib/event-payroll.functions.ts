@@ -5,9 +5,11 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
-  eventPayOpenWindow,
   eventPayrollBatchLabel,
   eventPeriodMonthAnchor,
+  normalizeEventPayDateSpan,
+  resolveEventPayPeriodWindow,
+  type EventPayDateSpan,
 } from "@/lib/events/event-payroll";
 import {
   closeAssignmentStampNote,
@@ -41,13 +43,84 @@ async function loadEventOrThrow(context: AuthContext, eventId: string) {
   return data;
 }
 
-function eventPayWindow(event: Record<string, unknown>): { dateFrom: string; dateTo: string } {
-  return eventPayOpenWindow({
+function eventDatesForPayWindow(event: Record<string, unknown>) {
+  return {
     event_start: (event.event_start as string | null | undefined) ?? null,
     event_end: (event.event_end as string | null | undefined) ?? null,
     venue_access: (event.venue_access as string | null | undefined) ?? null,
     setup_start: (event.setup_start as string | null | undefined) ?? null,
     dismantle_end: (event.dismantle_end as string | null | undefined) ?? null,
+  };
+}
+
+/** Min–max pay-on-event assignment dates and event-tagged attendance for period fallback. */
+async function loadEventWorkforceDateSpans(
+  eventId: string,
+): Promise<{ assignmentSpan: EventPayDateSpan | null; attendanceSpan: EventPayDateSpan | null }> {
+  const { data: assigns, error: asgErr } = await supabaseAdmin
+    .from("event_staff_assignments")
+    .select("date_from, date_to")
+    .eq("event_id", eventId)
+    .eq("pay_on_event_run", true);
+  if (asgErr && !/event_staff_assignments|schema cache|does not exist/i.test(asgErr.message)) {
+    throw asgErr;
+  }
+
+  let assignmentSpan: EventPayDateSpan | null = null;
+  for (const row of assigns ?? []) {
+    const span = normalizeEventPayDateSpan(
+      row.date_from as string | null,
+      row.date_to as string | null,
+    );
+    if (!span) continue;
+    if (!assignmentSpan) {
+      assignmentSpan = span;
+      continue;
+    }
+    if (span.dateFrom < assignmentSpan.dateFrom) assignmentSpan.dateFrom = span.dateFrom;
+    if (span.dateTo > assignmentSpan.dateTo) assignmentSpan.dateTo = span.dateTo;
+  }
+
+  let attendanceSpan: EventPayDateSpan | null = null;
+  const { data: attMin, error: attMinErr } = await supabaseAdmin
+    .from("attendance_daily_summary")
+    .select("work_date")
+    .eq("event_id", eventId)
+    .order("work_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (attMinErr && !/event_id|schema cache|does not exist/i.test(attMinErr.message)) {
+    throw attMinErr;
+  }
+  if (attMin?.work_date) {
+    const { data: attMax, error: attMaxErr } = await supabaseAdmin
+      .from("attendance_daily_summary")
+      .select("work_date")
+      .eq("event_id", eventId)
+      .order("work_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (attMaxErr && !/event_id|schema cache|does not exist/i.test(attMaxErr.message)) {
+      throw attMaxErr;
+    }
+    attendanceSpan = normalizeEventPayDateSpan(
+      attMin.work_date as string,
+      (attMax?.work_date as string | null) ?? (attMin.work_date as string),
+    );
+  }
+
+  return { assignmentSpan, attendanceSpan };
+}
+
+async function resolveEventPeriodWindowForEvent(
+  event: Record<string, unknown>,
+  eventId: string,
+): Promise<ReturnType<typeof resolveEventPayPeriodWindow>> {
+  const spans = await loadEventWorkforceDateSpans(eventId);
+  return resolveEventPayPeriodWindow({
+    event: eventDatesForPayWindow(event),
+    assignmentSpan: spans.assignmentSpan,
+    attendanceSpan: spans.attendanceSpan,
   });
 }
 
@@ -211,7 +284,10 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
   async (data, context) => {
     requireCap(context, "payroll.generate");
     const event = await loadEventOrThrow(context, data.eventId);
-    const window = eventPayWindow(event as Record<string, unknown>);
+    const window = await resolveEventPeriodWindowForEvent(
+      event as Record<string, unknown>,
+      data.eventId,
+    );
 
     const { data: existing } = await context.supabase
       .from("hr_payroll_periods")
@@ -255,8 +331,14 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
             entity_id: existing.id as string,
             event_id: data.eventId,
             location_id: event.location_id as string,
-            before: { date_from: prevFrom, date_to: prevTo } as Json,
-            after: { date_from: dateFrom, date_to: dateTo } as Json,
+            before: { date_from: prevFrom, date_to: prevTo, source: null } as Json,
+            after: {
+              date_from: dateFrom,
+              date_to: dateTo,
+              source: window.source,
+              open_from: window.open.dateFrom,
+              open_to: window.open.dateTo,
+            } as Json,
             metadata: {} as Json,
           });
         } catch {
@@ -278,6 +360,7 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
         eventId: data.eventId,
         reused: true,
         windowSynced,
+        windowSource: window.source,
       };
     }
 
@@ -321,7 +404,14 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
       event_id: data.eventId,
       location_id: event.location_id as string,
       before: null,
-      after: { period_id: row.id, date_from: window.dateFrom, date_to: window.dateTo } as Json,
+      after: {
+        period_id: row.id,
+        date_from: window.dateFrom,
+        date_to: window.dateTo,
+        source: window.source,
+        open_from: window.open.dateFrom,
+        open_to: window.open.dateTo,
+      } as Json,
       metadata: {} as Json,
     });
 
@@ -336,6 +426,7 @@ export const createEventPayrollPeriod = createAuthenticatedAction(
       eventId: data.eventId,
       reused: false,
       windowSynced: false,
+      windowSource: window.source,
     };
   },
   { auth: { capability: "payroll.generate" } },
