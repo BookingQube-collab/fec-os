@@ -8,6 +8,7 @@ import {
   staffMatchesOrgShowOnly,
   type OrgFocusDepartment,
 } from "@/lib/exclude-org-departments";
+import { staffMatchesShowCohorts } from "@/lib/staff-directory-cohorts";
 import { isAdminPeopleDirectoryRow } from "@/lib/people-directory-access";
 import { isExitingStaff, isNewJoiner } from "@/lib/staff-hr-alerts";
 import {
@@ -37,6 +38,11 @@ export type StaffDirectoryFilters = {
    * Ignored when `department` is set — the explicit department choice wins.
    */
   showOrgDepartments?: readonly OrgFocusDepartment[];
+  /**
+   * People → Staff Showing filter: `head_office` and/or `event:<uuid>`.
+   * Empty keeps every cohort. Unchecked menu items become this list.
+   */
+  showCohorts?: readonly string[];
   type: string;
   e3: string;
   status: string;
@@ -149,6 +155,10 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
       !staffMatchesOrgShowOnly(s, f.showOrgDepartments)
     ) {
       return false;
+    }
+    if (f.showCohorts?.length) {
+      const eventIds = new Map<string, readonly string[]>([[s.id, s.event_ids ?? []]]);
+      if (!staffMatchesShowCohorts(s, f.showCohorts, eventIds)) return false;
     }
     if (f.position && s.job_title !== f.position) return false;
     if (f.type && s.employment_type !== f.type) return false;

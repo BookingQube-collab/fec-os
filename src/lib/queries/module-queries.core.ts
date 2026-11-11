@@ -10,6 +10,10 @@ import type { OrgFocusDepartment } from "@/lib/exclude-org-departments";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
 import { computeHrAttention, type HrAttentionBucket } from "@/lib/staff-hr-alerts";
 import {
+  buildStaffDirectoryCohortOptions,
+  type StaffDirectoryCohortOption,
+} from "@/lib/staff-directory-cohorts";
+import {
   computeStaffDirectoryTileKpis,
   filterStaffDirectory,
   type StaffDirectoryKpis,
@@ -416,6 +420,8 @@ export interface StaffRow {
   date_of_birth?: string | null;
   contract_end?: string | null;
   visa_expiry?: string | null;
+  /** Event ids linked via event_staff_assignments (directory cohort filter). */
+  event_ids?: string[];
 }
 
 type StaffDeptJoin = {
@@ -628,6 +634,8 @@ export type StaffDirectoryListFilters = {
   departmentName?: string;
   /** View filter. Unchecked focus departments to show. Empty keeps every department. */
   showOrgDepartments?: readonly OrgFocusDepartment[];
+  /** People → Staff Showing filter: head_office / event:<uuid>. */
+  showCohorts?: readonly string[];
   position?: string;
   employmentType?: string;
   status?: string;
@@ -654,6 +662,8 @@ export type StaffDirectoryListPayload = {
     positions: string[];
     nationalities: string[];
     locations: Array<{ code: string; label: string }>;
+    /** Showing filter: Head Office + short event names that have staff. */
+    cohorts: StaffDirectoryCohortOption[];
   };
 };
 
@@ -852,6 +862,14 @@ export async function fetchStaffDirectory(
     row.temporary_site_moves = tempByStaff.get(row.id) ?? [];
   }
 
+  const { eventIdsByStaff, cohortEvents } = await loadDirectoryEventCohorts(
+    staffDb,
+    mapped.map((s) => s.id),
+  );
+  for (const row of mapped) {
+    row.event_ids = eventIdsByStaff.get(row.id) ?? [];
+  }
+
   const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
   const identitySafe = mapped.map((s) => redactStaffIdentityNumbers(s, canSensitive));
 
@@ -864,6 +882,7 @@ export async function fetchStaffDirectory(
     department: filters.department ?? "",
     departmentName: filters.departmentName ?? "",
     showOrgDepartments: filters.department ? [] : [...(filters.showOrgDepartments ?? [])],
+    showCohorts: [...(filters.showCohorts ?? [])],
     type: filters.employmentType ?? "",
     e3: filters.e3 ?? "",
     status: requestedStatus,
@@ -959,8 +978,92 @@ export async function fetchStaffDirectory(
       positions,
       nationalities,
       locations: locationFacets,
+      cohorts: buildStaffDirectoryCohortOptions(cohortEvents),
     },
   };
+}
+
+/** Event staff links for the People → Staff Showing (Head Office / event) filter. */
+async function loadDirectoryEventCohorts(
+  db: AuthContext["supabase"],
+  staffIds: readonly string[],
+): Promise<{
+  eventIdsByStaff: Map<string, string[]>;
+  cohortEvents: Array<{
+    id: string;
+    event_name?: string | null;
+    name?: string | null;
+    event_number?: string | null;
+  }>;
+}> {
+  const eventIdsByStaff = new Map<string, string[]>();
+  if (staffIds.length === 0) return { eventIdsByStaff, cohortEvents: [] };
+
+  const eventIdSet = new Set<string>();
+  for (let index = 0; index < staffIds.length; index += 200) {
+    const chunk = staffIds.slice(index, index + 200);
+    const { data, error } = await db
+      .from("event_staff_assignments")
+      .select("staff_id, event_id")
+      .in("staff_id", chunk)
+      .not("staff_id", "is", null)
+      .not("event_id", "is", null);
+    if (error) {
+      if (/event_staff_assignments|schema cache|does not exist/i.test(error.message)) {
+        return { eventIdsByStaff, cohortEvents: [] };
+      }
+      throw error;
+    }
+    for (const row of data ?? []) {
+      const staffId = String(row.staff_id ?? "").trim();
+      const eventId = String(row.event_id ?? "").trim();
+      if (!staffId || !eventId) continue;
+      eventIdSet.add(eventId);
+      const list = eventIdsByStaff.get(staffId) ?? [];
+      if (!list.includes(eventId)) list.push(eventId);
+      eventIdsByStaff.set(staffId, list);
+    }
+  }
+
+  const eventIds = [...eventIdSet];
+  if (eventIds.length === 0) return { eventIdsByStaff, cohortEvents: [] };
+
+  const cohortEvents: Array<{
+    id: string;
+    event_name?: string | null;
+    name?: string | null;
+    event_number?: string | null;
+  }> = [];
+  for (let index = 0; index < eventIds.length; index += 100) {
+    const chunk = eventIds.slice(index, index + 100);
+    const { data, error } = await db
+      .from("events")
+      .select("id, name, event_name, event_number")
+      .in("id", chunk);
+    if (error) {
+      if (/events|schema cache|does not exist/i.test(error.message)) {
+        return { eventIdsByStaff, cohortEvents: [] };
+      }
+      throw error;
+    }
+    for (const row of data ?? []) {
+      const id = String(row.id ?? "").trim();
+      if (!id) continue;
+      cohortEvents.push({
+        id,
+        name: (row.name as string | null | undefined) ?? null,
+        event_name: (row.event_name as string | null | undefined) ?? null,
+        event_number: (row.event_number as string | null | undefined) ?? null,
+      });
+    }
+  }
+
+  cohortEvents.sort((a, b) =>
+    (a.event_name || a.name || "").localeCompare(b.event_name || b.name || "", undefined, {
+      sensitivity: "base",
+    }),
+  );
+  return { eventIdsByStaff, cohortEvents };
 }
 
 const JOB_TITLE_PAGE = 1000;

@@ -33,6 +33,7 @@ export type StaffDirectoryFilters = {
   department?: string;
   departmentName?: string;
   showOrgDepartments?: readonly OrgFocusDepartment[];
+  showCohorts?: readonly string[];
   position?: string;
   employmentType?: string;
   status?: string;
@@ -60,6 +61,7 @@ export function useStaffDirectory(
     department: filters.department ?? "",
     departmentName: filters.departmentName ?? "",
     showOrgDepartments: (filters.showOrgDepartments ?? []).join(","),
+    showCohorts: (filters.showCohorts ?? []).join(","),
     position: filters.position ?? "",
     employmentType: filters.employmentType ?? "",
     status: filters.status ?? "",
@@ -89,6 +91,7 @@ export function useStaffDirectory(
           department: keyFilters.department || undefined,
           departmentName: keyFilters.departmentName || undefined,
           showOrgDepartments: keyFilters.showOrgDepartments || undefined,
+          showCohorts: keyFilters.showCohorts || undefined,
           position: keyFilters.position || undefined,
           employmentType: keyFilters.employmentType || undefined,
           status: keyFilters.status || undefined,

@@ -41,7 +41,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MobileListCard } from "@/components/layout/mobile-list-card";
 import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
-import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { StaffDirectoryCohortFilter } from "@/components/people/staff-directory-cohort-filter";
 import { StaffDuplicateDialog } from "@/components/people/staff-duplicate-dialog";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
 import {
@@ -51,11 +51,10 @@ import {
 } from "@/lib/department-aliases";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
-  ALL_ORG_DEPARTMENTS_CHECKED,
-  activeShowOnlyOrgDepartments,
-  orgDepartmentSelectionIsAll,
-  type OrgDepartmentChecks,
-} from "@/lib/exclude-org-departments";
+  HEAD_OFFICE_COHORT_KEY,
+  activeShowOnlyStaffCohorts,
+  buildStaffDirectoryCohortOptions,
+} from "@/lib/staff-directory-cohorts";
 import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { useCanOpenPeopleDirectory, usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
@@ -263,7 +262,7 @@ export function StaffDirectory({
   const [missing, setMissing] = useState(() => searchParams.get("missing") === "1");
   const [loc, setLoc] = useState(() => searchParams.get("loc") ?? "");
   const [department, setDepartment] = useState(() => searchParams.get("department") ?? "");
-  const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
+  const [cohortChecks, setCohortChecks] = useState<Record<string, boolean>>({});
   const [showJokers, setShowJokers] = useState(() => searchParams.get("jokers") === "1");
   const [nationality, setNationality] = useState("");
   const [gender, setGender] = useState("");
@@ -347,9 +346,15 @@ export function StaffDirectory({
     () => departments.find((d) => d.id === department)?.name ?? "",
     [departments, department],
   );
-  const showOrgDepartments = useMemo(
-    () => activeShowOnlyOrgDepartments(orgChecks, department),
-    [orgChecks, department],
+  // showCohorts is derived after the first directory payload (cohort facets). Use a
+  // ref-friendly empty list until options exist so the initial fetch is unrestricted.
+  const [cohortOptions, setCohortOptions] = useState(() =>
+    buildStaffDirectoryCohortOptions([], "Head Office"),
+  );
+
+  const showCohorts = useMemo(
+    () => activeShowOnlyStaffCohorts(cohortChecks, cohortOptions),
+    [cohortChecks, cohortOptions],
   );
 
   const directory = useStaffDirectory({
@@ -361,7 +366,7 @@ export function StaffDirectory({
     loc,
     department,
     departmentName,
-    showOrgDepartments,
+    showCohorts,
     position,
     employmentType: type,
     status,
@@ -374,6 +379,23 @@ export function StaffDirectory({
     expiry,
     sort,
   });
+
+  useEffect(() => {
+    const next = directory.data?.facets.cohorts;
+    if (!next?.length) {
+      setCohortOptions(
+        buildStaffDirectoryCohortOptions([], t("common.staffCohort.head_office", "Head Office")),
+      );
+      return;
+    }
+    setCohortOptions(
+      next.map((row) =>
+        row.key === HEAD_OFFICE_COHORT_KEY
+          ? { ...row, label: t("common.staffCohort.head_office", "Head Office") }
+          : row,
+      ),
+    );
+  }, [directory.data?.facets.cohorts, t]);
 
   const staff = directory.data?.data ?? [];
   const pagination = directory.data?.pagination;
@@ -506,13 +528,15 @@ export function StaffDirectory({
         clear: () => setShowJokers(false),
       });
     }
-    if (showOrgDepartments.length) {
+    if (showCohorts.length) {
+      const labelByKey = new Map(cohortOptions.map((option) => [option.key, option.label]));
       chips.push({
-        key: "show-org",
-        label: t("common.showingOrgDepartments", {
-          departments: showOrgDepartments.map((key) => t(`common.orgDepartment.${key}`)).join(", "),
+        key: "show-cohorts",
+        label: t("common.showingStaffCohorts", {
+          cohorts: showCohorts.map((key) => labelByKey.get(key) ?? key).join(", "),
+          defaultValue: `Showing: ${showCohorts.map((key) => labelByKey.get(key) ?? key).join(", ")}`,
         }),
-        clear: () => setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED),
+        clear: () => setCohortChecks({}),
       });
     }
     if (type) chips.push({ key: "type", label: `Type: ${type}`, clear: () => setType("") });
@@ -525,13 +549,13 @@ export function StaffDirectory({
     if (expiry) chips.push({ key: "exp", label: expiryChipLabel(expiry), clear: () => setExpiry("") });
     if (e3) chips.push({ key: "e3", label: `E3: ${e3}`, clear: () => setE3("") });
     return chips;
-  }, [q, loc, locations, department, departmentName, showOrgDepartments, showJokers, type, status, position, nationality, gender, sponsorship, missing, expiry, e3, t]);
+  }, [q, loc, locations, department, departmentName, showCohorts, cohortOptions, showJokers, type, status, position, nationality, gender, sponsorship, missing, expiry, e3, t]);
 
   function clearAllFilters() {
     setQ("");
     setLoc("");
     setDepartment("");
-    setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED);
+    setCohortChecks({});
     setShowJokers(false);
     setPosition("");
     setType("");
@@ -788,11 +812,11 @@ export function StaffDirectory({
             triggerClassName={FILTER_TRIGGER}
             className="w-full"
           />
-          <OrgDepartmentsFilter
-            checks={orgChecks}
-            disabled={!orgDepartmentSelectionIsAll(department)}
+          <StaffDirectoryCohortFilter
+            options={cohortOptions}
+            checks={cohortChecks}
             onChange={(next) => {
-              setOrgChecks(next);
+              setCohortChecks(next);
               setPage(1);
             }}
           />

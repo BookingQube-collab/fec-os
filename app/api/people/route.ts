@@ -1,4 +1,5 @@
 import { parseShowOrgDepartmentsParam } from "@/lib/exclude-org-departments";
+import { parseShowStaffCohortsParam } from "@/lib/staff-directory-cohorts";
 import { loadLinkedStaffIdentity, loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import {
   hasCompanyPeopleDirectory,
@@ -53,6 +54,7 @@ export async function GET(request: Request) {
           department: params.get("department") ?? "",
           departmentName: params.get("departmentName") ?? "",
           showOrgDepartments: parseShowOrgDepartmentsParam(params.get("showOrgDepartments")),
+          showCohorts: parseShowStaffCohortsParam(params.get("showCohorts")),
           position: params.get("position") ?? "",
           employmentType: params.get("employmentType") ?? params.get("type") ?? "",
           status: params.get("status") ?? "",
