@@ -7,7 +7,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -75,10 +75,10 @@ export default function PeopleEventsHubPage() {
   });
   const events = eventsQ.data?.events ?? [];
 
-  const suggestDateRange = (next: { from: string; to: string }) => {
-    setDateFrom(next.from);
-    setDateTo(next.to);
-  };
+  const suggestDateRange = useCallback((next: { from: string; to: string }) => {
+    setDateFrom((prev) => (prev === next.from ? prev : next.from));
+    setDateTo((prev) => (prev === next.to ? prev : next.to));
+  }, []);
 
   // Align From–To: All events → cover company events; one event → that event window.
   useEffect(() => {

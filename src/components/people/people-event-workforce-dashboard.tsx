@@ -155,6 +155,8 @@ export function PeopleEventWorkforceDashboard({
   // Omit null so All-events queries are unscoped (do not send eventId: null).
   const eventScope = selectedEventId ? { eventId: selectedEventId } : {};
   const suggestedForEventRef = useRef<string | null>(null);
+  const onSuggestDateRangeRef = useRef(onSuggestDateRange);
+  onSuggestDateRangeRef.current = onSuggestDateRange;
 
   const crewQ = useQuery({
     queryKey: [
@@ -244,7 +246,8 @@ export function PeopleEventWorkforceDashboard({
   });
 
   useEffect(() => {
-    if (!onSuggestDateRange || !selectedEventId) return;
+    const suggest = onSuggestDateRangeRef.current;
+    if (!suggest || !selectedEventId) return;
     if (!probeQ.isSuccess) return;
     const probeRows = probeQ.data?.rows ?? [];
     if (!probeRows.length) return;
@@ -256,15 +259,8 @@ export function PeopleEventWorkforceDashboard({
     );
     if (next.from === dateFrom && next.to === dateTo) return;
     suggestedForEventRef.current = selectedEventId;
-    onSuggestDateRange(next);
-  }, [
-    onSuggestDateRange,
-    selectedEventId,
-    probeQ.isSuccess,
-    probeQ.data?.rows,
-    dateFrom,
-    dateTo,
-  ]);
+    suggest(next);
+  }, [selectedEventId, probeQ.isSuccess, probeQ.data?.rows, dateFrom, dateTo]);
 
   useEffect(() => {
     if (suggestedForEventRef.current && suggestedForEventRef.current !== selectedEventId) {

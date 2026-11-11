@@ -111,6 +111,8 @@ export function PeopleEventWorkforceDemoTools({
 
   // Align uncontrolled (and controlled) seed dates to the selected event window so
   // Overview / Attendance filters see the same punches Shift Coverage creates.
+  // Only once per eventId — do not re-run when parent dates change (dashboard may
+  // realign to attendance outside the open window).
   useEffect(() => {
     if (!eventId || !events?.length) return;
     if (alignedEventRef.current === eventId) return;
@@ -120,7 +122,9 @@ export function PeopleEventWorkforceDemoTools({
     const next = rangeForSelectedEvent(ev, { from: dateFrom, to: dateTo }, EVENT_WORKFORCE_DEMO_MAX_DAYS);
     if (next.from !== dateFrom) setDateFrom(next.from);
     if (next.to !== dateTo) setDateTo(next.to);
-  }, [eventId, events, dateFrom, dateTo, setDateFrom, setDateTo]);
+    // Intentionally omit dateFrom/dateTo: align once when the event is selected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per eventId
+  }, [eventId, events, setDateFrom, setDateTo]);
 
   useEffect(() => {
     if (alignedEventRef.current && alignedEventRef.current !== (eventId || null)) {
@@ -128,39 +132,8 @@ export function PeopleEventWorkforceDemoTools({
     }
   }, [eventId]);
 
-  if (!canHoo) return null;
-  if (!hydrated) return null;
-
-  const hideBanner = () => {
-    writeEventWorkforceDemoHidden(true);
-    setHidden(true);
-  };
-  const showBanner = () => {
-    writeEventWorkforceDemoHidden(false);
-    setHidden(false);
-  };
-
-  if (hidden) {
-    return (
-      <div className={cn("flex justify-end", className)}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs text-muted-foreground hover:text-foreground"
-          onClick={showBanner}
-        >
-          <Eye className="me-1.5 h-3.5 w-3.5" aria-hidden />
-          {t("peopleEvent.demo.show")}
-        </Button>
-      </div>
-    );
-  }
-
-  const rangeError = validateDemoDateRange(dateFrom, dateTo);
-  const canSeed = Boolean(eventId) && !rangeError;
-  const confirmed = phrase.trim() === EVENT_WORKFORCE_DEMO_DELETE_CONFIRMATION;
-
+  // Hooks must run unconditionally — never after canHoo / hydrated / hidden returns
+  // (8c656cd gated these behind early returns → production React #310).
   const invalidate = () => {
     if (!eventId) return;
     void qc.invalidateQueries({ queryKey: queryKeys.events.staffing(eventId) });
@@ -255,6 +228,38 @@ export function PeopleEventWorkforceDemoTools({
     onError: (e: Error) => toast.error(e.message || t("peopleEvent.demo.deleteFailed")),
   });
 
+  if (!canHoo) return null;
+  if (!hydrated) return null;
+
+  const hideBanner = () => {
+    writeEventWorkforceDemoHidden(true);
+    setHidden(true);
+  };
+  const showBanner = () => {
+    writeEventWorkforceDemoHidden(false);
+    setHidden(false);
+  };
+
+  if (hidden) {
+    return (
+      <div className={cn("flex justify-end", className)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs text-muted-foreground hover:text-foreground"
+          onClick={showBanner}
+        >
+          <Eye className="me-1.5 h-3.5 w-3.5" aria-hidden />
+          {t("peopleEvent.demo.show")}
+        </Button>
+      </div>
+    );
+  }
+
+  const rangeError = validateDemoDateRange(dateFrom, dateTo);
+  const canSeed = Boolean(eventId) && !rangeError;
+  const confirmed = phrase.trim() === EVENT_WORKFORCE_DEMO_DELETE_CONFIRMATION;
   const busy = seedMut.isPending || deleteMut.isPending || resetMut.isPending;
 
   return (
