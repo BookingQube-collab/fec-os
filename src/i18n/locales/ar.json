@@ -1610,12 +1610,12 @@
     "vendor": "المورد",
     "department": "القسم",
     "orgDepartmentsMenu": "التشغيل والصيانة و F&B",
-    "staffCohortsMenu": "المكتب الرئيسي والفعاليات",
+    "staffCohortsMenu": "التشغيل والصيانة و F&B والمكتب والفعاليات",
     "staffCohort": {
       "head_office": "المكتب الرئيسي"
     },
     "showingStaffCohorts": "عرض: {{cohorts}}",
-    "staffCohortsEmpty": "المكتب الرئيسي",
+    "staffCohortsEmpty": "التشغيل والصيانة ومقهى F&B والمكتب الرئيسي",
     "orgDepartment": {
       "operations": "التشغيل",
       "maintenance": "الصيانة",

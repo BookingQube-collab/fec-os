@@ -50,8 +50,11 @@ describe("staff directory cohort show-only", () => {
     { id: "e2", name: "Sites / Inflatacity" },
   ]);
 
-  it("lists Head Office then short event names", () => {
+  it("lists Ops/Maint/F&B, Head Office, then short event names", () => {
     expect(options).toEqual([
+      { key: "operations", label: "Operations" },
+      { key: "maintenance", label: "Maintenance" },
+      { key: "fb_cafe", label: "F&B Cafe" },
       { key: HEAD_OFFICE_COHORT_KEY, label: "Head Office" },
       { key: eventCohortKey("e1"), label: "Lego Shows 2026" },
       { key: eventCohortKey("e2"), label: "Inflatacity" },
@@ -66,16 +69,23 @@ describe("staff directory cohort show-only", () => {
   it("show-only uses unchecked cohorts", () => {
     expect(
       activeShowOnlyStaffCohorts(
-        { [HEAD_OFFICE_COHORT_KEY]: false, [eventCohortKey("e1")]: true },
+        { [HEAD_OFFICE_COHORT_KEY]: false, [eventCohortKey("e1")]: true, operations: true },
         options,
       ),
     ).toEqual([HEAD_OFFICE_COHORT_KEY]);
+    expect(
+      activeShowOnlyStaffCohorts(
+        { operations: false, maintenance: true, fb_cafe: true, [HEAD_OFFICE_COHORT_KEY]: true },
+        options,
+      ),
+    ).toEqual(["operations"]);
   });
 
-  it("matches Head Office and event-linked staff", () => {
+  it("matches Ops/Maint/F&B, Head Office, and event-linked staff", () => {
     const events = new Map<string, readonly string[]>([
       ["s-ho", []],
       ["s-lego", ["e1"]],
+      ["s-ops", []],
       ["s-venue", []],
     ]);
     expect(
@@ -85,13 +95,30 @@ describe("staff directory cohort show-only", () => {
       staffMatchesShowCohorts({ id: "s-lego", location_code: "INF-CC" }, [eventCohortKey("e1")], events),
     ).toBe(true);
     expect(
+      staffMatchesShowCohorts(
+        { id: "s-ops", location_code: "INF-CC", department: "Operations" },
+        ["operations"],
+        events,
+      ),
+    ).toBe(true);
+    expect(
+      staffMatchesShowCohorts(
+        { id: "s-ops", location_code: "INF-CC", department_names: ["F&B Cafe"] },
+        ["fb_cafe", HEAD_OFFICE_COHORT_KEY],
+        events,
+      ),
+    ).toBe(true);
+    expect(
       staffMatchesShowCohorts({ id: "s-venue", location_code: "INF-CC" }, [HEAD_OFFICE_COHORT_KEY], events),
     ).toBe(false);
     expect(staffMatchesShowCohorts({ id: "s-venue", location_code: "INF-CC" }, [], events)).toBe(true);
   });
 
-  it("parses showCohorts query values", () => {
-    expect(parseShowStaffCohortsParam("head_office,event:e1,event:e1,nope")).toEqual([
+  it("parses showCohorts query values including org focus keys", () => {
+    expect(parseShowStaffCohortsParam("operations,maintenance,fb_cafe,head_office,event:e1,event:e1,nope")).toEqual([
+      "operations",
+      "maintenance",
+      "fb_cafe",
       HEAD_OFFICE_COHORT_KEY,
       eventCohortKey("e1"),
     ]);

@@ -17,9 +17,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * People → Staff “Showing” filter: Head Office + short event names only.
- * Same check semantics as the roster Ops/Maint/F&B control (unchecked = show-only),
- * but options are HO / events — not Operations / Maintenance / F&B Cafe.
+ * People → Staff “Showing” filter: Operations, Maintenance, F&B Cafe,
+ * Head Office, and short event names. Unchecked = show-only (same as roster).
  */
 export function StaffDirectoryCohortFilter({
   options,
@@ -52,7 +51,7 @@ export function StaffDirectoryCohortFilter({
     [options],
   );
   const departments = showOnly.map((key) => labelByKey.get(key) ?? key).join(", ");
-  const menuLabel = t("common.staffCohortsMenu", "Head Office & Events");
+  const menuLabel = t("common.staffCohortsMenu", "Ops, Maint, F&B, HO & Events");
   const triggerLabel = showing
     ? t("common.showingStaffCohorts", { cohorts: departments, defaultValue: `Showing: ${departments}` })
     : menuLabel;
@@ -109,7 +108,7 @@ export function StaffDirectoryCohortFilter({
             })
           ) : (
             <p className="px-3 py-2 text-sm text-muted-foreground">
-              {t("common.staffCohortsEmpty", "Head Office")}
+              {t("common.staffCohortsEmpty", "Operations, Maintenance, F&B Cafe, Head Office")}
             </p>
           )}
         </DropdownMenuContent>

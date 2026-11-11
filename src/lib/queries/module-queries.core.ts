@@ -634,7 +634,7 @@ export type StaffDirectoryListFilters = {
   departmentName?: string;
   /** View filter. Unchecked focus departments to show. Empty keeps every department. */
   showOrgDepartments?: readonly OrgFocusDepartment[];
-  /** People → Staff Showing filter: head_office / event:<uuid>. */
+  /** People → Staff Showing filter: operations / maintenance / fb_cafe / head_office / event:<uuid>. */
   showCohorts?: readonly string[];
   position?: string;
   employmentType?: string;
@@ -662,7 +662,7 @@ export type StaffDirectoryListPayload = {
     positions: string[];
     nationalities: string[];
     locations: Array<{ code: string; label: string }>;
-    /** Showing filter: Head Office + short event names that have staff. */
+    /** Showing filter: Ops/Maint/F&B + Head Office + short event names that have staff. */
     cohorts: StaffDirectoryCohortOption[];
   };
 };
@@ -983,7 +983,7 @@ export async function fetchStaffDirectory(
   };
 }
 
-/** Event staff links for the People → Staff Showing (Head Office / event) filter. */
+/** Event staff links for the People → Staff Showing (HO / event) filter. */
 async function loadDirectoryEventCohorts(
   db: AuthContext["supabase"],
   staffIds: readonly string[],

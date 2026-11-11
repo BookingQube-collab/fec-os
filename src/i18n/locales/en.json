@@ -1616,12 +1616,12 @@
       "fb_cafe": "F&B Cafe"
     },
     "showingOrgDepartments": "Showing: {{departments}}",
-    "staffCohortsMenu": "Head Office & Events",
+    "staffCohortsMenu": "Ops, Maint, F&B, HO & Events",
     "staffCohort": {
       "head_office": "Head Office"
     },
     "showingStaffCohorts": "Showing: {{cohorts}}",
-    "staffCohortsEmpty": "Head Office",
+    "staffCohortsEmpty": "Operations, Maintenance, F&B Cafe, Head Office",
     "site": "Site",
     "filters": "Filters",
     "apply": "Apply",

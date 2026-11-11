@@ -39,7 +39,7 @@ export type StaffDirectoryFilters = {
    */
   showOrgDepartments?: readonly OrgFocusDepartment[];
   /**
-   * People → Staff Showing filter: `head_office` and/or `event:<uuid>`.
+   * People → Staff Showing filter: Ops/Maint/F&B, `head_office`, and/or `event:<uuid>`.
    * Empty keeps every cohort. Unchecked menu items become this list.
    */
   showCohorts?: readonly string[];

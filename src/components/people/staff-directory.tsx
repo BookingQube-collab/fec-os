@@ -50,10 +50,12 @@ import {
   formatCanonicalDepartmentDisplay,
 } from "@/lib/department-aliases";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
+import { orgDepartmentSelectionIsAll } from "@/lib/exclude-org-departments";
 import {
   HEAD_OFFICE_COHORT_KEY,
   activeShowOnlyStaffCohorts,
   buildStaffDirectoryCohortOptions,
+  isOrgStaffDirectoryCohortKey,
 } from "@/lib/staff-directory-cohorts";
 import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
@@ -348,14 +350,15 @@ export function StaffDirectory({
   );
   // showCohorts is derived after the first directory payload (cohort facets). Use a
   // ref-friendly empty list until options exist so the initial fetch is unrestricted.
+  // Explicit department selection wins — same as the legacy Ops/Maint/F&B control.
   const [cohortOptions, setCohortOptions] = useState(() =>
     buildStaffDirectoryCohortOptions([], "Head Office"),
   );
 
-  const showCohorts = useMemo(
-    () => activeShowOnlyStaffCohorts(cohortChecks, cohortOptions),
-    [cohortChecks, cohortOptions],
-  );
+  const showCohorts = useMemo(() => {
+    if (!orgDepartmentSelectionIsAll(department)) return [];
+    return activeShowOnlyStaffCohorts(cohortChecks, cohortOptions);
+  }, [cohortChecks, cohortOptions, department]);
 
   const directory = useStaffDirectory({
     locationId,
@@ -382,19 +385,22 @@ export function StaffDirectory({
 
   useEffect(() => {
     const next = directory.data?.facets.cohorts;
+    const localize = (row: { key: string; label: string }) => {
+      if (row.key === HEAD_OFFICE_COHORT_KEY) {
+        return { ...row, label: t("common.staffCohort.head_office", "Head Office") };
+      }
+      if (isOrgStaffDirectoryCohortKey(row.key)) {
+        return { ...row, label: t(`common.orgDepartment.${row.key}`, row.label) };
+      }
+      return row;
+    };
     if (!next?.length) {
       setCohortOptions(
-        buildStaffDirectoryCohortOptions([], t("common.staffCohort.head_office", "Head Office")),
+        buildStaffDirectoryCohortOptions([], t("common.staffCohort.head_office", "Head Office")).map(localize),
       );
       return;
     }
-    setCohortOptions(
-      next.map((row) =>
-        row.key === HEAD_OFFICE_COHORT_KEY
-          ? { ...row, label: t("common.staffCohort.head_office", "Head Office") }
-          : row,
-      ),
-    );
+    setCohortOptions(next.map(localize));
   }, [directory.data?.facets.cohorts, t]);
 
   const staff = directory.data?.data ?? [];
@@ -815,6 +821,7 @@ export function StaffDirectory({
           <StaffDirectoryCohortFilter
             options={cohortOptions}
             checks={cohortChecks}
+            disabled={!orgDepartmentSelectionIsAll(department)}
             onChange={(next) => {
               setCohortChecks(next);
               setPage(1);

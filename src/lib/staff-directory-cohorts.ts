@@ -1,12 +1,30 @@
 import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
+import {
+  ORG_FOCUS_DEPARTMENTS,
+  staffMatchesOrgShowOnly,
+  type OrgFocusDepartment,
+} from "@/lib/exclude-org-departments";
 
 /** Fixed cohort key for Head Office home-location staff. */
 export const HEAD_OFFICE_COHORT_KEY = "head_office";
+
+/** Ops / Maintenance / F&B Cafe — same keys as the legacy org show-only filter. */
+export const ORG_STAFF_DIRECTORY_COHORT_KEYS = ORG_FOCUS_DEPARTMENTS;
+
+const ORG_COHORT_LABELS: Record<OrgFocusDepartment, string> = {
+  operations: "Operations",
+  maintenance: "Maintenance",
+  fb_cafe: "F&B Cafe",
+};
 
 export type StaffDirectoryCohortOption = {
   key: string;
   label: string;
 };
+
+export function isOrgStaffDirectoryCohortKey(key: string): key is OrgFocusDepartment {
+  return (ORG_STAFF_DIRECTORY_COHORT_KEYS as readonly string[]).includes(key);
+}
 
 /** `event:<uuid>` keys for event-hire / assigned event staff. */
 export function eventCohortKey(eventId: string): string {
@@ -57,9 +75,10 @@ export function parseShowStaffCohortsParam(raw: string | null | undefined): stri
   for (const part of raw.split(",")) {
     const key = part.trim();
     if (!key) continue;
-    if (key === HEAD_OFFICE_COHORT_KEY || parseEventCohortKey(key)) {
-      if (!out.includes(key)) out.push(key);
-    }
+    const allowed =
+      isOrgStaffDirectoryCohortKey(key) || key === HEAD_OFFICE_COHORT_KEY || Boolean(parseEventCohortKey(key));
+    if (!allowed) continue;
+    if (!out.includes(key)) out.push(key);
   }
   return out;
 }
@@ -69,17 +88,27 @@ export function staffIsHeadOfficeCohort(locationCode: string | null | undefined)
 }
 
 /**
- * Show-only match for Head Office + event cohorts.
+ * Show-only match for Ops/Maint/F&B + Head Office + event cohorts.
  * Empty `showOnly` keeps every row. A staff row matches when it belongs to any
- * unchecked cohort (HO home location, or linked event assignment).
+ * unchecked cohort (org focus department, HO home location, or linked event).
  */
 export function staffMatchesShowCohorts(
-  staff: { id: string; location_code?: string | null },
+  staff: {
+    id: string;
+    location_code?: string | null;
+    department?: string | null;
+    department_names?: readonly string[] | null;
+  },
   showOnly: readonly string[],
   eventIdsByStaffId: ReadonlyMap<string, readonly string[]> = new Map(),
 ): boolean {
   if (showOnly.length === 0) return true;
+
+  const orgKeys = showOnly.filter(isOrgStaffDirectoryCohortKey);
+  if (orgKeys.length > 0 && staffMatchesOrgShowOnly(staff, orgKeys)) return true;
+
   for (const key of showOnly) {
+    if (isOrgStaffDirectoryCohortKey(key)) continue;
     if (key === HEAD_OFFICE_COHORT_KEY) {
       if (staffIsHeadOfficeCohort(staff.location_code)) return true;
       continue;
@@ -91,7 +120,10 @@ export function staffMatchesShowCohorts(
   return false;
 }
 
-/** Build Showing-filter options: Head Office first, then short event titles that have staff. */
+/**
+ * Build Showing-filter options: Operations, Maintenance, F&B Cafe, Head Office,
+ * then short event titles that have staff.
+ */
 export function buildStaffDirectoryCohortOptions(
   events: readonly {
     id: string;
@@ -100,11 +132,14 @@ export function buildStaffDirectoryCohortOptions(
     event_number?: string | null;
   }[],
   headOfficeLabel = "Head Office",
+  orgLabels: Partial<Record<OrgFocusDepartment, string>> = {},
 ): StaffDirectoryCohortOption[] {
   const seen = new Set<string>();
-  const options: StaffDirectoryCohortOption[] = [
-    { key: HEAD_OFFICE_COHORT_KEY, label: headOfficeLabel },
-  ];
+  const options: StaffDirectoryCohortOption[] = ORG_STAFF_DIRECTORY_COHORT_KEYS.map((key) => ({
+    key,
+    label: orgLabels[key] ?? ORG_COHORT_LABELS[key],
+  }));
+  options.push({ key: HEAD_OFFICE_COHORT_KEY, label: headOfficeLabel });
   for (const event of events) {
     const id = String(event.id ?? "").trim();
     if (!id || seen.has(id)) continue;
