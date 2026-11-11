@@ -146,6 +146,7 @@ export function attendanceHrListingLocation(
     | "location_region"
     | "check_in_location_code"
     | "check_out_location_code"
+    | "check_in_location_label"
   >,
 ): string {
   const inCode = row.check_in_location_code?.trim() || "";
@@ -153,9 +154,15 @@ export function attendanceHrListingLocation(
   if (inCode && outCode && inCode !== outCode) {
     return formatFlexibleCrossSiteLocationLabel(inCode, outCode) ?? inCode;
   }
+  // First punch site (app geo / cross-site in) wins over summary home when present.
+  if (inCode) {
+    const inLabel = row.check_in_location_label?.trim();
+    if (inLabel) return inLabel;
+    return formatLocationLabel(inCode, rosterSheetLabel(inCode, null));
+  }
   const liveName = formatLocationName(row.location_name, row.location_region);
   const name = liveName || rosterSheetLabel(row.location_code ?? "", row.location_name);
-  return formatLocationLabel(row.location_code || inCode || outCode, name);
+  return formatLocationLabel(row.location_code || outCode, name);
 }
 
 /**

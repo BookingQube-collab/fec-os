@@ -21,27 +21,37 @@ const REASON_KEY: Record<Exclude<SelfCheckRecordResult, { recorded: true }>["rea
   need_in: "hr.me.selfCheckNeedIn",
   no_location: "hr.me.selfCheckNoLocation",
   outside_geofence: "hr.me.selfCheckOutsideGeofence",
+  gps_required: "hr.me.selfCheckGpsRequired",
 };
 
 const actionClass = "min-h-11 w-full whitespace-normal px-4 text-center shadow-none disabled:opacity-100";
 
-async function readGps(): Promise<{ latitude: number; longitude: number; accuracyMeters: number | null } | null> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+type GpsRead =
+  | { ok: true; latitude: number; longitude: number; accuracyMeters: number | null }
+  | { ok: false; reason: "unsupported" | "denied" | "unavailable" };
+
+async function readGps(): Promise<GpsRead> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return { ok: false, reason: "unsupported" };
+  }
   try {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: true,
         timeout: 12_000,
-        maximumAge: 30_000,
+        maximumAge: 0,
       });
     });
     return {
+      ok: true,
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracyMeters: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    const code = typeof err === "object" && err && "code" in err ? Number((err as GeolocationPositionError).code) : NaN;
+    if (code === 1) return { ok: false, reason: "denied" };
+    return { ok: false, reason: "unavailable" };
   }
 }
 
@@ -58,19 +68,27 @@ export function SelfCheckCard() {
   const punch = useMutation({
     mutationFn: async (kind: SelfCheckKind) => {
       const gps = await readGps();
+      if (!gps.ok) {
+        return { recorded: false as const, reason: "gps_required" as const, gpsFail: gps.reason };
+      }
       return recordSelfCheck({
         kind,
-        ...(gps
-          ? {
-              latitude: gps.latitude,
-              longitude: gps.longitude,
-              accuracyMeters: gps.accuracyMeters,
-            }
-          : {}),
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        accuracyMeters: gps.accuracyMeters,
       });
     },
     onSuccess: async (result) => {
       if (!result.recorded) {
+        const gpsFail = "gpsFail" in result ? result.gpsFail : null;
+        if (result.reason === "gps_required" && gpsFail === "denied") {
+          toast.error(t("hr.me.selfCheckGpsDenied"));
+          return;
+        }
+        if (result.reason === "gps_required" && gpsFail === "unsupported") {
+          toast.error(t("hr.me.selfCheckGpsUnsupported"));
+          return;
+        }
         toast.error(t(REASON_KEY[result.reason]));
         return;
       }

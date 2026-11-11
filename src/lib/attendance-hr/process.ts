@@ -270,10 +270,41 @@ export async function recalculateAttendanceRange(
   locationId: string,
   dateFrom: string,
   dateTo: string,
-  options?: { staffIds?: string[]; includeUnmappedPunches?: boolean },
+  options?: {
+    staffIds?: string[];
+    includeUnmappedPunches?: boolean;
+    /** Set when nested after a geo repair already ran (avoids recursive repair loops). */
+    skipSelfCheckGeoRepair?: boolean;
+  },
 ) {
   const staffScope = options?.staffIds?.length ? [...new Set(options.staffIds.filter(Boolean))] : null;
   const includeUnmappedPunches = options?.includeUnmappedPunches !== false;
+
+  // App check-ins store lat/lng on raw_payload. Re-attribute home/KDS mis-writes to the
+  // geo-matched warehouse/branch before grouping punches for this site.
+  if (!options?.skipSelfCheckGeoRepair) {
+    try {
+      const { repairSelfCheckPunchLocations } = await import("./self-check-geo.server");
+      const repair = await repairSelfCheckPunchLocations(supabase, {
+        dateFrom,
+        dateTo,
+        staffIds: staffScope,
+      });
+      const extraLocs = repair.locationIdsToRecalc.filter((id) => id && id !== locationId);
+      for (const otherId of extraLocs) {
+        await recalculateAttendanceRange(supabase, otherId, dateFrom, dateTo, {
+          staffIds: staffScope ?? undefined,
+          includeUnmappedPunches,
+          skipSelfCheckGeoRepair: true,
+        });
+      }
+    } catch (err) {
+      console.error(
+        "[attendance] self-check geo repair failed",
+        err instanceof Error ? err.message : "error",
+      );
+    }
+  }
 
   const buildLogsQuery = () => {
     let q = supabase

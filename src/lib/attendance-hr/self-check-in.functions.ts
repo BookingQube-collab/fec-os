@@ -3,9 +3,17 @@
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { pickNearestFence } from "@/lib/attendance-hr/geofence";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
-import { decideSelfCheck, type SelfCheckDenyReason, type SelfCheckKind } from "@/lib/attendance-hr/self-check-in";
+import {
+  loadSelfCheckPunchFences,
+  repairSelfCheckPunchLocations,
+} from "@/lib/attendance-hr/self-check-geo.server";
+import {
+  decideSelfCheck,
+  resolveSelfCheckPunchLocation,
+  type SelfCheckDenyReason,
+  type SelfCheckKind,
+} from "@/lib/attendance-hr/self-check-in";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 
@@ -29,7 +37,10 @@ export type SelfCheckRecordResult =
       locationId: string;
       locationLabel: string;
     }
-  | { recorded: false; reason: SelfCheckDenyReason | "no_location" | "outside_geofence" };
+  | {
+      recorded: false;
+      reason: SelfCheckDenyReason | "no_location" | "outside_geofence" | "gps_required";
+    };
 
 function qatarToday(now = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -37,10 +48,6 @@ function qatarToday(now = new Date()): string {
 
 function columnMissing(message: string | undefined): boolean {
   return Boolean(message && /can_self_check_in|schema cache/i.test(message));
-}
-
-function tableMissing(message: string | undefined): boolean {
-  return Boolean(message && /does not exist|schema cache|relation/i.test(message));
 }
 
 type StaffGate = {
@@ -118,7 +125,7 @@ async function resolvePunchLocation(input: {
   homeLocationId: string | null;
   latitude?: number;
   longitude?: number;
-}): Promise<{ locationId: string | null; locationLabel: string | null; geofenceName: string | null; inside: boolean | null; distanceMeters: number | null }> {
+}) {
   const homeId = input.homeLocationId;
   let homeLabel: string | null = null;
   if (homeId) {
@@ -126,69 +133,40 @@ async function resolvePunchLocation(input: {
     if (home) homeLabel = formatLocationLabel(home.code, home.name);
   }
 
-  if (input.latitude == null || input.longitude == null || !Number.isFinite(input.latitude) || !Number.isFinite(input.longitude)) {
-    return {
-      locationId: homeId,
-      locationLabel: homeLabel,
-      geofenceName: null,
-      inside: null,
-      distanceMeters: null,
-    };
-  }
-
-  const { data: fences, error } = await supabaseAdmin
-    .from("attendance_geofences")
-    .select("id, location_id, name, latitude, longitude, radius_meters, mode, active, locations(code, name)")
-    .eq("active", true);
-  if (error && !tableMissing(error.message)) throw new Error(error.message);
-
-  const active = (fences ?? []).map((row) => {
-    const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
-    return {
-      id: row.id as string,
-      locationId: row.location_id as string,
-      name: row.name as string,
-      latitude: Number(row.latitude),
-      longitude: Number(row.longitude),
-      radiusMeters: Number(row.radius_meters),
-      mode: (row.mode as "operate" | "restrict") ?? "operate",
-      locationLabel: formatLocationLabel(
-        (loc as { code?: string } | null)?.code,
-        (loc as { name?: string } | null)?.name,
-      ),
-    };
+  const fences = await loadSelfCheckPunchFences(supabaseAdmin);
+  return resolveSelfCheckPunchLocation({
+    homeLocationId: homeId,
+    homeLabel,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    fences,
   });
+}
 
-  const nearest = pickNearestFence({ latitude: input.latitude, longitude: input.longitude }, active);
-  if (!nearest) {
-    return {
-      locationId: homeId,
-      locationLabel: homeLabel,
-      geofenceName: null,
-      inside: null,
-      distanceMeters: null,
-    };
+async function recalcLocationsForStaff(input: {
+  locationIds: string[];
+  staffId: string;
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const unique = [...new Set(input.locationIds.filter(Boolean))];
+  for (const locationId of unique) {
+    try {
+      await recalculateAttendanceRange(
+        supabaseAdmin as unknown as Parameters<typeof recalculateAttendanceRange>[0],
+        locationId,
+        input.dateFrom,
+        input.dateTo,
+        { staffIds: [input.staffId], skipSelfCheckGeoRepair: true },
+      );
+    } catch (err) {
+      console.error(
+        "[self-check] attendance recalculation failed",
+        locationId,
+        err instanceof Error ? err.message : "error",
+      );
+    }
   }
-
-  // Prefer the nearest active geo site (branch or warehouse) when the person is inside the fence.
-  if (nearest.evaluation.inside || nearest.evaluation.mode === "restrict") {
-    return {
-      locationId: nearest.fence.locationId,
-      locationLabel: nearest.fence.locationLabel,
-      geofenceName: nearest.fence.name,
-      inside: nearest.evaluation.inside,
-      distanceMeters: nearest.evaluation.distanceMeters,
-    };
-  }
-
-  // Outside every operate fence: keep home for the punch, but report distance for the payload.
-  return {
-    locationId: homeId ?? nearest.fence.locationId,
-    locationLabel: homeLabel ?? nearest.fence.locationLabel,
-    geofenceName: nearest.fence.name,
-    inside: false,
-    distanceMeters: nearest.evaluation.distanceMeters,
-  };
 }
 
 export const getMySelfCheck = createAuthenticatedActionNoInput(
@@ -220,12 +198,23 @@ export const recordSelfCheck = createAuthenticatedAction(
     });
     if (!decision.allow) return { recorded: false, reason: decision.reason };
 
+    if (
+      data.latitude == null ||
+      data.longitude == null ||
+      !Number.isFinite(data.latitude) ||
+      !Number.isFinite(data.longitude)
+    ) {
+      return { recorded: false, reason: "gps_required" };
+    }
+
     const resolved = await resolvePunchLocation({
       homeLocationId: gate?.locationId ?? null,
       latitude: data.latitude,
       longitude: data.longitude,
     });
-    if (!resolved.locationId) return { recorded: false, reason: "no_location" };
+    if (!resolved.matchedGeo || !resolved.locationId) {
+      return { recorded: false, reason: "outside_geofence" };
+    }
 
     const now = new Date();
     const punchAt = now.toISOString();
@@ -262,8 +251,8 @@ export const recordSelfCheck = createAuthenticatedAction(
       probable_duplicate: false,
       raw_payload: {
         via: "self_check",
-        latitude: data.latitude ?? null,
-        longitude: data.longitude ?? null,
+        latitude: data.latitude,
+        longitude: data.longitude,
         accuracy_meters: data.accuracyMeters ?? null,
         geofence_name: resolved.geofenceName,
         inside_geofence: resolved.inside,
@@ -278,17 +267,25 @@ export const recordSelfCheck = createAuthenticatedAction(
       throw new Error(error.message);
     }
 
+    // Repair any earlier same-day mis-attributed self_check punches (e.g. home/KDS).
+    let repairLocs: string[] = [resolved.locationId];
     try {
-      await recalculateAttendanceRange(
-        supabaseAdmin as unknown as Parameters<typeof recalculateAttendanceRange>[0],
-        resolved.locationId,
-        attendanceDate,
-        attendanceDate,
-        { staffIds: [gate!.id] },
-      );
+      const repair = await repairSelfCheckPunchLocations(supabaseAdmin, {
+        dateFrom: attendanceDate,
+        dateTo: attendanceDate,
+        staffIds: [gate!.id],
+      });
+      repairLocs = [...new Set([...repairLocs, ...repair.locationIdsToRecalc])];
     } catch (err) {
-      console.error("[self-check] attendance recalculation failed", err instanceof Error ? err.message : "error");
+      console.error("[self-check] geo repair failed", err instanceof Error ? err.message : "error");
     }
+
+    await recalcLocationsForStaff({
+      locationIds: repairLocs,
+      staffId: gate!.id,
+      dateFrom: attendanceDate,
+      dateTo: attendanceDate,
+    });
 
     return {
       recorded: true,
@@ -300,4 +297,39 @@ export const recordSelfCheck = createAuthenticatedAction(
     };
   },
   selfCheckAuth,
+);
+
+/**
+ * Ops/admin: re-attribute self_check punches from stored GPS and recalc summaries.
+ * Safe to re-run; only updates rows whose coords match a geo site different from location_id.
+ */
+export const repairSelfCheckGeoAttributions = createAuthenticatedAction(
+  z.object({
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    staffIds: z.array(z.string().uuid()).optional(),
+  }),
+  async (data) => {
+    const repair = await repairSelfCheckPunchLocations(supabaseAdmin, {
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+      staffIds: data.staffIds ?? null,
+    });
+    const staffIds = repair.staffIds.length
+      ? repair.staffIds
+      : data.staffIds?.length
+        ? data.staffIds
+        : undefined;
+    for (const locationId of repair.locationIdsToRecalc) {
+      await recalculateAttendanceRange(
+        supabaseAdmin as unknown as Parameters<typeof recalculateAttendanceRange>[0],
+        locationId,
+        data.dateFrom,
+        data.dateTo,
+        { staffIds, skipSelfCheckGeoRepair: true },
+      );
+    }
+    return repair;
+  },
+  { auth: { anyCapability: ["attendance.configure" as const, "attendance.manage" as const] } },
 );

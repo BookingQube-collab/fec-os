@@ -759,6 +759,33 @@ async function loadAttendanceHrDailyRows(
     // ponytail: full filtered range in 1k pages — fine for one site-month (~1–3k); if multi-site year exports grow past ~20k, stream/paginate the export path.
     const staffFilterIds =
       staffFilter !== "none" && staffFilter !== "unmapped" && "ids" in staffFilter ? staffFilter.ids : null;
+
+    // App check-ins store GPS on raw_payload. Re-attribute home/KDS mis-writes (e.g. warehouse
+    // punch shown as KDS-CC) before reading daily summaries so listing Location is correct.
+    try {
+      const { repairSelfCheckPunchLocations } = await import("@/lib/attendance-hr/self-check-geo.server");
+      const { recalculateAttendanceRange } = await import("@/lib/attendance-hr/process");
+      const repair = await repairSelfCheckPunchLocations(supabaseAdmin, {
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        staffIds: staffFilterIds,
+      });
+      if (repair.repaired > 0) {
+        const staffIds = repair.staffIds.length ? repair.staffIds : staffFilterIds ?? undefined;
+        for (const locationId of repair.locationIdsToRecalc) {
+          await recalculateAttendanceRange(supabaseAdmin as AuthContext["supabase"], locationId, data.dateFrom, data.dateTo, {
+            staffIds,
+            skipSelfCheckGeoRepair: true,
+          });
+        }
+      }
+    } catch (err) {
+      console.error(
+        "[attendance] self-check geo repair on listing failed",
+        err instanceof Error ? err.message : "error",
+      );
+    }
+
     const summaryIdGroups: Array<string[] | null> =
       staffFilterIds && !deptStaffIds ? chunkStaffIds(staffFilterIds) : [null];
     const deptAllow = deptStaffIds;
@@ -3608,7 +3635,16 @@ async function enrichAttendanceHrDailyRows(
         .map((row) => row.staff_id as string),
     ),
   ];
-  const punchRefreshIds = [...new Set([...crossSiteIds, ...staleAbsentIds])];
+  // Include punched days (Working today / Present) so first-punch site can override
+  // summary home in the listing (app warehouse check-in vs KDS roster home).
+  const punchedStaffIds = [
+    ...new Set(
+      enriched
+        .filter((row) => row.staff_id && (row.actual_in || row.actual_out || Number(row.punch_count) > 0))
+        .map((row) => row.staff_id as string),
+    ),
+  ];
+  const punchRefreshIds = [...new Set([...crossSiteIds, ...staleAbsentIds, ...punchedStaffIds])];
   if (punchRefreshIds.length === 0 || !dateFrom || !dateTo) {
     return finishRows(enriched);
   }
@@ -3869,7 +3905,9 @@ async function enrichAttendanceHrDailyRows(
     const needsStaleAbsentRefresh =
       !needsCrossSiteFields &&
       ((!row.actual_in && !row.actual_out) || incompleteSides);
-    if (!needsCrossSiteFields && !needsStaleAbsentRefresh) return row;
+    // Always attach first-punch site when we have punches so app geo / warehouse
+    // check-in is not hidden behind summary home (KDS) in Attendance detail.
+    if (!needsCrossSiteFields && !needsStaleAbsentRefresh && !punches.length) return row;
     if (!punches.length && !needsCrossSiteFields) return row;
     const { checkInLocationId, checkOutLocationId } = flexibleDayFirstLastLocationIds(punches);
     const { firstPunchAt, lastPunchAt, usableCount } = flexibleDayFirstLastPunchAt(punches);
@@ -3883,23 +3921,21 @@ async function enrichAttendanceHrDailyRows(
     const outLabel = outLoc
       ? formatLocationLabel(outLoc.code, formatLocationName(outLoc.name, outLoc.region) || outLoc.name)
       : null;
-    const siteFields = needsCrossSiteFields
-      ? {
-          check_in_location_id: checkInLocationId,
-          check_out_location_id: checkOutLocationId,
-          check_in_location_code: inLoc?.code ?? null,
-          check_out_location_code: outLoc?.code ?? null,
-          check_in_location_label: inLabel,
-          check_out_location_label: outLabel,
-          check_in_biometric_user_id: checkInBiometricUserId,
-          check_out_biometric_user_id: checkOutBiometricUserId,
-          biometric_user_id:
-            checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
-        }
-      : {
-          biometric_user_id:
-            checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
-        };
+    const punchSiteFields = {
+      check_in_location_id: checkInLocationId,
+      check_out_location_id: checkOutLocationId,
+      check_in_location_code: inLoc?.code ?? null,
+      check_out_location_code: outLoc?.code ?? null,
+      check_in_location_label: inLabel,
+      check_out_location_label: outLabel,
+      check_in_biometric_user_id: checkInBiometricUserId,
+      check_out_biometric_user_id: checkOutBiometricUserId,
+    };
+    const siteFields = {
+      ...(punches.length ? punchSiteFields : {}),
+      biometric_user_id:
+        checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
+    };
     // Device punches for the same attendance_date win over stale daily_summary in/out.
     if (usableCount > 0) {
       const actualIn = firstPunchAt;

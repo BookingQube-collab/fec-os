@@ -1830,6 +1830,16 @@ describe("HR report row helpers", () => {
       }),
     ).toBe("INF-CC → UA-DM");
     expect(
+      attendanceHrListingLocation({
+        location_code: "KDS-CC",
+        location_name: "Kids Driving School - City Center Doha",
+        location_region: null,
+        check_in_location_code: "WHSE",
+        check_in_location_label: "WHSE — Warehouse",
+        check_out_location_code: null,
+      }),
+    ).toBe("WHSE — Warehouse");
+    expect(
       attendanceHrListingDeviceUserId({
         biometric_user_id: "24",
         check_in_location_code: "UA-DM",
