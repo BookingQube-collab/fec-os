@@ -7,6 +7,8 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { recalculateAttendanceRange } from "./process";
 import { enumerateYmd } from "./dashboard";
 import { attendanceRecalcLocationsAfterRosterUpsert } from "./flexible-cross-site";
+import { insertRosterAuditEvent } from "./roster-audit";
+import { payrollMonthMatchingBounds } from "./roster-period";
 import { chunkIds } from "./roster-register-scope";
 import {
   ATTENDANCE_TALLY_UPLOAD_NOTE,
@@ -239,5 +241,23 @@ export async function replaceAttendanceRosterPeriod(
     unique,
     staffIds,
   );
+
+  await insertRosterAuditEvent(db, {
+    actorId: context.userId,
+    action: "roster.upload",
+    locationId: input.locationId,
+    entityId: uploadRow.id as string,
+    after: {
+      imported: payload.length,
+      fileName: input.fileName,
+      fileType: input.fileType,
+      dateFrom: input.dateFrom,
+      dateTo: input.dateTo,
+      payrollMonth: payrollMonthMatchingBounds(input.dateFrom, input.dateTo),
+      staffCount: staffIds.length,
+      uploadId: uploadRow.id as string,
+    },
+  });
+
   return { imported: payload.length, uploadId: uploadRow.id as string, processed: processed };
 }

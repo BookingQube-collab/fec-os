@@ -63,7 +63,14 @@ import {
   rosterCopyDestinationKey,
   rosterCopyProtectedDestinationKeys,
 } from "@/lib/attendance-hr/roster-copy";
-import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth, previousPayrollMonth } from "@/lib/attendance-hr/roster-period";
+import { insertRosterAuditEvent, snapFromRosterRow } from "@/lib/attendance-hr/roster-audit";
+import {
+  mapRosterPeriodByDayIndex,
+  monthBounds,
+  nextPayrollMonth,
+  payrollMonthMatchingBounds,
+  previousPayrollMonth,
+} from "@/lib/attendance-hr/roster-period";
 import {
   filterPreviousMonthRosterDownloadRows,
   previousMonthRosterSheetLines,
@@ -1306,6 +1313,25 @@ export const createRosterAssignment = createSafeAuthenticatedAction(
       staffIds: [data.staffId],
     });
 
+    await insertRosterAuditEvent(db, {
+      actorId: context.userId,
+      action: "roster.create",
+      locationId: data.locationId,
+      entityId: String(inserted.id),
+      after: {
+        ...snapFromRosterRow({
+          locationId: data.locationId,
+          staffId: data.staffId,
+          workDate: data.workDate,
+          isWeekOff: patch.isWeekOff,
+          shiftStart: patch.needsShiftTimes ? shiftStart : null,
+          shiftEnd: patch.needsShiftTimes ? shiftEnd : null,
+          source: "manual",
+          dayStatus: data.dayStatus,
+        }),
+      },
+    });
+
     return {
       id: String(inserted.id),
       locationId: data.locationId,
@@ -1444,12 +1470,39 @@ export const updateRosterAssignment = createSafeAuthenticatedAction(
       });
     }
 
+    const resolvedDayStatus = dayStatus ?? (isWeekOff ? "weekly_off" : "on_duty");
+    await insertRosterAuditEvent(db, {
+      actorId: context.userId,
+      action: "roster.update",
+      locationId: nextLocationId,
+      entityId: data.id,
+      before: snapFromRosterRow({
+        locationId: existingLocationId,
+        staffId: String(existing.staff_id),
+        workDate,
+        isWeekOff: Boolean(existing.is_week_off),
+        shiftStart: existing.shift_start ? String(existing.shift_start) : null,
+        shiftEnd: existing.shift_end ? String(existing.shift_end) : null,
+        source: String(existing.source ?? "manual"),
+      }),
+      after: snapFromRosterRow({
+        locationId: nextLocationId,
+        staffId: String(existing.staff_id),
+        workDate,
+        isWeekOff,
+        shiftStart: patch.needsShiftTimes ? shiftStart : null,
+        shiftEnd: patch.needsShiftTimes ? shiftEnd : null,
+        source: existing.source === "upload" || existing.source === "amend" ? "amend" : String(existing.source ?? "manual"),
+        dayStatus: resolvedDayStatus,
+      }),
+    });
+
     return {
       id: data.id,
       locationId: nextLocationId,
       isWeekOff,
       leaveType: patch.leaveType,
-      dayStatus: dayStatus ?? (isWeekOff ? "weekly_off" : "on_duty"),
+      dayStatus: resolvedDayStatus,
       shiftStart: patch.needsShiftTimes ? shiftStart : null,
       shiftEnd: patch.needsShiftTimes ? shiftEnd : null,
       shiftTemplateId: patch.needsShiftTimes ? shiftTemplateId : null,
@@ -1675,6 +1728,23 @@ export const applyRosterStaffPattern = createSafeAuthenticatedAction(
       });
     }
 
+    const payrollMonth = payrollMonthMatchingBounds(data.periodFrom, data.periodTo);
+    await insertRosterAuditEvent(db, {
+      actorId: context.userId,
+      action: "roster.pattern_apply",
+      locationId: data.locationId,
+      after: {
+        staffId: data.staffId,
+        dateFrom,
+        dateTo,
+        payrollMonth,
+        created,
+        updated,
+        unchanged,
+        skippedLeave: plan.skipLeaveCount,
+      },
+    });
+
     return {
       staffId: data.staffId,
       dateFrom,
@@ -1700,7 +1770,7 @@ export const deleteRosterAssignment = createSafeAuthenticatedAction(
 
     const { data: existing, error: fetchErr } = await db
       .from("attendance_roster_assignments")
-      .select("id, location_id, staff_id, work_date")
+      .select("id, location_id, staff_id, work_date, shift_start, shift_end, is_week_off, source")
       .eq("id", data.id)
       .single();
     if (fetchErr || !existing) throw fetchErr ?? new Error("Roster row not found");
@@ -1715,6 +1785,21 @@ export const deleteRosterAssignment = createSafeAuthenticatedAction(
     if (delErr) throw delErr;
 
     const workDate = String(existing.work_date).slice(0, 10);
+    await insertRosterAuditEvent(db, {
+      actorId: context.userId,
+      action: "roster.delete",
+      locationId: String(existing.location_id),
+      entityId: data.id,
+      before: snapFromRosterRow({
+        locationId: String(existing.location_id),
+        staffId: String(existing.staff_id),
+        workDate,
+        isWeekOff: Boolean(existing.is_week_off),
+        shiftStart: existing.shift_start ? String(existing.shift_start) : null,
+        shiftEnd: existing.shift_end ? String(existing.shift_end) : null,
+        source: String(existing.source ?? "manual"),
+      }),
+    });
     // Clear roster-amend leave only; HR leave stays if the day was leave outside this UI.
     await db
       .from("attendance_leave_records")
@@ -1898,6 +1983,21 @@ export const deleteRosterAssignments = createAuthenticatedAction(
         staffIds: [...scope.staffIds],
       });
     }
+
+    const payrollMonth = payrollMonthMatchingBounds(data.dateFrom, data.dateTo);
+    await insertRosterAuditEvent(db, {
+      actorId: context.userId,
+      action: "roster.bulk_delete",
+      locationId: data.locationId ?? locationIds[0] ?? null,
+      after: {
+        deleted: toDelete.length,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        payrollMonth,
+        locationId: data.locationId ?? null,
+        staffId: data.staffId ?? null,
+      },
+    });
 
     return {
       ok: true as const,

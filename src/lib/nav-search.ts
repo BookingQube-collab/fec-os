@@ -27,6 +27,12 @@ const EXTRA_SEARCH_ITEMS: NavSearchHit[] = [
     aliases: ["extras", "legacy", "duplicate pages", "pages to review"],
     capability: "people.view_roster",
   },
+  {
+    href: "/people/roster/history",
+    labelKey: "nav.rosterHistory",
+    aliases: ["roster history", "roster audit", "roster changes"],
+    capability: "people.roster_history",
+  },
 ];
 
 const NAV_SEARCH_ALIASES: Record<string, string[]> = {
@@ -36,6 +42,7 @@ const NAV_SEARCH_ALIASES: Record<string, string[]> = {
   "/people": ["people", "staff", "roster", "hr"],
   "/people/import": ["roster", "shift roster", "import roster", "import", "employee roster"],
   "/people/roster": ["monthly roster", "roster register", "view roster"],
+  "/people/roster/history": ["roster history", "roster audit", "roster changes", "monthly roster history"],
   "/people/attendance": ["attendance", "time", "time and attendance"],
   "/people/attendance/reports": ["attendance listing", "attendance records"],
   "/people/attendance/device-logs": ["device logs", "raw punches", "zkteco", "iclock"],

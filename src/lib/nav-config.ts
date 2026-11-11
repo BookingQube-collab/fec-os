@@ -335,6 +335,7 @@ const PEOPLE_SECTION = {
  */
 const PEOPLE_NAV_ITEMS: NavItem[] = [
   { href: "/people/roster", labelKey: "nav.monthlyRoster", icon: CalendarDays, capability: "people.view_roster", departmentId: "people", sectionKey: PEOPLE_SECTION.workTime },
+  { href: "/people/roster/history", labelKey: "nav.rosterHistory", icon: History, capability: "people.roster_history", departmentId: "people", sectionKey: PEOPLE_SECTION.workTime },
   { href: "/people/import", labelKey: "nav.importRoster", icon: ClipboardList, capability: "people.import_roster", departmentId: "people", sectionKey: PEOPLE_SECTION.admin },
   { href: "/people/recruitment/jobs", labelKey: "nav.hrJobRequests", icon: Briefcase, capability: "recruitment.request", departmentId: "people", sectionKey: PEOPLE_SECTION.people },
   { href: "/people/recruitment/jobs/admin", labelKey: "nav.hrJobAdmin", icon: Briefcase, capability: "recruitment.manage", departmentId: "people", sectionKey: PEOPLE_SECTION.admin },

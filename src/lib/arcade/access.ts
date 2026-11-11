@@ -194,6 +194,10 @@ export function canActorPerform(
     return isFnbManager(jobTitle, department);
   }
 
+  if (capability === "people.roster_history") {
+    return isHeadOfOperationsTitle(jobTitle) || canUserDo([...roles], capability, grants);
+  }
+
   return canUserDo([...roles], capability, grants);
 }
 

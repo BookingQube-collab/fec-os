@@ -138,6 +138,7 @@
     "attendanceDevicesShort": "الأجهزة",
     "importRoster": "جدول الورديات",
     "monthlyRoster": "الكشف الشهري",
+    "rosterHistory": "سجل تغييرات الكشف",
     "peopleExtras": "إضافات (مراجعة)",
     "hrOverview": "نظرة عامة على الموارد البشرية",
     "hrStaff": "الموظفون",
@@ -5816,6 +5817,29 @@
         "blank_status": "الحالة فارغة",
         "missing_from_sheet": "في الدليل وغير موجود في الملف"
       }
+    },
+    "rosterHistory": {
+      "kicker": "الموظفون",
+      "title": "سجل تغييرات الكشف الشهري",
+      "subtitle": "سجل تدقيق لرفع جداول الورديات والتعديلات وأنماط الجدول والحذف الجماعي لكل شهر FEC.",
+      "noAccess": "سجل تغييرات الكشف الشهري متاح لرئيس العمليات وموارد البشرية فقط.",
+      "month": "شهر FEC",
+      "location": "الموقع",
+      "allLocations": "كل المواقع",
+      "staffSearch": "الموظف",
+      "staffSearchPlaceholder": "الاسم أو رمز الموظف",
+      "loading": "جارٍ تحميل سجل التغييرات…",
+      "loadFailed": "تعذر تحميل سجل تغييرات الكشف.",
+      "empty": "لا توجد تغييرات مسجّلة على الكشف لهذا الشهر بعد.",
+      "kindFirstPlan": "الخطة الأولى",
+      "kindAmendment": "تعديل",
+      "kindReupload": "إعادة رفع",
+      "colWhen": "متى",
+      "colKind": "النوع",
+      "colWho": "من",
+      "colLocation": "الموقع",
+      "colStaff": "الموظف / التاريخ",
+      "colSummary": "التغيير"
     },
     "profile": {
       "title": "ملف الموظف",
