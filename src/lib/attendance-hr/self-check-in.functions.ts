@@ -331,5 +331,5 @@ export const repairSelfCheckGeoAttributions = createAuthenticatedAction(
     }
     return repair;
   },
-  { auth: { anyCapability: ["attendance.configure" as const, "attendance.manage" as const] } },
+  { auth: { capability: "attendance.configure" as const } },
 );
