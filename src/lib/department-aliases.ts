@@ -6,8 +6,8 @@ import { normalizeDepartmentName } from "@/lib/staff-departments";
  * roster / attendance / dashboard charts treat either label or code as one team.
  *
  * Product display for this group is always {@link CANONICAL_OPERATIONS_LABEL}.
- * Do not use alias expansion when assigning departments in edit dialogs —
- * audience filtering still applies there.
+ * Assignment pickers still use audience filtering, except Operations itself is
+ * treated as shared for both HO and FEC sites (see filterDepartmentsForLocation).
  */
 const DEPARTMENT_ALIAS_GROUPS: readonly (readonly string[])[] = [
   // HO Operations (OPS) ↔ FEC Operations (FEC_OPS) and legacy free-text spellings

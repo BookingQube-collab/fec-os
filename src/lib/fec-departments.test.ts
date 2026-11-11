@@ -64,20 +64,42 @@ describe("splitDepartmentTokens catalog names", () => {
 describe("filterDepartmentsForLocation", () => {
   const rows = [
     { id: "ho-fin", name: "Finance", audience: "ho", active: true },
+    { id: "ho-ops", name: "Operations", code: "OPS", audience: "ho", active: true },
     { id: "fec-crew", name: "Crew / Attendant", audience: "fec", active: true },
     { id: "old", name: "Battle Arena", audience: "fec", active: false },
+    { id: "retired-ops", name: "Operations (retired)", code: "FEC_OPS", audience: "fec", active: false },
   ];
 
   it("keeps head office departments on HO and the FEC catalog on sites", () => {
-    expect(filterDepartmentsForLocation(rows, "HO").map((row) => row.id)).toEqual(["ho-fin"]);
-    expect(filterDepartmentsForLocation(rows, "INF-CC").map((row) => row.id)).toEqual(["fec-crew"]);
-    expect(filterDepartmentsForLocation(rows, null).map((row) => row.id)).toEqual(["ho-fin", "fec-crew"]);
+    expect(filterDepartmentsForLocation(rows, "HO").map((row) => row.id)).toEqual(["ho-fin", "ho-ops"]);
+    expect(filterDepartmentsForLocation(rows, "INF-CC").map((row) => row.id)).toEqual([
+      "ho-ops",
+      "fec-crew",
+    ]);
+    expect(filterDepartmentsForLocation(rows, null).map((row) => row.id)).toEqual([
+      "ho-fin",
+      "ho-ops",
+      "fec-crew",
+    ]);
   });
 
   it("keeps a current assignment that is outside the location list", () => {
     expect(filterDepartmentsForLocation(rows, "INF-CC", ["ho-fin"]).map((row) => row.id)).toEqual([
       "ho-fin",
+      "ho-ops",
       "fec-crew",
     ]);
+  });
+
+  it("includes canonical Operations on FEC sites even without keepIds (Add employee)", () => {
+    expect(
+      filterDepartmentsForLocation(
+        [
+          { id: "ho-ops", name: "Operations", code: "OPS", audience: "ho", active: true },
+          { id: "fec-cafe", name: "F&B Cafe", audience: "fec", active: true },
+        ],
+        "INF-CC",
+      ).map((row) => row.id),
+    ).toEqual(["ho-ops", "fec-cafe"]);
   });
 });
