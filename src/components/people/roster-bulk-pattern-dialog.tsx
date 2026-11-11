@@ -40,8 +40,6 @@ export type RosterBulkPatternDialogProps = {
   defaultLocationId: string;
   locationOptions: Array<{ value: string; label: string; keywords?: string }>;
   existingRows: RosterRegisterRow[];
-  /** Locations that already completed a roster upload — pattern apply then needs a reason. */
-  uploadedLocationIds?: readonly string[];
   onApplied: () => void;
 };
 
@@ -108,7 +106,6 @@ export function RosterBulkPatternDialog({
   defaultLocationId,
   locationOptions,
   existingRows,
-  uploadedLocationIds = [],
   onApplied,
 }: RosterBulkPatternDialogProps) {
   const { t, i18n } = useTranslation();
@@ -120,8 +117,6 @@ export function RosterBulkPatternDialog({
   const [shiftStart, setShiftStart] = useState("09:00");
   const [shiftEnd, setShiftEnd] = useState("18:00");
   const [reasonOpen, setReasonOpen] = useState(false);
-  const uploadedSet = useMemo(() => new Set(uploadedLocationIds), [uploadedLocationIds]);
-  const needsChangeReason = Boolean(locationId && uploadedSet.has(locationId));
 
   useEffect(() => {
     if (!open || !person) return;
@@ -365,10 +360,7 @@ export function RosterBulkPatternDialog({
           </Button>
           <Button
             type="button"
-            onClick={() => {
-              if (needsChangeReason) setReasonOpen(true);
-              else applyMut.mutate(undefined);
-            }}
+            onClick={() => setReasonOpen(true)}
             disabled={!canApply}
           >
             {applyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

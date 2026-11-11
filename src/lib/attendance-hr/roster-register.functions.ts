@@ -1220,7 +1220,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       teamStaff: locationScopedTeamStaff,
       /** Null for a company roster. Assigned home and extra sites for a team roster. */
       cardLocations: await cardLocationsPromise,
-      /** Locations that already had a completed upload in this period — later edits need a reason. */
+      /** Locations that already had a completed upload in this period (coverage / copy helpers). */
       uploadedLocationIds,
     };
   },

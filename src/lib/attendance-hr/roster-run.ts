@@ -112,7 +112,7 @@ export async function commitLiveShiftRoster(
     preview: AttendanceRosterPreview;
     fileName: string;
     fileType: string;
-    /** Required when re-uploading a location-month that was already fully uploaded. */
+    /** Required reason for this commit (shown in roster history). */
     changeReason?: string | null;
   },
   team?: TeamRosterUploadScope,

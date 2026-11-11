@@ -686,21 +686,6 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       });
     };
 
-    const uploadedLocationIds = useMemo(
-      () => new Set(register.data?.uploadedLocationIds ?? []),
-      [register.data?.uploadedLocationIds],
-    );
-    const locationNeedsChangeReason = useCallback(
-      (locId: string | null | undefined) => Boolean(locId && uploadedLocationIds.has(locId)),
-      [uploadedLocationIds],
-    );
-    const scopeNeedsChangeReason = useCallback(
-      (rows: RosterRegisterRow[]) =>
-        rows.some((row) => uploadedLocationIds.has(row.locationId)) ||
-        (locationId ? uploadedLocationIds.has(locationId) : false),
-      [uploadedLocationIds, locationId],
-    );
-
     const saveMut = useMutation({
       mutationFn: async ({ row, changeReason }: { row: RosterRegisterRow; changeReason?: string }) => {
         if (!draft) throw new Error(t("people.roster.registerNothingToSave"));
@@ -830,54 +815,23 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       onError: (e: Error) => toast.error(e.message),
     });
 
-    const requestSave = useCallback(
-      (row: RosterRegisterRow) => {
-        const nextLoc = draft?.locationId || row.locationId;
-        if (locationNeedsChangeReason(nextLoc) || locationNeedsChangeReason(row.locationId)) {
-          setPendingReasonAction({ type: "save", row });
-          return;
-        }
-        saveMut.mutate({ row });
-      },
-      [draft?.locationId, locationNeedsChangeReason, saveMut],
-    );
+    const requestSave = useCallback((row: RosterRegisterRow) => {
+      setPendingReasonAction({ type: "save", row });
+    }, []);
 
     const requestCreate = useCallback(() => {
-      if (locationNeedsChangeReason(draft?.locationId)) {
-        setPendingReasonAction({ type: "create" });
-        return;
-      }
-      createMut.mutate(undefined);
-    }, [createMut, draft?.locationId, locationNeedsChangeReason]);
+      setPendingReasonAction({ type: "create" });
+    }, []);
 
-    const requestDelete = useCallback(
-      (id: string) => {
-        const row = (register.data?.rows ?? []).find((item) => item.id === id);
-        if (locationNeedsChangeReason(row?.locationId)) {
-          setDeleteRowId(null);
-          setPendingReasonAction({ type: "delete", id });
-          return;
-        }
-        deleteMut.mutate({ id });
-      },
-      [deleteMut, locationNeedsChangeReason, register.data?.rows],
-    );
+    const requestDelete = useCallback((id: string) => {
+      setDeleteRowId(null);
+      setPendingReasonAction({ type: "delete", id });
+    }, []);
 
-    const requestDeleteAll = useCallback(
-      (ids: string[] | null) => {
-        const scoped =
-          ids == null
-            ? filtered
-            : filtered.filter((row) => ids.includes(row.id));
-        if (scopeNeedsChangeReason(scoped)) {
-          setDeleteAllOpen(false);
-          setPendingReasonAction({ type: "deleteAll", ids });
-          return;
-        }
-        deleteAllMut.mutate({ ids });
-      },
-      [deleteAllMut, filtered, scopeNeedsChangeReason],
-    );
+    const requestDeleteAll = useCallback((ids: string[] | null) => {
+      setDeleteAllOpen(false);
+      setPendingReasonAction({ type: "deleteAll", ids });
+    }, []);
 
     const deleting = deleteMut.isPending || deleteAllMut.isPending;
     const deleteAllDisabled = filtered.length === 0 || deleting || register.isLoading;
@@ -1878,7 +1832,6 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           defaultLocationId={locationId || defaultLocationId || ""}
           locationOptions={locationOptions}
           existingRows={rows}
-          uploadedLocationIds={register.data?.uploadedLocationIds ?? []}
           onApplied={() => invalidateRosterCaches(qc)}
         />
       </div>

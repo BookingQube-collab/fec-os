@@ -2,7 +2,7 @@
 
 import { FecPageHeader } from "@/components/fec";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
 import Link from "next/link";
 import { type DragEvent, type UIEvent, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -23,12 +23,9 @@ import { useSites } from "@/hooks/queries/useSites";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { applyStaffMapToPreviewRows } from "@/lib/attendance-hr/apply-roster-name-map";
 import { mapAttendanceRosterSheetName } from "@/lib/attendance-hr.functions";
-import { listUploadedRosterAssignments } from "@/lib/attendance-hr/roster-register.functions";
 import type { MatchedRosterRow } from "@/lib/attendance-hr/roster-upload";
 import { isActiveRosterStaff } from "@/lib/staff-status";
 import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
-import { STALE } from "@/lib/query-client";
-import { queryKeys } from "@/lib/query-keys";
 import {
   formatRosterFileSize,
   pickRosterImportFile,
@@ -145,24 +142,6 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
     }
   }, [periodMode, weekStart, month]);
 
-  const uploadedLocationsQuery = useQuery({
-    queryKey: [...queryKeys.people.rosterRegister({ dateFrom: period.dateFrom, dateTo: period.dateTo, coverageOnly: true }), "uploaded-locations", registerRefresh],
-    queryFn: () =>
-      listUploadedRosterAssignments({
-        dateFrom: period.dateFrom,
-        dateTo: period.dateTo,
-        coverageOnly: true,
-        sourceUploadOnly: false,
-      }),
-    staleTime: STALE.people,
-    enabled: Boolean(period.dateFrom && period.dateTo),
-    refetchOnWindowFocus: false,
-  });
-  const uploadedLocationIds = useMemo(
-    () => new Set(uploadedLocationsQuery.data?.uploadedLocationIds ?? []),
-    [uploadedLocationsQuery.data?.uploadedLocationIds],
-  );
-
   const resetReview = () => {
     setPreview(null);
     setPreviewError(null);
@@ -274,20 +253,6 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
     },
   });
 
-  const previewNeedsChangeReason = useMemo(() => {
-    const rows = preview?.rows ?? [];
-    const locationIds = new Set(
-      rows
-        .filter((row) => row.status === "matched" && row.locationId)
-        .map((row) => String(row.locationId)),
-    );
-    if (locationScope === "single" && singleLocationId) locationIds.add(singleLocationId);
-    for (const id of locationIds) {
-      if (uploadedLocationIds.has(id)) return true;
-    }
-    return false;
-  }, [preview?.rows, locationScope, singleLocationId, uploadedLocationIds]);
-
   const confirmImport = useCallback(
     (changeReason?: string) => {
       setPreviewError(null);
@@ -298,12 +263,8 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
   );
 
   const requestConfirmImport = useCallback(() => {
-    if (previewNeedsChangeReason) {
-      setChangeReasonOpen(true);
-      return;
-    }
-    confirmImport();
-  }, [confirmImport, previewNeedsChangeReason]);
+    setChangeReasonOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!file) return;

@@ -15,12 +15,29 @@ describe("roster change reason", () => {
     expect(normalizeRosterChangeReason("   ")).toBeNull();
     expect(assertRosterChangeReason("Staff swapped sites")).toBe("Staff swapped sites");
     expect(() => assertRosterChangeReason("ab")).toThrow(/reason is required/i);
+    expect(() => assertRosterChangeReason(null)).toThrow(/reason is required/i);
+    expect(() => assertRosterChangeReason("")).toThrow(/reason is required/i);
   });
 
   it("reads changeReason from audit payloads", () => {
     expect(rosterAuditChangeReason({ changeReason: "Coverage fix" }, null)).toBe("Coverage fix");
     expect(rosterAuditChangeReason(null, { changeReason: "from before" })).toBe("from before");
     expect(rosterAuditChangeReason(null, null)).toBeNull();
+  });
+
+  it("always requires a reason for every roster mutate (no upload gate)", async () => {
+    const { resolveRosterPostUploadChangeReason, resolveRosterPostUploadChangeReasonForLocations } =
+      await import("@/lib/attendance-hr/roster-audit");
+    const db = {} as never;
+    await expect(resolveRosterPostUploadChangeReason(db, "loc", "2026-03-01", null)).rejects.toThrow(
+      /reason is required/i,
+    );
+    await expect(
+      resolveRosterPostUploadChangeReasonForLocations(db, ["loc"], "2026-03-01", "2026-03-31", "  "),
+    ).rejects.toThrow(/reason is required/i);
+    await expect(
+      resolveRosterPostUploadChangeReason(db, "loc", "2026-03-01", "Coverage swap"),
+    ).resolves.toBe("Coverage swap");
   });
 });
 

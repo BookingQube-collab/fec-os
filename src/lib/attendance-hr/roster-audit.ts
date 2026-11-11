@@ -34,7 +34,7 @@ export type RosterAuditAssignmentSnap = {
 
 export type RosterHistoryChangeKind = "first_plan" | "amendment" | "reupload";
 
-/** Minimum non-empty reason length after a location-month has been uploaded. */
+/** Minimum non-empty reason length for any roster create / amend / delete / upload. */
 export const ROSTER_CHANGE_REASON_MIN = 3;
 export const ROSTER_CHANGE_REASON_MAX = 500;
 
@@ -47,7 +47,7 @@ export function assertRosterChangeReason(reason: string | null | undefined): str
   const normalized = normalizeRosterChangeReason(reason);
   if (!normalized || normalized.length < ROSTER_CHANGE_REASON_MIN) {
     throw new Error(
-      `A reason is required when changing a roster after it has been uploaded (at least ${ROSTER_CHANGE_REASON_MIN} characters).`,
+      `A reason is required when changing a roster (at least ${ROSTER_CHANGE_REASON_MIN} characters).`,
     );
   }
   if (normalized.length > ROSTER_CHANGE_REASON_MAX) {
@@ -121,30 +121,27 @@ export async function locationMonthHasCompletedRosterUpload(
   return uploaded.has(locationId);
 }
 
+/**
+ * Every roster mutate path requires a non-empty reason (create, amend, delete, pattern, upload).
+ * Kept async so existing server call sites stay stable; location/date args are unused for the gate.
+ */
 export async function resolveRosterPostUploadChangeReason(
-  db: AuthContext["supabase"],
-  locationId: string,
-  workDate: string,
+  _db: AuthContext["supabase"],
+  _locationId: string,
+  _workDate: string,
   changeReason: string | null | undefined,
-): Promise<string | null> {
-  const required = await locationMonthHasCompletedRosterUpload(db, locationId, workDate);
-  if (required) return assertRosterChangeReason(changeReason);
-  return normalizeRosterChangeReason(changeReason);
+): Promise<string> {
+  return assertRosterChangeReason(changeReason);
 }
 
 export async function resolveRosterPostUploadChangeReasonForLocations(
-  db: AuthContext["supabase"],
-  locationIds: readonly string[],
-  dateFrom: string,
-  dateTo: string,
+  _db: AuthContext["supabase"],
+  _locationIds: readonly string[],
+  _dateFrom: string,
+  _dateTo: string,
   changeReason: string | null | undefined,
-): Promise<string | null> {
-  const unique = [...new Set(locationIds.filter(Boolean))];
-  if (!unique.length) return normalizeRosterChangeReason(changeReason);
-  const uploaded = await findLocationsWithCompletedRosterUpload(db, dateFrom, dateTo, unique);
-  const required = unique.some((id) => uploaded.has(id));
-  if (required) return assertRosterChangeReason(changeReason);
-  return normalizeRosterChangeReason(changeReason);
+): Promise<string> {
+  return assertRosterChangeReason(changeReason);
 }
 
 export function canViewMonthlyRosterHistory(roles: readonly string[], jobTitle?: string | null): boolean {
@@ -292,7 +289,7 @@ export async function insertRosterAuditEvent(
     entityId?: string | null;
     before?: RosterAuditAssignmentSnap | Record<string, unknown> | null;
     after?: RosterAuditAssignmentSnap | Record<string, unknown> | null;
-    /** Why the roster changed after the first completed upload for the location-month. */
+    /** Why the roster changed (required on mutate paths; stored on the audit after payload). */
     changeReason?: string | null;
   },
 ): Promise<void> {
