@@ -64,7 +64,7 @@ export default function RosterHistoryPage() {
       { value: "", label: t("people.rosterHistory.allLocations") },
       ...sites.map((s) => ({
         value: s.id,
-        label: formatLocationRecord(s).label,
+        label: formatLocationRecord(s),
       })),
     ],
     [sites, t],
