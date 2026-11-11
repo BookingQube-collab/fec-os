@@ -55,6 +55,8 @@ export type FlexibleCrossSitePunch = {
   biometricUserId?: string | null;
   excludedFromCalc?: boolean;
   probableDuplicate?: boolean;
+  /** Event Attendance tag from attendance_logs; copied onto daily summaries on recalc. */
+  event_id?: string | null;
 };
 
 export type FlexibleDayRecalcAction = "write_merged" | "suppress" | "no_punches";

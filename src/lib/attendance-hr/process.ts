@@ -1747,7 +1747,7 @@ export async function recalculateAttendanceRange(
     const staffId = sep >= 0 ? crossKey.slice(0, sep) : "";
     const workDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
     for (const punch of punches) {
-      rememberEventId(staffId, workDate, (punch as { event_id?: string | null }).event_id);
+      rememberEventId(staffId, workDate, punch.event_id);
     }
   }
   for (const row of summaryRows) {
