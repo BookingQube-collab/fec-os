@@ -310,7 +310,7 @@ export async function recalculateAttendanceRange(
     let q = supabase
       .from("attendance_logs")
       .select(
-        "id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date, device_user_name",
+        "id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date, device_user_name, event_id",
       )
       .eq("location_id", locationId)
       .gte("attendance_date", dateFrom)
@@ -597,7 +597,7 @@ export async function recalculateAttendanceRange(
         supabase
           .from("attendance_logs")
           .select(
-            "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+            "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date, event_id",
           )
           .in("staff_id", chunk)
           .gte("attendance_date", dateFrom)
@@ -642,6 +642,7 @@ export async function recalculateAttendanceRange(
         excludedFromCalc: Boolean(log.excluded_from_calc),
         device_id: (log.device_id as string | null) ?? null,
         biometric_user_id: (log.biometric_user_id as string | null) ?? null,
+        event_id: (log.event_id as string | null) ?? null,
       });
       crossPunchesByStaffDay.set(key, list);
     };
@@ -1720,6 +1721,40 @@ export async function recalculateAttendanceRange(
         if (id) keep.add(id);
       }
     }
+  }
+
+  // Re-stamp event_id from punches so monthly recalc does not orphan Event Attendance
+  // (upsert payloads omit event_id unless we copy it from attendance_logs).
+  const eventIdByStaffDay = new Map<string, string>();
+  const rememberEventId = (staffId: string | null | undefined, day: string, eventId: unknown) => {
+    const sid = staffId ? String(staffId).trim() : "";
+    const eid = eventId ? String(eventId).trim() : "";
+    const workDate = String(day ?? "").slice(0, 10);
+    if (!sid || !eid || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return;
+    if (!eventIdByStaffDay.has(`${sid}|${workDate}`)) {
+      eventIdByStaffDay.set(`${sid}|${workDate}`, eid);
+    }
+  };
+  for (const log of logs ?? []) {
+    rememberEventId(
+      (log as { staff_id?: string | null }).staff_id,
+      String((log as { attendance_date?: string | null }).attendance_date ?? ""),
+      (log as { event_id?: string | null }).event_id,
+    );
+  }
+  for (const [crossKey, punches] of crossPunchesByStaffDay) {
+    const sep = crossKey.lastIndexOf("|");
+    const staffId = sep >= 0 ? crossKey.slice(0, sep) : "";
+    const workDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
+    for (const punch of punches) {
+      rememberEventId(staffId, workDate, (punch as { event_id?: string | null }).event_id);
+    }
+  }
+  for (const row of summaryRows) {
+    const staffId = row.staff_id ? String(row.staff_id) : "";
+    const workDate = String(row.work_date ?? "").slice(0, 10);
+    const eventId = staffId && workDate ? eventIdByStaffDay.get(`${staffId}|${workDate}`) : undefined;
+    if (eventId) row.event_id = eventId;
   }
 
   // Prefer staff unique key for mapped rows. Upserting only on subject_key races with

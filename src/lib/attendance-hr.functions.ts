@@ -832,31 +832,44 @@ async function loadAttendanceHrDailyRows(
       Promise.all(
         summaryIdGroups.map((idGroup) =>
           collectPagedRowsInWaves(async (from, to) => {
-            let q = readContext.supabase
-              .from("attendance_daily_summary")
-              .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-              .gte("work_date", data.dateFrom)
-              .lte("work_date", data.dateTo)
-              .order("work_date", { ascending: false })
-              .order("id", { ascending: false })
-              .range(from, to);
-            if (data.status) q = q.eq("status", data.status);
-            if (staffFilter === "unmapped") q = q.is("staff_id", null);
-            else if (idGroup) q = q.in("staff_id", idGroup);
-            else if (staffFilter !== "none" && "ids" in staffFilter) q = q.in("staff_id", staffFilter.ids);
-            else if (staffFilter !== "none" && "biometricIlike" in staffFilter) {
-              q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
+            const buildPage = (excludeEventTagged: boolean) => {
+              let q = readContext.supabase
+                .from("attendance_daily_summary")
+                .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+                .gte("work_date", data.dateFrom)
+                .lte("work_date", data.dateTo)
+                .order("work_date", { ascending: false })
+                .order("id", { ascending: false })
+                .range(from, to);
+              // Event Attendance owns event_id rows — never load them into monthly enrich.
+              if (excludeEventTagged) q = q.is("event_id", null);
+              if (data.status) q = q.eq("status", data.status);
+              if (staffFilter === "unmapped") q = q.is("staff_id", null);
+              else if (idGroup) q = q.in("staff_id", idGroup);
+              else if (staffFilter !== "none" && "ids" in staffFilter) q = q.in("staff_id", staffFilter.ids);
+              else if (staffFilter !== "none" && "biometricIlike" in staffFilter) {
+                q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
+              }
+              if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
+              // Site chip always wins. All locations for a team login stays inside scoped sites
+              // (Waqar: KDS-DM + UA-DM + INF-CC only — not every venue a descendant punched at).
+              if (data.locationId) q = q.eq("location_id", data.locationId);
+              else if (teamLocationIds && teamLocationIds.length > 0) {
+                q = q.in("location_id", teamLocationIds);
+              }
+              return q;
+            };
+            const primary = await buildPage(true);
+            if (
+              primary.error &&
+              /event_id|schema cache|does not exist/i.test(primary.error.message)
+            ) {
+              const legacy = await buildPage(false);
+              if (legacy.error) throw legacy.error;
+              return (legacy.data ?? []) as Array<Record<string, unknown>>;
             }
-            if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
-            // Site chip always wins. All locations for a team login stays inside scoped sites
-            // (Waqar: KDS-DM + UA-DM + INF-CC only — not every venue a descendant punched at).
-            if (data.locationId) q = q.eq("location_id", data.locationId);
-            else if (teamLocationIds && teamLocationIds.length > 0) {
-              q = q.in("location_id", teamLocationIds);
-            }
-            const { data: page, error } = await q;
-            if (error) throw error;
-            return (page ?? []) as Array<Record<string, unknown>>;
+            if (primary.error) throw primary.error;
+            return (primary.data ?? []) as Array<Record<string, unknown>>;
           }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
         ),
       ),
@@ -876,19 +889,31 @@ async function loadAttendanceHrDailyRows(
         const flexPages = await Promise.all(
           chunkStaffIds(staffIds).map((flexChunk) =>
             collectPagedRowsInWaves(async (from, to) => {
-              let q = readContext.supabase
-                .from("attendance_daily_summary")
-                .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-                .in("staff_id", flexChunk)
-                .gte("work_date", data.dateFrom)
-                .lte("work_date", data.dateTo)
-                .order("work_date", { ascending: false })
-                .order("id", { ascending: false })
-                .range(from, to);
-              if (data.status) q = q.eq("status", data.status);
-              const { data: page, error } = await q;
-              if (error) throw error;
-              return (page ?? []) as Array<Record<string, unknown>>;
+              const buildFlexPage = (excludeEventTagged: boolean) => {
+                let q = readContext.supabase
+                  .from("attendance_daily_summary")
+                  .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+                  .in("staff_id", flexChunk)
+                  .gte("work_date", data.dateFrom)
+                  .lte("work_date", data.dateTo)
+                  .order("work_date", { ascending: false })
+                  .order("id", { ascending: false })
+                  .range(from, to);
+                if (excludeEventTagged) q = q.is("event_id", null);
+                if (data.status) q = q.eq("status", data.status);
+                return q;
+              };
+              const primary = await buildFlexPage(true);
+              if (
+                primary.error &&
+                /event_id|schema cache|does not exist/i.test(primary.error.message)
+              ) {
+                const legacy = await buildFlexPage(false);
+                if (legacy.error) throw legacy.error;
+                return (legacy.data ?? []) as Array<Record<string, unknown>>;
+              }
+              if (primary.error) throw primary.error;
+              return (primary.data ?? []) as Array<Record<string, unknown>>;
             }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
           ),
         );

@@ -974,6 +974,23 @@ async function runSeedEventWorkforceDemo(
       if (error) throw error;
     }
 
+    // Force event_id on the seeded window even when an older monthly upsert path
+    // raced on (location_id, staff_id, work_date) without event_id in the payload.
+    const seededStaffIds = staff.map((s) => s.id);
+    for (let i = 0; i < seededStaffIds.length; i += 80) {
+      const chunk = seededStaffIds.slice(i, i + 80);
+      const { error: tagError } = await supabaseAdmin
+        .from("attendance_daily_summary")
+        .update({ event_id: data.eventId })
+        .eq("location_id", locationId)
+        .in("staff_id", chunk)
+        .gte("work_date", dateFrom)
+        .lte("work_date", dateTo);
+      if (tagError && !/event_id|schema cache|does not exist/i.test(tagError.message)) {
+        throw tagError;
+      }
+    }
+
     // Period dates must match seeded assignment/attendance window (not a wider open
     // range) so Create & generate does not sync away from eligible staff.
     const payroll = await ensureDemoEventPayroll(context, {

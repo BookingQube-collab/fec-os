@@ -59,6 +59,7 @@ import {
 } from "@/lib/people-event-attendance-display";
 import {
   defaultOverviewRange,
+  rangeCoveringAttendanceRows,
   rangeForSelectedEvent,
 } from "@/lib/people-event-attendance-overview";
 import { peopleEventHref } from "@/lib/people-event-selection";
@@ -120,6 +121,7 @@ export default function PeopleEventAttendancePage() {
   const [roleId, setRoleId] = useState(() => uuidOrEmpty(searchParams.get("roleId")));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const prevEventIdRef = useRef<string | undefined>(undefined);
+  const suggestedForEventRef = useRef<string | null>(null);
 
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const prevRange = useMemo(() => previousEqualRange(dateFrom, dateTo), [dateFrom, dateTo]);
@@ -175,6 +177,31 @@ export default function PeopleEventAttendancePage() {
       }),
     staleTime: STALE.people,
     enabled: Boolean(dateFrom && dateTo) && attendanceQ.isSuccess,
+  });
+
+  // When the filter window misses seeded / real event days (common after seed
+  // today±N while event open dates are later), probe without From–To and realign.
+  const probeQ = useQuery({
+    queryKey: [
+      ...queryKeys.people.all,
+      "event-attendance",
+      "records-range-probe",
+      eventId || null,
+      locationId || null,
+      "lean",
+    ],
+    queryFn: () =>
+      listPeopleEventAttendance({
+        eventId: eventId || null,
+        locationId: locationId || null,
+        limit: 400,
+        includeRoles: false,
+      }),
+    staleTime: STALE.people,
+    enabled:
+      Boolean(eventId) &&
+      attendanceQ.isSuccess &&
+      (attendanceQ.data?.rows.length ?? 0) === 0,
   });
 
   const rolesQ = useEventRoles(eventId || null);
@@ -240,6 +267,29 @@ export default function PeopleEventAttendancePage() {
     setDateFrom(next.from);
     setDateTo(next.to);
   }, [eventId, eventsQ.isSuccess, eventsQ.data?.events, urlHadRange, initialRange]);
+
+  useEffect(() => {
+    if (!eventId || !probeQ.isSuccess) return;
+    const probeRows = probeQ.data?.rows ?? [];
+    if (!probeRows.length) return;
+    if (suggestedForEventRef.current === eventId) return;
+    const next = rangeCoveringAttendanceRows(
+      probeRows,
+      { from: dateFrom, to: dateTo },
+      EVENT_WORKFORCE_DEMO_MAX_DAYS,
+    );
+    if (next.from === dateFrom && next.to === dateTo) return;
+    suggestedForEventRef.current = eventId;
+    setDateFrom(next.from);
+    setDateTo(next.to);
+    setSelected(new Set());
+  }, [eventId, probeQ.isSuccess, probeQ.data?.rows, dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (suggestedForEventRef.current && suggestedForEventRef.current !== eventId) {
+      suggestedForEventRef.current = null;
+    }
+  }, [eventId]);
 
   useEffect(() => {
     if (!roleId || !rolesQ.isSuccess) return;

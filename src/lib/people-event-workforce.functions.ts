@@ -141,6 +141,63 @@ export const listPeopleEventOptions = createAuthenticatedAction(
   },
 );
 
+/**
+ * When monthly recalc upserted summaries without event_id, re-tag person-days that
+ * still have event-scoped punches so Event Attendance can list them again.
+ */
+async function retagSummariesFromEventPunches(
+  db: AuthContext["supabase"],
+  input: {
+    eventId: string;
+    locationId?: string | null;
+    staffId?: string | null;
+    dateFrom?: string | null;
+    dateTo?: string | null;
+  },
+): Promise<number> {
+  let punchQ = db
+    .from("attendance_logs")
+    .select("staff_id, attendance_date, location_id")
+    .eq("event_id", input.eventId)
+    .not("staff_id", "is", null)
+    .limit(2000);
+  if (input.locationId) punchQ = punchQ.eq("location_id", input.locationId);
+  if (input.staffId) punchQ = punchQ.eq("staff_id", input.staffId);
+  if (input.dateFrom) punchQ = punchQ.gte("attendance_date", input.dateFrom);
+  if (input.dateTo) punchQ = punchQ.lte("attendance_date", input.dateTo);
+  const { data: punches, error } = await punchQ;
+  if (error) {
+    if (/event_id|schema cache|does not exist/i.test(error.message)) return 0;
+    throw error;
+  }
+  if (!punches?.length) return 0;
+
+  const keys = new Map<string, { staffId: string; workDate: string; locationId: string }>();
+  for (const punch of punches) {
+    const staffId = punch.staff_id ? String(punch.staff_id) : "";
+    const workDate = String(punch.attendance_date ?? "").slice(0, 10);
+    const locationId = punch.location_id ? String(punch.location_id) : "";
+    if (!staffId || !workDate || !locationId) continue;
+    keys.set(`${locationId}|${staffId}|${workDate}`, { staffId, workDate, locationId });
+  }
+  let tagged = 0;
+  for (const entry of keys.values()) {
+    const { error: updError } = await db
+      .from("attendance_daily_summary")
+      .update({ event_id: input.eventId })
+      .eq("location_id", entry.locationId)
+      .eq("staff_id", entry.staffId)
+      .eq("work_date", entry.workDate)
+      .is("event_id", null);
+    if (updError) {
+      if (/event_id|schema cache|does not exist/i.test(updError.message)) return tagged;
+      throw updError;
+    }
+    tagged += 1;
+  }
+  return tagged;
+}
+
 /** Event-tagged attendance_daily_summary rows for People → Event attendance. */
 export const listPeopleEventAttendance = createAuthenticatedAction(
   z.object({
@@ -159,26 +216,52 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
     // Capability already checked by createAuthenticatedAction. Bypass per-row
     // attendance RLS (user_can_access_attendance) for Event Attendance listing.
     const db = supabaseAdmin as AuthContext["supabase"];
-    let q = db
-      .from("attendance_daily_summary")
-      .select(
-        "id, event_id, staff_id, work_date, status, location_id, biometric_user_id, scheduled_in, scheduled_out, actual_in, actual_out, late_minutes, early_leave_minutes, overtime_minutes, worked_minutes, missed_punch",
-      )
-      .not("event_id", "is", null)
-      .order("work_date", { ascending: false })
-      .limit(data.limit ?? 800);
 
-    if (data.eventId) q = q.eq("event_id", data.eventId);
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    if (data.staffId) q = q.eq("staff_id", data.staffId);
-    if (data.dateFrom) q = q.gte("work_date", data.dateFrom);
-    if (data.dateTo) q = q.lte("work_date", data.dateTo);
+    const buildSummaryQuery = () => {
+      let q = db
+        .from("attendance_daily_summary")
+        .select(
+          "id, event_id, staff_id, work_date, status, location_id, biometric_user_id, scheduled_in, scheduled_out, actual_in, actual_out, late_minutes, early_leave_minutes, overtime_minutes, worked_minutes, missed_punch",
+        )
+        .not("event_id", "is", null)
+        .order("work_date", { ascending: false })
+        .limit(data.limit ?? 800);
 
-    const { data: rows, error } = await q;
+      if (data.eventId) q = q.eq("event_id", data.eventId);
+      if (data.locationId) q = q.eq("location_id", data.locationId);
+      if (data.staffId) q = q.eq("staff_id", data.staffId);
+      if (data.dateFrom) q = q.gte("work_date", data.dateFrom);
+      if (data.dateTo) q = q.lte("work_date", data.dateTo);
+      return q;
+    };
+
+    let { data: rows, error } = await buildSummaryQuery();
     if (error) {
-      if (/event_id|schema cache/i.test(error.message)) return { rows: [] };
+      // Column missing / schema cache lag — surface empty rather than crash the page,
+      // but log so Event Attendance is not silently "broken" in production.
+      if (/event_id|schema cache|does not exist/i.test(error.message)) {
+        console.error("[listPeopleEventAttendance] event_id query failed:", error.message);
+        return { rows: [] };
+      }
       throw error;
     }
+
+    // Self-heal: punches still carry event_id after monthly recalc wiped the summary tag.
+    if ((!rows || rows.length === 0) && data.eventId) {
+      const retagged = await retagSummariesFromEventPunches(db, {
+        eventId: data.eventId,
+        locationId: data.locationId,
+        staffId: data.staffId,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+      });
+      if (retagged > 0) {
+        const retry = await buildSummaryQuery();
+        if (retry.error) throw retry.error;
+        rows = retry.data;
+      }
+    }
+
     if (!rows?.length) return { rows: [] };
 
     const staffIds = [...new Set(rows.map((r) => r.staff_id as string).filter(Boolean))];

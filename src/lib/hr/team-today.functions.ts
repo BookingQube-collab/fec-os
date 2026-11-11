@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { qatarTodayYmd } from "@/lib/attendance-hr/dashboard";
+import { isEventWorkforceStaff } from "@/lib/events/event-workforce-staff";
 import {
   attendanceRowCountsAsPresent,
   buildTeamToday,
@@ -32,6 +33,8 @@ type StaffRow = {
   status: string | null;
   employment_type: string | null;
   deleted_at: string | null;
+  employee_code: string | null;
+  department: string | null;
 };
 
 function memberFromRow(row: StaffRow, reportingManagerStaffId: string | null): TeamTodayMember {
@@ -45,12 +48,43 @@ function memberFromRow(row: StaffRow, reportingManagerStaffId: string | null): T
   };
 }
 
+async function loadLocationCodes(locationIds: readonly string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (!locationIds.length) return out;
+  for (const chunk of chunks(locationIds, 200)) {
+    const { data, error } = await supabaseAdmin
+      .from("locations")
+      .select("id, code")
+      .in("id", [...chunk]);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      out.set(String(row.id), (row.code as string | null) ?? null);
+    }
+  }
+  return out;
+}
+
+/** Drop EVT / Event demo / Place Vendôme-home staff — they belong on Event Attendance only. */
+async function withoutEventWorkforce(rows: StaffRow[]): Promise<StaffRow[]> {
+  const locCodes = await loadLocationCodes([
+    ...new Set(rows.map((row) => row.location_id).filter((id): id is string => Boolean(id))),
+  ]);
+  return rows.filter(
+    (row) =>
+      !isEventWorkforceStaff({
+        employee_code: row.employee_code,
+        department: row.department,
+        location_code: row.location_id ? (locCodes.get(row.location_id) ?? null) : null,
+      }),
+  );
+}
+
 async function loadStaffRows(staffIds: readonly string[]): Promise<StaffRow[]> {
   const rows: StaffRow[] = [];
   for (const chunk of chunks(staffIds, 100)) {
     const { data, error } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, job_title, location_id, status, employment_type, deleted_at")
+      .select("id, full_name, job_title, location_id, status, employment_type, deleted_at, employee_code, department")
       .in("id", [...chunk]);
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
@@ -62,10 +96,12 @@ async function loadStaffRows(staffIds: readonly string[]): Promise<StaffRow[]> {
         status: row.status ?? null,
         employment_type: row.employment_type ?? null,
         deleted_at: row.deleted_at ?? null,
+        employee_code: (row.employee_code as string | null) ?? null,
+        department: (row.department as string | null) ?? null,
       });
     }
   }
-  return rows;
+  return withoutEventWorkforce(rows);
 }
 
 async function loadCompanyStaffRows(): Promise<StaffRow[]> {
@@ -73,7 +109,7 @@ async function loadCompanyStaffRows(): Promise<StaffRow[]> {
   for (let from = 0; from < 20000; from += 1000) {
     const { data, error } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, job_title, location_id, status, employment_type, deleted_at")
+      .select("id, full_name, job_title, location_id, status, employment_type, deleted_at, employee_code, department")
       .is("deleted_at", null)
       .order("id", { ascending: true })
       .range(from, from + 999);
@@ -88,11 +124,13 @@ async function loadCompanyStaffRows(): Promise<StaffRow[]> {
         status: row.status ?? null,
         employment_type: row.employment_type ?? null,
         deleted_at: row.deleted_at ?? null,
+        employee_code: (row.employee_code as string | null) ?? null,
+        department: (row.department as string | null) ?? null,
       });
     }
     if (page.length < 1000) break;
   }
-  return rows;
+  return withoutEventWorkforce(rows);
 }
 
 async function loadReportingManagers(staffIds: readonly string[]): Promise<Map<string, string | null>> {
