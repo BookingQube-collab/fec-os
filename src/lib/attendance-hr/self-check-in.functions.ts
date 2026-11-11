@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   loadSelfCheckPunchFences,
+  reattributeSelfCheckPunchLocation,
   repairSelfCheckPunchLocations,
 } from "@/lib/attendance-hr/self-check-geo.server";
 import {
@@ -330,6 +331,40 @@ export const repairSelfCheckGeoAttributions = createAuthenticatedAction(
       );
     }
     return repair;
+  },
+  { auth: { capability: "attendance.configure" as const } },
+);
+
+/**
+ * Ops/admin: move one mis-attributed self_check punch (e.g. null-GPS home/KDS)
+ * to the real site and rebuild daily summaries for both locations.
+ */
+export const reattributeSelfCheckPunch = createAuthenticatedAction(
+  z.object({
+    punchId: z.string().uuid(),
+    locationId: z.string().uuid(),
+    reason: z.string().trim().max(500).optional(),
+  }),
+  async (data) => {
+    const moved = await reattributeSelfCheckPunchLocation(supabaseAdmin, {
+      punchId: data.punchId,
+      locationId: data.locationId,
+      reason: data.reason ?? null,
+    });
+    const staffIds = moved.staffId ? [moved.staffId] : undefined;
+    const day = moved.attendanceDate;
+    if (day) {
+      for (const locationId of moved.locationIdsToRecalc) {
+        await recalculateAttendanceRange(
+          supabaseAdmin as unknown as Parameters<typeof recalculateAttendanceRange>[0],
+          locationId,
+          day,
+          day,
+          { staffIds, skipSelfCheckGeoRepair: true },
+        );
+      }
+    }
+    return moved;
   },
   { auth: { capability: "attendance.configure" as const } },
 );

@@ -207,3 +207,80 @@ export async function repairSelfCheckPunchLocations(
     staffIds: [...staffIds],
   };
 }
+
+/**
+ * Ops correction: move one self_check punch to a site (e.g. legacy null-GPS
+ * punches that landed on staff home / KDS while the person was at warehouse).
+ */
+export async function reattributeSelfCheckPunchLocation(
+  supabase: Db,
+  opts: {
+    punchId: string;
+    locationId: string;
+    reason?: string | null;
+  },
+): Promise<{
+  staffId: string | null;
+  attendanceDate: string | null;
+  fromLocationId: string | null;
+  toLocationId: string;
+  locationIdsToRecalc: string[];
+}> {
+  const { data: punch, error } = await supabase
+    .from("attendance_logs")
+    .select("id, staff_id, location_id, attendance_date, source, raw_payload")
+    .eq("id", opts.punchId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!punch?.id) throw new Error("Punch not found");
+  if (String(punch.source ?? "") !== "self_check") {
+    throw new Error("Only self_check punches can be reattributed");
+  }
+
+  const { data: loc, error: locErr } = await supabase
+    .from("locations")
+    .select("id, code, name")
+    .eq("id", opts.locationId)
+    .maybeSingle();
+  if (locErr) throw new Error(locErr.message);
+  if (!loc?.id) throw new Error("Location not found");
+
+  const fromLocationId = punch.location_id ? String(punch.location_id) : null;
+  const toLocationId = String(loc.id);
+  const locationLabel = formatLocationLabel(loc.code, loc.name);
+  const nextPayload = {
+    ...((punch.raw_payload && typeof punch.raw_payload === "object"
+      ? punch.raw_payload
+      : {}) as Record<string, unknown>),
+    via: "self_check",
+    location_label: locationLabel,
+    geofence_name: String(loc.name ?? loc.code ?? "Site"),
+    ops_reattributed_at: new Date().toISOString(),
+    ops_reattributed_reason:
+      opts.reason?.trim() ||
+      "Ops reattributed self_check punch away from mis-attributed home site",
+    ops_reattributed_from_location_id: fromLocationId,
+  };
+
+  if (fromLocationId !== toLocationId) {
+    const { error: updateError } = await supabase
+      .from("attendance_logs")
+      .update({
+        location_id: toLocationId,
+        raw_payload: nextPayload,
+      })
+      .eq("id", punch.id);
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  const locationIdsToRecalc = [
+    ...new Set([fromLocationId, toLocationId].filter((id): id is string => Boolean(id))),
+  ];
+  return {
+    staffId: punch.staff_id ? String(punch.staff_id) : null,
+    attendanceDate: punch.attendance_date ? String(punch.attendance_date).slice(0, 10) : null,
+    fromLocationId,
+    toLocationId,
+    locationIdsToRecalc,
+  };
+}
