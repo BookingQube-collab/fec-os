@@ -13104,6 +13104,110 @@ export type Database = {
           },
         ]
       }
+      hr_leave_planner_events: {
+        Row: {
+          active: boolean
+          basis: string | null
+          created_at: string
+          created_by: string | null
+          end_date: string
+          event_type: string
+          id: string
+          linked_event_id: string | null
+          name: string
+          start_date: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          basis?: string | null
+          created_at?: string
+          created_by?: string | null
+          end_date: string
+          event_type: string
+          id?: string
+          linked_event_id?: string | null
+          name: string
+          start_date: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          basis?: string | null
+          created_at?: string
+          created_by?: string | null
+          end_date?: string
+          event_type?: string
+          id?: string
+          linked_event_id?: string | null
+          name?: string
+          start_date?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_planner_events_linked_event_id_fkey"
+            columns: ["linked_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_planner_rules: {
+        Row: {
+          activation_after_as_stated: number
+          activation_after_lighter: number
+          activation_before_as_stated: number
+          activation_before_lighter: number
+          activation_rule_set: string
+          created_at: string
+          id: string
+          major_after_days: number
+          major_before_days: number
+          max_away_per_department: number
+          overall_max_away: number
+          scope: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          activation_after_as_stated?: number
+          activation_after_lighter?: number
+          activation_before_as_stated?: number
+          activation_before_lighter?: number
+          activation_rule_set?: string
+          created_at?: string
+          id?: string
+          major_after_days?: number
+          major_before_days?: number
+          max_away_per_department?: number
+          overall_max_away?: number
+          scope?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          activation_after_as_stated?: number
+          activation_after_lighter?: number
+          activation_before_as_stated?: number
+          activation_before_lighter?: number
+          activation_rule_set?: string
+          created_at?: string
+          id?: string
+          major_after_days?: number
+          major_before_days?: number
+          max_away_per_department?: number
+          overall_max_away?: number
+          scope?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       hr_leave_requests: {
         Row: {
           attach_annual_after: number
@@ -13122,6 +13226,8 @@ export type Database = {
           leave_type: string
           maternity_delivery_date: string | null
           payroll_impact: boolean
+          planner_override: boolean
+          planner_override_reasons: string[]
           reason: string | null
           request_number: string | null
           review_note: string | null
@@ -13148,6 +13254,8 @@ export type Database = {
           leave_type?: string
           maternity_delivery_date?: string | null
           payroll_impact?: boolean
+          planner_override?: boolean
+          planner_override_reasons?: string[]
           reason?: string | null
           request_number?: string | null
           review_note?: string | null
@@ -13174,6 +13282,8 @@ export type Database = {
           leave_type?: string
           maternity_delivery_date?: string | null
           payroll_impact?: boolean
+          planner_override?: boolean
+          planner_override_reasons?: string[]
           reason?: string | null
           request_number?: string | null
           review_note?: string | null
