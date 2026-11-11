@@ -36,6 +36,7 @@ describe("english catalog split", () => {
   it("paints shell copy immediately and fills the rest from the catalog chunk", async () => {
     expect(i18n.t("auth.signIn")).toBe("Sign in");
     expect(i18n.t("trainingVerify.title")).toBe("Certificate verification");
+    expect(i18n.t("nav.dashboard")).toBe(en.nav.dashboard);
     expect(isEnglishCatalogLoaded()).toBe(false);
     expect(i18n.t("people.title")).toBe("people.title");
 

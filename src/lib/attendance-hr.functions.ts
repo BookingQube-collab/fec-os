@@ -388,8 +388,8 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     const hasExplicitPeriod = Boolean(
       (data.dateFrom && data.dateTo) || data.date || (data.month && /^\d{4}-\d{2}$/.test(data.month)),
     );
-    // Reporting managers cannot read other sites through RLS. Their team's punches still count.
-    const readDb = teamIds ? supabaseAdmin : context.supabase;
+    // Capability + team/company scope already applied. Bypass per-row RLS for listing probes.
+    const readDb = supabaseAdmin;
     let staffQuery = readDb.from("staff").select("id, department").is("deleted_at", null);
     staffQuery = teamIds ? staffQuery.in("id", teamIds) : staffQuery.limit(5000);
     // Bound the "latest punch" probe — unscoped ORDER BY punch_at DESC LIMIT 1
@@ -601,24 +601,34 @@ export const getAttendanceHrSite = createAuthenticatedAction(
   async (data, context) => {
     await assertSite(context, data.locationId);
     const date = data.date ?? new Date().toISOString().slice(0, 10);
+    // Site scope already asserted — bypass per-row attendance RLS on listing reads.
+    const db = supabaseAdmin as AuthContext["supabase"];
     const [{ data: setting }, { data: devices }, { data: staff }, { data: daily }, { data: unmatched }, { data: imports }] =
       await Promise.all([
-        context.supabase.from("attendance_site_settings").select("*").eq("location_id", data.locationId).maybeSingle(),
-        context.supabase.from("attendance_devices").select("*").eq("location_id", data.locationId).order("device_name"),
-        context.supabase
+        db.from("attendance_site_settings").select("*").eq("location_id", data.locationId).maybeSingle(),
+        db.from("attendance_devices").select("*").eq("location_id", data.locationId).order("device_name"),
+        db
           .from("staff")
           .select("id, full_name, employee_code, department, job_title, status, location_id, is_roaming")
           .eq("status", "active"),
-        context.supabase.from("attendance_daily_summary").select("*").eq("location_id", data.locationId).eq("work_date", date),
-        context.supabase.from("attendance_biometric_users").select("*").eq("location_id", data.locationId).is("staff_id", null),
-        context.supabase
+        db
+          .from("attendance_daily_summary")
+          .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+          .eq("location_id", data.locationId)
+          .eq("work_date", date),
+        db
+          .from("attendance_biometric_users")
+          .select("id, location_id, biometric_user_id, device_name, full_name, staff_id, device_id")
+          .eq("location_id", data.locationId)
+          .is("staff_id", null),
+        db
           .from("attendance_import_files")
           .select("id, original_filename, file_type, status, imported_count, duplicate_count, rejected_count, unmatched_count, created_at, device_id")
           .eq("location_id", data.locationId)
           .order("created_at", { ascending: false })
           .limit(20),
       ]);
-    const extraIds = new Set(await fetchStaffIdsWorkingAtLocation(context.supabase, data.locationId));
+    const extraIds = new Set(await fetchStaffIdsWorkingAtLocation(db, data.locationId));
     const siteStaff = (staff ?? []).filter(
       (row) => row.location_id === data.locationId || row.is_roaming || extraIds.has(row.id),
     );
@@ -691,9 +701,13 @@ async function loadAttendanceHrDailyRows(
     if (data.locationId && teamLocationIds && !teamLocationIds.includes(data.locationId)) {
       return [];
     }
-    const readContext: AuthContext = teamStaffIds
-      ? { ...context, supabase: supabaseAdmin as AuthContext["supabase"] }
-      : context;
+    // Capability + company-wide/team scope already applied. Bypass per-row RLS
+    // (user_can_access_attendance) — it dominated attendance_daily_summary
+    // listing time for company-wide HR reads in pg_stat_statements.
+    const readContext: AuthContext = {
+      ...context,
+      supabase: supabaseAdmin as AuthContext["supabase"],
+    };
 
     const departmentIds = await resolveDepartmentFilterIds([
       ...(data.departmentIds ?? []),

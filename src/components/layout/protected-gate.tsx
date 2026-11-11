@@ -41,7 +41,9 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const shellReady = useRef(false);
 
-  if (user && roles.length > 0 && catalog.ready) {
+  // Paint AppShell once auth roles exist — do not wait on full en.json (~662KB).
+  // Shell chrome uses en-shell (incl. nav); loadEnglishCatalog() hydrates the rest.
+  if (user && roles.length > 0) {
     shellReady.current = true;
   }
   if (!user && !loading) {
@@ -56,8 +58,7 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
 
   // Once shown, keep the shell mounted. Soft re-auth must not flash skeleton and
   // remount route trees (attendance matrix refetch / filter state loss).
-  // Catalog must be in memory first so nav labels are not raw keys like people.title.
-  if (shellReady.current && user && catalog.ready) {
+  if (shellReady.current && user) {
     return <AppShell>{children}</AppShell>;
   }
 
@@ -79,7 +80,8 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!loading && user && rolesSettled && catalog.error) {
+  // Catalog failure only matters before the shell mounts; retry fills page namespaces.
+  if (!loading && user && rolesSettled && catalog.error && !catalog.ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="max-w-md rounded-lg border border-border bg-card p-8 text-center">
@@ -97,8 +99,8 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Wait for auth + role hydration and the English catalog. Empty roles before settle is unknown.
-  if (loading || !user || !rolesSettled || !catalog.ready) {
+  // Wait for auth + role hydration. Empty roles before settle is unknown.
+  if (loading || !user || !rolesSettled) {
     return <AuthShellSkeleton />;
   }
 

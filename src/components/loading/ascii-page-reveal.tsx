@@ -50,12 +50,18 @@ export function AsciiPageReveal({
       if (pending) seenLoading = true;
 
       const elapsed = performance.now() - started;
-      // Give Suspense a moment to mount `loading.tsx` before treating the route as ready.
-      if (!seenLoading && checks < 6 && elapsed < 250) {
-        window.setTimeout(check, 40);
+      // Brief grace for Suspense to mount `loading.tsx` / `data-route-loading`.
+      if (!seenLoading && checks < 3 && elapsed < 96) {
+        window.setTimeout(check, 32);
         return;
       }
-      if (seenLoading && pending && elapsed < 10_000) {
+      // No route-loading marker — clear scramble immediately (don't hold nav for ~250ms).
+      if (!seenLoading) {
+        setNavLoading(false);
+        return;
+      }
+      // Marker present: wait until gone, but cap so heavy chunks don't feel stuck.
+      if (pending && elapsed < 2_500) {
         window.setTimeout(check, 40);
         return;
       }

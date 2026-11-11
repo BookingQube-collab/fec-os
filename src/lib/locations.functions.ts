@@ -20,6 +20,7 @@ import {
   createAuthenticatedActionNoInput,
   type AuthContext,
 } from "@/lib/server/create-action";
+import { isIanaTimezone } from "@/lib/iana-timezones";
 import { invalidateRouteCachePrefix } from "@/lib/server/route-cache";
 
 const LOCATION_COLUMNS =
@@ -56,7 +57,12 @@ const updateSchema = z.object({
   city: z.string().trim().min(1).max(120),
   region: optionalText,
   country: z.string().trim().min(2).max(8),
-  timezone: z.string().trim().min(1).max(64),
+  timezone: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .refine((value) => isIanaTimezone(value), { message: "Invalid IANA timezone" }),
   launchedOn: z
     .string()
     .trim()
@@ -74,7 +80,14 @@ const createSchema = z.object({
   city: z.string().trim().min(1).max(120).optional().nullable(),
   region: optionalText,
   country: z.string().trim().min(2).max(8).optional().nullable(),
-  timezone: z.string().trim().min(1).max(64).optional().nullable(),
+  timezone: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .refine((value) => isIanaTimezone(value), { message: "Invalid IANA timezone" })
+    .optional()
+    .nullable(),
   active: z.boolean().default(true),
   kind: z.enum(LOCATION_KINDS).default("branch"),
 });

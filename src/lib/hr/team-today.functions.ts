@@ -311,10 +311,12 @@ export const getTeamToday = createAuthenticatedAction(
       : (staffIds ?? []);
     const visible = new Set(visibleIds);
     const year = Number(today.slice(0, 4));
+    // Company-wide: skip per-staff annual balance fan-out (panel uses status aggregates).
+    // Supervisors keep balances for their smaller roster.
     const [punchedStaffIds, leaves, annualBalances] = await Promise.all([
       loadPunchedStaffIds(visibleIds, today),
       loadLeaves(visibleIds, today),
-      loadAnnualBalances(visibleIds, year),
+      companyWide ? Promise.resolve([] as TeamTodayAnnualBalance[]) : loadAnnualBalances(visibleIds, year),
     ]);
     const locationIds = new Set<string>();
     for (const person of people) {

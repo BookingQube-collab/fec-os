@@ -7,8 +7,9 @@
 
 import { z } from "zod";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { eventPayOpenWindow } from "@/lib/events/event-payroll";
-import { createAuthenticatedAction } from "@/lib/server/create-action";
+import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 
 const Ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const Uuid = z.string().uuid();
@@ -153,9 +154,12 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
     /** Skip assignment/slot role joins — Overview KPIs/charts do not need roles. */
     includeRoles: z.boolean().optional(),
   }),
-  async (data, context): Promise<{ rows: PeopleEventAttendanceRow[] }> => {
+  async (data, _context): Promise<{ rows: PeopleEventAttendanceRow[] }> => {
     const includeRoles = data.includeRoles !== false;
-    let q = context.supabase
+    // Capability already checked by createAuthenticatedAction. Bypass per-row
+    // attendance RLS (user_can_access_attendance) for Event Attendance listing.
+    const db = supabaseAdmin as AuthContext["supabase"];
+    let q = db
       .from("attendance_daily_summary")
       .select(
         "id, event_id, staff_id, work_date, status, location_id, biometric_user_id, scheduled_in, scheduled_out, actual_in, actual_out, late_minutes, early_leave_minutes, overtime_minutes, worked_minutes, missed_punch",
@@ -181,16 +185,10 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
     const eventIds = [...new Set(rows.map((r) => r.event_id as string).filter(Boolean))];
     const locIds = [...new Set(rows.map((r) => r.location_id as string).filter(Boolean))];
     const [{ data: staff }, { data: events }, { data: locs }] = await Promise.all([
-      context.supabase
-        .from("staff")
-        .select("id, full_name, employee_code")
-        .in("id", staffIds),
-      context.supabase
-        .from("events")
-        .select("id, name, event_name")
-        .in("id", eventIds),
+      db.from("staff").select("id, full_name, employee_code").in("id", staffIds),
+      db.from("events").select("id, name, event_name").in("id", eventIds),
       locIds.length
-        ? context.supabase.from("locations").select("id, code, name").in("id", locIds)
+        ? db.from("locations").select("id, code, name").in("id", locIds)
         : Promise.resolve({ data: [] as Array<{ id: string; code: string | null; name: string | null }> }),
     ]);
     const staffMap = new Map(
@@ -244,7 +242,7 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
           date_to: string;
         };
         let assigns: AssignRow[] = [];
-        const primary = await context.supabase
+        const primary = await db
           .from("event_staff_assignments")
           .select("event_id, staff_id, role_label, event_role_id, date_from, date_to")
           .in("event_id", eventIds)
@@ -253,7 +251,7 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
           primary.error &&
           /event_role_id|schema cache|does not exist/i.test(primary.error.message)
         ) {
-          const legacy = await context.supabase
+          const legacy = await db
             .from("event_staff_assignments")
             .select("event_id, staff_id, role_label, date_from, date_to")
             .in("event_id", eventIds)
@@ -294,7 +292,7 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
         const workDates = [
           ...new Set(rows.map((r) => String(r.work_date).slice(0, 10)).filter(Boolean)),
         ];
-        let slotQuery = context.supabase
+        let slotQuery = db
           .from("event_schedule_slots")
           .select("event_id, staff_id, work_date, role_label, event_role_id")
           .in("event_id", eventIds)
@@ -306,7 +304,7 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
           primary.error &&
           /event_role_id|schema cache|does not exist/i.test(primary.error.message)
         ) {
-          let legacyQ = context.supabase
+          let legacyQ = db
             .from("event_schedule_slots")
             .select("event_id, staff_id, work_date, role_label")
             .in("event_id", eventIds)
