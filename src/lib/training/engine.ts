@@ -151,6 +151,15 @@ export const SAVED_RULE_TRIGGERS = ["JOIN_COMPANY", "ROLE_CHANGE", "MACHINE_ASSI
  */
 export const SAVED_RULES_ARE_EXECUTED = true;
 
+/**
+ * training_execute_saved_rules._entity_id is uuid. Hire / role-change have no
+ * entity — pass null. Empty string becomes Postgres: invalid input syntax for type uuid.
+ */
+export function trainingRpcEntityId(entityId?: string | null): string | null {
+  const value = entityId?.trim();
+  return value ? value : null;
+}
+
 /** Employed people receive automatic enrollment. Closed and joker rows do not. */
 export function staffCanReceiveTraining(status: string): boolean {
   return !["terminated", "resigned", "released", "contract_finished", "joker"].includes(status);

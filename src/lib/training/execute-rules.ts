@@ -3,7 +3,12 @@ import "server-only";
 import type { AuthContext } from "@/lib/server/create-action";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 
-import { TRAINING_EVENT_LINK_TYPES, trainingEventDecision, type SAVED_RULE_TRIGGERS } from "./engine";
+import {
+  TRAINING_EVENT_LINK_TYPES,
+  trainingEventDecision,
+  trainingRpcEntityId,
+  type SAVED_RULE_TRIGGERS,
+} from "./engine";
 
 type SavedRuleTrigger = (typeof SAVED_RULE_TRIGGERS)[number];
 
@@ -28,7 +33,7 @@ export async function applyStoredTrainingRules(
     _trigger: input.trigger,
     _staff_id: input.staffId,
     _link_types: [...TRAINING_EVENT_LINK_TYPES[input.trigger]],
-    _entity_id: input.entityId ?? "",
+    _entity_id: trainingRpcEntityId(input.entityId),
     _role_code: input.roleCode ?? "",
   });
   if (error) throw new Error(error.message);

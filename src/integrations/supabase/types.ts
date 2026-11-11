@@ -25523,7 +25523,7 @@ export type Database = {
       }
       training_execute_saved_rules: {
         Args: {
-          _entity_id: string
+          _entity_id: string | null
           _link_types: string[]
           _role_code: string
           _staff_id: string

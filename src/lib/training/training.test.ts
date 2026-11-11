@@ -8,6 +8,7 @@ import { canUserDo, CAPABILITIES, type Capability } from "@/lib/rbac";
 import {
   LESSON_KINDS,
   SAVED_RULES_ARE_EXECUTED,
+  trainingRpcEntityId,
   assignmentCarriesClientOutcome,
   canAssignTarget,
   publishedVersionIsAssignable,
@@ -140,6 +141,19 @@ describe("training assignment privilege", () => {
     expect(assignmentSql).not.toMatch(/training_apply_assignment\([^)]*score/i);
     expect(assignmentSql).toContain("user_can_access_location");
     expect(assignmentSql).toContain("training.assign.company");
+  });
+
+  it("omits empty entity id for hire training RPC (uuid, not \"\")", () => {
+    expect(trainingRpcEntityId(undefined)).toBeNull();
+    expect(trainingRpcEntityId(null)).toBeNull();
+    expect(trainingRpcEntityId("")).toBeNull();
+    expect(trainingRpcEntityId("  ")).toBeNull();
+    expect(trainingRpcEntityId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).toBe(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    );
+    const src = readFileSync(path.resolve(process.cwd(), "src/lib/training/execute-rules.ts"), "utf8");
+    expect(src).toContain("trainingRpcEntityId(input.entityId)");
+    expect(src).not.toMatch(/_entity_id:\s*input\.entityId\s*\?\?\s*""/);
   });
 
   it("enrolls matching saved rules and blocks only a required gap", () => {
