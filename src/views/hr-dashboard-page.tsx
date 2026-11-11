@@ -9,7 +9,12 @@ import { TeamTodayPanel } from "@/components/hr/team-today-panel";
 import { HrDayBoard, type HrDayOverview } from "@/components/hr/hr-day-board";
 import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
-import { FecEmptyState, FecFilter, FecFilterGroup, FecPageHeader, FecSkeleton } from "@/components/fec";
+import { FecEmptyState, FecFilter, FecFilterGroup, FecPageHeader } from "@/components/fec";
+import {
+  KpiTileSkeletonGrid,
+  PanelTileSkeletonGrid,
+  TileSkeleton,
+} from "@/components/loading/tile-skeleton";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePeopleDashboard } from "@/hooks/queries/usePeopleDashboard";
@@ -158,13 +163,24 @@ export default function HrDashboardPage() {
             <FecEmptyState message={t("hr.dashboard.loadError")} />
           </div>
         ) : overviewState === "loading" || !d ? (
-          <div className="space-y-4">
+          <div className="space-y-4" role="status" aria-busy="true">
             {filters}
-            <div className="grid gap-3 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <FecSkeleton key={i} className="h-36 rounded-3xl" />
-              ))}
-            </div>
+            <TileSkeleton className="h-44 rounded-xl" />
+            <KpiTileSkeletonGrid
+              count={4}
+              tileClassName="h-24"
+              columnsClassName="grid grid-cols-2 gap-3 lg:grid-cols-4"
+            />
+            <PanelTileSkeletonGrid
+              count={3}
+              tileClassName="h-28"
+              columnsClassName="grid gap-3 sm:grid-cols-3"
+            />
+            <PanelTileSkeletonGrid
+              count={2}
+              tileClassName="h-56"
+              columnsClassName="grid gap-4 lg:grid-cols-2"
+            />
           </div>
         ) : (
           <HrDayBoard

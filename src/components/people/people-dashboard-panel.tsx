@@ -7,8 +7,8 @@ import { useTranslation } from "react-i18next";
 
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
+import { PanelTileSkeletonGrid, TileSkeleton } from "@/components/loading/tile-skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { usePeopleDashboard } from "@/hooks/queries/usePeopleDashboard";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
@@ -27,11 +27,11 @@ const PeopleDashboardCharts = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="grid gap-4 lg:grid-cols-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-72 rounded-lg" />
-        ))}
-      </div>
+      <PanelTileSkeletonGrid
+        count={4}
+        tileClassName="h-72 rounded-lg"
+        columnsClassName="grid gap-4 lg:grid-cols-2"
+      />
     ),
   },
 );
@@ -41,7 +41,7 @@ const SalaryByLocationChart = dynamic(
     import("@/components/people/people-dashboard-charts").then((m) => m.SalaryByLocationChart),
   {
     ssr: false,
-    loading: () => <Skeleton className="h-72 rounded-lg" />,
+    loading: () => <TileSkeleton className="h-72 rounded-lg" />,
   },
 );
 
@@ -106,11 +106,11 @@ export function PeopleDashboardPanel() {
     return (
       <div className="space-y-4">
         <KpiSkeletonStrip count={6} />
-        <div className="grid gap-4 lg:grid-cols-2">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-48 rounded-lg" />
-          ))}
-        </div>
+        <PanelTileSkeletonGrid
+          count={2}
+          tileClassName="h-48 rounded-lg"
+          columnsClassName="grid gap-4 lg:grid-cols-2"
+        />
       </div>
     );
   }

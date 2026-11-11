@@ -11,6 +11,7 @@ import { submitHandover } from "@/lib/occ.functions";
 import type { HandoverDigest } from "@/lib/queries/occ.core";
 import { useHandoverDigest, useHandovers } from "@/hooks/queries/useOcc";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
 function HandoverPage() {
@@ -19,7 +20,7 @@ function HandoverPage() {
   const history = useHandovers(locationId);
 
   if (isLoading) {
-    return <div className="h-64 animate-pulse rounded-lg border border-border bg-surface" />;
+    return <Skeleton className="h-64 rounded-lg" />;
   }
   if (error) {
     return (

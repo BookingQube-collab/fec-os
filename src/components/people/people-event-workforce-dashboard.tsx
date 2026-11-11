@@ -25,7 +25,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
-import { Skeleton } from "@/components/ui/skeleton";
+import { TileSkeleton } from "@/components/loading/tile-skeleton";
 import {
   activeCrewHeadcount,
   buildAttendanceByEvent,
@@ -53,13 +53,10 @@ const PeopleEventWorkforceCharts = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="grid gap-4 xl:grid-cols-12">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton
-            key={i}
-            className={cn("h-72 rounded-2xl", i === 0 ? "xl:col-span-5" : i === 1 ? "xl:col-span-4" : "xl:col-span-3")}
-          />
-        ))}
+      <div className="grid gap-4 xl:grid-cols-12" role="status" aria-busy="true">
+        <TileSkeleton className="h-72 rounded-2xl xl:col-span-5" />
+        <TileSkeleton className="h-72 rounded-2xl xl:col-span-4" />
+        <TileSkeleton className="h-72 rounded-2xl xl:col-span-3" />
       </div>
     ),
   },
@@ -389,16 +386,10 @@ export function PeopleEventWorkforceDashboard({
 
       {canAttendance ? (
         attendanceQ.isLoading ? (
-          <div className="grid gap-4 xl:grid-cols-12">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton
-                key={i}
-                className={cn(
-                  "h-72 rounded-2xl",
-                  i === 0 ? "xl:col-span-5" : i === 1 ? "xl:col-span-4" : "xl:col-span-3",
-                )}
-              />
-            ))}
+          <div className="grid gap-4 xl:grid-cols-12" role="status" aria-busy="true">
+            <TileSkeleton className="h-72 rounded-2xl xl:col-span-5" />
+            <TileSkeleton className="h-72 rounded-2xl xl:col-span-4" />
+            <TileSkeleton className="h-72 rounded-2xl xl:col-span-3" />
           </div>
         ) : (
           <PeopleEventWorkforceCharts

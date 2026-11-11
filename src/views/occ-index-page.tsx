@@ -23,6 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 const RAG_CARD: Record<RagStatus, string> = {
@@ -171,7 +172,7 @@ function EstatePage() {
       ) : isLoading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-48 animate-pulse rounded-2xl border border-border bg-surface" />
+            <Skeleton key={i} className="h-48 rounded-2xl" />
           ))}
         </div>
       ) : rollups.length === 0 ? (

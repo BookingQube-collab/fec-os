@@ -9,8 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { ListRowTileSkeleton } from "@/components/loading/tile-skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { getTeamToday } from "@/lib/hr/team-today.functions";
 import {
@@ -139,11 +139,11 @@ export function TeamTodayPanel({
       </div>
 
       {team.isLoading ? (
-        <div className="space-y-2 border-t border-border/30 px-3 py-3 sm:px-4">
-          <Skeleton className="h-10 w-full rounded-lg" />
-          <Skeleton className="h-10 w-full rounded-lg" />
-          <Skeleton className="h-10 w-2/3 rounded-lg" />
-        </div>
+        <ListRowTileSkeleton
+          count={5}
+          className="border-t border-border/30"
+          rowClassName="h-9"
+        />
       ) : team.isError ? (
         <p className="border-t border-border/30 px-3 py-4 text-sm text-muted-foreground sm:px-4">
           {t("hr.teamToday.loadError")}

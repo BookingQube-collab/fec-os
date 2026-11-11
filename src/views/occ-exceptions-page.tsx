@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertOctagon, AlertTriangle, MessageSquare, Wrench } from "lucide-react";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ExceptionItem } from "@/lib/queries/occ.core";
 import { useExceptionsFeed } from "@/hooks/queries/useOcc";
 import { cn } from "@/lib/utils";
@@ -36,7 +37,7 @@ function ExceptionsPage() {
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-md border border-border bg-surface" />
+            <Skeleton key={i} className="h-16 rounded-md" />
           ))}
         </div>
       ) : error ? (

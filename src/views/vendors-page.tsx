@@ -33,6 +33,7 @@ import {
 } from "@/components/vendors/vendor-ecosystem-dialogs";
 import { VendorDetailDialog } from "@/components/vendors/vendor-detail-dialog";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -258,7 +259,7 @@ export default function VendorsPage() {
         {list.isLoading ? (
           <div className="grid gap-4 md:grid-cols-2">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-52 animate-pulse rounded-2xl bg-muted/70" />
+              <Skeleton key={i} className="h-52 rounded-2xl" />
             ))}
           </div>
         ) : tab === "matrix" ? (

@@ -20,6 +20,7 @@ import {
 
 import { FileText, LayoutDashboard, Users, type LucideIcon } from "lucide-react";
 
+import { TileSkeleton } from "@/components/loading/tile-skeleton";
 import type { NamedCount } from "@/lib/hr-overview";
 import { fmtNumber, fmtQar } from "@/lib/currency";
 import { formatLocationLabel } from "@/lib/locations/normalize";
@@ -730,7 +731,7 @@ export function HrDayBoard({
           <h2 className="hr-day__card-title">{t("hr.dashboard.day.payTitle")}</h2>
           <p className="hr-day__hint">{t("hr.dashboard.day.payHint")}</p>
           {salaryLoading ? (
-            <p className="hr-day__empty">{t("common.loading")}</p>
+            <TileSkeleton className="mt-2 h-40 w-full rounded-xl" />
           ) : salaryRows == null ? (
             <p className="hr-day__empty">{t("hr.dashboard.smart.payrollHidden")}</p>
           ) : salaryBars.length === 0 ? (
