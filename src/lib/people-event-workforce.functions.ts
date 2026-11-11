@@ -150,8 +150,11 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
     dateTo: Ymd.nullable().optional(),
     search: z.string().max(120).optional().nullable(),
     limit: z.number().int().min(1).max(2000).optional(),
+    /** Skip assignment/slot role joins — Overview KPIs/charts do not need roles. */
+    includeRoles: z.boolean().optional(),
   }),
   async (data, context): Promise<{ rows: PeopleEventAttendanceRow[] }> => {
+    const includeRoles = data.includeRoles !== false;
     let q = context.supabase
       .from("attendance_daily_summary")
       .select(
@@ -221,55 +224,6 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
       dateTo: string;
     };
     const assignmentRoles: AssignmentRole[] = [];
-    {
-      type AssignRow = {
-        event_id: string;
-        staff_id: string;
-        role_label: string | null;
-        event_role_id?: string | null;
-        date_from: string;
-        date_to: string;
-      };
-      let assigns: AssignRow[] = [];
-      const primary = await context.supabase
-        .from("event_staff_assignments")
-        .select("event_id, staff_id, role_label, event_role_id, date_from, date_to")
-        .in("event_id", eventIds)
-        .in("staff_id", staffIds);
-      if (
-        primary.error &&
-        /event_role_id|schema cache|does not exist/i.test(primary.error.message)
-      ) {
-        const legacy = await context.supabase
-          .from("event_staff_assignments")
-          .select("event_id, staff_id, role_label, date_from, date_to")
-          .in("event_id", eventIds)
-          .in("staff_id", staffIds);
-        if (legacy.error && !/event_staff_assignments|schema cache/i.test(legacy.error.message)) {
-          throw legacy.error;
-        }
-        assigns = (legacy.data ?? []) as AssignRow[];
-      } else if (
-        primary.error &&
-        !/event_staff_assignments|schema cache/i.test(primary.error.message)
-      ) {
-        throw primary.error;
-      } else {
-        assigns = (primary.data ?? []) as AssignRow[];
-      }
-      for (const a of assigns) {
-        assignmentRoles.push({
-          eventId: a.event_id as string,
-          staffId: a.staff_id as string,
-          roleLabel: (a.role_label as string | null) ?? null,
-          eventRoleId: (a.event_role_id as string | null) ?? null,
-          dateFrom: String(a.date_from ?? "").slice(0, 10),
-          dateTo: String(a.date_to ?? "").slice(0, 10),
-        });
-      }
-    }
-
-    // Slot-level role when assignment is missing or not covering the work date.
     type SlotRole = {
       eventId: string;
       staffId: string;
@@ -278,59 +232,111 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
       eventRoleId: string | null;
     };
     const slotRoleByKey = new Map<string, SlotRole>();
-    {
-      type SlotRow = {
-        event_id: string;
-        staff_id: string;
-        work_date: string;
-        role_label: string | null;
-        event_role_id?: string | null;
-      };
-      const workDates = [
-        ...new Set(rows.map((r) => String(r.work_date).slice(0, 10)).filter(Boolean)),
-      ];
-      let slotQuery = context.supabase
-        .from("event_schedule_slots")
-        .select("event_id, staff_id, work_date, role_label, event_role_id")
-        .in("event_id", eventIds)
-        .in("staff_id", staffIds);
-      if (workDates.length <= 62) slotQuery = slotQuery.in("work_date", workDates);
-      let slots: SlotRow[] = [];
-      const primary = await slotQuery;
-      if (
-        primary.error &&
-        /event_role_id|schema cache|does not exist/i.test(primary.error.message)
-      ) {
-        let legacyQ = context.supabase
-          .from("event_schedule_slots")
-          .select("event_id, staff_id, work_date, role_label")
+
+    if (includeRoles) {
+      {
+        type AssignRow = {
+          event_id: string;
+          staff_id: string;
+          role_label: string | null;
+          event_role_id?: string | null;
+          date_from: string;
+          date_to: string;
+        };
+        let assigns: AssignRow[] = [];
+        const primary = await context.supabase
+          .from("event_staff_assignments")
+          .select("event_id, staff_id, role_label, event_role_id, date_from, date_to")
           .in("event_id", eventIds)
           .in("staff_id", staffIds);
-        if (workDates.length <= 62) legacyQ = legacyQ.in("work_date", workDates);
-        const legacy = await legacyQ;
-        if (legacy.error && !/event_schedule_slots|schema cache/i.test(legacy.error.message)) {
-          throw legacy.error;
+        if (
+          primary.error &&
+          /event_role_id|schema cache|does not exist/i.test(primary.error.message)
+        ) {
+          const legacy = await context.supabase
+            .from("event_staff_assignments")
+            .select("event_id, staff_id, role_label, date_from, date_to")
+            .in("event_id", eventIds)
+            .in("staff_id", staffIds);
+          if (legacy.error && !/event_staff_assignments|schema cache/i.test(legacy.error.message)) {
+            throw legacy.error;
+          }
+          assigns = (legacy.data ?? []) as AssignRow[];
+        } else if (
+          primary.error &&
+          !/event_staff_assignments|schema cache/i.test(primary.error.message)
+        ) {
+          throw primary.error;
+        } else {
+          assigns = (primary.data ?? []) as AssignRow[];
         }
-        slots = (legacy.data ?? []) as SlotRow[];
-      } else if (
-        primary.error &&
-        !/event_schedule_slots|schema cache/i.test(primary.error.message)
-      ) {
-        throw primary.error;
-      } else {
-        slots = (primary.data ?? []) as SlotRow[];
+        for (const a of assigns) {
+          assignmentRoles.push({
+            eventId: a.event_id as string,
+            staffId: a.staff_id as string,
+            roleLabel: (a.role_label as string | null) ?? null,
+            eventRoleId: (a.event_role_id as string | null) ?? null,
+            dateFrom: String(a.date_from ?? "").slice(0, 10),
+            dateTo: String(a.date_to ?? "").slice(0, 10),
+          });
+        }
       }
-      for (const s of slots) {
-        const workDate = String(s.work_date ?? "").slice(0, 10);
-        const key = `${s.event_id as string}:${s.staff_id as string}:${workDate}`;
-        if (slotRoleByKey.has(key)) continue;
-        slotRoleByKey.set(key, {
-          eventId: s.event_id as string,
-          staffId: s.staff_id as string,
-          workDate,
-          roleLabel: (s.role_label as string | null) ?? null,
-          eventRoleId: (s.event_role_id as string | null) ?? null,
-        });
+
+      // Slot-level role when assignment is missing or not covering the work date.
+      {
+        type SlotRow = {
+          event_id: string;
+          staff_id: string;
+          work_date: string;
+          role_label: string | null;
+          event_role_id?: string | null;
+        };
+        const workDates = [
+          ...new Set(rows.map((r) => String(r.work_date).slice(0, 10)).filter(Boolean)),
+        ];
+        let slotQuery = context.supabase
+          .from("event_schedule_slots")
+          .select("event_id, staff_id, work_date, role_label, event_role_id")
+          .in("event_id", eventIds)
+          .in("staff_id", staffIds);
+        if (workDates.length <= 62) slotQuery = slotQuery.in("work_date", workDates);
+        let slots: SlotRow[] = [];
+        const primary = await slotQuery;
+        if (
+          primary.error &&
+          /event_role_id|schema cache|does not exist/i.test(primary.error.message)
+        ) {
+          let legacyQ = context.supabase
+            .from("event_schedule_slots")
+            .select("event_id, staff_id, work_date, role_label")
+            .in("event_id", eventIds)
+            .in("staff_id", staffIds);
+          if (workDates.length <= 62) legacyQ = legacyQ.in("work_date", workDates);
+          const legacy = await legacyQ;
+          if (legacy.error && !/event_schedule_slots|schema cache/i.test(legacy.error.message)) {
+            throw legacy.error;
+          }
+          slots = (legacy.data ?? []) as SlotRow[];
+        } else if (
+          primary.error &&
+          !/event_schedule_slots|schema cache/i.test(primary.error.message)
+        ) {
+          throw primary.error;
+        } else {
+          slots = (primary.data ?? []) as SlotRow[];
+        }
+        for (const s of slots) {
+          const workDate = String(s.work_date ?? "").slice(0, 10);
+          const key = `${s.event_id as string}:${s.staff_id as string}:${workDate}`;
+          if (slotRoleByKey.has(key)) continue;
+          slotRoleByKey.set(key, {
+            eventId: s.event_id as string,
+            staffId: s.staff_id as string,
+            workDate,
+            roleLabel: (s.role_label as string | null) ?? null,
+            eventRoleId: (s.event_role_id as string | null) ?? null,
+          });
+        }
       }
     }
 
@@ -339,6 +345,7 @@ export const listPeopleEventAttendance = createAuthenticatedAction(
       staffId: string,
       workDate: string,
     ): { roleLabel: string | null; eventRoleId: string | null } {
+      if (!includeRoles) return { roleLabel: null, eventRoleId: null };
       const covering = assignmentRoles.filter(
         (a) =>
           a.eventId === eventId &&

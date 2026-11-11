@@ -7,7 +7,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarDays,
@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { TileSkeleton } from "@/components/loading/tile-skeleton";
+import { EVENT_WORKFORCE_DEMO_MAX_DAYS } from "@/lib/events/event-workforce-demo";
 import {
   activeCrewHeadcount,
   buildAttendanceByEvent,
@@ -34,12 +35,13 @@ import {
   buildOverviewKpis,
   eventsInRange,
   previousEqualRange,
+  rangeCoveringAttendanceRows,
 } from "@/lib/people-event-attendance-overview";
 import { peopleEventHref } from "@/lib/people-event-selection";
 import {
   listPeopleEventAttendance,
   listPeopleEventCrew,
-  listPeopleEventOptions,
+  type PeopleEventOption,
 } from "@/lib/people-event-workforce.functions";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -129,6 +131,9 @@ export function PeopleEventWorkforceDashboard({
   dateFrom,
   dateTo,
   eventId = null,
+  events: eventsProp,
+  eventsLoading = false,
+  onSuggestDateRange,
 }: {
   canCrew: boolean;
   canAttendance: boolean;
@@ -137,6 +142,11 @@ export function PeopleEventWorkforceDashboard({
   dateTo: string;
   /** When set, KPIs/charts scope to this event (shared People Events selection). */
   eventId?: string | null;
+  /** Shared event options from the hub shell — avoids a duplicate fetch. */
+  events?: PeopleEventOption[];
+  eventsLoading?: boolean;
+  /** When Overview window misses seeded attendance, suggest covering From–To. */
+  onSuggestDateRange?: (next: { from: string; to: string }) => void;
 }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
@@ -144,27 +154,19 @@ export function PeopleEventWorkforceDashboard({
   const selectedEventId = eventId || null;
   // Omit null so All-events queries are unscoped (do not send eventId: null).
   const eventScope = selectedEventId ? { eventId: selectedEventId } : {};
-
-  const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", "hub", dateFrom, dateTo, selectedEventId],
-    queryFn: () => listPeopleEventOptions({ limit: 200 }),
-    staleTime: STALE.events,
-    enabled: canCrew || canAttendance || canPayroll,
-  });
+  const suggestedForEventRef = useRef<string | null>(null);
 
   const crewQ = useQuery({
     queryKey: [
       ...queryKeys.people.all,
       "event-crew",
       "hub-overview",
-      dateFrom,
-      dateTo,
       selectedEventId,
     ],
     queryFn: () =>
       listPeopleEventCrew({
         status: "all",
-        limit: 2000,
+        limit: selectedEventId ? 800 : 2000,
         ...eventScope,
       }),
     staleTime: STALE.people,
@@ -179,18 +181,21 @@ export function PeopleEventWorkforceDashboard({
       dateFrom,
       dateTo,
       selectedEventId,
+      "lean",
     ],
     queryFn: () =>
       listPeopleEventAttendance({
-        limit: 2000,
+        limit: selectedEventId ? 1200 : 2000,
         dateFrom,
         dateTo,
+        includeRoles: false,
         ...eventScope,
       }),
     staleTime: STALE.people,
     enabled: canAttendance,
   });
 
+  // Prior-period deltas are non-blocking — KPIs render from current window first.
   const prevAttendanceQ = useQuery({
     queryKey: [
       ...queryKeys.people.all,
@@ -199,19 +204,75 @@ export function PeopleEventWorkforceDashboard({
       prevRange.from,
       prevRange.to,
       selectedEventId,
+      "lean",
     ],
     queryFn: () =>
       listPeopleEventAttendance({
-        limit: 2000,
+        limit: selectedEventId ? 800 : 1200,
         dateFrom: prevRange.from,
         dateTo: prevRange.to,
+        includeRoles: false,
         ...eventScope,
       }),
     staleTime: STALE.people,
-    enabled: canAttendance,
+    enabled: canAttendance && attendanceQ.isSuccess,
   });
 
-  const allEvents = eventsQ.data?.events ?? [];
+  // When the selected event has attendance outside the Overview window (common after
+  // seeding today±2 while the event open window is later), discover those rows and
+  // ask the shell to realign From–To so KPIs/charts populate.
+  const probeQ = useQuery({
+    queryKey: [
+      ...queryKeys.people.all,
+      "event-attendance",
+      "hub-range-probe",
+      selectedEventId,
+      "lean",
+    ],
+    queryFn: () =>
+      listPeopleEventAttendance({
+        eventId: selectedEventId!,
+        limit: 400,
+        includeRoles: false,
+      }),
+    staleTime: STALE.people,
+    enabled:
+      canAttendance &&
+      Boolean(selectedEventId) &&
+      attendanceQ.isSuccess &&
+      (attendanceQ.data?.rows.length ?? 0) === 0,
+  });
+
+  useEffect(() => {
+    if (!onSuggestDateRange || !selectedEventId) return;
+    if (!probeQ.isSuccess) return;
+    const probeRows = probeQ.data?.rows ?? [];
+    if (!probeRows.length) return;
+    if (suggestedForEventRef.current === selectedEventId) return;
+    const next = rangeCoveringAttendanceRows(
+      probeRows,
+      { from: dateFrom, to: dateTo },
+      EVENT_WORKFORCE_DEMO_MAX_DAYS,
+    );
+    if (next.from === dateFrom && next.to === dateTo) return;
+    suggestedForEventRef.current = selectedEventId;
+    onSuggestDateRange(next);
+  }, [
+    onSuggestDateRange,
+    selectedEventId,
+    probeQ.isSuccess,
+    probeQ.data?.rows,
+    dateFrom,
+    dateTo,
+  ]);
+
+  useEffect(() => {
+    if (suggestedForEventRef.current && suggestedForEventRef.current !== selectedEventId) {
+      suggestedForEventRef.current = null;
+    }
+  }, [selectedEventId]);
+
+  const allEvents = eventsProp ?? [];
   const events = useMemo(() => {
     const scoped = selectedEventId
       ? allEvents.filter((ev) => ev.id === selectedEventId)
@@ -235,10 +296,14 @@ export function PeopleEventWorkforceDashboard({
     [events, attendanceRows, previousAttendanceRows, dateFrom, dateTo],
   );
 
-  const crewAssignedFallback = useMemo(
-    () => activeCrewHeadcount(crewRows, dateFrom, dateTo),
-    [crewRows, dateFrom, dateTo],
-  );
+  const crewAssignedFallback = useMemo(() => {
+    const inWindow = activeCrewHeadcount(crewRows, dateFrom, dateTo);
+    if (inWindow > 0) return inWindow;
+    // Selected event: show active crew even when assignment dates sit outside the
+    // Overview window (seed/date mismatch) so Assigned is not stuck at 0.
+    if (selectedEventId) return activeCrewHeadcount(crewRows, dateFrom, dateTo, true);
+    return 0;
+  }, [crewRows, dateFrom, dateTo, selectedEventId]);
 
   // Prefer attendance-day headcount; fall back to active crew when All events
   // has assignments but no attendance rows in the window yet.
@@ -259,12 +324,15 @@ export function PeopleEventWorkforceDashboard({
     [attendanceRows, events, locale],
   );
 
+  // Do not block the shell on previous-period or probe — only current window + crew.
   const loading =
-    (canCrew && (eventsQ.isLoading || crewQ.isLoading)) ||
-    (canAttendance && (attendanceQ.isLoading || prevAttendanceQ.isLoading));
+    (canCrew && (eventsLoading || crewQ.isLoading)) ||
+    (canAttendance && attendanceQ.isLoading);
 
   const eventsDelta = formatDelta(kpis.eventsDeltaPct);
-  const assignedDelta = formatDelta(kpis.assignedDeltaPct);
+  const assignedDelta = formatDelta(
+    kpis.assignedCrew > 0 || !canCrew ? kpis.assignedDeltaPct : null,
+  );
 
   const quickActions: Array<{
     id: string;
@@ -332,7 +400,7 @@ export function PeopleEventWorkforceDashboard({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <KpiCard
             title={t("peopleEvent.dashboard.kpiTotalEvents")}
-            value={eventsQ.isLoading ? "—" : kpis.totalEvents}
+            value={eventsLoading ? "—" : kpis.totalEvents}
             meta={
               eventsDelta
                 ? t("peopleEvent.dashboard.kpiVsPrevious", { delta: eventsDelta })

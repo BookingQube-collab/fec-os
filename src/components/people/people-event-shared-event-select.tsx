@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { PeopleEventOption } from "@/lib/people-event-workforce.functions";
+import { peopleEventSelectLabel } from "@/lib/people-event-selection";
 import { cn } from "@/lib/utils";
 
 /** Compact Event dropdown for shared People Events chrome. */
@@ -33,6 +34,14 @@ export function PeopleEventSharedEventSelect({
   triggerClassName?: string;
 }) {
   const { t } = useTranslation();
+  const selected = events.find((ev) => ev.id === eventId);
+  const triggerLabel = eventId
+    ? selected
+      ? peopleEventSelectLabel(selected)
+      : t("peopleEvent.demo.pickEvent")
+    : allowAll
+      ? t("peopleEvent.filters.allEvents")
+      : t("peopleEvent.demo.pickEvent");
 
   return (
     <div className={cn("min-w-0", className)}>
@@ -52,11 +61,7 @@ export function PeopleEventSharedEventSelect({
           <SelectTrigger
             className={cn("h-10 min-w-[12rem] rounded-xl ps-9 sm:min-w-[16rem]", triggerClassName)}
           >
-            <SelectValue
-              placeholder={
-                allowAll ? t("peopleEvent.filters.allEvents") : t("peopleEvent.demo.pickEvent")
-              }
-            />
+            <SelectValue placeholder={triggerLabel}>{triggerLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {allowAll ? (
@@ -66,9 +71,7 @@ export function PeopleEventSharedEventSelect({
             )}
             {events.map((ev) => (
               <SelectItem key={ev.id} value={ev.id}>
-                {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
-                {ev.name}
-                {ev.locationName ? ` · ${ev.locationName}` : ""}
+                {peopleEventSelectLabel(ev)}
               </SelectItem>
             ))}
           </SelectContent>

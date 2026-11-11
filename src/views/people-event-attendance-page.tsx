@@ -162,6 +162,7 @@ export default function PeopleEventAttendancePage() {
       locationId || null,
       prevRange.from,
       prevRange.to,
+      "lean",
     ],
     queryFn: () =>
       listPeopleEventAttendance({
@@ -169,10 +170,11 @@ export default function PeopleEventAttendancePage() {
         locationId: locationId || null,
         dateFrom: prevRange.from,
         dateTo: prevRange.to,
-        limit: 2000,
+        limit: 1200,
+        includeRoles: false,
       }),
     staleTime: STALE.people,
-    enabled: Boolean(dateFrom && dateTo),
+    enabled: Boolean(dateFrom && dateTo) && attendanceQ.isSuccess,
   });
 
   const rolesQ = useEventRoles(eventId || null);
@@ -494,6 +496,7 @@ export default function PeopleEventAttendancePage() {
 
           <PeopleEventWorkforceDemoTools
             eventId={eventId || null}
+            events={allEvents}
             dateFrom={dateFrom}
             dateTo={dateTo}
             onDateFromChange={(v) => {

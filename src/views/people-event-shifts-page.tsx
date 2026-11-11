@@ -185,7 +185,7 @@ export default function PeopleEventShiftsPage() {
           hasEvent={Boolean(eventId)}
         />
 
-        <PeopleEventWorkforceDemoTools eventId={eventId || null} />
+        <PeopleEventWorkforceDemoTools eventId={eventId || null} events={allEvents} />
 
         {!eventId ? (
           <section className="rounded-2xl border border-black/5 bg-white p-8 shadow-[0_4px_20px_rgba(124,58,237,0.06)]">

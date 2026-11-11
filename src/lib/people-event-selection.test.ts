@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parsePeopleEventId, peopleEventHref } from "@/lib/people-event-selection";
+import {
+  parsePeopleEventId,
+  peopleEventHref,
+  peopleEventSelectLabel,
+} from "@/lib/people-event-selection";
 
 describe("parsePeopleEventId", () => {
   it("accepts uuids and rejects junk", () => {
@@ -9,6 +13,17 @@ describe("parsePeopleEventId", () => {
     );
     expect(parsePeopleEventId("not-a-uuid")).toBe("");
     expect(parsePeopleEventId(null)).toBe("");
+  });
+});
+
+describe("peopleEventSelectLabel", () => {
+  it("shows event name only (no EVT number or venue)", () => {
+    expect(
+      peopleEventSelectLabel({
+        name: "Lego Shows 2026",
+        eventNumber: "EVT-2026-0009",
+      }),
+    ).toBe("Lego Shows 2026");
   });
 });
 

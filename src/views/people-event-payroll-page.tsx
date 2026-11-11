@@ -444,6 +444,7 @@ export default function PeopleEventPayrollPage() {
           {eventId ? (
             <PeopleEventWorkforceDemoTools
               eventId={eventId}
+              events={events}
               dateFrom={demoFrom || undefined}
               dateTo={demoTo || undefined}
               onDateFromChange={setDemoFrom}

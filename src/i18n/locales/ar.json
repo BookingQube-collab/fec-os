@@ -9097,7 +9097,9 @@
       "typeLabel": "اكتب {{phrase}} للتأكيد",
       "deleteConfirm": "حذف بيانات القوى العاملة",
       "deleteSuccess": "أُزيل {{attendance}} يوم حضور · {{shifts}} ورديات · {{assignments}} تعيينات · {{roles}} أدوار · {{payroll}} فترات رواتب",
-      "deleteFailed": "تعذر حذف بيانات قوى عمل الفعالية"
+      "deleteFailed": "تعذر حذف بيانات قوى عمل الفعالية",
+      "hide": "إخفاء",
+      "show": "إظهار البذر التجريبي"
     },
     "tabs": {
       "aria": "وحدات قوى العمل للفعاليات",

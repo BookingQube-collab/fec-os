@@ -425,13 +425,42 @@ export function activeCrewHeadcount(
   crewRows: PeopleEventCrewRow[],
   dateFrom: string,
   dateTo: string,
+  /** When true, count all active crew for the event (ignore From–To overlap). */
+  ignoreDateWindow = false,
 ): number {
   const ids = new Set<string>();
   for (const row of crewRows) {
     if (row.status !== "active") continue;
-    if (row.dateTo && row.dateTo < dateFrom) continue;
-    if (row.dateFrom && row.dateFrom > dateTo) continue;
+    if (!ignoreDateWindow) {
+      if (row.dateTo && row.dateTo < dateFrom) continue;
+      if (row.dateFrom && row.dateFrom > dateTo) continue;
+    }
     ids.add(row.staffId);
   }
   return ids.size;
+}
+
+/**
+ * Suggest a From–To covering real attendance rows for a selected event
+ * when the Overview window has none (e.g. seed used today±2 while event is later).
+ */
+export function rangeCoveringAttendanceRows(
+  rows: Array<{ workDate: string }>,
+  fallback: { from: string; to: string },
+  maxInclusiveDays = 14,
+): { from: string; to: string } {
+  let min: string | null = null;
+  let max: string | null = null;
+  for (const row of rows) {
+    const d = String(row.workDate ?? "").slice(0, 10);
+    if (!isYmd(d)) continue;
+    if (!min || d < min) min = d;
+    if (!max || d > max) max = d;
+  }
+  if (!min || !max) return fallback;
+  if (max < min) max = min;
+  const maxDays = Math.max(1, maxInclusiveDays);
+  if (inclusiveDayCount(min, max) <= maxDays) return { from: min, to: max };
+  const cappedTo = addDaysYmdUtc(min, maxDays - 1);
+  return { from: min, to: cappedTo > max ? max : cappedTo };
 }

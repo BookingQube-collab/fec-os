@@ -68,12 +68,17 @@ export default function PeopleEventsHubPage() {
   });
 
   const eventsQ = useQuery({
-    queryKey: [...queryKeys.people.all, "event-options", "hub"],
+    queryKey: [...queryKeys.people.all, "event-options"],
     queryFn: () => listPeopleEventOptions({ limit: 200 }),
     staleTime: STALE.events,
     enabled: hasAnyModule,
   });
   const events = eventsQ.data?.events ?? [];
+
+  const suggestDateRange = (next: { from: string; to: string }) => {
+    setDateFrom(next.from);
+    setDateTo(next.to);
+  };
 
   // Align From–To: All events → cover company events; one event → that event window.
   useEffect(() => {
@@ -188,6 +193,7 @@ export default function PeopleEventsHubPage() {
             {canHooDemo ? (
               <PeopleEventWorkforceDemoTools
                 eventId={eventId || null}
+                events={events}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 onDateFromChange={setDateFrom}
@@ -201,6 +207,9 @@ export default function PeopleEventsHubPage() {
               dateFrom={dateFrom}
               dateTo={dateTo}
               eventId={eventId || null}
+              events={events}
+              eventsLoading={eventsQ.isLoading}
+              onSuggestDateRange={suggestDateRange}
             />
           </>
         )}

@@ -574,6 +574,7 @@ export default function PeopleEventReportsPage() {
 
           <PeopleEventWorkforceDemoTools
             eventId={eventId || null}
+            events={allEvents}
             dateFrom={dateFrom}
             dateTo={dateTo}
             onDateFromChange={setDateFrom}

@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import { peopleEventSelectLabel } from "@/lib/people-event-selection";
 import type { PeopleEventOption } from "@/lib/people-event-workforce.functions";
 
 type Site = { id: string; code?: string | null; name?: string | null; label?: string | null };
@@ -67,8 +68,7 @@ export function PeopleEventFilters({
             <SelectItem value="all">{t("peopleEvent.filters.allEvents")}</SelectItem>
             {events.map((ev) => (
               <SelectItem key={ev.id} value={ev.id}>
-                {ev.eventNumber ? `${ev.eventNumber} · ` : ""}
-                {ev.name}
+                {peopleEventSelectLabel(ev)}
               </SelectItem>
             ))}
           </SelectContent>

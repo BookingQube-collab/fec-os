@@ -9267,7 +9267,9 @@
       "typeLabel": "Type {{phrase}} to confirm",
       "deleteConfirm": "Delete workforce data",
       "deleteSuccess": "Removed {{attendance}} attendance days · {{shifts}} shifts · {{assignments}} assignments · {{roles}} roles · {{payroll}} pay periods",
-      "deleteFailed": "Could not delete event workforce data"
+      "deleteFailed": "Could not delete event workforce data",
+      "hide": "Hide",
+      "show": "Show seed demo"
     },
     "tabs": {
       "aria": "Event workforce modules",

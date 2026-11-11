@@ -4,6 +4,7 @@ import {
   buildOverviewKpis,
   defaultOverviewRange,
   eventsInRange,
+  rangeCoveringAttendanceRows,
   rangeCoveringEvents,
   rangeForSelectedEvent,
 } from "@/lib/people-event-attendance-overview";
@@ -158,5 +159,33 @@ describe("defaultOverviewRange", () => {
       from: "2026-11-02",
       to: "2026-11-08",
     });
+  });
+});
+
+describe("rangeCoveringAttendanceRows", () => {
+  const fallback = { from: "2026-12-16", to: "2026-12-29" };
+
+  it("returns fallback when no work dates", () => {
+    expect(rangeCoveringAttendanceRows([], fallback)).toEqual(fallback);
+  });
+
+  it("covers seeded attendance outside the event open window", () => {
+    expect(
+      rangeCoveringAttendanceRows(
+        [{ workDate: "2026-11-11" }, { workDate: "2026-11-13" }, { workDate: "2026-11-12" }],
+        fallback,
+        14,
+      ),
+    ).toEqual({ from: "2026-11-11", to: "2026-11-13" });
+  });
+
+  it("clamps long attendance spans to max days from the first day", () => {
+    expect(
+      rangeCoveringAttendanceRows(
+        [{ workDate: "2026-11-01" }, { workDate: "2026-11-30" }],
+        fallback,
+        14,
+      ),
+    ).toEqual({ from: "2026-11-01", to: "2026-11-14" });
   });
 });

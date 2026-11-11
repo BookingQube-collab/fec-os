@@ -6,8 +6,8 @@
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Database, Loader2, RotateCcw, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Database, Eye, EyeOff, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -34,11 +34,17 @@ import {
   QATAR_EVENT_DEMO_DAY_RATES_QAR,
   validateDemoDateRange,
 } from "@/lib/events/event-workforce-demo";
+import { rangeForSelectedEvent } from "@/lib/people-event-attendance-overview";
+import {
+  readEventWorkforceDemoHidden,
+  writeEventWorkforceDemoHidden,
+} from "@/lib/people-event-selection";
 import {
   deleteEventWorkforceDemo,
   resetAndSeedEventWorkforceDemo,
   seedEventWorkforceDemo,
 } from "@/lib/people-event-workforce-demo.functions";
+import type { PeopleEventOption } from "@/lib/people-event-workforce.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +61,7 @@ function defaultRange(): { from: string; to: string } {
 
 export function PeopleEventWorkforceDemoTools({
   eventId,
+  events,
   className,
   dateFrom: controlledFrom,
   dateTo: controlledTo,
@@ -63,6 +70,8 @@ export function PeopleEventWorkforceDemoTools({
 }: {
   /** Required for seed/delete — event-scoped location only. */
   eventId: string | null | undefined;
+  /** When provided, From–To auto-aligns to the selected event open window. */
+  events?: PeopleEventOption[];
   className?: string;
   /** Optional controlled From–To (e.g. Event Attendance page filters). */
   dateFrom?: string;
@@ -91,8 +100,62 @@ export function PeopleEventWorkforceDemoTools({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [phrase, setPhrase] = useState("");
   const [wipeAll, setWipeAll] = useState(true);
+  const [hidden, setHidden] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const alignedEventRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setHidden(readEventWorkforceDemoHidden());
+    setHydrated(true);
+  }, []);
+
+  // Align uncontrolled (and controlled) seed dates to the selected event window so
+  // Overview / Attendance filters see the same punches Shift Coverage creates.
+  useEffect(() => {
+    if (!eventId || !events?.length) return;
+    if (alignedEventRef.current === eventId) return;
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev) return;
+    alignedEventRef.current = eventId;
+    const next = rangeForSelectedEvent(ev, { from: dateFrom, to: dateTo }, EVENT_WORKFORCE_DEMO_MAX_DAYS);
+    if (next.from !== dateFrom) setDateFrom(next.from);
+    if (next.to !== dateTo) setDateTo(next.to);
+  }, [eventId, events, dateFrom, dateTo, setDateFrom, setDateTo]);
+
+  useEffect(() => {
+    if (alignedEventRef.current && alignedEventRef.current !== (eventId || null)) {
+      alignedEventRef.current = null;
+    }
+  }, [eventId]);
 
   if (!canHoo) return null;
+  if (!hydrated) return null;
+
+  const hideBanner = () => {
+    writeEventWorkforceDemoHidden(true);
+    setHidden(true);
+  };
+  const showBanner = () => {
+    writeEventWorkforceDemoHidden(false);
+    setHidden(false);
+  };
+
+  if (hidden) {
+    return (
+      <div className={cn("flex justify-end", className)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs text-muted-foreground hover:text-foreground"
+          onClick={showBanner}
+        >
+          <Eye className="me-1.5 h-3.5 w-3.5" aria-hidden />
+          {t("peopleEvent.demo.show")}
+        </Button>
+      </div>
+    );
+  }
 
   const rangeError = validateDemoDateRange(dateFrom, dateTo);
   const canSeed = Boolean(eventId) && !rangeError;
@@ -204,7 +267,19 @@ export function PeopleEventWorkforceDemoTools({
       >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-amber-950">{t("peopleEvent.demo.title")}</p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="text-sm font-semibold text-amber-950">{t("peopleEvent.demo.title")}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 px-2 text-xs text-amber-900/80 hover:bg-amber-100 hover:text-amber-950"
+                onClick={hideBanner}
+              >
+                <EyeOff className="me-1 h-3.5 w-3.5" aria-hidden />
+                {t("peopleEvent.demo.hide")}
+              </Button>
+            </div>
             <p className="mt-0.5 text-xs text-amber-900/80">{t("peopleEvent.demo.subtitle")}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               {t("peopleEvent.demo.mixHint", {
