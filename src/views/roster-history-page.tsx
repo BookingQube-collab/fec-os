@@ -130,6 +130,7 @@ export default function RosterHistoryPage() {
                   <TableHead>{t("people.rosterHistory.colLocation")}</TableHead>
                   <TableHead>{t("people.rosterHistory.colStaff")}</TableHead>
                   <TableHead>{t("people.rosterHistory.colSummary")}</TableHead>
+                  <TableHead>{t("people.rosterHistory.colReason")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -151,6 +152,9 @@ export default function RosterHistoryPage() {
                         : row.workDate ?? "—"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{row.summary}</TableCell>
+                    <TableCell className="max-w-[18rem] text-sm text-muted-foreground">
+                      {row.changeReason ?? "—"}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

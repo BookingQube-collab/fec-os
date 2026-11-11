@@ -5536,6 +5536,13 @@
       "registerSaved": "Roster row updated.",
       "registerDeleted": "Roster row removed.",
       "registerDeleteConfirm": "Remove this roster row? Attendance for that day will be recalculated.",
+      "changeReasonTitle": "Why is the roster changing?",
+      "changeReasonHelp": "This location already has a completed roster upload for the period. Enter a short reason so the change appears in roster history.",
+      "changeReasonLabel": "Reason",
+      "changeReasonPlaceholder": "e.g. Staff swapped sites for coverage",
+      "changeReasonTooShort": "Enter at least 3 characters.",
+      "changeReasonConfirm": "Continue",
+      "changeReasonRequired": "A reason is required after the roster has been uploaded.",
       "registerSelectAll": "Select all visible rows",
       "registerDeselectAll": "Deselect all visible rows",
       "registerSelectRow": "Select {{name}} on {{date}}",
@@ -5703,7 +5710,8 @@
       "colWho": "Who",
       "colLocation": "Location",
       "colStaff": "Staff / date",
-      "colSummary": "Change"
+      "colSummary": "Change",
+      "colReason": "Reason"
     },
     "profile": {
       "title": "Staff profile",

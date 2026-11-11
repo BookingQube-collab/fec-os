@@ -191,12 +191,16 @@ export async function POST(request: Request) {
             logger.error("api", "Roster import preview patch failed; continuing confirm", patchErr);
           }
         }
+        const changeReasonRaw = form.get("changeReason");
+        const changeReason =
+          typeof changeReasonRaw === "string" && changeReasonRaw.trim() ? changeReasonRaw.trim() : null;
         const committed = await commitLiveShiftRoster(
           context,
           {
             preview: shiftPreview,
             fileName: summary.fileName,
             fileType: summary.fileType,
+            changeReason,
           },
           team,
         );

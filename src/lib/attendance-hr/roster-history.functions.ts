@@ -5,6 +5,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   classifyRosterHistoryChangeKinds,
+  rosterAuditChangeReason,
   rosterAuditLocationId,
   rosterAuditPayrollMonth,
   ROSTER_AUDIT_ACTIONS,
@@ -35,6 +36,7 @@ export type RosterHistoryRow = {
   workDate: string | null;
   payrollMonth: string | null;
   summary: string;
+  changeReason: string | null;
   changeKind: RosterHistoryChangeKind;
   before: unknown;
   after: unknown;
@@ -157,6 +159,7 @@ export const listMonthlyRosterHistory = createAuthenticatedAction(
         workDate,
         payrollMonth,
         summary: summarizeRosterAuditChange(String(row.action), row.before, row.after),
+        changeReason: rosterAuditChangeReason(row.after, row.before),
         changeKind: "amendment" as RosterHistoryChangeKind,
         before: row.before,
         after: row.after,

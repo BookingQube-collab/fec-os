@@ -22,6 +22,7 @@ import { FecLoader } from "@/components/fec";
 
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { RosterBulkPatternDialog } from "@/components/people/roster-bulk-pattern-dialog";
+import { RosterChangeReasonDialog } from "@/components/people/roster-change-reason-dialog";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { useFileExport } from "@/hooks/use-file-export";
 import { e3RosterRegisterExportFilename } from "@/lib/attendance-hr/roster-register-export";
@@ -149,6 +150,12 @@ type Draft = {
   compOffForDate: string;
   compOffNote: string;
 };
+
+type PendingReasonAction =
+  | { type: "save"; row: RosterRegisterRow }
+  | { type: "create" }
+  | { type: "delete"; id: string }
+  | { type: "deleteAll"; ids: string[] | null };
 
 function dayStatusLabel(status: RosterDayStatus, t: (key: string) => string) {
   if (status === "weekly_off") return t("people.roster.dutyOff");
@@ -391,6 +398,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
     const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
     const [bulkPatternPerson, setBulkPatternPerson] = useState<RosterMatrixStaff | null>(null);
+    const [pendingReasonAction, setPendingReasonAction] = useState<PendingReasonAction | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
     const [matrixScrollTop, setMatrixScrollTop] = useState(0);
 
@@ -678,8 +686,23 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       });
     };
 
+    const uploadedLocationIds = useMemo(
+      () => new Set(register.data?.uploadedLocationIds ?? []),
+      [register.data?.uploadedLocationIds],
+    );
+    const locationNeedsChangeReason = useCallback(
+      (locId: string | null | undefined) => Boolean(locId && uploadedLocationIds.has(locId)),
+      [uploadedLocationIds],
+    );
+    const scopeNeedsChangeReason = useCallback(
+      (rows: RosterRegisterRow[]) =>
+        rows.some((row) => uploadedLocationIds.has(row.locationId)) ||
+        (locationId ? uploadedLocationIds.has(locationId) : false),
+      [uploadedLocationIds, locationId],
+    );
+
     const saveMut = useMutation({
-      mutationFn: async (row: RosterRegisterRow) => {
+      mutationFn: async ({ row, changeReason }: { row: RosterRegisterRow; changeReason?: string }) => {
         if (!draft) throw new Error(t("people.roster.registerNothingToSave"));
         const patch = rosterPatchFromDayStatus(draft.dayStatus);
         if (draft.dayStatus === "comp_off") {
@@ -698,12 +721,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           dayStatus: draft.dayStatus,
           compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
           compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
+          changeReason: changeReason ?? null,
         });
         if (!result.ok) throw new Error(result.error);
         return result.data;
       },
       onSuccess: () => {
         toast.success(t("people.roster.registerSaved"));
+        setPendingReasonAction(null);
         setEditingId(null);
         setDraft(null);
         invalidateRosterCaches(qc);
@@ -712,7 +737,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     });
 
     const createMut = useMutation({
-      mutationFn: async () => {
+      mutationFn: async (changeReason?: string) => {
         if (!draft || !createWorkDate) throw new Error(t("people.roster.registerNothingToSave"));
         if (!createStaffId) throw new Error(t("people.roster.registerPickStaff"));
         if (!draft.locationId) throw new Error(t("people.roster.registerPickLocation"));
@@ -734,12 +759,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           dayStatus: draft.dayStatus,
           compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
           compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
+          changeReason: changeReason ?? null,
         });
         if (!result.ok) throw new Error(result.error);
         return result.data;
       },
       onSuccess: () => {
         toast.success(t("people.roster.registerAdded"));
+        setPendingReasonAction(null);
         setCreateWorkDate(null);
         setCreateStaffId("");
         setDraft(null);
@@ -755,20 +782,21 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     }, [qc]);
 
     const deleteMut = useMutation({
-      mutationFn: async (id: string) => {
-        const result = await deleteRosterAssignment({ id });
+      mutationFn: async ({ id, changeReason }: { id: string; changeReason?: string }) => {
+        const result = await deleteRosterAssignment({ id, changeReason: changeReason ?? null });
         if (!result.ok) throw new Error(result.error);
         return result.data;
       },
-      onSuccess: (_result, id) => {
+      onSuccess: (_result, vars) => {
         toast.success(t("people.roster.registerDeleted"));
+        setPendingReasonAction(null);
         setDeleteRowId(null);
         setEditingId(null);
         setDraft(null);
         setSelectedIds((prev) => {
-          if (!prev.has(id)) return prev;
+          if (!prev.has(vars.id)) return prev;
           const next = new Set(prev);
-          next.delete(id);
+          next.delete(vars.id);
           return next;
         });
         invalidateRosterRegister();
@@ -777,7 +805,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     });
 
     const deleteAllMut = useMutation({
-      mutationFn: (ids: string[] | null) =>
+      mutationFn: ({ ids, changeReason }: { ids: string[] | null; changeReason?: string }) =>
         deleteRosterAssignments({
           locationId: locationId || null,
           staffId: staffId || null,
@@ -787,10 +815,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           sourceUploadOnly,
           source: !sourceUploadOnly && sourceFilter !== "all" ? sourceFilter : null,
           search: query.trim() || null,
+          changeReason: changeReason ?? null,
           ...(ids ? { ids } : {}),
         }),
       onSuccess: (result) => {
         toast.success(t("people.roster.registerDeletedAll", { count: result.deleted }));
+        setPendingReasonAction(null);
         setDeleteAllOpen(false);
         setEditingId(null);
         setDraft(null);
@@ -799,6 +829,55 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       },
       onError: (e: Error) => toast.error(e.message),
     });
+
+    const requestSave = useCallback(
+      (row: RosterRegisterRow) => {
+        const nextLoc = draft?.locationId || row.locationId;
+        if (locationNeedsChangeReason(nextLoc) || locationNeedsChangeReason(row.locationId)) {
+          setPendingReasonAction({ type: "save", row });
+          return;
+        }
+        saveMut.mutate({ row });
+      },
+      [draft?.locationId, locationNeedsChangeReason, saveMut],
+    );
+
+    const requestCreate = useCallback(() => {
+      if (locationNeedsChangeReason(draft?.locationId)) {
+        setPendingReasonAction({ type: "create" });
+        return;
+      }
+      createMut.mutate(undefined);
+    }, [createMut, draft?.locationId, locationNeedsChangeReason]);
+
+    const requestDelete = useCallback(
+      (id: string) => {
+        const row = (register.data?.rows ?? []).find((item) => item.id === id);
+        if (locationNeedsChangeReason(row?.locationId)) {
+          setDeleteRowId(null);
+          setPendingReasonAction({ type: "delete", id });
+          return;
+        }
+        deleteMut.mutate({ id });
+      },
+      [deleteMut, locationNeedsChangeReason, register.data?.rows],
+    );
+
+    const requestDeleteAll = useCallback(
+      (ids: string[] | null) => {
+        const scoped =
+          ids == null
+            ? filtered
+            : filtered.filter((row) => ids.includes(row.id));
+        if (scopeNeedsChangeReason(scoped)) {
+          setDeleteAllOpen(false);
+          setPendingReasonAction({ type: "deleteAll", ids });
+          return;
+        }
+        deleteAllMut.mutate({ ids });
+      },
+      [deleteAllMut, filtered, scopeNeedsChangeReason],
+    );
 
     const deleting = deleteMut.isPending || deleteAllMut.isPending;
     const deleteAllDisabled = filtered.length === 0 || deleting || register.isLoading;
@@ -1133,7 +1212,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       if (editing) {
         return (
           <div className="flex flex-wrap justify-end gap-1">
-            <Button type="button" size="sm" disabled={saveMut.isPending} onClick={() => saveMut.mutate(row)}>
+            <Button type="button" size="sm" disabled={saveMut.isPending} onClick={() => requestSave(row)}>
               {saveMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               {t("people.roster.registerSave")}
             </Button>
@@ -1687,8 +1766,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                     : !editingRow || saveMut.isPending
                 }
                 onClick={() => {
-                  if (createWorkDate) createMut.mutate();
-                  else if (editingRow) saveMut.mutate(editingRow);
+                  if (createWorkDate) requestCreate();
+                  else if (editingRow) requestSave(editingRow);
                 }}
               >
                 {saveMut.isPending || createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -1722,7 +1801,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                   setEditingId(null);
                   setDraft(null);
                   startTransition(() => {
-                    deleteMut.mutate(id);
+                    requestDelete(id);
                   });
                 }}
               >
@@ -1759,7 +1838,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                   const ids = selectedCount > 0 ? selectedVisibleIds : null;
                   setDeleteAllOpen(false);
                   startTransition(() => {
-                    deleteAllMut.mutate(ids);
+                    requestDeleteAll(ids);
                   });
                 }}
               >
@@ -1772,6 +1851,22 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           </AlertDialogContent>
         </AlertDialog>
 
+        <RosterChangeReasonDialog
+          open={pendingReasonAction != null}
+          pending={saveMut.isPending || createMut.isPending || deleteMut.isPending || deleteAllMut.isPending}
+          onOpenChange={(open) => {
+            if (!open) setPendingReasonAction(null);
+          }}
+          onConfirm={(reason) => {
+            const action = pendingReasonAction;
+            if (!action) return;
+            if (action.type === "save") saveMut.mutate({ row: action.row, changeReason: reason });
+            else if (action.type === "create") createMut.mutate(reason);
+            else if (action.type === "delete") deleteMut.mutate({ id: action.id, changeReason: reason });
+            else deleteAllMut.mutate({ ids: action.ids, changeReason: reason });
+          }}
+        />
+
         <RosterBulkPatternDialog
           open={bulkPatternPerson != null}
           onOpenChange={(open) => {
@@ -1783,6 +1878,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           defaultLocationId={locationId || defaultLocationId || ""}
           locationOptions={locationOptions}
           existingRows={rows}
+          uploadedLocationIds={register.data?.uploadedLocationIds ?? []}
           onApplied={() => invalidateRosterCaches(qc)}
         />
       </div>

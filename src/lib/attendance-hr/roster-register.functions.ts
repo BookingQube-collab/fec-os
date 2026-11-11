@@ -63,12 +63,21 @@ import {
   rosterCopyDestinationKey,
   rosterCopyProtectedDestinationKeys,
 } from "@/lib/attendance-hr/roster-copy";
-import { insertRosterAuditEvent, snapFromRosterRow } from "@/lib/attendance-hr/roster-audit";
+import {
+  findLocationsWithCompletedRosterUpload,
+  insertRosterAuditEvent,
+  resolveRosterPostUploadChangeReason,
+  resolveRosterPostUploadChangeReasonForLocations,
+  snapFromRosterRow,
+} from "@/lib/attendance-hr/roster-audit";
+
+const changeReasonField = z.string().max(500).nullable().optional();
 import {
   mapRosterPeriodByDayIndex,
   monthBounds,
   nextPayrollMonth,
   payrollMonthMatchingBounds,
+  payrollMonthOf,
   previousPayrollMonth,
 } from "@/lib/attendance-hr/roster-period";
 import {
@@ -703,6 +712,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         rows: [] as RosterRegisterRow[],
         teamStaff: [] as RosterMatrixStaff[],
         cardLocations: await cardLocationsPromise,
+        uploadedLocationIds: [] as string[],
       };
     }
 
@@ -716,6 +726,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         rows: [] as RosterRegisterRow[],
         teamStaff: [] as RosterMatrixStaff[],
         cardLocations: await cardLocationsPromise,
+        uploadedLocationIds: [] as string[],
       };
     }
     if (data.locationId && companyRoster) await assertAttendanceRosterLocation(context, data.locationId);
@@ -737,6 +748,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           rows: [] as RosterRegisterRow[],
           teamStaff: [] as RosterMatrixStaff[],
           cardLocations: await cardLocationsPromise,
+          uploadedLocationIds: [] as string[],
         };
       }
     }
@@ -946,6 +958,15 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           departmentCodes: departments?.codes ?? [],
         };
       });
+      const coverageLocationIds = [...new Set(rows.map((row) => row.locationId).filter(Boolean))];
+      const uploadedLocationIds = [
+        ...(await findLocationsWithCompletedRosterUpload(
+          db,
+          data.dateFrom,
+          data.dateTo,
+          coverageLocationIds.length ? coverageLocationIds : null,
+        )),
+      ];
       return {
         dateFrom: data.dateFrom,
         dateTo: data.dateTo,
@@ -954,6 +975,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         teamStaff: null as RosterMatrixStaff[] | null,
         /** Null for a company roster. Assigned home and extra sites for a team roster. */
         cardLocations,
+        uploadedLocationIds,
       };
     }
 
@@ -1180,6 +1202,15 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       ? rosterTeamStaffForLocationCode(teamStaff, selectedLocationCode, rowStaffIds)
       : teamStaff;
 
+    const uploadedLocationIds = [
+      ...(await findLocationsWithCompletedRosterUpload(
+        db,
+        data.dateFrom,
+        data.dateTo,
+        locationIds.length ? locationIds : null,
+      )),
+    ];
+
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
@@ -1189,6 +1220,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       teamStaff: locationScopedTeamStaff,
       /** Null for a company roster. Assigned home and extra sites for a team roster. */
       cardLocations: await cardLocationsPromise,
+      /** Locations that already had a completed upload in this period — later edits need a reason. */
+      uploadedLocationIds,
     };
   },
   {
@@ -1245,6 +1278,7 @@ export const createRosterAssignment = createSafeAuthenticatedAction(
     dayStatus: z.enum(["on_duty", "weekly_off", "annual_leave", "sick_leave", "comp_off"]),
     compOffForDate: ymd.nullable().optional(),
     compOffNote: z.string().max(500).nullable().optional(),
+    changeReason: changeReasonField,
   }),
   async (data, context) => {
     await assertCanAmendRoster(context);
@@ -1252,6 +1286,12 @@ export const createRosterAssignment = createSafeAuthenticatedAction(
     const db = actor.db;
     assertRosterTeamStaff(actor, data.staffId);
     await assertRosterWriteLocation(actor, context, data.locationId);
+    const changeReason = await resolveRosterPostUploadChangeReason(
+      db,
+      data.locationId,
+      data.workDate,
+      data.changeReason,
+    );
 
     const patch = rosterPatchFromDayStatus(data.dayStatus);
     const compOffForDate = data.dayStatus === "comp_off" ? (data.compOffForDate ?? null) : null;
@@ -1318,6 +1358,7 @@ export const createRosterAssignment = createSafeAuthenticatedAction(
       action: "roster.create",
       locationId: data.locationId,
       entityId: String(inserted.id),
+      changeReason,
       after: {
         ...snapFromRosterRow({
           locationId: data.locationId,
@@ -1358,6 +1399,7 @@ export const updateRosterAssignment = createSafeAuthenticatedAction(
     compOffForDate: ymd.nullable().optional(),
     /** Short explanation. Required when dayStatus is comp_off. Stored on leave notes. */
     compOffNote: z.string().max(500).nullable().optional(),
+    changeReason: changeReasonField,
   }),
   async (data, context) => {
     await assertCanAmendRoster(context);
@@ -1379,6 +1421,16 @@ export const updateRosterAssignment = createSafeAuthenticatedAction(
     if (nextLocationId !== existingLocationId) {
       await assertRosterWriteLocation(actor, context, nextLocationId);
     }
+
+    const workDateForReason = String(existing.work_date).slice(0, 10);
+    const reasonMonth = monthBounds(payrollMonthOf(workDateForReason));
+    const changeReason = await resolveRosterPostUploadChangeReasonForLocations(
+      db,
+      [...new Set([existingLocationId, nextLocationId])],
+      reasonMonth.dateFrom,
+      reasonMonth.dateTo,
+      data.changeReason,
+    );
 
     const dayStatus: RosterDayStatus | null = data.dayStatus ?? null;
     const patch = dayStatus
@@ -1476,6 +1528,7 @@ export const updateRosterAssignment = createSafeAuthenticatedAction(
       action: "roster.update",
       locationId: nextLocationId,
       entityId: data.id,
+      changeReason,
       before: snapFromRosterRow({
         locationId: existingLocationId,
         staffId: String(existing.staff_id),
@@ -1532,6 +1585,7 @@ export const applyRosterStaffPattern = createSafeAuthenticatedAction(
     shiftEnd: z.string().nullable().optional(),
     /** When true, move existing rows onto locationId. Default keeps each row’s site. */
     overrideLocation: z.boolean().optional().default(false),
+    changeReason: changeReasonField,
   }),
   async (data, context) => {
     await assertCanAmendRoster(context);
@@ -1551,6 +1605,13 @@ export const applyRosterStaffPattern = createSafeAuthenticatedAction(
       throw new Error("Apply range must fall inside the current roster period.");
     }
     assertRosterDeletePeriod(dateFrom, dateTo);
+
+    const changeReason = await resolveRosterPostUploadChangeReason(
+      db,
+      data.locationId,
+      dateFrom,
+      data.changeReason,
+    );
 
     const offWeekdays = [...new Set(data.offWeekdays)].sort((a, b) => a - b);
     const shiftStart = parseHm(data.shiftStart);
@@ -1733,6 +1794,7 @@ export const applyRosterStaffPattern = createSafeAuthenticatedAction(
       actorId: context.userId,
       action: "roster.pattern_apply",
       locationId: data.locationId,
+      changeReason,
       after: {
         staffId: data.staffId,
         dateFrom,
@@ -1762,7 +1824,7 @@ export const applyRosterStaffPattern = createSafeAuthenticatedAction(
 );
 
 export const deleteRosterAssignment = createSafeAuthenticatedAction(
-  z.object({ id: z.string().uuid() }),
+  z.object({ id: z.string().uuid(), changeReason: changeReasonField }),
   async (data, context) => {
     await assertCanAmendRoster(context);
     const actor = await resolveRosterActor(context);
@@ -1778,18 +1840,26 @@ export const deleteRosterAssignment = createSafeAuthenticatedAction(
     assertRosterTeamStaff(actor, String(existing.staff_id));
     await assertRosterWriteLocation(actor, context, existing.location_id);
 
+    const workDate = String(existing.work_date).slice(0, 10);
+    const changeReason = await resolveRosterPostUploadChangeReason(
+      db,
+      String(existing.location_id),
+      workDate,
+      data.changeReason,
+    );
+
     const { error: delErr } = await db
       .from("attendance_roster_assignments")
       .delete()
       .eq("id", data.id);
     if (delErr) throw delErr;
 
-    const workDate = String(existing.work_date).slice(0, 10);
     await insertRosterAuditEvent(db, {
       actorId: context.userId,
       action: "roster.delete",
       locationId: String(existing.location_id),
       entityId: data.id,
+      changeReason,
       before: snapFromRosterRow({
         locationId: String(existing.location_id),
         staffId: String(existing.staff_id),
@@ -1922,6 +1992,7 @@ async function applyRosterSearchFilter(
 export const deleteRosterAssignments = createAuthenticatedAction(
   rosterScopeInput.extend({
     ids: z.array(z.string().uuid()).max(10000).optional(),
+    changeReason: changeReasonField,
   }),
   async (data, context) => {
     await assertCanBulkDeleteRoster(context);
@@ -1952,6 +2023,14 @@ export const deleteRosterAssignments = createAuthenticatedAction(
     for (const locationId of locationIds) {
       await assertRosterWriteLocation(actor, context, locationId);
     }
+
+    const changeReason = await resolveRosterPostUploadChangeReasonForLocations(
+      db,
+      locationIds,
+      data.dateFrom,
+      data.dateTo,
+      data.changeReason,
+    );
 
     for (const ids of chunkIds(toDelete.map((row) => String(row.id)), 200)) {
       const { error: delErr } = await db
@@ -1989,6 +2068,7 @@ export const deleteRosterAssignments = createAuthenticatedAction(
       actorId: context.userId,
       action: "roster.bulk_delete",
       locationId: data.locationId ?? locationIds[0] ?? null,
+      changeReason,
       after: {
         deleted: toDelete.length,
         dateFrom: data.dateFrom,

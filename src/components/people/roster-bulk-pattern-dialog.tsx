@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { RosterChangeReasonDialog } from "@/components/people/roster-change-reason-dialog";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,6 +40,8 @@ export type RosterBulkPatternDialogProps = {
   defaultLocationId: string;
   locationOptions: Array<{ value: string; label: string; keywords?: string }>;
   existingRows: RosterRegisterRow[];
+  /** Locations that already completed a roster upload — pattern apply then needs a reason. */
+  uploadedLocationIds?: readonly string[];
   onApplied: () => void;
 };
 
@@ -105,6 +108,7 @@ export function RosterBulkPatternDialog({
   defaultLocationId,
   locationOptions,
   existingRows,
+  uploadedLocationIds = [],
   onApplied,
 }: RosterBulkPatternDialogProps) {
   const { t, i18n } = useTranslation();
@@ -115,6 +119,9 @@ export function RosterBulkPatternDialog({
   const [offWeekdays, setOffWeekdays] = useState<number[]>([5, 6]);
   const [shiftStart, setShiftStart] = useState("09:00");
   const [shiftEnd, setShiftEnd] = useState("18:00");
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const uploadedSet = useMemo(() => new Set(uploadedLocationIds), [uploadedLocationIds]);
+  const needsChangeReason = Boolean(locationId && uploadedSet.has(locationId));
 
   useEffect(() => {
     if (!open || !person) return;
@@ -191,7 +198,7 @@ export function RosterBulkPatternDialog({
   }, [person, periodFrom, periodTo, applyFrom, applyTo, offWeekdays, shiftStart, shiftEnd, existingRows]);
 
   const applyMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (changeReason?: string) => {
       if (!person) throw new Error(t("people.roster.registerPickStaff"));
       if (!locationId) throw new Error(t("people.roster.registerPickLocation"));
       if (offWeekdays.length < 7 && (!shiftStart || !shiftEnd)) {
@@ -208,6 +215,7 @@ export function RosterBulkPatternDialog({
         shiftStart,
         shiftEnd,
         overrideLocation,
+        changeReason: changeReason ?? null,
       });
       if (!result.ok) throw new Error(result.error);
       return result.data;
@@ -219,6 +227,7 @@ export function RosterBulkPatternDialog({
           skipped: data.skippedLeave,
         }),
       );
+      setReasonOpen(false);
       onOpenChange(false);
       onApplied();
     },
@@ -241,6 +250,7 @@ export function RosterBulkPatternDialog({
     !applyMut.isPending;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
@@ -353,12 +363,27 @@ export function RosterBulkPatternDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={applyMut.isPending}>
             {t("common.cancel")}
           </Button>
-          <Button type="button" onClick={() => applyMut.mutate()} disabled={!canApply}>
+          <Button
+            type="button"
+            onClick={() => {
+              if (needsChangeReason) setReasonOpen(true);
+              else applyMut.mutate(undefined);
+            }}
+            disabled={!canApply}
+          >
             {applyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("people.roster.bulkPatternApply")}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <RosterChangeReasonDialog
+      open={reasonOpen}
+      pending={applyMut.isPending}
+      onOpenChange={setReasonOpen}
+      onConfirm={(reason) => applyMut.mutate(reason)}
+    />
+    </>
   );
 }

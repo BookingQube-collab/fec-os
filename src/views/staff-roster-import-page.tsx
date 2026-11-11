@@ -2,12 +2,13 @@
 
 import { FecPageHeader } from "@/components/fec";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
 import Link from "next/link";
 import { type DragEvent, type UIEvent, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { RosterChangeReasonDialog } from "@/components/people/roster-change-reason-dialog";
 import { RosterLocationCoverage } from "@/components/people/roster-location-coverage";
 import { RosterRegisterPanel } from "@/components/people/roster-register-panel";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
@@ -22,9 +23,12 @@ import { useSites } from "@/hooks/queries/useSites";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { applyStaffMapToPreviewRows } from "@/lib/attendance-hr/apply-roster-name-map";
 import { mapAttendanceRosterSheetName } from "@/lib/attendance-hr.functions";
+import { listUploadedRosterAssignments } from "@/lib/attendance-hr/roster-register.functions";
 import type { MatchedRosterRow } from "@/lib/attendance-hr/roster-upload";
 import { isActiveRosterStaff } from "@/lib/staff-status";
 import { invalidateRosterCaches } from "@/lib/people-query-invalidate";
+import { STALE } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import {
   formatRosterFileSize,
   pickRosterImportFile,
@@ -45,7 +49,7 @@ import {
 import { useCanAmendShiftRoster } from "@/hooks/use-auth";
 import { useAppStore } from "@/stores/app-store";
 
-type UploadArg = { mode: "preview" | "commit" };
+type UploadArg = { mode: "preview" | "commit"; changeReason?: string };
 
 type ShiftPreviewRow = MatchedRosterRow;
 
@@ -125,6 +129,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [registerRefresh, setRegisterRefresh] = useState(0);
+  const [changeReasonOpen, setChangeReasonOpen] = useState(false);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const sites = useSites();
 
@@ -139,6 +144,24 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
       return { dateFrom: weekStart, dateTo: weekStart };
     }
   }, [periodMode, weekStart, month]);
+
+  const uploadedLocationsQuery = useQuery({
+    queryKey: [...queryKeys.people.rosterRegister({ dateFrom: period.dateFrom, dateTo: period.dateTo, coverageOnly: true }), "uploaded-locations", registerRefresh],
+    queryFn: () =>
+      listUploadedRosterAssignments({
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        coverageOnly: true,
+        sourceUploadOnly: false,
+      }),
+    staleTime: STALE.people,
+    enabled: Boolean(period.dateFrom && period.dateTo),
+    refetchOnWindowFocus: false,
+  });
+  const uploadedLocationIds = useMemo(
+    () => new Set(uploadedLocationsQuery.data?.uploadedLocationIds ?? []),
+    [uploadedLocationsQuery.data?.uploadedLocationIds],
+  );
 
   const resetReview = () => {
     setPreview(null);
@@ -210,6 +233,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
           kind: "shift_roster",
           rows: preview.rows,
         }));
+        if (arg.changeReason?.trim()) form.set("changeReason", arg.changeReason.trim());
       }
       const res = await fetch("/api/people/roster-import", { method: "POST", body: form, credentials: "include" });
       const body = (await res.json()) as PreviewResponse;
@@ -250,10 +274,36 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
     },
   });
 
-  const confirmImport = useCallback(() => {
-    setPreviewError(null);
-    uploadMut.mutate({ mode: "commit" });
-  }, [uploadMut]);
+  const previewNeedsChangeReason = useMemo(() => {
+    const rows = preview?.rows ?? [];
+    const locationIds = new Set(
+      rows
+        .filter((row) => row.status === "matched" && row.locationId)
+        .map((row) => String(row.locationId)),
+    );
+    if (locationScope === "single" && singleLocationId) locationIds.add(singleLocationId);
+    for (const id of locationIds) {
+      if (uploadedLocationIds.has(id)) return true;
+    }
+    return false;
+  }, [preview?.rows, locationScope, singleLocationId, uploadedLocationIds]);
+
+  const confirmImport = useCallback(
+    (changeReason?: string) => {
+      setPreviewError(null);
+      setChangeReasonOpen(false);
+      uploadMut.mutate({ mode: "commit", changeReason });
+    },
+    [uploadMut],
+  );
+
+  const requestConfirmImport = useCallback(() => {
+    if (previewNeedsChangeReason) {
+      setChangeReasonOpen(true);
+      return;
+    }
+    confirmImport();
+  }, [confirmImport, previewNeedsChangeReason]);
 
   useEffect(() => {
     if (!file) return;
@@ -593,7 +643,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
             variant={readyToConfirm || committing ? "default" : "outline"}
             className={cn((readyToConfirm || committing) && confirmClass)}
             disabled={!readyToConfirm}
-            onClick={() => uploadMut.mutate({ mode: "commit" })}
+            onClick={requestConfirmImport}
           >
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {committing ? t("people.roster.confirming") : t("people.roster.confirm")}
@@ -635,7 +685,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
           committing={committing}
           confirmClassName={confirmClass}
           surfaceClassName={surface}
-          onConfirm={confirmImport}
+          onConfirm={requestConfirmImport}
           onClose={closePreview}
           onRowsChange={handleShiftRowsChange}
         />
@@ -661,6 +711,16 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
         </Button>
       </div>
       )}
+
+      <RosterChangeReasonDialog
+        open={changeReasonOpen}
+        pending={committing}
+        title={t("people.roster.changeReasonTitle")}
+        description={t("people.roster.changeReasonHelp")}
+        confirmLabel={t("people.roster.confirm")}
+        onOpenChange={setChangeReasonOpen}
+        onConfirm={(reason) => confirmImport(reason)}
+      />
     </div>
   );
 }

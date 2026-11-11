@@ -5674,6 +5674,13 @@
       "registerSaved": "تم تحديث صف الكشف.",
       "registerDeleted": "تم حذف صف الكشف.",
       "registerDeleteConfirm": "حذف صف الكشف هذا؟ سيُعاد احتساب الحضور لذلك اليوم.",
+      "changeReasonTitle": "لماذا يتغيّر الكشف؟",
+      "changeReasonHelp": "هذا الموقع لديه رفع مكتمل للكشف في هذه الفترة. أدخل سبباً قصيراً ليظهر في سجل التغييرات.",
+      "changeReasonLabel": "السبب",
+      "changeReasonPlaceholder": "مثال: تبديل مواقع الموظفين للتغطية",
+      "changeReasonTooShort": "أدخل 3 أحرف على الأقل.",
+      "changeReasonConfirm": "متابعة",
+      "changeReasonRequired": "مطلوب سبب بعد اكتمال رفع الكشف.",
       "registerSelectAll": "تحديد كل الصفوف الظاهرة",
       "registerDeselectAll": "إلغاء تحديد كل الصفوف الظاهرة",
       "registerSelectRow": "تحديد {{name}} في {{date}}",
@@ -5839,7 +5846,8 @@
       "colWho": "من",
       "colLocation": "الموقع",
       "colStaff": "الموظف / التاريخ",
-      "colSummary": "التغيير"
+      "colSummary": "التغيير",
+      "colReason": "السبب"
     },
     "profile": {
       "title": "ملف الموظف",

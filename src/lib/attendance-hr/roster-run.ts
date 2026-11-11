@@ -112,6 +112,8 @@ export async function commitLiveShiftRoster(
     preview: AttendanceRosterPreview;
     fileName: string;
     fileType: string;
+    /** Required when re-uploading a location-month that was already fully uploaded. */
+    changeReason?: string | null;
   },
   team?: TeamRosterUploadScope,
 ) {
@@ -168,6 +170,7 @@ export async function commitLiveShiftRoster(
           fileName: input.fileName,
           fileType: input.fileType,
           rows: scopedRows,
+          changeReason: input.changeReason,
         },
         team ? supabaseAdmin : context.supabase,
         team ? { trustedLocation: true } : undefined,

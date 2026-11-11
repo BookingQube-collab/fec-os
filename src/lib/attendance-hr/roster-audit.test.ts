@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertRosterChangeReason,
   canViewMonthlyRosterHistory,
   classifyRosterHistoryChangeKinds,
+  normalizeRosterChangeReason,
+  rosterAuditChangeReason,
   summarizeRosterAuditChange,
 } from "@/lib/attendance-hr/roster-audit";
+
+describe("roster change reason", () => {
+  it("normalizes and rejects empty reasons", () => {
+    expect(normalizeRosterChangeReason("  swap shifts  ")).toBe("swap shifts");
+    expect(normalizeRosterChangeReason("   ")).toBeNull();
+    expect(assertRosterChangeReason("Staff swapped sites")).toBe("Staff swapped sites");
+    expect(() => assertRosterChangeReason("ab")).toThrow(/reason is required/i);
+  });
+
+  it("reads changeReason from audit payloads", () => {
+    expect(rosterAuditChangeReason({ changeReason: "Coverage fix" }, null)).toBe("Coverage fix");
+    expect(rosterAuditChangeReason(null, { changeReason: "from before" })).toBe("from before");
+    expect(rosterAuditChangeReason(null, null)).toBeNull();
+  });
+});
 
 describe("canViewMonthlyRosterHistory", () => {
   it("allows HR role and Head of Operations title only", () => {

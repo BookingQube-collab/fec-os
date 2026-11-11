@@ -7,7 +7,10 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { recalculateAttendanceRange } from "./process";
 import { enumerateYmd } from "./dashboard";
 import { attendanceRecalcLocationsAfterRosterUpsert } from "./flexible-cross-site";
-import { insertRosterAuditEvent } from "./roster-audit";
+import {
+  insertRosterAuditEvent,
+  resolveRosterPostUploadChangeReasonForLocations,
+} from "./roster-audit";
 import { payrollMonthMatchingBounds } from "./roster-period";
 import { chunkIds } from "./roster-register-scope";
 import {
@@ -85,11 +88,21 @@ export async function replaceAttendanceRosterPeriod(
     fileName: string;
     fileType: string;
     rows: MatchedRosterRow[];
+    /** Required when this location-month already had a completed upload (re-upload / replace). */
+    changeReason?: string | null;
   },
   db: AuthContext["supabase"] = context.supabase,
   options?: { trustedLocation?: boolean },
 ) {
   if (!options?.trustedLocation) await assertAttendanceRosterLocation(context, input.locationId);
+
+  const changeReason = await resolveRosterPostUploadChangeReasonForLocations(
+    db,
+    [input.locationId],
+    input.dateFrom,
+    input.dateTo,
+    input.changeReason,
+  );
 
   const unique = [...assignmentsFromPreview(input.rows).values()].filter((row) => row.locationId === input.locationId);
   const staffIds = [
@@ -247,6 +260,7 @@ export async function replaceAttendanceRosterPeriod(
     action: "roster.upload",
     locationId: input.locationId,
     entityId: uploadRow.id as string,
+    changeReason,
     after: {
       imported: payload.length,
       fileName: input.fileName,
