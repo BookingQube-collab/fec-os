@@ -1,8 +1,9 @@
 "use client";
 
-import LatticeLoader from "@/components/react-bits/lattice-loader";
-import { cn } from "@/lib/utils";
+import { AsciiSkeleton } from "ascii-reveal";
 import { useTranslation } from "react-i18next";
+
+import { cn } from "@/lib/utils";
 
 export type FecLoaderDensity = "chip" | "page";
 
@@ -19,44 +20,27 @@ export interface FecLoaderProps {
   density?: FecLoaderDensity;
 }
 
-const METRICS = {
-  chip: { cell: 4, gap: 1.5, font: 12 },
-  page: { cell: 7, gap: 2, font: 15 },
-} as const;
-
 /**
- * React Bits lattice, in the app's cream card chrome.
- * One component: a small pill for inline updates, a larger card for page loads.
+ * ASCII glyph loader (ascii-reveal). Chip for inline refreshes; page for section waits.
  */
 export function FecLoader({ className, label, size = "md", density }: FecLoaderProps) {
   const { t } = useTranslation();
   const resolved: FecLoaderDensity = density ?? (size === "sm" ? "chip" : "page");
-  const metrics = METRICS[resolved];
   const text = label ?? t("common.loading");
-
-  const lattice = (
-    <LatticeLoader
-      label={text}
-      showTimer={false}
-      pattern="orbit"
-      shape="round"
-      cellSize={metrics.cell}
-      gap={metrics.gap}
-      fontSize={metrics.font}
-      color="currentColor"
-      idleOpacity={0.28}
-    />
-  );
 
   if (resolved === "page") {
     return (
       <div
         className={cn(
-          "flex w-fit max-w-full items-center rounded-2xl border border-border bg-card px-5 py-4 text-foreground shadow-elevated-sm",
+          "flex w-fit max-w-full flex-col gap-2 rounded-2xl border border-border bg-card px-5 py-4 text-muted-foreground shadow-elevated-sm",
           className,
         )}
+        role="status"
+        aria-live="polite"
+        aria-label={text}
       >
-        {lattice}
+        <AsciiSkeleton variant="scan" lines={3} widths={["12rem", "10rem", "8rem"]} seed={3} />
+        <span className="text-xs font-medium tracking-wide text-muted-foreground">{text}</span>
       </div>
     );
   }
@@ -64,11 +48,15 @@ export function FecLoader({ className, label, size = "md", density }: FecLoaderP
   return (
     <span
       className={cn(
-        "inline-flex w-fit max-w-full items-center rounded-full border border-border/80 bg-card px-3 py-1 text-muted-foreground shadow-elevated-xs",
+        "inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-border/80 bg-card px-3 py-1.5 text-muted-foreground shadow-elevated-xs",
         className,
       )}
+      role="status"
+      aria-live="polite"
+      aria-label={text}
     >
-      {lattice}
+      <AsciiSkeleton variant="scan" lines={1} widths={["5.5rem"]} seed={7} className="min-w-[5.5rem]" />
+      <span className="text-[11px] font-medium tracking-wide">{text}</span>
     </span>
   );
 }

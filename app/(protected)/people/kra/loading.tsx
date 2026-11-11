@@ -1,3 +1,5 @@
-export default function Loading() {
-  return <div className="p-6 text-sm text-muted-foreground">Loading KRA scorecards…</div>;
+import { RouteLoadingSkeleton } from "@/components/layout/route-loading";
+
+export default function KraLoading() {
+  return <RouteLoadingSkeleton variant="table" />;
 }

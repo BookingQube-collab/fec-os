@@ -105,6 +105,14 @@
   --primary-foreground: #ffffff;
   --electric: #6d4aff;
 
+  /* ascii-reveal — match FEC violet / muted ink */
+  --ascii-accent: var(--electric);
+  --ascii-skeleton: var(--muted-foreground);
+  --ascii-glyph: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  --ascii-flash: var(--electric);
+  --ascii-surface: var(--card);
+  --ascii-font: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+
   --secondary: #f3ede0;
   --secondary-foreground: #1a1a1a;
 

@@ -28,6 +28,7 @@ const nextConfig: NextConfig = {
       static: 300,
     },
     optimizePackageImports: [
+      "ascii-reveal",
       "lucide-react",
       "date-fns",
       "recharts",

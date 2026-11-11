@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
 import { AuroraBackdrop } from "@/components/layout/aurora-backdrop";
 import { NotificationToastHost } from "@/components/layout/notification-toast-host";
+import { AsciiPageReveal } from "@/components/loading/ascii-page-reveal";
 import { AppSidebar } from "./app-sidebar";
 import { AppTopbar } from "./app-topbar";
 import { EmployeeMobileHeader } from "./employee-app-shell";
@@ -101,7 +102,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               accountRoute && "account-hub-shell",
             )}
           >
-            <AppErrorBoundary>{children}</AppErrorBoundary>
+            <AppErrorBoundary>
+              <AsciiPageReveal
+                className={cn("min-h-0 w-full", chatRoute && "flex min-h-0 flex-1 flex-col")}
+              >
+                {children}
+              </AsciiPageReveal>
+            </AppErrorBoundary>
           </DashboardPanel>
         </div>
       </div>

@@ -1,12 +1,12 @@
 "use client";
 
+import { AsciiSkeleton } from "ascii-reveal";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { loadEnglishCatalog } from "@/i18n";
 import { useEnglishCatalog } from "@/i18n/use-english-catalog";
@@ -18,10 +18,17 @@ if (typeof window !== "undefined") {
 function AuthShellSkeleton() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-3">
-        <Skeleton className="mx-auto h-10 w-10 rounded-full" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-2/3 mx-auto" />
+      <div className="w-full max-w-sm space-y-3" role="status" aria-busy="true">
+        <AsciiSkeleton
+          variant="braille"
+          rows={5}
+          width="2.5rem"
+          height="2.5rem"
+          circle
+          seed={1}
+          className="mx-auto"
+        />
+        <AsciiSkeleton variant="scan" lines={2} widths={["100%", "66%"]} seed={2} />
       </div>
     </div>
   );
