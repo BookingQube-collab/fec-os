@@ -3,8 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   eventRoleCodeToken,
   generateEventHireEmployeeCode,
+  isEventHireEmployeeCode,
   previewEventHireEmployeeCode,
 } from "@/lib/events/event-hire-employee-code";
+
+describe("isEventHireEmployeeCode", () => {
+  it("recognizes EVT-* workforce codes", () => {
+    expect(isEventHireEmployeeCode("EVT-CRW01")).toBe(true);
+    expect(isEventHireEmployeeCode("evt-csh01")).toBe(true);
+    expect(isEventHireEmployeeCode("UA-DM-CSH01")).toBe(false);
+  });
+});
 
 describe("eventRoleCodeToken", () => {
   it("maps known event roles to demo-compatible tokens", () => {

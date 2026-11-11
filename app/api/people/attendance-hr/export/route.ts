@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { displayDepartmentShown, parseShowOrgDepartmentsParam } from "@/lib/exclude-org-departments";
+import { isEventWorkforceStaff } from "@/lib/events/event-workforce-staff";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import {
   getAttendanceHrDaily,
@@ -522,9 +523,17 @@ export async function GET(request: Request) {
         ? (kpiFilterRaw as AttendanceHrKpiFilter)
         : null;
       // Same row set as the on-screen listing (org-dept chips + KPI strip filter).
-      let daily = showOrgDepartments.length
-        ? dailyRows.filter((row) => displayDepartmentShown(row.department, showOrgDepartments))
-        : dailyRows;
+      // Event workforce never exports with monthly FEC attendance (Event Attendance only).
+      let daily = dailyRows.filter(
+        (row) =>
+          !isEventWorkforceStaff({
+            employee_code: row.employee_code,
+            department: row.department,
+          }),
+      );
+      if (showOrgDepartments.length) {
+        daily = daily.filter((row) => displayDepartmentShown(row.department, showOrgDepartments));
+      }
       if (kpiFilter) {
         daily = daily.filter((row) => attendanceHrRowMatchesKpiFilter(row, kpiFilter));
       }

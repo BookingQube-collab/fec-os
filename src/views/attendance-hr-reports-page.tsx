@@ -65,6 +65,7 @@ import {
   orgDepartmentSelectionIsAll,
   type OrgDepartmentChecks,
 } from "@/lib/exclude-org-departments";
+import { isEventWorkforceStaff } from "@/lib/events/event-workforce-staff";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
@@ -302,8 +303,15 @@ export default function AttendanceHrReportsPage() {
       })
     : "";
   // Location scope (strict site touches + journey siblings) is applied in getAttendanceHrDaily.
+  // Event workforce stays out even when Ops/Maint/F&B is unrestricted (menu label default).
   const rows = useMemo(() => {
-    const base = (q.data ?? []) as AttendanceHrReportRow[];
+    const base = ((q.data ?? []) as AttendanceHrReportRow[]).filter(
+      (row) =>
+        !isEventWorkforceStaff({
+          employee_code: row.employee_code,
+          department: row.department,
+        }),
+    );
     if (!showOrgDepartments.length) return base;
     return base.filter((row) => displayDepartmentShown(row.department, showOrgDepartments));
   }, [q.data, showOrgDepartments]);

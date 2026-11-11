@@ -3,6 +3,11 @@
  * Distinct from venue staff codes (`INF-CC-STF01`) and shared with demo seed prefixes.
  */
 
+/** True for event-hire / event workforce employee codes (`EVT-CRW01`, `EVT-IBR22`, …). */
+export function isEventHireEmployeeCode(code: string | null | undefined): boolean {
+  return (code ?? "").trim().toUpperCase().startsWith("EVT-");
+}
+
 const KNOWN_ROLE_TOKENS: Record<string, string> = {
   crew: "CRW",
   cashier: "CSH",

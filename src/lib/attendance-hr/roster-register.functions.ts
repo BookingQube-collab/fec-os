@@ -87,6 +87,10 @@ import {
 } from "@/lib/staff-roster/previous-month-export";
 import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
+import {
+  excludeEventWorkforceFromMonthlyModules,
+  isEventWorkforceStaff,
+} from "@/lib/events/event-workforce-staff";
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 function missingCompOffColumn(error: { message?: string } | null | undefined): boolean {
@@ -237,7 +241,13 @@ function rosterAssignStaffOption(row: RosterAssignStaffRow) {
 function isAssignableRosterStaffRow(row: {
   status?: string | null;
   employment_type?: string | null;
+  employee_code?: string | null;
+  department?: string | null;
 }): boolean {
+  // Event workforce stays on Event Attendance only — never monthly roster assign pickers.
+  if (isEventWorkforceStaff({ employee_code: row.employee_code, department: row.department })) {
+    return false;
+  }
   // Status and employment-type jokers stay assignable (same as Attendance listing).
   return isRosterAssignableStaffStatus(row.status);
 }
@@ -1194,13 +1204,24 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       };
     });
 
+    // Event workforce (EVT-* / Event demo) never belongs on the monthly FEC register.
+    const monthlyMapped = excludeEventWorkforceFromMonthlyModules(mapped, (row) => ({
+      employeeCode: row.employeeCode,
+      department: row.department,
+    }));
     // Keep every assignment whose location_id already matched the selected site
     // (moved / re-coded staff still show their KDS days). Drop only empty
     // placeholders whose employee code belongs to another venue.
-    const rowStaffIds = new Set(mapped.map((row) => row.staffId));
-    const locationScopedTeamStaff = selectedLocationCode
+    const rowStaffIds = new Set(monthlyMapped.map((row) => row.staffId));
+    const scopedTeam = selectedLocationCode
       ? rosterTeamStaffForLocationCode(teamStaff, selectedLocationCode, rowStaffIds)
       : teamStaff;
+    const locationScopedTeamStaff =
+      scopedTeam == null
+        ? null
+        : excludeEventWorkforceFromMonthlyModules(scopedTeam, (person) => ({
+            employeeCode: person.employeeCode,
+          }));
 
     const uploadedLocationIds = [
       ...(await findLocationsWithCompletedRosterUpload(
@@ -1214,8 +1235,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
-      count: mapped.length,
-      rows: mapped,
+      count: monthlyMapped.length,
+      rows: monthlyMapped,
       /** Null for company roster viewers. Chart subtree plus the viewer for a team-scoped login, even with no shifts. */
       teamStaff: locationScopedTeamStaff,
       /** Null for a company roster. Assigned home and extra sites for a team roster. */

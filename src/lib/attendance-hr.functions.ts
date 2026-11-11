@@ -38,6 +38,7 @@ import { fetchActiveTemporaryMovesByStaffId } from "@/lib/staff-temporary-moves-
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveDepartmentFilterIds } from "@/lib/department-alias-resolve.server";
 import { displayDepartmentShown } from "@/lib/exclude-org-departments";
+import { isEventWorkforceStaff } from "@/lib/events/event-workforce-staff";
 import {
   ATTENDANCE_DAILY_LIST_COLUMNS,
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
@@ -3272,9 +3273,19 @@ async function enrichAttendanceHrDailyRows(
   // Map → recalc leaves bio: orphan summaries beside staff: keepers (Fahadah / Fahadha).
   const dedupedRows = suppressUnmappedWhenMappedSameDay(rows);
   // Keep punched / rostered history for exited staff; hide soft-deleted merge archives.
+  // Event workforce (EVT-* / Event demo) belongs only in Event Attendance — never monthly listing/KPIs.
   const listingRows = dedupedRows.filter((row) => {
     const id = typeof row.staff_id === "string" ? row.staff_id : null;
     const staff = id ? staffById.get(id) : undefined;
+    if (
+      staff &&
+      isEventWorkforceStaff({
+        employee_code: staff.employee_code,
+        department: staff.department,
+      })
+    ) {
+      return false;
+    }
     const workDate = String(row.work_date ?? "").slice(0, 10);
     const hasPunches =
       Number(row.punch_count ?? 0) > 0 || Boolean(row.actual_in) || Boolean(row.actual_out);
