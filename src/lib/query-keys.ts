@@ -222,6 +222,8 @@ export const queryKeys = {
     hrSiteShiftPolicy: () => [...queryKeys.people.all, "hr-site-shift-policy"] as const,
     hrReports: (filters?: object) => [...queryKeys.people.all, "hr-reports", filters ?? {}] as const,
     hrLeaveBalances: (filters?: object) => [...queryKeys.people.all, "hr-leave-balances", filters ?? {}] as const,
+    hrLeaveApplyPreview: (filters?: object) =>
+      [...queryKeys.people.all, "hr-leave-apply-preview", filters ?? {}] as const,
     hrLeavePlannerPreview: (filters?: object) =>
       [...queryKeys.people.all, "hr-leave-planner-preview", filters ?? {}] as const,
     hrLeavePlannerBoard: () => [...queryKeys.people.all, "hr-leave-planner-board"] as const,

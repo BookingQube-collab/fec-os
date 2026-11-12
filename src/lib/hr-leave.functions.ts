@@ -605,6 +605,116 @@ async function remainingSickDaysForStaff(
   return Math.max(0, allotted + carried - expired - (used.sick ?? 0) - pending);
 }
 
+/** Annual remaining from hire_date / tier accrual (same engine as balances + HO planner). */
+async function remainingAnnualDaysForStaff(
+  context: AuthContext,
+  staffId: string,
+  year: number,
+  leavePolicy: Record<string, unknown>,
+): Promise<{
+  remainingDays: number;
+  allottedDays: number;
+  usedDays: number;
+  accruedDays: number;
+  eligible: boolean;
+  hireDate: string | null;
+  tierCode: string;
+  tierAnnualDays: number;
+  monthlyAccrual: number;
+  monthsAccrued: number;
+  yearsOfService: number | null;
+}> {
+  const tierCfg = annualTierDaysFromPolicy(leavePolicy);
+  const fromHireDate = leavePolicy.annual_from_hire_date !== false;
+  const asOfRaw = new Date().toISOString().slice(0, 10);
+  const asOfDate =
+    asOfRaw < `${year}-01-01` ? `${year}-12-31` : asOfRaw > `${year}-12-31` ? `${year}-12-31` : asOfRaw;
+
+  const { data: staffRow } = await context.supabase
+    .from("staff")
+    .select("hire_date, job_title, department, staff_role")
+    .eq("id", staffId)
+    .maybeSingle();
+  const { data: profileExt } = await context.supabase
+    .from("staff_profile_ext")
+    .select("employment_category, is_management")
+    .eq("staff_id", staffId)
+    .maybeSingle();
+
+  const hireDate = (staffRow as { hire_date?: string | null } | null)?.hire_date?.slice(0, 10) ?? null;
+  const { tier, accrual, allottedDays } = resolveStaffAnnualEntitlement({
+    hireDate,
+    asOfDate,
+    year,
+    fromHireDate,
+    jobTitle: (staffRow as { job_title?: string | null } | null)?.job_title,
+    department: (staffRow as { department?: string | null } | null)?.department,
+    staffRole: (staffRow as { staff_role?: string | null } | null)?.staff_role,
+    employmentCategory: (profileExt as { employment_category?: string | null } | null)?.employment_category,
+    isManagement: (profileExt as { is_management?: boolean | null } | null)?.is_management,
+    under5yDays: tierCfg.under5yDays,
+    fiveYearPlusDays: tierCfg.fiveYearPlusDays,
+    managementDays: tierCfg.managementDays,
+    tenureYearsThreshold: tierCfg.tenureYearsThreshold,
+    titleKeywords: tierCfg.titleKeywords,
+  });
+
+  const { data: allotment } = await context.supabase
+    .from("hr_leave_balances")
+    .select("carried_forward, expired_days, pending_days")
+    .eq("staff_id", staffId)
+    .eq("period_year", year)
+    .eq("leave_type", "annual")
+    .maybeSingle();
+  const carried = Number((allotment as { carried_forward?: number } | null)?.carried_forward ?? 0);
+  const expired = Number((allotment as { expired_days?: number } | null)?.expired_days ?? 0);
+  const pending = Number((allotment as { pending_days?: number } | null)?.pending_days ?? 0);
+
+  const { data: leaveRows } = await context.supabase
+    .from("hr_leave_requests")
+    .select("leave_type, days, status, date_from")
+    .eq("staff_id", staffId)
+    .eq("status", "approved")
+    .eq("leave_type", "annual");
+  const usedMap = sumUsedLeaveDays(
+    (leaveRows ?? []).map((r) => ({
+      leaveType: String(r.leave_type),
+      days: Number(r.days ?? 0),
+      status: String(r.status),
+      dateFrom: String(r.date_from),
+    })),
+    year,
+  );
+  const usedDays = usedMap.annual ?? 0;
+  const remainingDays = Math.max(0, allottedDays + carried - expired - usedDays - pending);
+  return {
+    remainingDays,
+    allottedDays,
+    usedDays,
+    accruedDays: accrual.accruedDays,
+    eligible: accrual.eligible,
+    hireDate,
+    tierCode: tier.code,
+    tierAnnualDays: tier.annualDays,
+    monthlyAccrual: tier.monthlyAccrual,
+    monthsAccrued: accrual.monthsAccrued,
+    yearsOfService: tier.yearsOfService,
+  };
+}
+
+async function mayAccessLeaveSubjectStaff(
+  context: AuthContext,
+  staffId: string,
+): Promise<boolean> {
+  const manage =
+    canUserDo(context.roles ?? [], "hr.leave.manage") || canUserDo(context.roles ?? [], "hr.manage");
+  if (manage) return true;
+  const mine = await myStaff(context);
+  if (mine?.id === staffId) return true;
+  const subjects = await listPunchCorrectionSubjects(context.userId);
+  return subjects.some((row) => row.staffId === staffId);
+}
+
 /** Repair orphan pending leave that was inserted before approval-step seed used admin. */
 async function loadOrRepairLeaveApprovalSteps(
   leaveId: string,
@@ -1179,16 +1289,133 @@ export const previewLeaveConflicts = createAuthenticatedAction(
     staffId: z.string().uuid().optional(),
   }),
   async (data, context) => {
-    const manage = canUserDo(context.roles ?? [], "hr.leave.manage");
     const mine = await myStaff(context);
-    const staffId = manage && data.staffId ? data.staffId : mine?.id;
+    const staffId = data.staffId ?? mine?.id;
     if (!staffId) throw new ForbiddenError("No staff record linked.");
-    if (!manage && staffId !== mine?.id) throw new ForbiddenError("You can only preview your own leave.");
+    if (!(await mayAccessLeaveSubjectStaff(context, staffId))) {
+      throw new ForbiddenError("You can only preview leave for yourself or your team.");
+    }
     const conflicts = await loadLeaveConflicts(context, staffId, data.dateFrom, data.dateTo);
     return {
       conflicts,
       days: countLeaveDays(data.dateFrom, data.dateTo),
       hardOverlap: hasHardLeaveOverlap(conflicts),
+    };
+  },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.employee_app"] } },
+);
+
+/**
+ * Employee leave-apply policy preview (same engine as submit):
+ * entitlement remaining, OFF+AL+OFF sandwich, sick→annual split.
+ */
+export const previewLeaveApplyPolicy = createAuthenticatedAction(
+  z.object({
+    leaveType: z.enum(HR_LEAVE_TYPES).default("annual"),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    staffId: z.string().uuid().optional().nullable(),
+  }),
+  async (data, context) => {
+    const mine = await myStaff(context);
+    const staffId = data.staffId ?? mine?.id;
+    if (!staffId) throw new ForbiddenError("No staff record linked.");
+    if (!(await mayAccessLeaveSubjectStaff(context, staffId))) {
+      throw new ForbiddenError("You can only preview leave for yourself or your team.");
+    }
+
+    const days = countLeaveDays(data.dateFrom, data.dateTo);
+    const leavePolicy = await readPolicySection(context, "leave").catch(
+      () => ({} as Record<string, unknown>),
+    );
+    const tierCfg = annualTierDaysFromPolicy(leavePolicy);
+    const year = Number(data.dateFrom.slice(0, 4)) || new Date().getFullYear();
+    const annual = await remainingAnnualDaysForStaff(context, staffId, year, leavePolicy);
+    const sickAllotment = policyNumber(leavePolicy.sick_days, DEFAULT_SICK_ALLOTMENT);
+    const remainingSick =
+      data.leaveType === "sick"
+        ? await remainingSickDaysForStaff(context, staffId, year, sickAllotment)
+        : null;
+
+    let sandwich: ReturnType<typeof detectAnnualLeaveSandwich> | null = null;
+    if (
+      (data.leaveType === "annual" || data.leaveType === "sick") &&
+      tierCfg.sandwichBlockSubmit &&
+      days > 0
+    ) {
+      const { data: staffRow } = await context.supabase
+        .from("staff")
+        .select("weekly_off_weekday")
+        .eq("id", staffId)
+        .maybeSingle();
+      const weeklyOffWeekday =
+        (staffRow as { weekly_off_weekday?: number | null } | null)?.weekly_off_weekday ?? null;
+      if (data.leaveType === "annual") {
+        const lookup = await loadWeeklyOffLookupForLeave(
+          staffId,
+          data.dateFrom,
+          data.dateTo,
+          weeklyOffWeekday,
+        );
+        sandwich = detectAnnualLeaveSandwich({
+          dateFrom: data.dateFrom,
+          dateTo: data.dateTo,
+          lookup,
+        });
+      }
+    }
+
+    const sickSplit =
+      data.leaveType === "sick" && remainingSick != null
+        ? splitSickToAnnual({
+            dateFrom: data.dateFrom,
+            dateTo: data.dateTo,
+            remainingSickDays: remainingSick,
+          })
+        : null;
+
+    if (sickSplit?.requiresAnnualFollowOn && sickSplit.annualDateFrom && sickSplit.annualDateTo) {
+      const { data: staffRow } = await context.supabase
+        .from("staff")
+        .select("weekly_off_weekday")
+        .eq("id", staffId)
+        .maybeSingle();
+      const weeklyOffWeekday =
+        (staffRow as { weekly_off_weekday?: number | null } | null)?.weekly_off_weekday ?? null;
+      if (tierCfg.sandwichBlockSubmit) {
+        const lookup = await loadWeeklyOffLookupForLeave(
+          staffId,
+          sickSplit.annualDateFrom,
+          sickSplit.annualDateTo,
+          weeklyOffWeekday,
+        );
+        sandwich = detectAnnualLeaveSandwich({
+          dateFrom: sickSplit.annualDateFrom,
+          dateTo: sickSplit.annualDateTo,
+          lookup,
+        });
+      }
+    }
+
+    const annualDaysNeeded =
+      data.leaveType === "annual"
+        ? days
+        : sickSplit?.requiresAnnualFollowOn
+          ? sickSplit.annualDays
+          : 0;
+    const insufficientBalance =
+      annualDaysNeeded > 0 && (!annual.eligible || annualDaysNeeded > annual.remainingDays);
+
+    return {
+      days,
+      entitlement: annual,
+      remainingSickDays: remainingSick,
+      sandwichBlocked: Boolean(sandwich?.isSandwich),
+      sandwichPrefixDates: sandwich?.prefixOffDates ?? [],
+      sandwichSuffixDates: sandwich?.suffixOffDates ?? [],
+      sickSplit,
+      insufficientBalance,
+      annualDaysNeeded,
     };
   },
   { auth: { anyCapability: ["hr.leave.manage", "hr.employee_app"] } },
@@ -1200,11 +1427,13 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
     year: z.number().int().min(2020).max(2100).optional(),
   }),
   async (data, context) => {
-    const manage =
-      canUserDo(context.roles ?? [], "hr.leave.manage") || canUserDo(context.roles ?? [], "hr.manage");
     const mine = await myStaff(context);
-    const staffId = manage && data.staffId ? data.staffId : mine?.id;
-    if (!staffId) return { year: data.year ?? new Date().getFullYear(), balances: [], accrual: null };
+    const requested = data.staffId ?? mine?.id;
+    if (!requested) return { year: data.year ?? new Date().getFullYear(), balances: [], accrual: null };
+    if (!(await mayAccessLeaveSubjectStaff(context, requested))) {
+      throw new ForbiddenError("You can only view leave balances for yourself or your team.");
+    }
+    const staffId = requested;
     const year = data.year ?? new Date().getFullYear();
 
     const { data: allotments, error: balErr } = await context.supabase
@@ -1489,6 +1718,36 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           sandwichBlocked: true as const,
           sandwichPrefixDates: sandwich.prefixOffDates,
           sandwichSuffixDates: sandwich.suffixOffDates,
+          insufficientBalance: false as const,
+          remainingAnnualDays: null as number | null,
+          plannerReasons: [] as string[],
+          plannerCodes: [] as string[],
+          finalized: false as const,
+          openingStep: null as string | null,
+        };
+      }
+    }
+
+    // Annual entitlement: only allow days within accrued YTD remaining (hire_date / 21|28|30 tiers).
+    if (data.leaveType === "annual") {
+      const leaveYear = Number(data.dateFrom.slice(0, 4)) || new Date().getFullYear();
+      const annual = await remainingAnnualDaysForStaff(
+        context,
+        String(staff.id),
+        leaveYear,
+        leavePolicy,
+      );
+      if (!annual.eligible || days > annual.remainingDays) {
+        return {
+          id: null as string | null,
+          days,
+          conflicts: [] as Awaited<ReturnType<typeof loadLeaveConflicts>>,
+          requiresAck: false as const,
+          blocked: true as const,
+          plannerBlocked: false as const,
+          sandwichBlocked: false as const,
+          insufficientBalance: true as const,
+          remainingAnnualDays: annual.remainingDays,
           plannerReasons: [] as string[],
           plannerCodes: [] as string[],
           finalized: false as const,
@@ -1881,12 +2140,37 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
               sandwichBlocked: true as const,
               sandwichPrefixDates: sandwich.prefixOffDates,
               sandwichSuffixDates: sandwich.suffixOffDates,
+              insufficientBalance: false as const,
+              remainingAnnualDays: null as number | null,
               plannerReasons: [] as string[],
               plannerCodes: [] as string[],
               finalized: false as const,
               openingStep: null as string | null,
             };
           }
+        }
+        const annual = await remainingAnnualDaysForStaff(
+          context,
+          String(staff.id),
+          leaveYear,
+          leavePolicy,
+        );
+        if (!annual.eligible || sickSplit.annualDays > annual.remainingDays) {
+          return {
+            id: null as string | null,
+            days,
+            conflicts,
+            requiresAck: false as const,
+            blocked: true as const,
+            plannerBlocked: false as const,
+            sandwichBlocked: false as const,
+            insufficientBalance: true as const,
+            remainingAnnualDays: annual.remainingDays,
+            plannerReasons: [] as string[],
+            plannerCodes: [] as string[],
+            finalized: false as const,
+            openingStep: null as string | null,
+          };
         }
         parts.push({
           leaveType: "annual",

@@ -130,6 +130,14 @@ type HoPlannerStaffRow = {
   isManagement: boolean | null;
 };
 
+/**
+ * HO leave planner roster context.
+ *
+ * EXTENSION POINT (deferred — do not invent a FEC-wide roster sheet here):
+ * When the FEC staff sheet is ready, add a parallel loader for branch/site staff
+ * (import from that sheet / location scope) and reuse resolveStaffAnnualEntitlement
+ * + the same blackout/quota rules. Keep HO (`HEAD_OFFICE_LOCATION_CODE`) intact.
+ */
 async function loadHoPlannerContext(context: AuthContext): Promise<{
   hoLocationId: string | null;
   rules: LeavePlannerRules;

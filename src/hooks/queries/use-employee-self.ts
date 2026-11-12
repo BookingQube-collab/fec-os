@@ -64,11 +64,14 @@ export function useMyLeaveRequests(enabled = true) {
   });
 }
 
-/** Own leave balances. */
-export function useMyLeaveBalances(enabled = true) {
+/** Leave balances for self, or a team subject when `staffId` is provided. */
+export function useMyLeaveBalances(enabled = true, staffId?: string | null) {
   return useQuery({
-    queryKey: queryKeys.people.hrLeaveBalances({ mine: true }),
-    queryFn: () => getLeaveBalanceSummary({}),
+    queryKey: queryKeys.people.hrLeaveBalances({
+      mine: !staffId,
+      staffId: staffId ?? null,
+    }),
+    queryFn: () => getLeaveBalanceSummary(staffId ? { staffId } : {}),
     staleTime: STALE.people,
     enabled,
   });

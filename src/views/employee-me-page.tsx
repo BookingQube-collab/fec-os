@@ -17,6 +17,9 @@ import {
 } from "@/components/hr/leave-document-preview";
 import { LeavePlannerGateBanner } from "@/components/hr/leave-planner-gate";
 import { MeLeavePanel } from "@/components/hr/me-leave-panel";
+import { MeLeaveApplyCalendar } from "@/components/hr/me-leave-apply-calendar";
+import { MeLeaveEntitlementCard } from "@/components/hr/me-leave-entitlement-card";
+import { MeLeavePolicyPreview } from "@/components/hr/me-leave-policy-preview";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
 import { MeAttendanceLeaveCalendar } from "@/components/hr/me-attendance-leave-calendar";
@@ -44,6 +47,7 @@ import {
   useMyRoster,
 } from "@/hooks/queries/use-employee-self";
 import { defaultPayrollPeriod, monthBounds } from "@/lib/attendance-hr/roster-period";
+import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { showsSupervisorTeamToday } from "@/lib/hr/team-today";
@@ -202,6 +206,9 @@ export default function EmployeeMePage() {
   const [leaveType, setLeaveType] = useState<(typeof HR_LEAVE_TYPES)[number]>("annual");
   const [leaveFrom, setLeaveFrom] = useState("");
   const [leaveTo, setLeaveTo] = useState("");
+  const [leaveCalMonth, setLeaveCalMonth] = useState(() =>
+    new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }).slice(0, 7),
+  );
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveStaffId, setLeaveStaffId] = useState("");
   const [leaveDocFile, setLeaveDocFile] = useState<File | null>(null);
@@ -211,6 +218,7 @@ export default function EmployeeMePage() {
     useState<(typeof HR_EMERGENCY_TREATMENTS)[number]>("unpaid");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [plannerReasons, setPlannerReasons] = useState<string[]>([]);
+  const [leaveBalanceBlocked, setLeaveBalanceBlocked] = useState(false);
   const [leavePreviewDoc, setLeavePreviewDoc] = useState<LeaveDocumentPreviewTarget | null>(null);
   const [leavePrintPayload, setLeavePrintPayload] = useState<
     LeaveRequestPrintPayload | LeaveRequestPrintPayload[] | null
@@ -261,7 +269,8 @@ export default function EmployeeMePage() {
   const attendance = useMyAttendance(tab === "attendance", attendanceMonthRange);
   const roster = useMyRoster(showRoster, tab === "attendance" ? attendanceMonthRange : null);
   const leave = useMyLeaveRequests(tab === "leave");
-  const balances = useMyLeaveBalances(showLeave);
+  const leaveCalRange = useMemo(() => monthDateRange(leaveCalMonth), [leaveCalMonth]);
+  const leaveRoster = useMyRoster(tab === "leave" && linked, leaveCalRange);
   const leaveSubjects = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "leave-subjects" }),
     queryFn: () => listLeaveSubjects(),
@@ -340,6 +349,37 @@ export default function EmployeeMePage() {
   const selectedLeavePerson = leavePeople.find((row) => row.staffId === selectedLeaveStaffId);
   const leaveForTeam = Boolean(selectedLeavePerson && !selectedLeavePerson.self);
   const leaveOpsLabel = opsStepApproverLabel(selectedLeavePerson?.opsLane ?? "head_of_operations");
+  const balances = useMyLeaveBalances(
+    showLeave,
+    leaveForTeam ? selectedLeaveStaffId : undefined,
+  );
+  const leaveWeekOffDates = useMemo(
+    () =>
+      new Set(
+        (leaveRoster.data?.rows ?? [])
+          .filter((row) => row.isWeekOff)
+          .map((row) => row.workDate),
+      ),
+    [leaveRoster.data?.rows],
+  );
+  const leaveMarkedDates = useMemo(() => {
+    const dates = new Set<string>();
+    for (const row of leave.data ?? []) {
+      if (row.status === "rejected" || row.status === "cancelled") continue;
+      const from = row.dateFrom.slice(0, 10);
+      const to = (row.dateTo || row.dateFrom).slice(0, 10);
+      const start = Date.parse(`${from}T00:00:00.000Z`);
+      const end = Date.parse(`${to}T00:00:00.000Z`);
+      if (Number.isNaN(start) || Number.isNaN(end) || end < start) continue;
+      for (let t = start; t <= end; t += 86_400_000) {
+        dates.add(new Date(t).toISOString().slice(0, 10));
+      }
+    }
+    return dates;
+  }, [leave.data]);
+  const leaveBalancesForApply = balances.data?.balances ?? [];
+  const annualBalance = leaveBalancesForApply.find((row) => row.leaveType === "annual") ?? null;
+  const accrual = balances.data?.accrual ?? null;
 
   const askLeave = useMutation({
     mutationFn: async (acknowledgeConflicts?: boolean) => {
@@ -376,6 +416,7 @@ export default function EmployeeMePage() {
       if ("plannerBlocked" in res && res.plannerBlocked) {
         setPlannerReasons(res.plannerReasons ?? []);
         setLeaveConflicts([]);
+        setLeaveBalanceBlocked(false);
         toast.error(
           t("hr.leave.planner.blockedToast", {
             defaultValue: "Leave planner blocked this request. Use Emergency leave if needed.",
@@ -386,6 +427,7 @@ export default function EmployeeMePage() {
       if ("sandwichBlocked" in res && res.sandwichBlocked) {
         setLeaveConflicts([]);
         setPlannerReasons([]);
+        setLeaveBalanceBlocked(false);
         toast.error(
           t("hr.leave.sandwichBlocked", {
             defaultValue:
@@ -394,9 +436,24 @@ export default function EmployeeMePage() {
         );
         return;
       }
+      if ("insufficientBalance" in res && res.insufficientBalance) {
+        setLeaveConflicts([]);
+        setPlannerReasons([]);
+        setLeaveBalanceBlocked(true);
+        toast.error(
+          t("hr.leave.balanceExceeded", {
+            remaining: res.remainingAnnualDays ?? 0,
+            requested: res.days,
+            defaultValue:
+              "Request needs {{requested}} annual day(s) but only {{remaining}} remaining from your joining-date accrual.",
+          }),
+        );
+        return;
+      }
       if ("blocked" in res && res.blocked) {
         setLeaveConflicts(res.conflicts);
         setPlannerReasons([]);
+        setLeaveBalanceBlocked(false);
         toast.error(t("hr.leave.overlapBlocked"));
         return;
       }
@@ -458,6 +515,8 @@ export default function EmployeeMePage() {
       setLeaveDocFile(null);
       setLeaveDocInputKey((key) => key + 1);
       setLeaveConflicts([]);
+      setLeaveBalanceBlocked(false);
+      setPlannerReasons([]);
       invalidateLeaveLists(qc);
     },
     onError: (e: Error) =>
@@ -853,8 +912,23 @@ export default function EmployeeMePage() {
                     staffRole={sessionProfile?.staff_role ?? null}
                     requestPanel={
                       <>
-                  {leaveBalances.length > 0 && !leaveForTeam ? (
-                    <div className="hd-chips">
+                  <MeLeaveEntitlementCard
+                    className="mb-3"
+                    loading={balances.isLoading}
+                    leaveTypeLabel={t("hr.leave.types.annual")}
+                    allottedDays={annualBalance?.allottedDays ?? accrual?.accruedDays ?? null}
+                    accruedDays={accrual?.accruedDays ?? annualBalance?.allottedDays ?? null}
+                    usedDays={annualBalance?.usedDays ?? null}
+                    remainingDays={annualBalance?.remainingDays ?? null}
+                    monthsAccrued={accrual?.monthsAccrued ?? null}
+                    monthlyAccrual={accrual?.monthlyAccrual ?? null}
+                    fullYearDays={accrual?.fullYearDays ?? accrual?.tierAnnualDays ?? null}
+                    hireDate={accrual?.hireDate ?? person.hireDate ?? null}
+                    tierCode={accrual?.tierCode ?? null}
+                    eligible={accrual?.eligible ?? null}
+                  />
+                  {leaveBalances.length > 0 ? (
+                    <div className="hd-chips mb-2">
                       {leaveBalances.slice(0, 4).map((b) => (
                         <span key={b.leaveType} className="hd-chip">
                           {t(`hr.leave.types.${b.leaveType}`)} ·{" "}
@@ -888,14 +962,44 @@ export default function EmployeeMePage() {
                       </p>
                     </div>
                   ) : null}
+                  <MeLeaveApplyCalendar
+                    className="mb-3"
+                    dateFrom={leaveFrom}
+                    dateTo={leaveTo || leaveFrom}
+                    onChange={({ dateFrom, dateTo }) => {
+                      setLeaveFrom(dateFrom);
+                      setLeaveTo(dateTo);
+                      setLeaveBalanceBlocked(false);
+                      setPlannerReasons([]);
+                    }}
+                    visibleMonth={leaveCalMonth}
+                    onVisibleMonthChange={setLeaveCalMonth}
+                    weekOffDates={leaveWeekOffDates}
+                    leaveDates={leaveMarkedDates}
+                    hireDate={accrual?.hireDate ?? person.hireDate ?? null}
+                  />
                   <div className="hd-fields hd-fields--split">
                     <div>
                       <Label>{t("hr.leave.from")}</Label>
-                      <Input type="date" value={leaveFrom} onChange={(e) => setLeaveFrom(e.target.value)} />
+                      <Input
+                        type="date"
+                        value={leaveFrom}
+                        onChange={(e) => {
+                          setLeaveFrom(e.target.value);
+                          setLeaveBalanceBlocked(false);
+                        }}
+                      />
                     </div>
                     <div>
                       <Label>{t("hr.leave.to")}</Label>
-                      <Input type="date" value={leaveTo} onChange={(e) => setLeaveTo(e.target.value)} />
+                      <Input
+                        type="date"
+                        value={leaveTo}
+                        onChange={(e) => {
+                          setLeaveTo(e.target.value);
+                          setLeaveBalanceBlocked(false);
+                        }}
+                      />
                     </div>
                   </div>
                   <SearchableSelect
@@ -904,6 +1008,7 @@ export default function EmployeeMePage() {
                     onValueChange={(value) => {
                       const next = value as (typeof HR_LEAVE_TYPES)[number];
                       setLeaveType(next);
+                      setLeaveBalanceBlocked(false);
                       if (next !== "sick") {
                         setLeaveDocFile(null);
                         setLeaveDocInputKey((key) => key + 1);
@@ -948,6 +1053,12 @@ export default function EmployeeMePage() {
                       }))}
                     />
                   ) : null}
+                  <MeLeavePolicyPreview
+                    leaveType={leaveType}
+                    dateFrom={leaveFrom}
+                    dateTo={leaveTo || leaveFrom}
+                    staffId={selectedLeaveStaffId || null}
+                  />
                   <LeavePlannerGateBanner
                     dateFrom={leaveFrom}
                     dateTo={leaveTo || leaveFrom}
@@ -955,6 +1066,16 @@ export default function EmployeeMePage() {
                     staffId={selectedLeaveStaffId || null}
                     onSwitchToEmergency={() => setLeaveType("emergency")}
                   />
+                  {leaveBalanceBlocked ? (
+                    <div className="mt-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+                      <p className="font-medium">
+                        {t("hr.leave.balanceExceededHint", {
+                          defaultValue:
+                            "Shorten the range or wait for more months to accrue from your joining date.",
+                        })}
+                      </p>
+                    </div>
+                  ) : null}
                   {plannerReasons.length > 0 ? (
                     <div className="mt-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
                       <p className="font-medium">
