@@ -28,6 +28,10 @@
     "db:baseline": "node --env-file=.env.local scripts/seed-migration-baseline.mjs",
     "db:bundle": "node scripts/bundle-pending-migrations.mjs",
     "generate:api-catalog": "node scripts/generate-api-catalog.mjs",
+    "docs:venv": "python -m venv .venv-docs",
+    "docs:install": "python -m pip install -r requirements-docs.txt",
+    "docs:serve": "mkdocs serve",
+    "docs:build": "mkdocs build",
     "test": "vitest run",
     "seed:ai-keys": "node --env-file=.env.local scripts/seed-ai-provider-keys.mjs",
     "seed:corporate-deals-w37": "node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs"
@@ -56,6 +60,7 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tanstack/react-query": "^5.83.0",
+    "@xyflow/react": "^12.12.1",
     "ascii-reveal": "^0.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -36,7 +36,8 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | `/call-center/live` | Agents + active calls wallboard |
 | `/call-center/calls` | CDR filters (date, queue, direction) |
 | `/call-center/numbers` | DIDs CRUD + queue / IVR / event mapping |
-| `/call-center/ivr` | IVR menus + digit options CRUD |
+| `/call-center/ivr` | Visual IVR flow canvas (Maqsam-like) |
+| `/call-center/voicemail` | Voicemail inbox (after-hours + IVR) |
 | `/call-center/queues` | Queues + members CRUD |
 | `/call-center/campaigns` | Outbound campaigns + contacts + dial |
 | `/call-center/analytics` | Today metrics (volume, answer rate, AHT, agents) |
@@ -73,6 +74,64 @@ Agent console migration:
 ```
 
 Adds `agent_notes` on CDR and `call_center_speed_dials` favorites.
+
+IVR flow canvas migration:
+
+```bash
+#   supabase/migrations/20261112200000_call_center_ivr_flow.sql
+```
+
+Adds `flow_json` on `call_center_ivr_menus` (nodes / edges / viewport) and extends `call_center_ivr_options` with `next_menu_id`, `agent_user_id`, `target_node_id`, plus actions `menu` / `agent`. Saving the canvas syncs flattened digit options so inbound routing still works.
+
+## IVR Builder (visual canvas)
+
+Open `/call-center/ivr` (admin edit; agents can view).
+
+1. Pick or create a menu (seed **Main menu** migrates into the canvas on first open).
+2. Drag steps from the left palette onto the infinite canvas: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, Hangup, Business hours, Voicemail, Event route.
+3. Connect handles: Start/Play use `out`; Menu digits (1,2,…) each have a source handle; Hours has `open` / `closed`.
+4. Click a node → right inspector edits greeting, digits, queue, agent, event id, etc.
+5. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** (simulate digit path without a live call).
+6. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options.
+
+Assign the menu on `/call-center/numbers` (DID → IVR menu) and keep **IVR enabled** in Settings.
+
+Parity migration:
+
+```bash
+#   supabase/migrations/20261112210000_call_center_maqsam_parity.sql
+```
+
+Adds after-hours greeting/action, CDR disposition + recording flag, queue member skills, and `call_center_voicemails`.
+
+## Maqsam parity (Done vs Later)
+
+### Done in FEC
+
+| Capability | Where / how to verify |
+|------------|------------------------|
+| Visual IVR canvas | `/call-center/ivr` — drag nodes, connect digits, Save; reload restores positions |
+| Nested / hours / voicemail IVR nodes | Canvas + inbound DTMF walker in `routing.ts` |
+| Business hours + holidays enforce routing | Settings → enable hours; closed → after-hours action (voicemail/hangup/queue) |
+| Voicemail inbox | `/call-center/voicemail` — Add test voicemail; Mark listened |
+| ACW wrap-up codes | Hang up a call → disposition chips on dialer → Save disposition |
+| Recording flag + playback | In-call **Recording** toggle; Calls detail plays `recording_url` when set |
+| Live wallboard metrics + whisper/barge | `/call-center/live` — in-call / available counts; Whisper/Barge on active calls (admin) |
+| Analytics ASA / abandon / voicemail | `/call-center/analytics` |
+| Queue member priority + skills | `/call-center/queues` |
+| DID → IVR → Queue visual map | `/call-center/numbers` |
+| Campaign dial-next | `/call-center/campaigns` → Dial next contact |
+| Missed-call toast | Softphone workspace surfaces recent missed/declined |
+
+### Later (not full Maqsam clone)
+
+- LiveKit egress auto-upload of recordings / voicemail audio
+- True multi-party conference (beyond warm-transfer consult intent)
+- Click-to-call from People / event staff directory
+- Skill-based routing engine (skills are stored; matching not yet scored)
+- Full power dialer pacing / AMD
+- WhatsApp Meta Cloud API production channel
+- Keyword search across recordings, mobile app, concurrent multi-chat
 
 ## Agent console UX
 

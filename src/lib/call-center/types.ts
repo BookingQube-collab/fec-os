@@ -1,3 +1,5 @@
+import type { IvrFlowJson } from "./ivr-flow";
+
 export const CALL_CENTER_SETTINGS_ID = "00000000-0000-4000-8000-0000000000cc";
 export const CALL_CENTER_DEFAULT_QUEUE_ID = "00000000-0000-4000-8000-0000000000c0";
 export const CALL_CENTER_DEFAULT_IVR_MENU_ID = "00000000-0000-4000-8000-0000000000c1";
@@ -8,7 +10,15 @@ export type CallCenterAgentStatusValue = (typeof CALL_CENTER_AGENT_STATUSES)[num
 export const CALL_CENTER_QUEUE_STRATEGIES = ["simultaneous", "round_robin", "longest_idle"] as const;
 export type CallCenterQueueStrategy = (typeof CALL_CENTER_QUEUE_STRATEGIES)[number];
 
-export const CALL_CENTER_IVR_ACTIONS = ["queue", "voicemail", "hangup", "transfer_sip", "repeat"] as const;
+export const CALL_CENTER_IVR_ACTIONS = [
+  "queue",
+  "voicemail",
+  "hangup",
+  "transfer_sip",
+  "repeat",
+  "menu",
+  "agent",
+] as const;
 export type CallCenterIvrAction = (typeof CALL_CENTER_IVR_ACTIONS)[number];
 
 export const CALL_CENTER_CALL_STATUSES = [
@@ -49,6 +59,8 @@ export const CALL_CENTER_CONTACT_STATUSES = [
 ] as const;
 export type CallCenterContactStatus = (typeof CALL_CENTER_CONTACT_STATUSES)[number];
 
+export type CallCenterAfterHoursAction = "voicemail" | "hangup" | "queue";
+
 export type CallCenterSettingsRow = {
   enabled: boolean;
   ivr_enabled: boolean;
@@ -69,6 +81,8 @@ export type CallCenterSettingsRow = {
   ai_notes: string;
   outbound_caller_id_e164: string;
   webhook_outbound_url: string;
+  after_hours_greeting: string;
+  after_hours_action: CallCenterAfterHoursAction;
 };
 
 export type CallCenterSettingsPublic = {
@@ -94,6 +108,36 @@ export type CallCenterSettingsPublic = {
   aiNotes: string;
   outboundCallerIdE164: string;
   webhookOutboundUrl: string;
+  afterHoursGreeting: string;
+  afterHoursAction: CallCenterAfterHoursAction;
+};
+
+export const CALL_CENTER_DISPOSITION_CODES = [
+  "resolved",
+  "callback",
+  "voicemail_followup",
+  "wrong_number",
+  "spam",
+  "info_only",
+  "escalated",
+  "other",
+] as const;
+export type CallCenterDispositionCode = (typeof CALL_CENTER_DISPOSITION_CODES)[number] | "";
+
+export type CallCenterVoicemail = {
+  id: string;
+  callId: string | null;
+  fromE164: string;
+  toE164: string;
+  queueId: string | null;
+  eventId: string | null;
+  promptText: string;
+  recordingUrl: string;
+  transcriptText: string;
+  status: "pending" | "listened" | "archived";
+  createdAt: string;
+  listenedAt: string | null;
+  listenedBy: string | null;
 };
 
 export type CallCenterQueue = {
@@ -113,6 +157,7 @@ export type CallCenterQueueMember = {
   userId: string;
   priority: number;
   isActive: boolean;
+  skills: string[];
 };
 
 export type CallCenterDid = {
@@ -133,6 +178,8 @@ export type CallCenterIvrMenu = {
   maxRetries: number;
   fallbackQueueId: string | null;
   isActive: boolean;
+  /** Visual IVR canvas graph (nodes/edges/viewport). */
+  flowJson: IvrFlowJson;
 };
 
 export type CallCenterIvrOption = {
@@ -145,6 +192,9 @@ export type CallCenterIvrOption = {
   eventId: string | null;
   transferSipUri: string;
   sortOrder: number;
+  nextMenuId: string | null;
+  agentUserId: string | null;
+  targetNodeId: string;
 };
 
 export type CallCenterAgentStatus = {
@@ -186,6 +236,10 @@ export type CallCenterCall = {
   whisperActive: boolean;
   bargeActive: boolean;
   agentNotes: string;
+  metadata: Record<string, unknown>;
+  dispositionCode: string;
+  dispositionNotes: string;
+  recordingEnabled: boolean;
 };
 
 export type CallCenterSpeedDial = {
@@ -253,11 +307,15 @@ export type CallCenterAnalyticsSummary = {
   missedToday: number;
   answerRate: number;
   avgHandleSeconds: number;
+  avgSpeedAnswerSeconds: number;
+  abandonRate: number;
   agentsAvailable: number;
   agentsBusy: number;
   agentsAway: number;
   agentsOffline: number;
+  agentsInCall: number;
   activeCalls: number;
+  voicemailsPending: number;
 };
 
 export type CallCenterWallboard = {

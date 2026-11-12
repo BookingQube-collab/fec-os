@@ -3,6 +3,11 @@ import "server-only";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 import {
+  flattenFlowToOptions,
+  parseIvrFlowJson,
+  type IvrFlowJson,
+} from "./ivr-flow";
+import {
   CALL_CENTER_SETTINGS_ID,
   type CallCenterAgentStatus,
   type CallCenterAgentStatusValue,
@@ -25,6 +30,7 @@ import {
   type CallCenterSettingsRow,
   type CallCenterIvrAction,
   type CallCenterSpeedDial,
+  type CallCenterVoicemail,
   type CallCenterWebhookEndpoint,
 } from "./types";
 
@@ -91,6 +97,7 @@ function mapMember(row: Record<string, unknown>): CallCenterQueueMember {
     userId: String(row.user_id),
     priority: Number(row.priority ?? 100),
     isActive: Boolean(row.is_active),
+    skills: Array.isArray(row.skills) ? row.skills.map(String) : [],
   };
 }
 
@@ -115,6 +122,7 @@ function mapIvrMenu(row: Record<string, unknown>): CallCenterIvrMenu {
     maxRetries: Number(row.max_retries ?? 2),
     fallbackQueueId: row.fallback_queue_id ? String(row.fallback_queue_id) : null,
     isActive: Boolean(row.is_active),
+    flowJson: parseIvrFlowJson(row.flow_json),
   };
 }
 
@@ -129,6 +137,9 @@ function mapIvrOption(row: Record<string, unknown>): CallCenterIvrOption {
     eventId: row.event_id ? String(row.event_id) : null,
     transferSipUri: String(row.transfer_sip_uri ?? ""),
     sortOrder: Number(row.sort_order ?? 0),
+    nextMenuId: row.next_menu_id ? String(row.next_menu_id) : null,
+    agentUserId: row.agent_user_id ? String(row.agent_user_id) : null,
+    targetNodeId: String(row.target_node_id ?? ""),
   };
 }
 
@@ -175,6 +186,31 @@ export function mapCall(row: Record<string, unknown>): CallCenterCall {
     whisperActive: Boolean(row.whisper_active ?? false),
     bargeActive: Boolean(row.barge_active ?? false),
     agentNotes: String(row.agent_notes ?? ""),
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : {},
+    dispositionCode: String(row.disposition_code ?? ""),
+    dispositionNotes: String(row.disposition_notes ?? ""),
+    recordingEnabled: Boolean(row.recording_enabled ?? false),
+  };
+}
+
+function mapVoicemail(row: Record<string, unknown>): CallCenterVoicemail {
+  return {
+    id: String(row.id),
+    callId: row.call_id ? String(row.call_id) : null,
+    fromE164: String(row.from_e164 ?? ""),
+    toE164: String(row.to_e164 ?? ""),
+    queueId: row.queue_id ? String(row.queue_id) : null,
+    eventId: row.event_id ? String(row.event_id) : null,
+    promptText: String(row.prompt_text ?? ""),
+    recordingUrl: String(row.recording_url ?? ""),
+    transcriptText: String(row.transcript_text ?? ""),
+    status: (row.status as CallCenterVoicemail["status"]) || "pending",
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    listenedAt: row.listened_at ? String(row.listened_at) : null,
+    listenedBy: row.listened_by ? String(row.listened_by) : null,
   };
 }
 
@@ -240,7 +276,7 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, outbound_caller_id_e164, webhook_outbound_url";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action";
 
 export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   const result = await table<Record<string, unknown>>("call_center_settings")
@@ -273,6 +309,12 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     ai_notes: String(row.ai_notes ?? ""),
     outbound_caller_id_e164: String(row.outbound_caller_id_e164 ?? ""),
     webhook_outbound_url: String(row.webhook_outbound_url ?? ""),
+    after_hours_greeting: String(
+      row.after_hours_greeting ??
+        "We are currently closed. Please leave a message or call back during business hours.",
+    ),
+    after_hours_action:
+      (row.after_hours_action as CallCenterSettingsRow["after_hours_action"]) || "voicemail",
   };
 }
 
@@ -303,6 +345,8 @@ export async function saveSettingsRow(
         ai_notes: row.ai_notes,
         outbound_caller_id_e164: row.outbound_caller_id_e164,
         webhook_outbound_url: row.webhook_outbound_url,
+        after_hours_greeting: row.after_hours_greeting,
+        after_hours_action: row.after_hours_action,
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -383,12 +427,14 @@ export async function upsertQueueMember(input: {
   userId: string;
   priority: number;
   isActive: boolean;
+  skills?: string[];
 }): Promise<CallCenterQueueMember> {
   const payload: Record<string, unknown> = {
     queue_id: input.queueId,
     user_id: input.userId,
     priority: input.priority,
     is_active: input.isActive,
+    skills: input.skills ?? [],
   };
   if (input.id) payload.id = input.id;
   const result = await table<Record<string, unknown>>("call_center_queue_members")
@@ -536,6 +582,9 @@ export async function upsertIvrOption(input: {
   eventId: string | null;
   transferSipUri: string;
   sortOrder: number;
+  nextMenuId?: string | null;
+  agentUserId?: string | null;
+  targetNodeId?: string;
 }): Promise<CallCenterIvrOption> {
   const payload: Record<string, unknown> = {
     menu_id: input.menuId,
@@ -546,6 +595,9 @@ export async function upsertIvrOption(input: {
     event_id: input.eventId,
     transfer_sip_uri: input.transferSipUri,
     sort_order: input.sortOrder,
+    next_menu_id: input.nextMenuId ?? null,
+    agent_user_id: input.agentUserId ?? null,
+    target_node_id: input.targetNodeId ?? "",
   };
   if (input.id) payload.id = input.id;
   const result = await table<Record<string, unknown>>("call_center_ivr_options")
@@ -560,6 +612,109 @@ export async function upsertIvrOption(input: {
 export async function deleteIvrOption(id: string): Promise<void> {
   const result = await table<Record<string, unknown>>("call_center_ivr_options").delete().eq("id", id);
   throwIfError((await result).error);
+}
+
+export async function replaceIvrOptionsForMenu(
+  menuId: string,
+  options: Array<{
+    digit: string;
+    label: string;
+    action: CallCenterIvrAction;
+    queueId: string | null;
+    eventId: string | null;
+    transferSipUri: string;
+    nextMenuId: string | null;
+    agentUserId: string | null;
+    targetNodeId: string;
+    sortOrder: number;
+  }>,
+): Promise<CallCenterIvrOption[]> {
+  const del = await table<Record<string, unknown>>("call_center_ivr_options")
+    .delete()
+    .eq("menu_id", menuId);
+  throwIfError(del.error);
+  if (options.length === 0) return [];
+  const rows = options.map((o) => ({
+    menu_id: menuId,
+    digit: o.digit,
+    label: o.label,
+    action: o.action,
+    queue_id: o.queueId,
+    event_id: o.eventId,
+    transfer_sip_uri: o.transferSipUri,
+    next_menu_id: o.nextMenuId,
+    agent_user_id: o.agentUserId,
+    target_node_id: o.targetNodeId,
+    sort_order: o.sortOrder,
+  }));
+  const result = await table<Record<string, unknown>>("call_center_ivr_options")
+    .insert(rows)
+    .select("*");
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapIvrOption);
+}
+
+/** Persist visual flow + sync flattened digit options for inbound runtime. */
+export async function saveIvrFlow(input: {
+  menuId: string;
+  name?: string;
+  greetingText?: string;
+  timeoutSeconds?: number;
+  maxRetries?: number;
+  fallbackQueueId?: string | null;
+  isActive?: boolean;
+  flow: IvrFlowJson;
+}): Promise<{ menu: CallCenterIvrMenu; options: CallCenterIvrOption[] }> {
+  const flow = parseIvrFlowJson(input.flow);
+  const entryMenu = flow.nodes.find((n) => n.type === "menu");
+  const start = flow.nodes.find((n) => n.type === "start");
+  const greeting =
+    input.greetingText ??
+    start?.data.greetingText ??
+    entryMenu?.data.greetingText ??
+    "";
+  const payload: Record<string, unknown> = {
+    flow_json: flow,
+    greeting_text: greeting,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.name != null) payload.name = input.name;
+  if (input.timeoutSeconds != null) payload.timeout_seconds = input.timeoutSeconds;
+  else if (entryMenu?.data.timeoutSeconds != null) {
+    payload.timeout_seconds = entryMenu.data.timeoutSeconds;
+  }
+  if (input.maxRetries != null) payload.max_retries = input.maxRetries;
+  else if (entryMenu?.data.maxRetries != null) {
+    payload.max_retries = entryMenu.data.maxRetries;
+  }
+  if (input.fallbackQueueId !== undefined) payload.fallback_queue_id = input.fallbackQueueId;
+  if (input.isActive != null) payload.is_active = input.isActive;
+
+  const result = await table<Record<string, unknown>>("call_center_ivr_menus")
+    .update(payload)
+    .eq("id", input.menuId)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("IVR flow could not be saved.");
+
+  const flat = flattenFlowToOptions(flow, input.menuId);
+  const options = await replaceIvrOptionsForMenu(
+    input.menuId,
+    flat.map((o) => ({
+      digit: o.digit,
+      label: o.label,
+      action: o.action,
+      queueId: o.queueId,
+      eventId: o.eventId,
+      transferSipUri: o.transferSipUri,
+      nextMenuId: o.nextMenuId,
+      agentUserId: o.agentUserId,
+      targetNodeId: o.targetNodeId,
+      sortOrder: o.sortOrder,
+    })),
+  );
+  return { menu: mapIvrMenu(result.data), options };
 }
 
 export async function getAgentStatus(userId: string): Promise<CallCenterAgentStatus | null> {
@@ -660,6 +815,7 @@ export async function updateCall(
     queueId: string | null;
     eventId: string | null;
     ivrDigit: string | null;
+    ivrMenuId: string | null;
     livekitRoom: string;
     hangupReason: string;
     offeredAt: string | null;
@@ -678,6 +834,9 @@ export async function updateCall(
     whisperActive: boolean;
     bargeActive: boolean;
     agentNotes: string;
+    dispositionCode: string;
+    dispositionNotes: string;
+    recordingEnabled: boolean;
   }>,
 ): Promise<CallCenterCall> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -686,6 +845,7 @@ export async function updateCall(
   if (patch.queueId !== undefined) payload.queue_id = patch.queueId;
   if (patch.eventId !== undefined) payload.event_id = patch.eventId;
   if (patch.ivrDigit !== undefined) payload.ivr_digit = patch.ivrDigit;
+  if (patch.ivrMenuId !== undefined) payload.ivr_menu_id = patch.ivrMenuId;
   if (patch.livekitRoom !== undefined) payload.livekit_room = patch.livekitRoom;
   if (patch.hangupReason !== undefined) payload.hangup_reason = patch.hangupReason;
   if (patch.offeredAt !== undefined) payload.offered_at = patch.offeredAt;
@@ -706,6 +866,9 @@ export async function updateCall(
   if (patch.whisperActive !== undefined) payload.whisper_active = patch.whisperActive;
   if (patch.bargeActive !== undefined) payload.barge_active = patch.bargeActive;
   if (patch.agentNotes !== undefined) payload.agent_notes = patch.agentNotes;
+  if (patch.dispositionCode !== undefined) payload.disposition_code = patch.dispositionCode;
+  if (patch.dispositionNotes !== undefined) payload.disposition_notes = patch.dispositionNotes;
+  if (patch.recordingEnabled !== undefined) payload.recording_enabled = patch.recordingEnabled;
 
   const result = await table<Record<string, unknown>>("call_center_calls")
     .update(payload)
@@ -817,6 +980,9 @@ export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary>
   const missedToday = todayCalls.filter((c) =>
     ["missed", "declined", "failed"].includes(c.status),
   ).length;
+  const abandonedToday = todayCalls.filter((c) =>
+    ["missed", "declined", "voicemail"].includes(c.status),
+  ).length;
   const handled = todayCalls.filter((c) => c.answeredAt && c.endedAt);
   let avgHandleSeconds = 0;
   if (handled.length > 0) {
@@ -828,18 +994,92 @@ export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary>
     }, 0);
     avgHandleSeconds = Math.round(total / handled.length);
   }
+  const offered = todayCalls.filter((c) => c.offeredAt && c.answeredAt);
+  let avgSpeedAnswerSeconds = 0;
+  if (offered.length > 0) {
+    const total = offered.reduce((sum, call) => {
+      const start = new Date(call.offeredAt!).getTime();
+      const ans = new Date(call.answeredAt!).getTime();
+      return sum + Math.max(0, Math.round((ans - start) / 1000));
+    }, 0);
+    avgSpeedAnswerSeconds = Math.round(total / offered.length);
+  }
+  const vmPending = await listVoicemails({ status: "pending", limit: 50 });
   return {
     callsToday: todayCalls.length,
     answeredToday,
     missedToday,
     answerRate: todayCalls.length === 0 ? 0 : Math.round((answeredToday / todayCalls.length) * 100),
     avgHandleSeconds,
+    avgSpeedAnswerSeconds,
+    abandonRate:
+      todayCalls.length === 0 ? 0 : Math.round((abandonedToday / todayCalls.length) * 100),
     agentsAvailable: agents.filter((a) => a.status === "available").length,
     agentsBusy: agents.filter((a) => a.status === "busy").length,
     agentsAway: agents.filter((a) => a.status === "away" || a.status === "acw").length,
     agentsOffline: agents.filter((a) => a.status === "offline").length,
+    agentsInCall: agents.filter((a) => a.status === "busy").length,
     activeCalls: active.length,
+    voicemailsPending: vmPending.length,
   };
+}
+
+export async function createVoicemail(input: {
+  callId?: string | null;
+  fromE164: string;
+  toE164: string;
+  queueId?: string | null;
+  eventId?: string | null;
+  promptText?: string;
+  recordingUrl?: string;
+}): Promise<CallCenterVoicemail> {
+  const result = await table<Record<string, unknown>>("call_center_voicemails")
+    .insert({
+      call_id: input.callId ?? null,
+      from_e164: input.fromE164,
+      to_e164: input.toE164,
+      queue_id: input.queueId ?? null,
+      event_id: input.eventId ?? null,
+      prompt_text: input.promptText ?? "",
+      recording_url: input.recordingUrl ?? "",
+      status: "pending",
+    })
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Voicemail could not be created.");
+  return mapVoicemail(result.data);
+}
+
+export async function listVoicemails(filters?: {
+  status?: "pending" | "listened" | "archived";
+  limit?: number;
+}): Promise<CallCenterVoicemail[]> {
+  let query = table<Record<string, unknown>>("call_center_voicemails").select("*");
+  if (filters?.status) query = query.eq("status", filters.status);
+  const result = (await query
+    .order("created_at", { ascending: false })
+    .limit(filters?.limit ?? 100)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapVoicemail);
+}
+
+export async function markVoicemailListened(
+  id: string,
+  userId: string,
+): Promise<CallCenterVoicemail> {
+  const result = await table<Record<string, unknown>>("call_center_voicemails")
+    .update({
+      status: "listened",
+      listened_at: new Date().toISOString(),
+      listened_by: userId,
+    })
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Voicemail not found.");
+  return mapVoicemail(result.data);
 }
 
 export async function listHolidays(): Promise<CallCenterHoliday[]> {

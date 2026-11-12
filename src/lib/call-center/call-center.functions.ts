@@ -38,11 +38,16 @@ import {
   saveCallAgentNotes,
   saveSettingsRow,
   setAgentStatus,
+  updateCall,
   deleteSpeedDial,
   upsertCampaign,
   upsertCampaignContact,
   upsertDid,
   upsertHoliday,
+  createVoicemail,
+  listVoicemails,
+  markVoicemailListened,
+  saveIvrFlow,
   upsertIvrMenu,
   upsertIvrOption,
   upsertQueue,
@@ -127,6 +132,8 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     aiNotes: z.string().max(2000).optional(),
     outboundCallerIdE164: z.string().trim().max(20).optional(),
     webhookOutboundUrl: z.string().trim().max(500).optional(),
+    afterHoursGreeting: z.string().max(2000).optional(),
+    afterHoursAction: z.enum(["voicemail", "hangup", "queue"]).optional(),
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
@@ -156,6 +163,11 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         ai_handoff_enabled: data.aiHandoffEnabled ?? existing?.ai_handoff_enabled ?? true,
         ai_notes: data.aiNotes ?? existing?.ai_notes ?? "",
         outbound_caller_id_e164: data.outboundCallerIdE164 ?? existing?.outbound_caller_id_e164 ?? "",
+        after_hours_greeting:
+          data.afterHoursGreeting ??
+          existing?.after_hours_greeting ??
+          "We are currently closed. Please leave a message or call back during business hours.",
+        after_hours_action: data.afterHoursAction ?? existing?.after_hours_action ?? "voicemail",
         webhook_outbound_url: data.webhookOutboundUrl ?? existing?.webhook_outbound_url ?? "",
       },
       context.userId,
@@ -207,6 +219,7 @@ export const saveCallCenterQueueMember = createSafeAuthenticatedAction(
     userId: z.string().uuid(),
     priority: z.number().int().min(0).max(9999),
     isActive: z.boolean(),
+    skills: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   }),
   async (data) =>
     upsertQueueMember({
@@ -215,6 +228,7 @@ export const saveCallCenterQueueMember = createSafeAuthenticatedAction(
       userId: data.userId,
       priority: data.priority,
       isActive: data.isActive,
+      skills: data.skills ?? [],
     }),
   { auth: ADMIN_AUTH },
 );
@@ -298,7 +312,7 @@ export const saveCallCenterIvrOption = createSafeAuthenticatedAction(
     menuId: z.string().uuid(),
     digit: z.string().regex(/^[0-9*#]$/),
     label: z.string().trim().max(120),
-    action: z.enum(["queue", "voicemail", "hangup", "transfer_sip", "repeat"]),
+    action: z.enum(["queue", "voicemail", "hangup", "transfer_sip", "repeat", "menu", "agent"]),
     queueId: optionalUuid.optional(),
     eventId: optionalUuid.optional(),
     transferSipUri: z.string().trim().max(500),
@@ -325,6 +339,90 @@ export const removeCallCenterIvrOption = createSafeAuthenticatedAction(
     await deleteIvrOption(data.id);
     return { ok: true as const };
   },
+  { auth: ADMIN_AUTH },
+);
+
+const ivrFlowNodeSchema = z.object({
+  id: z.string().min(1).max(80),
+  type: z.enum([
+    "start",
+    "menu",
+    "play",
+    "queue",
+    "agent",
+    "hangup",
+    "hours",
+    "voicemail",
+    "event",
+  ]),
+  position: z.object({ x: z.number(), y: z.number() }),
+  data: z
+    .object({
+      label: z.string().max(120),
+      greetingText: z.string().max(2000).optional(),
+      messageText: z.string().max(2000).optional(),
+      digits: z
+        .array(
+          z.object({
+            digit: z.string().regex(/^[0-9*#]$/),
+            label: z.string().max(120),
+          }),
+        )
+        .optional(),
+      queueId: optionalUuid.optional(),
+      agentUserId: optionalUuid.optional(),
+      eventId: optionalUuid.optional(),
+      transferSipUri: z.string().max(500).optional(),
+      timeoutSeconds: z.number().int().min(1).max(60).optional(),
+      maxRetries: z.number().int().min(0).max(5).optional(),
+    })
+    .passthrough(),
+});
+
+export const saveCallCenterIvrFlow = createSafeAuthenticatedAction(
+  z.object({
+    menuId: z.string().uuid(),
+    name: z.string().trim().min(1).max(120).optional(),
+    greetingText: z.string().max(2000).optional(),
+    timeoutSeconds: z.number().int().min(1).max(60).optional(),
+    maxRetries: z.number().int().min(0).max(5).optional(),
+    fallbackQueueId: optionalUuid.optional(),
+    isActive: z.boolean().optional(),
+    flow: z.object({
+      version: z.literal(1),
+      nodes: z.array(ivrFlowNodeSchema).max(80),
+      edges: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(120),
+            source: z.string().min(1).max(80),
+            target: z.string().min(1).max(80),
+            sourceHandle: z.string().max(40).nullable().optional(),
+            targetHandle: z.string().max(40).nullable().optional(),
+            label: z.string().max(40).optional(),
+          }),
+        )
+        .max(160),
+      viewport: z
+        .object({
+          x: z.number(),
+          y: z.number(),
+          zoom: z.number().min(0.2).max(2),
+        })
+        .optional(),
+    }),
+  }),
+  async (data) =>
+    saveIvrFlow({
+      menuId: data.menuId,
+      name: data.name,
+      greetingText: data.greetingText,
+      timeoutSeconds: data.timeoutSeconds,
+      maxRetries: data.maxRetries,
+      fallbackQueueId: data.fallbackQueueId,
+      isActive: data.isActive,
+      flow: data.flow,
+    }),
   { auth: ADMIN_AUTH },
 );
 
@@ -802,19 +900,31 @@ export const removeCallCenterWebhookEndpoint = createSafeAuthenticatedAction(
 export const loadCallCenterConfigBundle = createSafeAuthenticatedAction(
   z.object({}),
   async () => {
-    const [settings, queues, members, dids, menus, options, holidays, campaigns, webhooks, analytics] =
-      await Promise.all([
-        loadSettingsRow(),
-        listQueues(),
-        listQueueMembers(),
-        listDids(),
-        listIvrMenus(),
-        listIvrOptions(),
-        listHolidays(),
-        listCampaigns(),
-        listWebhookEndpoints(),
-        getAnalyticsSummary(),
-      ]);
+    const [
+      settings,
+      queues,
+      members,
+      dids,
+      menus,
+      options,
+      holidays,
+      campaigns,
+      webhooks,
+      analytics,
+      agents,
+    ] = await Promise.all([
+      loadSettingsRow(),
+      listQueues(),
+      listQueueMembers(),
+      listDids(),
+      listIvrMenus(),
+      listIvrOptions(),
+      listHolidays(),
+      listCampaigns(),
+      listWebhookEndpoints(),
+      getAnalyticsSummary(),
+      listAgentStatuses(),
+    ]);
     const provider = await getCallProvider();
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
@@ -827,8 +937,103 @@ export const loadCallCenterConfigBundle = createSafeAuthenticatedAction(
       campaigns,
       webhooks,
       analytics,
+      agents,
     };
   },
   { auth: AGENT_AUTH },
 );
 
+
+export const saveCallCenterDisposition = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    dispositionCode: z.string().trim().max(60),
+    dispositionNotes: z.string().trim().max(2000).optional(),
+  }),
+  async (data) =>
+    updateCall(data.callId, {
+      dispositionCode: data.dispositionCode,
+      dispositionNotes: data.dispositionNotes ?? "",
+    }),
+  { auth: AGENT_AUTH },
+);
+
+export const setCallCenterRecording = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    enabled: z.boolean(),
+    recordingUrl: z.string().trim().max(2000).optional(),
+  }),
+  async (data) =>
+    updateCall(data.callId, {
+      recordingEnabled: data.enabled,
+      ...(data.recordingUrl != null ? { recordingUrl: data.recordingUrl } : {}),
+      metadata: {
+        recordingRequested: data.enabled,
+        recordingNote: data.enabled
+          ? "Recording flagged — LiveKit egress URL fills when media capture is wired."
+          : "Recording disabled",
+      },
+    }),
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterVoicemails = createSafeAuthenticatedAction(
+  z.object({
+    status: z.enum(["pending", "listened", "archived"]).optional(),
+  }),
+  async (data) => listVoicemails({ status: data.status, limit: 100 }),
+  { auth: AGENT_AUTH },
+);
+
+export const markCallCenterVoicemailListened = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data, context) => markVoicemailListened(data.id, context.userId),
+  { auth: AGENT_AUTH },
+);
+
+export const dialNextCampaignContact = createSafeAuthenticatedAction(
+  z.object({ campaignId: z.string().uuid() }),
+  async (data, context) => {
+    const contacts = await listCampaignContacts(data.campaignId);
+    const next = contacts.find((c) => c.status === "pending");
+    if (!next) throw new Error("No pending contacts left in this campaign.");
+    await upsertCampaignContact({
+      id: next.id,
+      campaignId: data.campaignId,
+      e164: next.e164,
+      displayName: next.displayName,
+      status: "dialing",
+      notes: next.notes,
+    });
+    const placed = await placeOutboundCall({
+      agentUserId: context.userId,
+      toE164: next.e164,
+      campaignId: data.campaignId,
+    });
+    await upsertCampaignContact({
+      id: next.id,
+      campaignId: data.campaignId,
+      e164: next.e164,
+      displayName: next.displayName,
+      status: "completed",
+      notes: next.notes,
+    });
+    return { contact: next, call: placed.call, media: placed.media };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const createCallCenterTestVoicemail = createSafeAuthenticatedAction(
+  z.object({
+    fromE164: z.string().trim().min(4).max(20).optional(),
+    promptText: z.string().max(500).optional(),
+  }),
+  async (data) =>
+    createVoicemail({
+      fromE164: data.fromE164 || "+97455550000",
+      toE164: "after-hours",
+      promptText: data.promptText || "Test voicemail — please call back.",
+    }),
+  { auth: ADMIN_AUTH },
+);

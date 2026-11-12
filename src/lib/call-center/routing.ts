@@ -2,11 +2,14 @@ import "server-only";
 
 import { getCallProvider } from "@/lib/chat/call-provider";
 
+import { isWithinBusinessHours } from "./business-hours";
 import {
   createCall,
+  createVoicemail,
   findDidByE164,
   getAgentStatus,
   listAvailableAgents,
+  listHolidays,
   listIvrMenus,
   listIvrOptions,
   listQueueMembers,
@@ -16,6 +19,16 @@ import {
   setAgentStatus,
   updateCall,
 } from "./db";
+import {
+  findEntryInteractiveNode,
+  findStartNode,
+  flowHasGraph,
+  followDefaultEdge,
+  followDigitEdge,
+  followHandleEdge,
+  type IvrFlowJson,
+  type IvrFlowNode,
+} from "./ivr-flow";
 import type {
   CallCenterCall,
   CallCenterMediaSession,
@@ -168,16 +181,88 @@ export async function routeInboundCall(input: {
     (did?.queueId ? queues.find((q) => q.id === did.queueId) ?? null : null) ??
     defaultQueue;
 
+  const holidays = await listHolidays();
+  const openNow = isWithinBusinessHours({
+    enabled: Boolean(settings?.business_hours_enabled),
+    timezone: settings?.timezone || "Asia/Qatar",
+    hoursJson: settings?.business_hours_json ?? {},
+    holidays,
+  });
+
+  if (!openNow && !input.forceAgentUserId && !forceQueue && input.provider !== "test") {
+    const greeting =
+      settings?.after_hours_greeting ||
+      "We are currently closed. Please leave a message or call back during business hours.";
+    const action = settings?.after_hours_action || "voicemail";
+    if (action === "hangup") {
+      const call = await createCall({
+        direction: "inbound",
+        status: "ended",
+        fromE164,
+        toE164,
+        didId: did?.id ?? null,
+        eventId: did?.eventId ?? null,
+        provider: input.provider,
+        providerCallId: input.providerCallId,
+      });
+      const ended = await updateCall(call.id, {
+        status: "ended",
+        hangupReason: "After hours hangup",
+        endedAt: new Date().toISOString(),
+        metadata: { afterHours: true, greeting },
+      });
+      return { call: ended, offeredUserIds: [], phase: "ended", message: greeting };
+    }
+    if (action !== "queue") {
+      const call = await createCall({
+        direction: "inbound",
+        status: "voicemail",
+        fromE164,
+        toE164,
+        didId: did?.id ?? null,
+        queueId: targetQueue?.id ?? null,
+        eventId: did?.eventId ?? null,
+        provider: input.provider,
+        providerCallId: input.providerCallId,
+      });
+      const ended = await updateCall(call.id, {
+        status: "voicemail",
+        hangupReason: "After hours voicemail",
+        endedAt: new Date().toISOString(),
+        metadata: { afterHours: true, greeting },
+      });
+      await createVoicemail({
+        callId: ended.id,
+        fromE164,
+        toE164,
+        queueId: targetQueue?.id ?? null,
+        eventId: did?.eventId ?? null,
+        promptText: greeting,
+      });
+      return { call: ended, offeredUserIds: [], phase: "ended", message: greeting };
+    }
+    // action === queue → fall through to normal queue offer below
+  }
+
   const useIvr =
     !input.skipIvr &&
     Boolean(settings?.ivr_enabled) &&
     Boolean(did?.ivrMenuId) &&
-    !forceQueue;
+    !forceQueue &&
+    openNow;
 
   if (useIvr && did?.ivrMenuId) {
     const menus = await listIvrMenus();
     const menu = menus.find((m) => m.id === did.ivrMenuId && m.isActive);
     if (menu) {
+      const flow = menu.flowJson;
+      const entry = flowHasGraph(flow) ? findEntryInteractiveNode(flow) : null;
+      const start = flowHasGraph(flow) ? findStartNode(flow) : null;
+      const greeting =
+        start?.data.greetingText ||
+        entry?.data.greetingText ||
+        menu.greetingText ||
+        "IVR menu active.";
       const call = await createCall({
         direction: "inbound",
         status: "ivr",
@@ -192,12 +277,18 @@ export async function routeInboundCall(input: {
         providerCallId: input.providerCallId,
       });
       const livekitRoom = roomNameForCall(call.id);
-      const updated = await updateCall(call.id, { livekitRoom });
+      const updated = await updateCall(call.id, {
+        livekitRoom,
+        metadata: {
+          ivrNodeId: entry?.id ?? start?.id ?? null,
+          ivrGreeting: greeting,
+        },
+      });
       return {
         call: updated,
         offeredUserIds: [],
         phase: "ivr",
-        message: menu.greetingText || "IVR menu active.",
+        message: greeting,
       };
     }
   }
@@ -241,6 +332,155 @@ export async function routeInboundCall(input: {
   });
 }
 
+async function resolveTerminalIvrNode(params: {
+  call: CallCenterCall;
+  node: IvrFlowNode;
+  digit: string;
+  flow: IvrFlowJson;
+}): Promise<InboundRouteResult> {
+  const { call, node, digit, flow } = params;
+  let current: IvrFlowNode | null = node;
+  let guard = 0;
+
+  while (current && guard < 12) {
+    guard += 1;
+    if (current.type === "play") {
+      current = followDefaultEdge(flow, current.id);
+      continue;
+    }
+    if (current.type === "hours") {
+      const settings = await loadSettingsRow();
+      const holidays = await listHolidays();
+      const open = isWithinBusinessHours({
+        enabled: Boolean(settings?.business_hours_enabled),
+        timezone: settings?.timezone || "Asia/Qatar",
+        hoursJson: settings?.business_hours_json ?? {},
+        holidays,
+      });
+      current =
+        followHandleEdge(flow, current.id, open ? "open" : "closed") ??
+        followDefaultEdge(flow, current.id);
+      continue;
+    }
+    if (current.type === "menu" || current.type === "start") {
+      const greeting =
+        current.data.greetingText || current.data.messageText || current.data.label || "IVR menu.";
+      const updated = await updateCall(call.id, {
+        status: "ivr",
+        ivrDigit: digit,
+        metadata: {
+          ...((call.metadata as Record<string, unknown>) ?? {}),
+          ivrNodeId: current.id,
+          ivrGreeting: greeting,
+        },
+      });
+      return { call: updated, offeredUserIds: [], phase: "ivr", message: greeting };
+    }
+    if (current.type === "hangup") {
+      const ended = await updateCall(call.id, {
+        status: "ended",
+        ivrDigit: digit,
+        hangupReason: "IVR hangup",
+        endedAt: new Date().toISOString(),
+        metadata: {
+          ...((call.metadata as Record<string, unknown>) ?? {}),
+          ivrNodeId: current.id,
+        },
+      });
+      return { call: ended, offeredUserIds: [], phase: "ended", message: "Caller hung up via IVR." };
+    }
+    if (current.type === "voicemail") {
+      const prompt =
+        current.data.messageText || current.data.greetingText || "Please leave a message after the tone.";
+      const ended = await updateCall(call.id, {
+        status: "voicemail",
+        ivrDigit: digit,
+        eventId: current.data.eventId ?? call.eventId,
+        endedAt: new Date().toISOString(),
+        metadata: {
+          ...((call.metadata as Record<string, unknown>) ?? {}),
+          ivrNodeId: current.id,
+        },
+      });
+      await createVoicemail({
+        callId: ended.id,
+        fromE164: call.fromE164,
+        toE164: call.toE164,
+        queueId: call.queueId,
+        eventId: current.data.eventId ?? call.eventId,
+        promptText: prompt,
+      });
+      return { call: ended, offeredUserIds: [], phase: "ended", message: "Routed to voicemail." };
+    }
+    if (current.type === "agent") {
+      const agentUserId = current.data.agentUserId;
+      if (!agentUserId) throw new Error("Agent node has no agent selected.");
+      const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
+      const now = new Date().toISOString();
+      const updated = await updateCall(call.id, {
+        status: "offered",
+        ivrDigit: digit,
+        agentUserId,
+        livekitRoom,
+        offeredAt: now,
+        eventId: current.data.eventId ?? call.eventId,
+        metadata: {
+          ...((call.metadata as Record<string, unknown>) ?? {}),
+          ivrNodeId: current.id,
+        },
+      });
+      return {
+        call: updated,
+        offeredUserIds: [agentUserId],
+        phase: "queue",
+        message: "Offered to agent via IVR.",
+      };
+    }
+    if (current.type === "queue" || current.type === "event") {
+      const terminal: IvrFlowNode = current;
+      if (terminal.data.transferSipUri) {
+        const ended = await updateCall(call.id, {
+          status: "ended",
+          ivrDigit: digit,
+          hangupReason: `transfer:${terminal.data.transferSipUri}`,
+          endedAt: new Date().toISOString(),
+          metadata: {
+            ...((call.metadata as Record<string, unknown>) ?? {}),
+            ivrNodeId: terminal.id,
+            transferSipUri: terminal.data.transferSipUri,
+          },
+        });
+        return { call: ended, offeredUserIds: [], phase: "ended", message: "SIP transfer requested." };
+      }
+      const queues = await listQueues();
+      const preferredQueueId = terminal.data.queueId ?? null;
+      const fallbackQueueId = call.queueId;
+      const queue =
+        (preferredQueueId ? queues.find((q) => q.id === preferredQueueId) : null) ??
+        (fallbackQueueId ? queues.find((q) => q.id === fallbackQueueId) : null);
+      if (!queue) throw new Error("IVR queue node has no queue.");
+      const updated = await updateCall(call.id, {
+        ivrDigit: digit,
+        eventId: terminal.data.eventId ?? call.eventId,
+        queueId: queue.id,
+        status: "queued",
+        metadata: {
+          ...((call.metadata as Record<string, unknown>) ?? {}),
+          ivrNodeId: terminal.id,
+        },
+      });
+      return offerToQueue({
+        call: updated,
+        queue,
+        eventId: terminal.data.eventId ?? call.eventId,
+      });
+    }
+    break;
+  }
+
+  return { call, offeredUserIds: [], phase: "ivr", message: "IVR path incomplete." };
+}
+
 /** Apply IVR digit selection and continue to queue / hangup / etc. */
 export async function applyIvrDigit(callId: string, digit: string): Promise<InboundRouteResult> {
   const { getCall } = await import("./db");
@@ -248,6 +488,43 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
   if (!call || call.status !== "ivr" || !call.ivrMenuId) {
     throw new Error("Call is not waiting on IVR.");
   }
+
+  const menus = await listIvrMenus();
+  const menu = menus.find((m) => m.id === call.ivrMenuId);
+  const flow = menu?.flowJson;
+  const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+
+  if (flow && flowHasGraph(flow)) {
+    const currentId =
+      (typeof meta.ivrNodeId === "string" && meta.ivrNodeId) ||
+      findEntryInteractiveNode(flow)?.id ||
+      findStartNode(flow)?.id ||
+      null;
+    if (!currentId) {
+      return { call, offeredUserIds: [], phase: "ivr", message: "IVR flow has no entry node." };
+    }
+    const current = flow.nodes.find((n) => n.id === currentId);
+    if (!current) {
+      return { call, offeredUserIds: [], phase: "ivr", message: "IVR node missing." };
+    }
+    const next = followDigitEdge(flow, current.id, digit);
+    if (!next) {
+      // repeat self-edge or invalid
+      const self = flow.edges.find(
+        (e) => e.source === current.id && e.sourceHandle === digit && e.target === current.id,
+      );
+      if (self || digit === "0") {
+        return { call, offeredUserIds: [], phase: "ivr", message: "Repeat menu." };
+      }
+      return { call, offeredUserIds: [], phase: "ivr", message: "Invalid digit." };
+    }
+    if (next.id === current.id) {
+      return { call, offeredUserIds: [], phase: "ivr", message: "Repeat menu." };
+    }
+    return resolveTerminalIvrNode({ call, node: next, digit, flow });
+  }
+
+  // Legacy flattened options path (no canvas graph yet)
   const options = await listIvrOptions(call.ivrMenuId);
   const option = options.find((o) => o.digit === digit);
   if (!option) {
@@ -261,6 +538,25 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
 
   if (option.action === "repeat") {
     return { call, offeredUserIds: [], phase: "ivr", message: "Repeat menu." };
+  }
+  if (option.action === "menu" && option.nextMenuId) {
+    const nextMenu = menus.find((m) => m.id === option.nextMenuId && m.isActive);
+    if (!nextMenu) throw new Error("Nested IVR menu not found.");
+    const updated = await updateCall(call.id, {
+      ivrDigit: digit,
+      ivrMenuId: nextMenu.id,
+      metadata: {
+        ...meta,
+        ivrNodeId: findEntryInteractiveNode(nextMenu.flowJson)?.id ?? null,
+        ivrGreeting: nextMenu.greetingText,
+      },
+    });
+    return {
+      call: updated,
+      offeredUserIds: [],
+      phase: "ivr",
+      message: nextMenu.greetingText || "Next menu.",
+    };
   }
   if (option.action === "hangup") {
     const ended = await updateCall(call.id, {
@@ -278,7 +574,33 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
       eventId: option.eventId ?? call.eventId,
       endedAt: new Date().toISOString(),
     });
+    await createVoicemail({
+      callId: ended.id,
+      fromE164: call.fromE164,
+      toE164: call.toE164,
+      queueId: option.queueId ?? call.queueId,
+      eventId: option.eventId ?? call.eventId,
+      promptText: "Please leave a message after the tone.",
+    });
     return { call: ended, offeredUserIds: [], phase: "ended", message: "Routed to voicemail." };
+  }
+  if (option.action === "agent") {
+    const agentUserId = option.agentUserId;
+    if (!agentUserId) throw new Error("IVR agent option has no agent.");
+    const now = new Date().toISOString();
+    const updated = await updateCall(call.id, {
+      status: "offered",
+      ivrDigit: digit,
+      agentUserId,
+      offeredAt: now,
+      eventId: option.eventId ?? call.eventId,
+    });
+    return {
+      call: updated,
+      offeredUserIds: [agentUserId],
+      phase: "queue",
+      message: "Offered to agent via IVR.",
+    };
   }
   if (option.action === "transfer_sip") {
     const ended = await updateCall(call.id, {

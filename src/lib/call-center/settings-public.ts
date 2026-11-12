@@ -42,5 +42,9 @@ export function toPublicSettings(
     aiNotes: row?.ai_notes ?? "",
     outboundCallerIdE164: row?.outbound_caller_id_e164?.trim() ?? "",
     webhookOutboundUrl: row?.webhook_outbound_url?.trim() ?? "",
+    afterHoursGreeting:
+      row?.after_hours_greeting?.trim() ||
+      "We are currently closed. Please leave a message or call back during business hours.",
+    afterHoursAction: row?.after_hours_action ?? "voicemail",
   };
 }
