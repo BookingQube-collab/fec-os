@@ -269,7 +269,10 @@ export default function EmployeeMePage() {
   const attendance = useMyAttendance(tab === "attendance", attendanceMonthRange);
   const roster = useMyRoster(showRoster, tab === "attendance" ? attendanceMonthRange : null);
   const leave = useMyLeaveRequests(tab === "leave");
-  const leaveCalRange = useMemo(() => monthDateRange(leaveCalMonth), [leaveCalMonth]);
+  const leaveCalRange = useMemo(() => {
+    const range = monthDateRange(leaveCalMonth);
+    return { dateFrom: range.from, dateTo: range.to };
+  }, [leaveCalMonth]);
   const leaveRoster = useMyRoster(tab === "leave" && linked, leaveCalRange);
   const leaveSubjects = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "leave-subjects" }),
