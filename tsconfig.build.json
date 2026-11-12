@@ -5,6 +5,8 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "vitest.config.ts",
-    "scripts"
+    "scripts",
+    "vendor",
+    "brag-output"
   ]
 }

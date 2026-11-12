@@ -4603,6 +4603,42 @@ export type Database = {
           },
         ]
       }
+      chat_agents: {
+        Row: {
+          created_at: string
+          created_by: string
+          display_name: string
+          enabled: boolean
+          id: string
+          instructions: string
+          mention_key: string
+          model_key: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          display_name: string
+          enabled?: boolean
+          id?: string
+          instructions?: string
+          mention_key: string
+          model_key?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          display_name?: string
+          enabled?: boolean
+          id?: string
+          instructions?: string
+          mention_key?: string
+          model_key?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       chat_attachments: {
         Row: {
           byte_size: number
@@ -4701,6 +4737,78 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      chat_bot_rooms: {
+        Row: {
+          bot_id: string
+          conversation_id: string
+          created_at: string
+        }
+        Insert: {
+          bot_id: string
+          conversation_id: string
+          created_at?: string
+        }
+        Update: {
+          bot_id?: string
+          conversation_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_bot_rooms_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "chat_bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_bot_rooms_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chat_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_bots: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          created_by: string
+          description: string | null
+          enabled: boolean
+          id: string
+          name: string
+          updated_at: string
+          webhook_token_hash: string
+          webhook_token_prefix: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          created_by: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          updated_at?: string
+          webhook_token_hash: string
+          webhook_token_prefix: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          updated_at?: string
+          webhook_token_hash?: string
+          webhook_token_prefix?: string
+        }
+        Relationships: []
       }
       chat_call_participants: {
         Row: {

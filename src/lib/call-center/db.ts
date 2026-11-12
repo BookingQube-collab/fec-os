@@ -22,7 +22,8 @@ import {
 type DbError = { message: string } | null;
 
 type MaybeSingle<T> = Promise<{ data: T | null; error: DbError }>;
-type ListResult<T> = Promise<{ data: T[] | null; error: DbError }>;
+/** Resolved list payload after awaiting a thenable filter builder. */
+type ListResult<T> = { data: T[] | null; error: DbError };
 
 type FilterBuilder<T> = {
   eq: (column: string, value: unknown) => FilterBuilder<T>;
@@ -30,26 +31,21 @@ type FilterBuilder<T> = {
   is: (column: string, value: null) => FilterBuilder<T>;
   neq: (column: string, value: unknown) => FilterBuilder<T>;
   order: (column: string, options?: { ascending?: boolean }) => FilterBuilder<T>;
-  limit: (count: number) => FilterBuilder<T> & { maybeSingle: () => MaybeSingle<T> };
+  limit: (count: number) => FilterBuilder<T>;
+  select: (columns?: string) => FilterBuilder<T>;
   maybeSingle: () => MaybeSingle<T>;
-  then?: never;
-} & PromiseLike<{ data: T[] | null; error: DbError }>;
+} & PromiseLike<ListResult<T>>;
 
 type SelectBuilder<T> = {
   select: (columns?: string) => FilterBuilder<T>;
   insert: (values: Record<string, unknown> | Record<string, unknown>[]) => {
-    select: (columns?: string) => {
-      maybeSingle: () => MaybeSingle<T>;
-      then?: never;
-    } & PromiseLike<{ data: T[] | null; error: DbError }>;
+    select: (columns?: string) => FilterBuilder<T>;
   };
   upsert: (
     values: Record<string, unknown>,
     options?: { onConflict?: string },
   ) => {
-    select: (columns?: string) => {
-      maybeSingle: () => MaybeSingle<T>;
-    };
+    select: (columns?: string) => FilterBuilder<T>;
   };
   update: (values: Record<string, unknown>) => FilterBuilder<T>;
   delete: () => FilterBuilder<T>;

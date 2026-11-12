@@ -30,7 +30,7 @@ export function EmberFilesPanel() {
       toast.error(result.error);
       return;
     }
-    openConversation(result.data.conversationId);
+    openConversation(result.data.id);
   }
 
   function openMessage(message: ChatSearchMessage) {
@@ -38,7 +38,7 @@ export function EmberFilesPanel() {
   }
 
   function openFile(file: ChatSearchFile) {
-    openConversation(file.conversationId, { messageId: file.messageId });
+    openConversation(file.conversationId, { messageId: file.messageId ?? undefined });
   }
 
   return (

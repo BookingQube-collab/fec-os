@@ -217,8 +217,8 @@ export async function postSlackWebhookMessage(input: {
   if (!body && !hasAttachments) return { ok: false, error: "no_text", status: 400 };
 
   let attachmentFallback = "";
-  if (!body && hasAttachments) {
-    const first = input.attachments?.[0];
+  if (!body && hasAttachments && Array.isArray(input.attachments)) {
+    const first = input.attachments[0];
     if (first && typeof first === "object" && !Array.isArray(first)) {
       const row = first as { fallback?: unknown; title?: unknown; text?: unknown };
       if (typeof row.fallback === "string") attachmentFallback = row.fallback;

@@ -11,7 +11,7 @@ import { MessageComposer } from "@/components/chat/message-composer";
 import { Button } from "@/components/ui/button";
 import { useChatMembers, useChatMessages } from "@/hooks/queries/useChat";
 import { emberChannelLabel } from "@/lib/chat/display-rules";
-import { sendTextMessage, type ChatConversationSummary } from "@/lib/chat.functions";
+import { sendTextMessage, shareEntityInChat, type ChatConversationSummary } from "@/lib/chat.functions";
 import { queryKeys } from "@/lib/query-keys";
 
 export function EmberThreadPanel({
@@ -143,6 +143,12 @@ export function EmberThreadPanel({
           mentionMembers={[]}
           mentionsReady
           onCancelReply={onClose}
+          onActivity={() => undefined}
+          onShare={async (input) => {
+            const result = await shareEntityInChat({ conversationId: conversation.id, ...input });
+            if (!result.ok) throw new Error(result.error);
+            await queryClient.invalidateQueries({ queryKey: queryKeys.chat.messages(conversation.id) });
+          }}
           onSend={async ({ body, clientMessageId, replyToMessageId, threadRootMessageId }) => {
             setPending(true);
             const result = await sendTextMessage({

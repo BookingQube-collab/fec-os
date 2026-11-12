@@ -58,7 +58,7 @@ describe("directPeerRoleLine", () => {
 describe("withDirectPeerLabels", () => {
   it("fills a nameless direct chat from the directory person", () => {
     const [row] = withDirectPeerLabels(
-      [{ id: "dm", kind: "DIRECT", peerName: null, peerUserId: "agnes", peerJobTitle: null, peerEmployeeCode: null }],
+      [{ id: "dm", kind: "DIRECT", title: null, unreadCount: 0, peerName: null, peerUserId: "agnes", peerJobTitle: null, peerEmployeeCode: null }],
       [{ userId: "agnes", fullName: "AGNES KIRORIO", jobTitle: "Barista", employeeCode: "INF-CC-STF16" }],
     );
     expect(row?.peerName).toBe("Agnes Kirorio");

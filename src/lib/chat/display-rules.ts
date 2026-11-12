@@ -57,7 +57,10 @@ export function directPeerRoleLine(
 }
 
 type DirectLabelConversation = {
+  id: string;
   kind: string;
+  title: string | null;
+  unreadCount: number;
   peerName?: string | null;
   peerUserId?: string | null;
   peerJobTitle?: string | null;

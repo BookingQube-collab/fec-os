@@ -350,7 +350,7 @@ export function EmberWorkspaceShell({
           {panel === "push" ? <EmberPushPanel /> : null}
           {panel === "settings" ? <EmberSettingsPanel /> : null}
           {panel === "styles" ? <EmberStylesPanel /> : null}
-          {canManage && (panel === "bots" || panel === "agents" || panel === "settings") ? (
+          {canManage && (panel === "bots" || panel === "agents" || panel === "settings" || panel === "styles") ? (
             <div className="mt-6 flex flex-wrap gap-2 border-t border-[color:var(--ember-border)] pt-4">
               <AdminChip href="/ember/bots" icon={Bot} label={t("nav.emberBots")} active={panel === "bots"} />
               <AdminChip href="/ember/agents" icon={Sparkles} label={t("nav.emberAgents")} active={panel === "agents"} />
