@@ -32,6 +32,7 @@ import {
   parkCallCenterCall,
   placeCallCenterOutbound,
   pollCallCenterIncoming,
+  refreshCallCenterMedia,
   retrieveCallCenterParkedCall,
   saveCallCenterAgentNotes,
   saveCallCenterSpeedDial,
@@ -467,13 +468,21 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   async function onRetrieveParked(callId: string) {
     setPending(true);
     const result = await retrieveCallCenterParkedCall({ callId });
-    setPending(false);
     if (!result.ok) {
+      setPending(false);
       toast.error(result.error);
       return;
     }
     setActiveCall(result.data);
     setHeld(false);
+    const mediaResult = await refreshCallCenterMedia({ callId: result.data.id });
+    setPending(false);
+    if (mediaResult.ok) {
+      setMedia(mediaResult.data.media);
+      if (!mediaResult.data.media.token || !mediaResult.data.media.serverUrl.startsWith("wss://")) {
+        toast.message(t("callCenter.mediaNotConfigured"));
+      }
+    }
     toast.success(t("callCenter.retrieved"));
     await queryClient.invalidateQueries({ queryKey: ["call-center", "parked"] });
     await refresh();
