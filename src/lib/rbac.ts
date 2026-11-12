@@ -376,6 +376,17 @@ export const CAPABILITIES = {
   ],
   "ember.manage": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
 
+  // Call Center softphone + queues (Telnyx / LiveKit SIP BYO).
+  // view: agents who can open /call-center. Admin config uses admin.view.
+  "call_center.view": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "hr", "customer_service",
+  ],
+  "call_center.agent": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "hr", "customer_service",
+  ],
+
   // Training engine. Platform domain, not an HR submodule.
   // Floor roles learn through enrollments; they do not receive training.view.
   // Keep public.training_code_allows() in the training engine migration in sync.

@@ -47,6 +47,7 @@ import {
   Package,
   Plane,
   Phone,
+  Headphones,
   Presentation,
   Radio,
   Search,
@@ -272,6 +273,7 @@ const EMPLOYEE_FLAT_RAIL_ROLES: readonly AppRole[] = ["cashier_host", "customer_
 const EMPLOYEE_FLAT_RAIL: NavItem[] = [
   { href: "/hr/me", labelKey: "nav.hrMyDay", icon: UserRound, capability: "hr.employee_app" },
   { href: "/chat#hub", labelKey: "nav.communicationHub", icon: MessagesSquare, capability: "chat.view" },
+  { href: "/call-center", labelKey: "nav.callCenter", icon: Headphones, capability: "call_center.view" },
   { href: "/training/learning", labelKey: "nav.trainingLearning", icon: GraduationCap, capability: "training.learn" },
   { href: "/people/hr/helpdesk", labelKey: "nav.hrHelpdesk", icon: LifeBuoy, capability: "hr.employee_app" },
   { href: "/daily-ops", labelKey: "nav.dailyOps", icon: ClipboardList, capability: "daily_ops.view" },
@@ -589,6 +591,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
         { href: "/notifications", labelKey: "nav.notifications", icon: Bell, capability: "notifications.view" },
         { href: "/chat", labelKey: "nav.chat", icon: MessagesSquare, capability: "chat.view" },
         { href: "/chat", labelKey: "nav.communicationHub", icon: MessagesSquare, capability: "chat.view" },
+        { href: "/call-center", labelKey: "nav.callCenter", icon: Headphones, capability: "call_center.view" },
         { href: "/profile", labelKey: "nav.myAccount", icon: UserRound, capability: "dashboard.view" },
       ]),
     ],
@@ -758,6 +761,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
       ...withSection("nav.adminSectionIntegrations", [
         { href: "/admin/ai-integrations", labelKey: "nav.aiIntegrations", icon: Sparkles, capability: "admin.view" },
         { href: "/admin/livekit", labelKey: "nav.livekit", icon: Phone, capability: "admin.view" },
+        { href: "/admin/call-center", labelKey: "nav.callCenterAdmin", icon: Headphones, capability: "admin.view" },
         { href: "/admin/email", labelKey: "nav.emailSettings", icon: Mail, capability: "admin.view" },
       ]),
       ...withSection("nav.adminSectionSystem", [

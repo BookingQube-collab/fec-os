@@ -181,6 +181,8 @@
     "diagnostics": "Diagnostics",
     "aiIntegrations": "AI Integrations",
     "livekit": "Chat calls",
+    "callCenter": "Call Center",
+    "callCenterAdmin": "Call Center",
     "emailSettings": "Email",
     "sidebarOrder": "Arrange automatically",
     "departments": {
