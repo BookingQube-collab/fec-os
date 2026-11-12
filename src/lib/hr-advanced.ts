@@ -3,6 +3,11 @@ import {
   type HrCompassionateScope,
   type HrLeaveType,
 } from "@/lib/hr-leave";
+import {
+  resolveAnnualLeaveTier,
+  type AnnualLeaveTier,
+  type ResolveAnnualLeaveTierInput,
+} from "@/lib/hr-leave-policy";
 import { policyNumber } from "@/lib/hr-policy";
 
 export type LeaveBalanceRow = {
@@ -326,6 +331,41 @@ export function compassionateDaysFromPolicy(
     leaveSection.compassionate_inside_qatar_days,
     DEFAULT_COMPASSIONATE_INSIDE_QATAR,
   );
+}
+
+/**
+ * Resolve annual tier (21/28/30) + YTD accrual for one staff member.
+ * Used by leave balances and the HO leave planner people roster — never invents names or days.
+ */
+export function resolveStaffAnnualEntitlement(
+  input: ResolveAnnualLeaveTierInput & {
+    year: number;
+    fromHireDate?: boolean;
+  },
+): {
+  tier: AnnualLeaveTier;
+  accrual: {
+    eligible: boolean;
+    accruedDays: number;
+    monthsAccrued: number;
+    fullYearDays: number;
+  };
+  /** Policy-calculated allotted days for the year-to-date (0 when ineligible). */
+  allottedDays: number;
+} {
+  const tier = resolveAnnualLeaveTier(input);
+  const accrual = annualAccrualFromHireDate({
+    hireDate: input.hireDate,
+    year: input.year,
+    annualDays: tier.annualDays,
+    fromHireDate: input.fromHireDate,
+    asOfDate: input.asOfDate,
+  });
+  return {
+    tier,
+    accrual,
+    allottedDays: accrual.eligible ? accrual.accruedDays : 0,
+  };
 }
 
 /**

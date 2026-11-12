@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, Palmtree } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -144,6 +144,15 @@ export function HrLeaveWorkspace({
     enabled: Boolean(effectiveBalanceStaffId),
     staleTime: STALE.people,
   });
+
+  // Keep the allotment field in sync with policy-calculated annual accrual for the selected staff.
+  useEffect(() => {
+    if (balanceType !== "annual") return;
+    const accrued = balances.data?.accrual?.accruedDays;
+    if (typeof accrued === "number" && Number.isFinite(accrued)) {
+      setAllotted(String(accrued));
+    }
+  }, [balanceType, balances.data?.accrual?.accruedDays, effectiveBalanceStaffId]);
 
   const invalidate = () => {
     invalidateLeaveLists(qc);

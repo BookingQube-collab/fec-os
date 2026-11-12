@@ -28,12 +28,19 @@ import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 
-type Tab = "rules" | "events" | "year" | "pairs" | "coverage";
+type Tab = "people" | "rules" | "events" | "year" | "pairs" | "coverage";
+
+function tierLabel(code: string | undefined): string {
+  if (code === "management") return "30d · management";
+  if (code === "5y_plus") return "28d · 5y+";
+  if (code === "under_5y") return "21d · under 5y";
+  return code ?? "—";
+}
 
 export default function HrLeavePlannerPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("rules");
+  const [tab, setTab] = useState<Tab>("people");
 
   const rulesQ = useQuery({
     queryKey: queryKeys.people.hrLeavePlannerRules(),
@@ -49,7 +56,8 @@ export default function HrLeavePlannerPage() {
     queryKey: queryKeys.people.hrLeavePlannerBoard(),
     queryFn: () => getLeavePlannerBoard(),
     staleTime: STALE.people,
-    enabled: tab === "year" || tab === "pairs" || tab === "coverage" || tab === "rules",
+    enabled:
+      tab === "people" || tab === "year" || tab === "pairs" || tab === "coverage" || tab === "rules",
   });
 
   const rules = rulesQ.data?.rules;
@@ -108,6 +116,7 @@ export default function HrLeavePlannerPage() {
 
   const tabs: Array<{ id: Tab; label: string }> = useMemo(
     () => [
+      { id: "people", label: t("hr.leave.planner.tabPeople", { defaultValue: "People" }) },
       { id: "rules", label: t("hr.leave.planner.tabRules", { defaultValue: "Rules" }) },
       { id: "events", label: t("hr.leave.planner.tabEvents", { defaultValue: "Events" }) },
       { id: "year", label: t("hr.leave.planner.tabYear", { defaultValue: "Year view" }) },
@@ -140,7 +149,7 @@ export default function HrLeavePlannerPage() {
           <p className="max-w-2xl text-sm text-muted-foreground">
             {t("hr.leave.planner.subtitle", {
               defaultValue:
-                "Blackout windows, department quotas, and overall away cap for Head Office. Annual leave is hard-blocked on DECLINE; Emergency leave can override.",
+                "Head Office staff from the employee database with annual leave calculated from hire date and management tiers (21 / 28 / 30). Blackout, department quotas, and overall away cap hard-block annual leave; Emergency can override.",
             })}
           </p>
         </div>
@@ -160,6 +169,95 @@ export default function HrLeavePlannerPage() {
             </button>
           ))}
         </div>
+
+        {tab === "people" ? (
+          <HrPanel>
+            <div className="space-y-3 p-4 sm:p-5">
+              <p className="text-xs text-muted-foreground">
+                {t("hr.leave.planner.peopleKey", {
+                  defaultValue:
+                    "Names come from the staff directory (Head Office). Entitlement is calculated automatically from DOJ tenure and management rules — not manual or demo values.",
+                })}
+              </p>
+              {boardQ.isLoading ? (
+                <HrEmptyState message={t("common.loading", { defaultValue: "Loading…" })} />
+              ) : !(boardQ.data?.people ?? []).length ? (
+                <HrEmptyState
+                  message={t("hr.leave.planner.noHoStaff", {
+                    defaultValue: "No Head Office staff found.",
+                  })}
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-border/60 text-start text-xs text-muted-foreground">
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colName", { defaultValue: "Employee" })}
+                        </th>
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colCode", { defaultValue: "Code" })}
+                        </th>
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colHire", { defaultValue: "Hire date" })}
+                        </th>
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colTier", { defaultValue: "Tier" })}
+                        </th>
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colMonthly", { defaultValue: "Monthly" })}
+                        </th>
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colAccrued", { defaultValue: "Accrued YTD" })}
+                        </th>
+                        <th className="p-2 font-medium">
+                          {t("hr.leave.planner.colDepts", { defaultValue: "Departments" })}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(boardQ.data?.people ?? []).map((person) => (
+                        <tr key={person.staffId} className="border-b border-border/40">
+                          <td className="p-2">
+                            <p className="font-medium">{person.name}</p>
+                            {person.jobTitle ? (
+                              <p className="text-xs text-muted-foreground">{person.jobTitle}</p>
+                            ) : null}
+                          </td>
+                          <td className="p-2 font-mono text-xs">{person.employeeCode ?? "—"}</td>
+                          <td className="p-2 text-xs">{person.hireDate ?? "—"}</td>
+                          <td className="p-2">
+                            <Badge variant="outline">{tierLabel(person.entitlement?.tierCode)}</Badge>
+                          </td>
+                          <td className="p-2 text-xs">
+                            {person.entitlement?.monthlyAccrual != null
+                              ? `${person.entitlement.monthlyAccrual}/mo`
+                              : "—"}
+                          </td>
+                          <td className="p-2 font-medium">
+                            {person.entitlement?.eligible
+                              ? `${person.entitlement.allottedDays}d`
+                              : "—"}
+                            {person.entitlement?.monthsAccrued != null ? (
+                              <span className="ms-1 text-xs font-normal text-muted-foreground">
+                                ({person.entitlement.monthsAccrued} mo)
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="p-2 text-xs text-muted-foreground">
+                            {person.departmentNames?.length
+                              ? person.departmentNames.join(", ")
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </HrPanel>
+        ) : null}
 
         {tab === "rules" ? (
           <HrPanel>
@@ -447,8 +545,8 @@ export default function HrLeavePlannerPage() {
                     <tr>
                       <th className="sticky start-0 bg-background p-1 text-start" />
                       {boardQ.data.pairMatrix.people.map((person) => (
-                        <th key={person.staffId} className="max-w-16 truncate p-1 text-start" title={person.name}>
-                          {person.name.split(" ")[0]}
+                        <th key={person.staffId} className="max-w-24 truncate p-1 text-start" title={person.name}>
+                          {person.name}
                         </th>
                       ))}
                     </tr>
@@ -456,8 +554,8 @@ export default function HrLeavePlannerPage() {
                   <tbody>
                     {boardQ.data.pairMatrix.rows.map((row, idx) => (
                       <tr key={row.rowStaffId}>
-                        <th className="sticky start-0 bg-background p-1 text-start">
-                          {boardQ.data?.pairMatrix.people[idx]?.name.split(" ")[0]}
+                        <th className="sticky start-0 max-w-36 truncate bg-background p-1 text-start" title={boardQ.data?.pairMatrix.people[idx]?.name}>
+                          {boardQ.data?.pairMatrix.people[idx]?.name}
                         </th>
                         {row.cells.map((cell) => (
                           <td

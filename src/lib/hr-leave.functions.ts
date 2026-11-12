@@ -61,7 +61,6 @@ import { canApproveLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
 import { findUsersWithCapability } from "@/lib/notifications/action-notify";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
-  annualAccrualFromHireDate,
   canUseCompOff,
   DEFAULT_ANNUAL_ALLOTMENT,
   DEFAULT_SICK_ALLOTMENT,
@@ -70,6 +69,7 @@ import {
   hasAckRequiredLeaveConflicts,
   hasHardLeaveOverlap,
   mapHrLeaveTypeToAttendance,
+  resolveStaffAnnualEntitlement,
   summarizeLeaveBalances,
   sumUsedLeaveDays,
 } from "@/lib/hr-advanced";
@@ -79,7 +79,6 @@ import {
   addCalendarDays,
   annualTierDaysFromPolicy,
   detectAnnualLeaveSandwich,
-  resolveAnnualLeaveTier,
   sickAnnualFollowOnApprovalSteps,
   splitSickToAnnual,
   type WeeklyOffLookup,
@@ -1254,11 +1253,16 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
     const tierCfg = leavePolicy
       ? annualTierDaysFromPolicy(leavePolicy)
       : annualTierDaysFromPolicy({});
-    const asOfDate = new Date().toISOString().slice(0, 10);
+    const asOfRaw = new Date().toISOString().slice(0, 10);
+    const asOfDate =
+      asOfRaw < `${year}-01-01` ? `${year}-12-31` : asOfRaw > `${year}-12-31` ? `${year}-12-31` : asOfRaw;
     const hireDate = (staffRow as { hire_date?: string | null } | null)?.hire_date ?? null;
-    const tier = resolveAnnualLeaveTier({
+    const fromHireDate = leavePolicy ? leavePolicy.annual_from_hire_date !== false : true;
+    const { tier, accrual, allottedDays: calculatedAnnual } = resolveStaffAnnualEntitlement({
       hireDate,
-      asOfDate: asOfDate < `${year}-01-01` ? `${year}-12-31` : asOfDate > `${year}-12-31` ? `${year}-12-31` : asOfDate,
+      asOfDate,
+      year,
+      fromHireDate,
       jobTitle: (staffRow as { job_title?: string | null } | null)?.job_title,
       department: (staffRow as { department?: string | null } | null)?.department,
       staffRole: (staffRow as { staff_role?: string | null } | null)?.staff_role,
@@ -1270,52 +1274,37 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
       tenureYearsThreshold: tierCfg.tenureYearsThreshold,
       titleKeywords: tierCfg.titleKeywords,
     });
-    const allotmentDefaults = leavePolicy
-      ? {
-          annual: tier.annualDays,
-          sick: policyNumber(leavePolicy.sick_days, DEFAULT_SICK_ALLOTMENT),
-        }
-      : await readLeaveAllotmentDefaults(context)
-          .catch(() => ({
+    const sickDefault = leavePolicy
+      ? policyNumber(leavePolicy.sick_days, DEFAULT_SICK_ALLOTMENT)
+      : (
+          await readLeaveAllotmentDefaults(context).catch(() => ({
             annual: DEFAULT_ANNUAL_ALLOTMENT,
             sick: DEFAULT_SICK_ALLOTMENT,
           }))
-          .then((d) => ({ ...d, annual: tier.annualDays }));
-    const fromHireDate = leavePolicy ? leavePolicy.annual_from_hire_date !== false : true;
+        ).sick;
 
-    const accrual = annualAccrualFromHireDate({
-      hireDate,
-      year,
-      annualDays: allotmentDefaults.annual,
-      fromHireDate,
-    });
-
-    if (allotmentRows.length === 0) {
-      allotmentRows = [
-        {
-          leaveType: "annual",
-          allottedDays: accrual.eligible ? accrual.accruedDays : allotmentDefaults.annual,
-          carriedForwardDays: 0,
-          expiredDays: 0,
-          pendingDays: 0,
-        },
-        {
-          leaveType: "sick",
-          allottedDays: allotmentDefaults.sick,
-          carriedForwardDays: 0,
-          expiredDays: 0,
-          pendingDays: 0,
-        },
-      ];
-    } else if (!allotmentRows.some((r) => r.leaveType === "annual") && accrual.eligible) {
-      allotmentRows.push({
+    // Annual allotted days always come from hire_date / management tier rules.
+    // Stored hr_leave_balances rows may still carry forward / expired / pending.
+    const annualStored = allotmentRows.find((r) => r.leaveType === "annual");
+    const sickStored = allotmentRows.find((r) => r.leaveType === "sick");
+    const otherRows = allotmentRows.filter((r) => r.leaveType !== "annual" && r.leaveType !== "sick");
+    allotmentRows = [
+      {
         leaveType: "annual",
-        allottedDays: accrual.accruedDays,
-        carriedForwardDays: 0,
-        expiredDays: 0,
-        pendingDays: 0,
-      });
-    }
+        allottedDays: calculatedAnnual,
+        carriedForwardDays: annualStored?.carriedForwardDays ?? 0,
+        expiredDays: annualStored?.expiredDays ?? 0,
+        pendingDays: annualStored?.pendingDays ?? 0,
+      },
+      {
+        leaveType: "sick",
+        allottedDays: sickStored?.allottedDays ?? sickDefault,
+        carriedForwardDays: sickStored?.carriedForwardDays ?? 0,
+        expiredDays: sickStored?.expiredDays ?? 0,
+        pendingDays: sickStored?.pendingDays ?? 0,
+      },
+      ...otherRows,
+    ];
 
     return {
       year,
@@ -1331,6 +1320,7 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
         monthlyAccrual: tier.monthlyAccrual,
         yearsOfService: tier.yearsOfService,
         tierReason: tier.reason,
+        calculatedAutomatically: true as const,
       },
     };
   },

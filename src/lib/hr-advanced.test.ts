@@ -10,10 +10,53 @@ import {
   hasAckRequiredLeaveConflicts,
   hasHardLeaveOverlap,
   mapHrLeaveTypeToAttendance,
+  resolveStaffAnnualEntitlement,
   sumLeaveDaysInPeriod,
   sumUsedLeaveDays,
   summarizeLeaveBalances,
 } from "./hr-advanced";
+
+describe("resolveStaffAnnualEntitlement", () => {
+  it("calculates under-5y accrual from hire date (1.75/mo)", () => {
+    const result = resolveStaffAnnualEntitlement({
+      hireDate: "2024-01-15",
+      asOfDate: "2026-11-12",
+      year: 2026,
+      jobTitle: "Cashier",
+    });
+    expect(result.tier.code).toBe("under_5y");
+    expect(result.tier.annualDays).toBe(21);
+    expect(result.tier.monthlyAccrual).toBe(1.75);
+    expect(result.accrual.eligible).toBe(true);
+    expect(result.accrual.monthsAccrued).toBe(11);
+    expect(result.allottedDays).toBe(19.3);
+  });
+
+  it("uses management 30d / 2.5 monthly regardless of tenure", () => {
+    const result = resolveStaffAnnualEntitlement({
+      hireDate: "2025-06-01",
+      asOfDate: "2026-11-12",
+      year: 2026,
+      jobTitle: "Operations Manager",
+    });
+    expect(result.tier.code).toBe("management");
+    expect(result.tier.annualDays).toBe(30);
+    expect(result.allottedDays).toBe(27.5);
+  });
+
+  it("uses 28d tier after 5 years from DOJ", () => {
+    const result = resolveStaffAnnualEntitlement({
+      hireDate: "2020-03-01",
+      asOfDate: "2026-11-12",
+      year: 2026,
+      jobTitle: "Technician",
+    });
+    expect(result.tier.code).toBe("5y_plus");
+    expect(result.tier.annualDays).toBe(28);
+    expect(result.accrual.monthsAccrued).toBe(11);
+    expect(result.allottedDays).toBe(25.7);
+  });
+});
 
 describe("leave balances", () => {
   it("computes remaining from allotment minus approved usage", () => {

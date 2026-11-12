@@ -3,6 +3,8 @@
 import { z } from "zod";
 
 import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
+import { isEventWorkforceStaff } from "@/lib/events/event-workforce-staff";
+import { resolveStaffAnnualEntitlement } from "@/lib/hr-advanced";
 import {
   DEFAULT_LEAVE_PLANNER_RULES,
   evaluateLeavePlannerRequest,
@@ -15,6 +17,8 @@ import {
   type LeavePlannerStaffMember,
   type PairMatrixCell,
 } from "@/lib/hr-leave-planner";
+import { annualTierDaysFromPolicy } from "@/lib/hr-leave-policy";
+import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
@@ -114,6 +118,18 @@ async function loadPlannerEvents(context: AuthContext): Promise<LeavePlannerEven
   return (data ?? []).map((row) => mapEvent(row as Record<string, unknown>));
 }
 
+type HoPlannerStaffRow = {
+  id: string;
+  fullName: string;
+  employeeCode: string | null;
+  hireDate: string | null;
+  jobTitle: string | null;
+  department: string | null;
+  staffRole: string | null;
+  employmentCategory: string | null;
+  isManagement: boolean | null;
+};
+
 async function loadHoPlannerContext(context: AuthContext): Promise<{
   hoLocationId: string | null;
   rules: LeavePlannerRules;
@@ -121,6 +137,7 @@ async function loadHoPlannerContext(context: AuthContext): Promise<{
   staffMembers: LeavePlannerStaffMember[];
   departments: LeavePlannerDepartment[];
   staffNames: Record<string, string>;
+  staffDirectory: HoPlannerStaffRow[];
   awayLeaves: Array<{ id: string; staffId: string; dateFrom: string; dateTo: string }>;
 }> {
   const hoLocationId = await resolveHeadOfficeLocationId(context);
@@ -135,23 +152,71 @@ async function loadHoPlannerContext(context: AuthContext): Promise<{
       staffMembers: [],
       departments: [],
       staffNames: {},
+      staffDirectory: [],
       awayLeaves: [],
     };
   }
 
   const { data: staffRows, error: staffErr } = await supabaseAdmin
     .from("staff")
-    .select("id, full_name")
+    .select("id, full_name, employee_code, hire_date, job_title, department, staff_role")
     .eq("location_id", hoLocationId)
     .is("deleted_at", null)
-    .neq("status", "terminated");
+    .neq("status", "terminated")
+    .order("full_name");
   if (staffErr) throw staffErr;
 
-  const staffIds = (staffRows ?? []).map((r) => String(r.id));
+  // Real employee roster only — drop EVT / event-demo hires if they were ever linked to HO.
+  const realStaffRows = (staffRows ?? []).filter(
+    (row) =>
+      !isEventWorkforceStaff({
+        employee_code: (row.employee_code as string | null) ?? null,
+        department: (row.department as string | null) ?? null,
+        location_code: HEAD_OFFICE_LOCATION_CODE,
+      }),
+  );
+
+  const staffIds = realStaffRows.map((r) => String(r.id));
   const staffNames: Record<string, string> = {};
-  for (const row of staffRows ?? []) {
-    staffNames[String(row.id)] = String(row.full_name ?? "").trim() || String(row.id);
+  for (const row of realStaffRows) {
+    const name = String(row.full_name ?? "").trim();
+    // Never invent a display name — fall back to employee code, then id.
+    staffNames[String(row.id)] =
+      name || String(row.employee_code ?? "").trim() || String(row.id);
   }
+
+  const profileByStaff = new Map<
+    string,
+    { employmentCategory: string | null; isManagement: boolean | null }
+  >();
+  if (staffIds.length) {
+    const { data: profiles, error: profileErr } = await supabaseAdmin
+      .from("staff_profile_ext")
+      .select("staff_id, employment_category, is_management")
+      .in("staff_id", staffIds);
+    if (profileErr && !tableMissing(profileErr.message)) throw profileErr;
+    for (const row of profiles ?? []) {
+      profileByStaff.set(String(row.staff_id), {
+        employmentCategory: (row.employment_category as string | null) ?? null,
+        isManagement: (row.is_management as boolean | null) ?? null,
+      });
+    }
+  }
+
+  const staffDirectory: HoPlannerStaffRow[] = realStaffRows.map((row) => {
+    const profile = profileByStaff.get(String(row.id));
+    return {
+      id: String(row.id),
+      fullName: staffNames[String(row.id)]!,
+      employeeCode: (row.employee_code as string | null) ?? null,
+      hireDate: (row.hire_date as string | null)?.slice(0, 10) ?? null,
+      jobTitle: (row.job_title as string | null) ?? null,
+      department: (row.department as string | null) ?? null,
+      staffRole: (row.staff_role as string | null) ?? null,
+      employmentCategory: profile?.employmentCategory ?? null,
+      isManagement: profile?.isManagement ?? null,
+    };
+  });
 
   const { data: deptLinks, error: linkErr } = staffIds.length
     ? await supabaseAdmin
@@ -207,7 +272,16 @@ async function loadHoPlannerContext(context: AuthContext): Promise<{
     dateTo: String(row.date_to).slice(0, 10),
   }));
 
-  return { hoLocationId, rules, events, staffMembers, departments, staffNames, awayLeaves };
+  return {
+    hoLocationId,
+    rules,
+    events,
+    staffMembers,
+    departments,
+    staffNames,
+    staffDirectory,
+    awayLeaves,
+  };
 }
 
 /**
@@ -415,14 +489,56 @@ export const previewLeavePlanner = createAuthenticatedAction(
 export const getLeavePlannerBoard = createAuthenticatedActionNoInput(
   async (context) => {
     const ctx = await loadHoPlannerContext(context);
-    const people = ctx.staffMembers.map((m) => ({
-      staffId: m.staffId,
-      name: ctx.staffNames[m.staffId] ?? m.staffId,
-      departmentIds: m.departmentIds,
-      departmentNames: m.departmentIds
-        .map((id) => ctx.departments.find((d) => d.id === id)?.name)
-        .filter(Boolean) as string[],
-    }));
+    const leavePolicy = await readPolicySection(context, "leave").catch(() => ({} as Record<string, unknown>));
+    const tierCfg = annualTierDaysFromPolicy(leavePolicy);
+    const fromHireDate = leavePolicy.annual_from_hire_date !== false;
+    const year = new Date().getFullYear();
+    const asOfRaw = new Date().toISOString().slice(0, 10);
+    const asOfDate =
+      asOfRaw < `${year}-01-01` ? `${year}-12-31` : asOfRaw > `${year}-12-31` ? `${year}-12-31` : asOfRaw;
+
+    const directoryById = new Map(ctx.staffDirectory.map((row) => [row.id, row]));
+    const people = ctx.staffMembers.map((m) => {
+      const directory = directoryById.get(m.staffId);
+      const entitlement = resolveStaffAnnualEntitlement({
+        hireDate: directory?.hireDate,
+        asOfDate,
+        year,
+        fromHireDate,
+        jobTitle: directory?.jobTitle,
+        department: directory?.department,
+        staffRole: directory?.staffRole,
+        employmentCategory: directory?.employmentCategory,
+        isManagement: directory?.isManagement,
+        under5yDays: tierCfg.under5yDays,
+        fiveYearPlusDays: tierCfg.fiveYearPlusDays,
+        managementDays: tierCfg.managementDays,
+        tenureYearsThreshold: tierCfg.tenureYearsThreshold,
+        titleKeywords: tierCfg.titleKeywords,
+      });
+      return {
+        staffId: m.staffId,
+        name: directory?.fullName ?? ctx.staffNames[m.staffId] ?? m.staffId,
+        employeeCode: directory?.employeeCode ?? null,
+        hireDate: directory?.hireDate ?? null,
+        jobTitle: directory?.jobTitle ?? null,
+        departmentIds: m.departmentIds,
+        departmentNames: m.departmentIds
+          .map((id) => ctx.departments.find((d) => d.id === id)?.name)
+          .filter(Boolean) as string[],
+        entitlement: {
+          tierCode: entitlement.tier.code,
+          tierAnnualDays: entitlement.tier.annualDays,
+          monthlyAccrual: entitlement.tier.monthlyAccrual,
+          yearsOfService: entitlement.tier.yearsOfService,
+          accruedDays: entitlement.accrual.accruedDays,
+          monthsAccrued: entitlement.accrual.monthsAccrued,
+          eligible: entitlement.accrual.eligible,
+          allottedDays: entitlement.allottedDays,
+          reason: entitlement.tier.reason,
+        },
+      };
+    });
 
     const matrixPeople = [...people].sort((a, b) => a.name.localeCompare(b.name));
     const matrix: Array<{ rowStaffId: string; cells: Array<{ colStaffId: string; mark: PairMatrixCell }> }> =
@@ -468,7 +584,7 @@ export const getLeavePlannerBoard = createAuthenticatedActionNoInput(
       rules: ctx.rules,
       events: ctx.events,
       departments: ctx.departments,
-      people,
+      people: matrixPeople,
       awayLeaves: ctx.awayLeaves.map((row) => ({
         ...row,
         staffName: ctx.staffNames[row.staffId] ?? row.staffId,
