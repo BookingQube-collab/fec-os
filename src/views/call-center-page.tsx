@@ -110,8 +110,27 @@ function statusDotClass(status: CallCenterAgentStatusValue) {
   if (status === "available") return "bg-emerald-500";
   if (status === "busy") return "bg-rose-500";
   if (status === "acw") return "bg-amber-500";
-  if (status === "away") return "bg-orange-400";
-  return "bg-zinc-400";
+  if (status === "away") return "bg-orange-500";
+  return "bg-zinc-500";
+}
+
+function statusPillClass(status: CallCenterAgentStatusValue, selected: boolean) {
+  if (!selected) {
+    return "border-border/70 bg-card text-muted-foreground hover:bg-[var(--surface-2)] hover:text-foreground";
+  }
+  if (status === "available") {
+    return "border-emerald-600/30 bg-emerald-600 text-white shadow-sm";
+  }
+  if (status === "busy") {
+    return "border-rose-600/30 bg-rose-600 text-white shadow-sm";
+  }
+  if (status === "acw") {
+    return "border-amber-600/30 bg-amber-500 text-white shadow-sm";
+  }
+  if (status === "away") {
+    return "border-orange-600/30 bg-orange-500 text-white shadow-sm";
+  }
+  return "border-foreground/20 bg-foreground text-background shadow-sm";
 }
 
 function CallCenterPage() {
@@ -161,20 +180,26 @@ function CallCenterPage() {
                 ) : null}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("callCenter.agentStatus")}>
               {STATUSES.map((status) => (
                 <button
                   key={status}
                   type="button"
                   disabled={phone.pending}
                   onClick={() => void phone.changeStatus(status)}
+                  aria-pressed={phone.workspaceStatus === status}
                   className={cn(
-                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                    phone.workspaceStatus === status
-                      ? "border-foreground/20 bg-foreground text-background"
-                      : "border-border/70 bg-background text-muted-foreground hover:bg-muted/50",
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                    statusPillClass(status, phone.workspaceStatus === status),
                   )}
                 >
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      phone.workspaceStatus === status ? "bg-white/90" : statusDotClass(status),
+                    )}
+                    aria-hidden
+                  />
                   {t(statusLabelKey(status))}
                 </button>
               ))}
@@ -284,28 +309,33 @@ function CallCenterPage() {
             />
           ) : null}
 
-          {!phone.callCenterEnabled ? (
-            <p className="rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-              {t("callCenter.emptyEnableSettings")}{" "}
-              <Link href="/call-center/settings" className="font-medium text-foreground underline-offset-2 hover:underline">
-                {t("callCenterNav.settings")}
-              </Link>
-            </p>
-          ) : null}
-
-          {phone.myQueues.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-              {t("callCenter.emptyJoinQueue")}{" "}
-              <Link href="/call-center/queues" className="font-medium text-foreground underline-offset-2 hover:underline">
-                {t("callCenterNav.queues")}
-              </Link>
-            </p>
-          ) : null}
-
-          {!phone.sipConfigured ? (
-            <p className="rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-              {t("callCenter.configureSipHint")}
-            </p>
+          {!phone.callCenterEnabled || phone.myQueues.length === 0 || !phone.sipConfigured ? (
+            <div className="space-y-2">
+              {!phone.callCenterEnabled ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-amber-600/30 bg-amber-50/70 px-4 py-3">
+                  <p className="text-sm text-foreground">{t("callCenter.emptyEnableSettings")}</p>
+                  <Button asChild type="button" size="sm" variant="outline" className="min-h-9">
+                    <Link href="/call-center/settings">{t("callCenter.openSettings")}</Link>
+                  </Button>
+                </div>
+              ) : null}
+              {phone.myQueues.length === 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-border/70 bg-card/60 px-4 py-3">
+                  <p className="text-sm text-muted-foreground">{t("callCenter.emptyJoinQueue")}</p>
+                  <Button asChild type="button" size="sm" variant="outline" className="min-h-9">
+                    <Link href="/call-center/queues">{t("callCenter.openQueues")}</Link>
+                  </Button>
+                </div>
+              ) : null}
+              {!phone.sipConfigured ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-border/70 bg-card/60 px-4 py-3">
+                  <p className="text-sm text-muted-foreground">{t("callCenter.configureSipHint")}</p>
+                  <Button asChild type="button" size="sm" variant="ghost" className="min-h-9">
+                    <Link href="/call-center/settings">{t("callCenter.openSettings")}</Link>
+                  </Button>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           {/* 3-zone workspace */}
@@ -314,14 +344,23 @@ function CallCenterPage() {
             <aside className="space-y-4">
               <section className="rounded-[1.5rem] border border-border/50 bg-card p-4 shadow-elevated-xs">
                 <h2 className="text-sm font-semibold">{t("callCenter.myQueues")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.myQueuesHint")}</p>
                 {phone.myQueues.length === 0 ? (
-                  <p className="mt-3 text-xs text-muted-foreground">{t("callCenter.emptyJoinQueue")}</p>
+                  <div className="mt-3 rounded-xl border border-dashed border-border/60 px-3 py-4 text-center">
+                    <p className="text-xs text-muted-foreground">{t("callCenter.emptyJoinQueue")}</p>
+                    <Link
+                      href="/call-center/queues"
+                      className="mt-2 inline-block text-xs font-semibold text-[var(--fec-star)] underline-offset-2 hover:underline"
+                    >
+                      {t("callCenter.openQueues")}
+                    </Link>
+                  </div>
                 ) : (
                   <ul className="mt-3 space-y-2">
                     {phone.myQueues.map((q) => (
                       <li
                         key={q.id}
-                        className="flex items-center justify-between gap-2 rounded-xl bg-muted/35 px-3 py-2 text-sm"
+                        className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface-2)] px-3 py-2 text-sm"
                       >
                         <span className="font-medium">{q.name}</span>
                         <span className="text-[0.7rem] text-muted-foreground">
@@ -334,14 +373,21 @@ function CallCenterPage() {
               </section>
 
               <section className="rounded-[1.5rem] border border-border/50 bg-card p-4 shadow-elevated-xs">
-                <h2 className="text-sm font-semibold">{t("callCenter.whoAvailable")}</h2>
+                <div className="flex items-baseline justify-between gap-2">
+                  <h2 className="text-sm font-semibold">{t("callCenter.whoAvailable")}</h2>
+                  <span className="text-[0.7rem] tabular-nums text-muted-foreground">
+                    {phone.availableAgents.length}
+                  </span>
+                </div>
                 <ul className="mt-3 space-y-2">
                   {phone.availableAgents.length === 0 ? (
-                    <li className="text-xs text-muted-foreground">{t("callCenter.noAvailableAgents")}</li>
+                    <li className="rounded-xl border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
+                      {t("callCenter.noAvailableAgents")}
+                    </li>
                   ) : (
-                    phone.availableAgents.slice(0, 8).map((agent) => (
+                    phone.availableAgents.slice(0, 6).map((agent) => (
                       <li key={agent.userId} className="flex items-center gap-2 text-sm">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" aria-hidden />
                         <span className="font-mono text-xs">{agent.userId.slice(0, 8)}…</span>
                       </li>
                     ))
@@ -351,12 +397,15 @@ function CallCenterPage() {
 
               <section className="rounded-[1.5rem] border border-border/50 bg-card p-4 shadow-elevated-xs">
                 <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-                  <Star className="h-3.5 w-3.5" aria-hidden />
+                  <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden />
                   {t("callCenter.speedDial")}
                 </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.speedDialHint")}</p>
                 <ul className="mt-3 space-y-1.5">
                   {phone.speedDials.length === 0 ? (
-                    <li className="text-xs text-muted-foreground">{t("callCenter.speedDialEmpty")}</li>
+                    <li className="rounded-xl border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
+                      {t("callCenter.speedDialEmpty")}
+                    </li>
                   ) : (
                     phone.speedDials.map((item) => (
                       <li key={item.id} className="flex items-center gap-1">
@@ -441,9 +490,12 @@ function CallCenterPage() {
                   onTransfer={(type, target) => void phone.onTransfer(type, target)}
                 />
               ) : (
-                <section className="rounded-[1.75rem] border border-border/50 bg-[radial-gradient(ellipse_at_top,_hsl(var(--muted)/0.65),_transparent_58%),hsl(var(--card))] p-5 shadow-elevated-xs sm:p-7">
+                <section className="rounded-[1.75rem] border border-border/50 bg-card p-5 shadow-elevated-xs sm:p-7">
                   <p className="text-center text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     {t("callCenter.outboundDial")}
+                  </p>
+                  <p className="mt-1 text-center text-xs text-muted-foreground">
+                    {t("callCenter.outboundDialHint")}
                   </p>
                   <Input
                     className="mt-4 h-16 border-0 bg-transparent text-center font-mono text-3xl tracking-[0.14em] shadow-none focus-visible:ring-0 sm:text-4xl"
@@ -463,7 +515,7 @@ function CallCenterPage() {
                       <button
                         key={key.digit}
                         type="button"
-                        className="flex h-16 flex-col items-center justify-center rounded-[1.25rem] border border-border/40 bg-background/80 text-foreground shadow-sm transition hover:bg-muted/60 active:scale-[0.98]"
+                        className="flex h-16 flex-col items-center justify-center rounded-[1.25rem] border border-border/50 bg-[var(--surface-2)] text-foreground shadow-sm transition hover:bg-[color-mix(in_oklab,var(--fec-star)_10%,var(--card))] active:scale-[0.98]"
                         onClick={() => {
                           if (key.digit === "0" && phone.dialDigits === "+974") {
                             // keep +974; append 0
@@ -513,7 +565,9 @@ function CallCenterPage() {
                 <h2 className="text-sm font-semibold">{t("callCenter.recentCalls")}</h2>
                 <ul className="mt-3 divide-y divide-border/60">
                   {phone.recentCalls.length === 0 ? (
-                    <li className="py-6 text-center text-sm text-muted-foreground">{t("callCenter.noCalls")}</li>
+                    <li className="rounded-xl border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
+                      {t("callCenter.noCallsHint")}
+                    </li>
                   ) : (
                     phone.recentCalls.slice(0, 12).map((call) => (
                       <li key={call.id} className="flex items-start justify-between gap-2 py-2.5 text-sm">

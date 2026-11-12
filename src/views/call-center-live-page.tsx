@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Ear, Users } from "lucide-react";
+import { Ear, Phone, Radio, Users } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -20,17 +21,38 @@ import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
 function statusTone(status: string) {
-  if (status === "available") return "default" as const;
-  if (status === "busy" || status === "answered" || status === "held") return "destructive" as const;
-  return "secondary" as const;
+  if (status === "available") return "success" as const;
+  if (status === "busy" || status === "answered") return "destructive" as const;
+  if (status === "held" || status === "acw" || status === "away") return "warning" as const;
+  return "muted" as const;
 }
 
 function statusDot(status: string) {
   if (status === "available") return "bg-emerald-500";
   if (status === "busy") return "bg-rose-500";
   if (status === "acw") return "bg-amber-500";
-  if (status === "away") return "bg-orange-400";
-  return "bg-zinc-400";
+  if (status === "away") return "bg-orange-500";
+  return "bg-zinc-500";
+}
+
+function MetricCell({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-foreground">{value}</p>
+      {hint ? <p className="mt-0.5 text-[0.7rem] text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
 }
 
 function CallCenterLivePage() {
@@ -86,6 +108,10 @@ function CallCenterLivePage() {
     );
   }
 
+  const agents = wallboard.data?.agents ?? [];
+  const activeCalls = wallboard.data?.activeCalls ?? [];
+  const metrics = wallboard.data?.metrics;
+
   return (
     <CallCenterShell titleKey="callCenter.liveTitle" subtitleKey="callCenter.liveSubtitle">
       {wallboard.isLoading ? (
@@ -95,76 +121,86 @@ function CallCenterLivePage() {
       ) : wallboard.isError ? (
         <p className="text-sm text-destructive">{t("callCenter.loadError")}</p>
       ) : (
-        <div className="space-y-6">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-            <div className="rounded-2xl border border-border/50 bg-card p-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("callCenter.metricInCall")}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {wallboard.data?.metrics?.agentsInCall ??
-                  (wallboard.data?.agents ?? []).filter((a) => a.status === "busy").length}
-              </p>
+        <div className="space-y-8">
+          <section className="rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.liveMetricsHeading")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.liveMetricsHint")}</p>
+              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-[var(--surface-2)] px-2.5 py-1 text-[0.7rem] font-medium text-muted-foreground">
+                <Radio className="h-3 w-3 text-[var(--fec-star)]" aria-hidden />
+                {t("callCenter.liveRefreshing")}
+              </span>
             </div>
-            <div className="rounded-2xl border border-border/50 bg-card p-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("callCenter.agentsWall")}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {wallboard.data?.metrics?.agentsAvailable ??
-                  (wallboard.data?.agents ?? []).filter((a) => a.status === "available").length}
-                <span className="text-sm font-normal text-muted-foreground">
-                  {" "}
-                  / {(wallboard.data?.agents ?? []).length}
-                </span>
-              </p>
+            <div className="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+              <MetricCell
+                label={t("callCenter.metricInCall")}
+                value={
+                  metrics?.agentsInCall ?? agents.filter((a) => a.status === "busy").length
+                }
+              />
+              <MetricCell
+                label={t("callCenter.agentsWall")}
+                value={
+                  <>
+                    {metrics?.agentsAvailable ??
+                      agents.filter((a) => a.status === "available").length}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {" "}
+                      / {agents.length}
+                    </span>
+                  </>
+                }
+                hint={t("callCenter.metricAvailableHint")}
+              />
+              <MetricCell
+                label={t("callCenter.activeCalls")}
+                value={metrics?.activeCalls ?? activeCalls.length}
+              />
+              <MetricCell
+                label={t("callCenter.metricAsa")}
+                value={`${metrics?.avgSpeedAnswerSeconds ?? 0}s`}
+              />
+              <MetricCell
+                label={t("callCenter.metricAbandon")}
+                value={`${metrics?.abandonRate ?? 0}%`}
+              />
+              <MetricCell
+                label={t("callCenter.metricMissed")}
+                value={
+                  <>
+                    {metrics?.missedToday ?? 0}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {" "}
+                      / {metrics?.voicemailsPending ?? 0}
+                    </span>
+                  </>
+                }
+                hint={t("callCenter.metricMissedHint")}
+              />
             </div>
-            <div className="rounded-2xl border border-border/50 bg-card p-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("callCenter.activeCalls")}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {wallboard.data?.metrics?.activeCalls ?? (wallboard.data?.activeCalls ?? []).length}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/50 bg-card p-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("callCenter.metricAsa")}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {wallboard.data?.metrics?.avgSpeedAnswerSeconds ?? 0}s
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/50 bg-card p-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("callCenter.metricAbandon")}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {wallboard.data?.metrics?.abandonRate ?? 0}%
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/50 bg-card p-3">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("callCenter.metricMissed")} / {t("callCenter.metricVoicemail")}
-              </p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">
-                {wallboard.data?.metrics?.missedToday ?? 0}
-                <span className="text-sm font-normal text-muted-foreground">
-                  {" "}
-                  / {wallboard.data?.metrics?.voicemailsPending ?? 0}
-                </span>
-              </p>
-            </div>
-          </div>
+          </section>
+
           <section>
-            <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.agentsWall")}</h2>
-            {(wallboard.data?.agents ?? []).length === 0 ? (
-              <p className="mt-4 rounded-2xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-                {t("callCenter.noAgents")}
-              </p>
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold tracking-tight">{t("callCenter.agentsWall")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.agentsWallHint")}</p>
+              </div>
+            </div>
+            {agents.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/70 bg-card/50 px-4 py-10 text-center">
+                <Users className="mx-auto h-8 w-8 text-muted-foreground/70" aria-hidden />
+                <p className="mt-3 text-sm font-medium text-foreground">{t("callCenter.noAgents")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("callCenter.noAgentsHint")}</p>
+                <Button asChild type="button" size="sm" className="mt-4 min-h-10">
+                  <Link href="/call-center">{t("callCenter.goToDialer")}</Link>
+                </Button>
+              </div>
             ) : (
-              <ul className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {(wallboard.data?.agents ?? []).map((agent) => (
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {agents.map((agent) => (
                   <li
                     key={agent.userId}
                     className="rounded-[1.35rem] border border-border/50 bg-card p-4 shadow-elevated-xs"
@@ -172,7 +208,15 @@ function CallCenterLivePage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <span
-                          className={cn("h-3 w-3 rounded-full ring-4 ring-border/30", statusDot(agent.status))}
+                          className={cn(
+                            "h-3 w-3 rounded-full ring-4",
+                            statusDot(agent.status),
+                            agent.status === "available"
+                              ? "ring-emerald-500/20"
+                              : agent.status === "busy"
+                                ? "ring-rose-500/20"
+                                : "ring-border/40",
+                          )}
                           aria-hidden
                         />
                         <div>
@@ -197,14 +241,21 @@ function CallCenterLivePage() {
           </section>
 
           <section>
-            <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.activeCalls")}</h2>
-            {(wallboard.data?.activeCalls ?? []).length === 0 ? (
-              <p className="mt-4 rounded-2xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-                {t("callCenter.noActiveCalls")}
-              </p>
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold tracking-tight">{t("callCenter.activeCalls")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.activeCallsHint")}</p>
+              </div>
+            </div>
+            {activeCalls.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/70 bg-card/50 px-4 py-10 text-center">
+                <Phone className="mx-auto h-8 w-8 text-muted-foreground/70" aria-hidden />
+                <p className="mt-3 text-sm font-medium text-foreground">{t("callCenter.noActiveCalls")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("callCenter.noActiveCallsHint")}</p>
+              </div>
             ) : (
-              <ul className="mt-3 grid gap-3 lg:grid-cols-2">
-                {(wallboard.data?.activeCalls ?? []).map((call) => {
+              <ul className="grid gap-3 lg:grid-cols-2">
+                {activeCalls.map((call) => {
                   const queue = wallboard.data?.queues.find((q) => q.id === call.queueId);
                   const inCall = call.status === "answered" || call.status === "held";
                   return (

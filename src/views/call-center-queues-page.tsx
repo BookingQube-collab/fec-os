@@ -67,9 +67,14 @@ function CallCenterQueuesPage() {
           <FecLoader density="page" />
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {canEdit ? (
-            <section className="flex flex-wrap items-end gap-2 rounded-2xl border border-border/50 bg-card p-4">
+            <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.queuesAddHeading")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.queuesAddHint")}</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenterAdmin.queueName")}</Label>
                 <Input value={queueName} onChange={(e) => setQueueName(e.target.value)} />
@@ -111,14 +116,25 @@ function CallCenterQueuesPage() {
                 <Plus className="me-1 h-4 w-4" />
                 {t("callCenterAdmin.addQueue")}
               </Button>
+              </div>
             </section>
           ) : null}
 
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.queuesListHeading")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.queuesListHint")}</p>
+            </div>
+          {(bundle.data?.queues ?? []).length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-border/70 bg-card/50 px-4 py-8 text-center text-sm text-muted-foreground">
+              {t("callCenter.queuesEmpty")}
+            </p>
+          ) : (
           <ul className="space-y-2">
             {(bundle.data?.queues ?? []).map((q) => (
               <li
                 key={q.id}
-                className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card px-3 py-2.5 text-sm"
+                className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card px-3 py-2.5 text-sm shadow-elevated-xs"
               >
                 <div>
                   <p className="font-medium">{q.name}</p>
@@ -147,9 +163,14 @@ function CallCenterQueuesPage() {
               </li>
             ))}
           </ul>
+          )}
+          </section>
 
-          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-            <h2 className="text-sm font-semibold">{t("callCenterAdmin.members")}</h2>
+          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenterAdmin.members")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.queuesMembersHint")}</p>
+            </div>
             {canEdit ? (
               <div className="flex flex-wrap items-end gap-2">
                 <div className="space-y-1.5">

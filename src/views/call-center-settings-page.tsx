@@ -195,23 +195,27 @@ function CallCenterSettingsPage() {
           {t("callCenterAdmin.forbidden")}
         </p>
       ) : (
-        <div className="space-y-4">
-          <section className="space-y-4 rounded-2xl border border-border/50 bg-card p-4">
-            <div className="flex items-center justify-between gap-3">
+        <div className="space-y-5">
+          <section className="space-y-4 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.settingsGeneralHeading")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.settingsGeneralHint")}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-[var(--surface-2)]/60 px-3 py-2.5">
               <div>
                 <Label htmlFor="cc-enabled">{t("callCenterAdmin.enabled")}</Label>
                 <p className="text-xs text-muted-foreground">{t("callCenterAdmin.enabledHint")}</p>
               </div>
               <Switch id="cc-enabled" checked={enabled} onCheckedChange={setEnabled} />
             </div>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 px-3 py-2.5">
               <div>
                 <Label htmlFor="cc-ivr">{t("callCenterAdmin.ivrEnabled")}</Label>
                 <p className="text-xs text-muted-foreground">{t("callCenterAdmin.ivrEnabledHint")}</p>
               </div>
               <Switch id="cc-ivr" checked={ivrEnabled} onCheckedChange={setIvrEnabled} />
             </div>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 px-3 py-2.5">
               <div>
                 <Label htmlFor="cc-bh">{t("callCenter.businessHoursEnabled")}</Label>
                 <p className="text-xs text-muted-foreground">{t("callCenter.businessHoursHint")}</p>
@@ -253,9 +257,11 @@ function CallCenterSettingsPage() {
             </div>
           </section>
 
-          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-            <h2 className="text-sm font-semibold">{t("callCenter.mediaSettings")}</h2>
-            <p className="text-xs text-muted-foreground">{t("callCenter.mediaSettingsHint")}</p>
+          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.mediaSettings")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.mediaSettingsHint")}</p>
+            </div>
             <div className="space-y-1.5">
               <Label>{t("callCenter.welcomeGreeting")}</Label>
               <Textarea
@@ -301,8 +307,11 @@ function CallCenterSettingsPage() {
             </div>
           </section>
 
-          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-            <h2 className="text-sm font-semibold">{t("callCenter.businessHours")}</h2>
+          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.businessHours")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.businessHoursSectionHint")}</p>
+            </div>
             <div className="space-y-1.5">
               <Label>{t("callCenter.afterHoursGreeting")}</Label>
               <Textarea
@@ -369,8 +378,11 @@ function CallCenterSettingsPage() {
             </div>
           </section>
 
-          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-            <h2 className="text-sm font-semibold">{t("callCenter.holidays")}</h2>
+          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.holidays")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.holidaysHint")}</p>
+            </div>
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenterAdmin.label")}</Label>
@@ -427,8 +439,11 @@ function CallCenterSettingsPage() {
             </ul>
           </section>
 
-          <section className="grid gap-3 rounded-2xl border border-border/50 bg-card p-4 sm:grid-cols-2">
-            <h2 className="text-sm font-semibold sm:col-span-2">{t("callCenter.sipSettings")}</h2>
+          <section className="grid gap-3 rounded-2xl border border-border/50 bg-card p-4 sm:grid-cols-2 sm:p-5">
+            <div className="sm:col-span-2">
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.sipSettings")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.sipSettingsHint")}</p>
+            </div>
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.telnyxSipUri")}</Label>
               <Input value={telnyxSipUri} onChange={(e) => setTelnyxSipUri(e.target.value)} />
@@ -493,16 +508,18 @@ function CallCenterSettingsPage() {
               <Label>{t("callCenterAdmin.notes")}</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
             </div>
-            <div className="sm:col-span-2">
-              <Button type="button" disabled={saving} onClick={() => void save()}>
+            <div className="sticky bottom-2 z-10 sm:col-span-2">
+              <Button type="button" className="min-h-11 w-full sm:w-auto" disabled={saving} onClick={() => void save()}>
                 {saving ? t("callCenterAdmin.saving") : t("callCenterAdmin.save")}
               </Button>
             </div>
           </section>
 
-          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-            <h2 className="text-sm font-semibold">{t("callCenter.integrations")}</h2>
-            <p className="text-xs text-muted-foreground">{t("callCenter.integrationsHint")}</p>
+          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.integrations")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.integrationsHint")}</p>
+            </div>
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenterAdmin.label")}</Label>
