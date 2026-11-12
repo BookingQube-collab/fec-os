@@ -19,7 +19,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
-import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+import { PillTabScroller } from "@/components/react-bits/pill-tab-scroller";
+import { cn } from "@/lib/utils";
 
 const LINKS: { href: string; key: string; icon: LucideIcon; exact?: boolean }[] = [
   { href: "/call-center", key: "dialer", icon: Phone, exact: true },
@@ -34,6 +35,16 @@ const LINKS: { href: string; key: string; icon: LucideIcon; exact?: boolean }[] 
   { href: "/call-center/ai", key: "ai", icon: Bot },
   { href: "/call-center/whatsapp", key: "whatsapp", icon: MessageCircle },
 ];
+
+function navItemClass(active: boolean) {
+  return cn(
+    "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-sm font-medium transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fec-star)] focus-visible:ring-offset-2",
+    active
+      ? "border-foreground/15 bg-foreground text-background shadow-sm"
+      : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+  );
+}
 
 export function CallCenterSectionNav() {
   const { t } = useTranslation();
@@ -50,10 +61,10 @@ export function CallCenterSectionNav() {
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
-            className={pillTabItemClass(active)}
+            className={navItemClass(active)}
           >
-            <Icon aria-hidden />
-            {t(`callCenterNav.${item.key}`)}
+            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>{t(`callCenterNav.${item.key}`)}</span>
           </Link>
         );
       })}
@@ -64,27 +75,35 @@ export function CallCenterSectionNav() {
 export function CallCenterShell({
   titleKey,
   subtitleKey,
+  dense = false,
   children,
 }: {
   titleKey?: string;
   subtitleKey?: string;
+  dense?: boolean;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className={cn("space-y-4", dense && "space-y-3")}>
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/40 pb-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             {t("callCenter.kicker")}
           </p>
-          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-            <Headphones className="h-6 w-6 text-primary" aria-hidden />
+          <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            <Headphones className="h-5 w-5 text-foreground/80 sm:h-6 sm:w-6" aria-hidden />
             {t(titleKey ?? "callCenter.title")}
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {t(subtitleKey ?? "callCenter.subtitle")}
-          </p>
+          {!dense ? (
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              {t(subtitleKey ?? "callCenter.subtitle")}
+            </p>
+          ) : (
+            <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+              {t(subtitleKey ?? "callCenter.subtitle")}
+            </p>
+          )}
         </div>
       </div>
       <CallCenterSectionNav />

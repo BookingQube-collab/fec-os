@@ -185,6 +185,15 @@ export type CallCenterCall = {
   transcriptUpdatedAt: string | null;
   whisperActive: boolean;
   bargeActive: boolean;
+  agentNotes: string;
+};
+
+export type CallCenterSpeedDial = {
+  id: string;
+  userId: string;
+  label: string;
+  e164: string;
+  sortOrder: number;
 };
 
 export type CallCenterSupervisorMode = "whisper" | "barge";

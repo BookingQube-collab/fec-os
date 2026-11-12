@@ -32,10 +32,13 @@ import {
   listQueues,
   listRecentCalls,
   listRingingCallsForAgent,
+  listSpeedDials,
   listWebhookEndpoints,
   loadSettingsRow,
+  saveCallAgentNotes,
   saveSettingsRow,
   setAgentStatus,
+  deleteSpeedDial,
   upsertCampaign,
   upsertCampaignContact,
   upsertDid,
@@ -44,6 +47,7 @@ import {
   upsertIvrOption,
   upsertQueue,
   upsertQueueMember,
+  upsertSpeedDial,
   upsertWebhookEndpoint,
 } from "./db";
 import {
@@ -327,14 +331,31 @@ export const removeCallCenterIvrOption = createSafeAuthenticatedAction(
 export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
   z.object({}),
   async (_data, context) => {
-    const [status, ringing, recent, settings, provider, dids] = await Promise.all([
-      getAgentStatus(context.userId),
-      listRingingCallsForAgent(context.userId),
-      listRecentCalls(25),
-      loadSettingsRow(),
-      getCallProvider(),
-      listDids(),
-    ]);
+    const [status, ringing, recent, settings, provider, dids, queues, members, agents] =
+      await Promise.all([
+        getAgentStatus(context.userId),
+        listRingingCallsForAgent(context.userId),
+        listRecentCalls(25),
+        loadSettingsRow(),
+        getCallProvider(),
+        listDids(),
+        listQueues(),
+        listQueueMembers(),
+        listAgentStatuses(),
+      ]);
+    let speedDials: Awaited<ReturnType<typeof listSpeedDials>> = [];
+    try {
+      speedDials = await listSpeedDials(context.userId);
+    } catch {
+      speedDials = [];
+    }
+    const myMemberships = members.filter((m) => m.userId === context.userId && m.isActive);
+    const myQueueIds = new Set(myMemberships.map((m) => m.queueId));
+    const myQueues = queues.filter((q) => q.isActive && myQueueIds.has(q.id));
+    const wrapUpSeconds =
+      myQueues.length > 0
+        ? Math.max(...myQueues.map((q) => q.wrapUpSeconds || 30))
+        : 30;
     return {
       status: status ?? {
         userId: context.userId,
@@ -346,6 +367,12 @@ export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
       recentCalls: recent,
       settings: toPublicSettings(settings, provider.name === "livekit"),
       dids: dids.filter((d) => d.isActive),
+      myQueues,
+      myMemberships,
+      wrapUpSeconds,
+      speedDials,
+      availableAgents: agents.filter((a) => a.status === "available" && a.userId !== context.userId),
+      agents,
     };
   },
   { auth: AGENT_AUTH },
@@ -535,6 +562,49 @@ export const generateCallCenterTranscriptStub = createSafeAuthenticatedAction(
       text: stub,
       status: "stub",
     });
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterAgentNotes = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    notes: z.string().max(4000),
+  }),
+  async (data, context) => {
+    const call = await getCall(data.callId);
+    if (!call) throw new Error("Call not found.");
+    if (call.agentUserId && call.agentUserId !== context.userId) {
+      throw new Error("Call belongs to another agent.");
+    }
+    return saveCallAgentNotes(data.callId, data.notes);
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterSpeedDial = createSafeAuthenticatedAction(
+  z.object({
+    id: optionalUuid.optional(),
+    label: z.string().trim().min(1).max(80),
+    e164: z.string().trim().min(3).max(32),
+    sortOrder: z.number().int().min(0).max(999).optional(),
+  }),
+  async (data, context) =>
+    upsertSpeedDial({
+      id: data.id ?? undefined,
+      userId: context.userId,
+      label: data.label,
+      e164: data.e164,
+      sortOrder: data.sortOrder,
+    }),
+  { auth: AGENT_AUTH },
+);
+
+export const deleteCallCenterSpeedDial = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data, context) => {
+    await deleteSpeedDial(data.id, context.userId);
+    return { ok: true as const };
   },
   { auth: AGENT_AUTH },
 );

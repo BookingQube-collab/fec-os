@@ -3,15 +3,18 @@
 import { ConnectionState, Room, RoomEvent, Track } from "livekit-client";
 import {
   ArrowRightLeft,
+  Circle,
   Grid3X3,
   Mic,
   MicOff,
   Pause,
   PhoneOff,
   Play,
+  Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +24,7 @@ import {
   unlockSoftphoneAudio,
 } from "@/lib/call-center/softphone-audio";
 import type { CallCenterTransferTarget } from "@/lib/call-center/types";
+import { cn } from "@/lib/utils";
 
 function isLiveKitAccessToken(value: string): boolean {
   const parts = value.split(".");
@@ -44,8 +48,11 @@ export function CallCenterSoftphoneRoom({
   serverUrl,
   held,
   answeredAt,
+  callerLabel,
   transferTargets = [],
   compact = false,
+  micMuted = false,
+  onMicMutedChange,
   onHangup,
   onHoldToggle,
   onDtmf,
@@ -55,8 +62,11 @@ export function CallCenterSoftphoneRoom({
   serverUrl: string;
   held: boolean;
   answeredAt?: string | null;
+  callerLabel?: string | null;
   transferTargets?: CallCenterTransferTarget[];
   compact?: boolean;
+  micMuted?: boolean;
+  onMicMutedChange?: (muted: boolean) => void;
   onHangup: () => void;
   onHoldToggle: () => void;
   onDtmf: (digit: string) => void;
@@ -67,11 +77,15 @@ export function CallCenterSoftphoneRoom({
   const roomRef = useRef<Room | null>(null);
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Disconnected);
   const [failed, setFailed] = useState(false);
-  const [micOn, setMicOn] = useState(true);
-  const [showPad, setShowPad] = useState(true);
+  const [micOn, setMicOn] = useState(!micMuted);
+  const [showPad, setShowPad] = useState(!compact);
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferTarget, setTransferTarget] = useState("");
   const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    setMicOn(!micMuted);
+  }, [micMuted]);
 
   useEffect(() => {
     stopSoftphoneRingtone();
@@ -161,6 +175,7 @@ export function CallCenterSoftphoneRoom({
     const next = !micOn;
     await room.localParticipant.setMicrophoneEnabled(next);
     setMicOn(next);
+    onMicMutedChange?.(!next);
   }
 
   const connected = connection === ConnectionState.Connected;
@@ -170,83 +185,117 @@ export function CallCenterSoftphoneRoom({
     <section
       role="region"
       aria-label={t("callCenter.inCall")}
-      className={
-        compact
-          ? "rounded-2xl border border-border/50 bg-card p-3 shadow-elevated-xs"
-          : "rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs"
-      }
+      className={cn(
+        "border border-border/50 bg-card shadow-elevated-xs",
+        compact ? "rounded-2xl p-3" : "rounded-[1.75rem] p-5 sm:p-6",
+      )}
     >
       <div ref={audioRef} className="sr-only" />
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-medium">{t("callCenter.inCall")}</p>
-        <p className="font-mono text-lg tabular-nums tracking-wide text-foreground">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            {t("callCenter.inCall")}
+          </p>
+          <p className="mt-1 truncate text-xl font-semibold tracking-tight sm:text-2xl">
+            {callerLabel || t("callCenter.unknownCaller")}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {!mediaReady
+              ? t("callCenter.mediaNotConfigured")
+              : failed
+                ? t("callCenter.mediaFailed")
+                : held
+                  ? t("callCenter.onHold")
+                  : connected
+                    ? t("callCenter.connected")
+                    : t("callCenter.connecting")}
+          </p>
+        </div>
+        <p className="font-mono text-3xl tabular-nums tracking-wide text-foreground sm:text-4xl">
           {formatElapsed(elapsed)}
         </p>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {!mediaReady
-          ? t("callCenter.mediaNotConfigured")
-          : failed
-            ? t("callCenter.mediaFailed")
-            : held
-              ? t("callCenter.onHold")
-              : connected
-                ? t("callCenter.connected")
-                : t("callCenter.connecting")}
-      </p>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+
+      <div className="mt-5 flex flex-wrap items-center gap-2">
         <Button
           type="button"
           variant="outline"
-          className="min-h-11 min-w-11 px-2"
+          className="min-h-12 gap-2 rounded-xl px-3"
           disabled={!mediaReady || held}
           onClick={() => void toggleMic()}
           aria-label={micOn ? t("callCenter.mute") : t("callCenter.unmute")}
         >
-          {micOn && !held ? <Mic aria-hidden /> : <MicOff aria-hidden />}
+          {micOn && !held ? <Mic className="h-4 w-4" aria-hidden /> : <MicOff className="h-4 w-4" aria-hidden />}
+          <span className="hidden sm:inline">{micOn && !held ? t("callCenter.mute") : t("callCenter.unmute")}</span>
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="min-h-11 min-w-11 px-2"
+          className="min-h-12 gap-2 rounded-xl px-3"
           onClick={onHoldToggle}
           aria-label={held ? t("callCenter.resume") : t("callCenter.hold")}
         >
-          {held ? <Play aria-hidden /> : <Pause aria-hidden />}
+          {held ? <Play className="h-4 w-4" aria-hidden /> : <Pause className="h-4 w-4" aria-hidden />}
+          <span className="hidden sm:inline">{held ? t("callCenter.resume") : t("callCenter.hold")}</span>
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="min-h-11 min-w-11 px-2"
+          className="min-h-12 gap-2 rounded-xl px-3"
           onClick={() => setShowPad((v) => !v)}
           aria-label={t("callCenter.keypad")}
         >
-          <Grid3X3 aria-hidden />
+          <Grid3X3 className="h-4 w-4" aria-hidden />
+          <span className="hidden sm:inline">{t("callCenter.keypad")}</span>
         </Button>
         {onTransfer ? (
           <Button
             type="button"
             variant="outline"
-            className="min-h-11 px-3"
+            className="min-h-12 gap-2 rounded-xl px-3"
             onClick={() => setShowTransfer((v) => !v)}
           >
-            <ArrowRightLeft className="me-1.5 h-4 w-4" aria-hidden />
-            {t("callCenter.divert")}
+            <ArrowRightLeft className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">{t("callCenter.divert")}</span>
           </Button>
         ) : null}
-        <Button type="button" variant="destructive" className="min-h-11 px-3" onClick={onHangup}>
-          <PhoneOff className="me-1.5 h-4 w-4" aria-hidden />
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-12 gap-2 rounded-xl px-3"
+          onClick={() => toast.message(t("callCenter.conferenceSoon"))}
+        >
+          <Users className="h-4 w-4" aria-hidden />
+          <span className="hidden sm:inline">{t("callCenter.conference")}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-12 gap-2 rounded-xl px-3"
+          onClick={() => toast.message(t("callCenter.recordSoon"))}
+        >
+          <Circle className="h-3.5 w-3.5 fill-current text-destructive" aria-hidden />
+          <span className="hidden sm:inline">{t("callCenter.record")}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          className="min-h-12 min-w-[7.5rem] gap-2 rounded-full px-4"
+          onClick={onHangup}
+        >
+          <PhoneOff className="h-4 w-4" aria-hidden />
           {t("callCenter.hangup")}
         </Button>
       </div>
+
       {showPad ? (
-        <div className="mt-4 grid max-w-[15rem] grid-cols-3 gap-2">
+        <div className="mx-auto mt-5 grid max-w-[18rem] grid-cols-3 gap-2.5">
           {KEYPAD.map((digit) => (
             <Button
               key={digit}
               type="button"
               variant="secondary"
-              className="min-h-12 text-lg font-semibold"
+              className="min-h-14 rounded-2xl text-xl font-semibold"
               onClick={() => onDtmf(digit)}
             >
               {digit}
@@ -254,9 +303,10 @@ export function CallCenterSoftphoneRoom({
           ))}
         </div>
       ) : null}
+
       {showTransfer && onTransfer ? (
-        <div className="mt-4 space-y-3 rounded-xl border border-border/60 p-3">
-          <p className="text-xs font-medium text-foreground">{t("callCenter.divertTitle")}</p>
+        <div className="mt-5 space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+          <p className="text-sm font-semibold text-foreground">{t("callCenter.divertTitle")}</p>
           <p className="text-xs text-muted-foreground">{t("callCenter.transferHint")}</p>
           {transferTargets.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -279,6 +329,7 @@ export function CallCenterSoftphoneRoom({
             value={transferTarget}
             onChange={(e) => setTransferTarget(e.target.value)}
             placeholder={t("callCenter.transferTarget")}
+            className="min-h-11"
           />
           <div className="flex flex-wrap gap-2">
             <Button

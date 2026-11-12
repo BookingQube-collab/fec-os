@@ -16,12 +16,21 @@ import {
 } from "@/lib/call-center/call-center.functions";
 import type { CallCenterMediaSession, CallCenterSupervisorMode } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
+import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
 function statusTone(status: string) {
   if (status === "available") return "default" as const;
   if (status === "busy" || status === "answered" || status === "held") return "destructive" as const;
   return "secondary" as const;
+}
+
+function statusDot(status: string) {
+  if (status === "available") return "bg-emerald-500";
+  if (status === "busy") return "bg-rose-500";
+  if (status === "acw") return "bg-amber-500";
+  if (status === "away") return "bg-orange-400";
+  return "bg-zinc-400";
 }
 
 function CallCenterLivePage() {
@@ -86,54 +95,70 @@ function CallCenterLivePage() {
       ) : wallboard.isError ? (
         <p className="text-sm text-destructive">{t("callCenter.loadError")}</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs">
-            <h2 className="text-sm font-semibold">{t("callCenter.agentsWall")}</h2>
-            <ul className="mt-3 divide-y divide-border/60">
-              {(wallboard.data?.agents ?? []).length === 0 ? (
-                <li className="py-6 text-center text-sm text-muted-foreground">
-                  {t("callCenter.noAgents")}
-                </li>
-              ) : (
-                (wallboard.data?.agents ?? []).map((agent) => (
-                  <li key={agent.userId} className="flex items-center justify-between gap-2 py-2.5 text-sm">
-                    <div>
-                      <p className="font-medium">{agent.userId.slice(0, 8)}…</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("callCenter.since", {
-                          time: new Date(agent.statusSince).toLocaleTimeString(),
-                        })}
-                      </p>
+        <div className="space-y-6">
+          <section>
+            <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.agentsWall")}</h2>
+            {(wallboard.data?.agents ?? []).length === 0 ? (
+              <p className="mt-4 rounded-2xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+                {t("callCenter.noAgents")}
+              </p>
+            ) : (
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {(wallboard.data?.agents ?? []).map((agent) => (
+                  <li
+                    key={agent.userId}
+                    className="rounded-[1.35rem] border border-border/50 bg-card p-4 shadow-elevated-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={cn("h-3 w-3 rounded-full ring-4 ring-border/30", statusDot(agent.status))}
+                          aria-hidden
+                        />
+                        <div>
+                          <p className="font-mono text-sm font-semibold tracking-tight">
+                            {agent.userId.slice(0, 8)}…
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {t("callCenter.since", {
+                              time: new Date(agent.statusSince).toLocaleTimeString(),
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant={statusTone(agent.status)}>
+                        {t(`callCenter.status.${agent.status}`)}
+                      </Badge>
                     </div>
-                    <Badge variant={statusTone(agent.status)}>
-                      {t(`callCenter.status.${agent.status}`)}
-                    </Badge>
                   </li>
-                ))
-              )}
-            </ul>
+                ))}
+              </ul>
+            )}
           </section>
 
-          <section className="rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs">
-            <h2 className="text-sm font-semibold">{t("callCenter.activeCalls")}</h2>
-            <ul className="mt-3 divide-y divide-border/60">
-              {(wallboard.data?.activeCalls ?? []).length === 0 ? (
-                <li className="py-6 text-center text-sm text-muted-foreground">
-                  {t("callCenter.noActiveCalls")}
-                </li>
-              ) : (
-                (wallboard.data?.activeCalls ?? []).map((call) => {
+          <section>
+            <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.activeCalls")}</h2>
+            {(wallboard.data?.activeCalls ?? []).length === 0 ? (
+              <p className="mt-4 rounded-2xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+                {t("callCenter.noActiveCalls")}
+              </p>
+            ) : (
+              <ul className="mt-3 grid gap-3 lg:grid-cols-2">
+                {(wallboard.data?.activeCalls ?? []).map((call) => {
                   const queue = wallboard.data?.queues.find((q) => q.id === call.queueId);
                   const inCall = call.status === "answered" || call.status === "held";
                   return (
-                    <li key={call.id} className="space-y-2 py-2.5 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                    <li
+                      key={call.id}
+                      className="rounded-[1.35rem] border border-border/50 bg-card p-4 shadow-elevated-xs"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="font-medium">
-                            {call.fromE164 || "—"} → {call.toE164 || "—"}
+                          <p className="text-lg font-semibold tracking-tight">
+                            {call.fromE164 || "—"}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {queue?.name ?? "—"} · {call.direction}
+                            → {call.toE164 || "—"} · {queue?.name ?? "—"} · {call.direction}
                             {call.whisperActive ? ` · ${t("callCenter.whisper")}` : ""}
                             {call.bargeActive ? ` · ${t("callCenter.barge")}` : ""}
                           </p>
@@ -141,11 +166,12 @@ function CallCenterLivePage() {
                         <Badge variant={statusTone(call.status)}>{call.status}</Badge>
                       </div>
                       {canSupervise && inCall ? (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="mt-4 flex flex-wrap gap-2">
                           <Button
                             type="button"
                             size="sm"
                             variant="secondary"
+                            className="min-h-10"
                             disabled={pendingId === `${call.id}:whisper`}
                             onClick={() => void startMonitor(call.id, "whisper", call.agentUserId)}
                           >
@@ -156,6 +182,7 @@ function CallCenterLivePage() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            className="min-h-10"
                             disabled={pendingId === `${call.id}:barge`}
                             onClick={() => void startMonitor(call.id, "barge", call.agentUserId)}
                           >
@@ -165,19 +192,21 @@ function CallCenterLivePage() {
                         </div>
                       ) : null}
                       {monitor?.callId === call.id ? (
-                        <SupervisorMonitorRoom
-                          token={monitor.media.token}
-                          serverUrl={monitor.media.serverUrl}
-                          mode={monitor.mode}
-                          agentUserId={monitor.agentUserId}
-                          onLeave={() => setMonitor(null)}
-                        />
+                        <div className="mt-3">
+                          <SupervisorMonitorRoom
+                            token={monitor.media.token}
+                            serverUrl={monitor.media.serverUrl}
+                            mode={monitor.mode}
+                            agentUserId={monitor.agentUserId}
+                            onLeave={() => setMonitor(null)}
+                          />
+                        </div>
                       ) : null}
                     </li>
                   );
-                })
-              )}
-            </ul>
+                })}
+              </ul>
+            )}
           </section>
         </div>
       )}

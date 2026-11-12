@@ -24,6 +24,7 @@ import {
   type CallCenterQueueStrategy,
   type CallCenterSettingsRow,
   type CallCenterIvrAction,
+  type CallCenterSpeedDial,
   type CallCenterWebhookEndpoint,
 } from "./types";
 
@@ -173,6 +174,17 @@ export function mapCall(row: Record<string, unknown>): CallCenterCall {
     transcriptUpdatedAt: row.transcript_updated_at ? String(row.transcript_updated_at) : null,
     whisperActive: Boolean(row.whisper_active ?? false),
     bargeActive: Boolean(row.barge_active ?? false),
+    agentNotes: String(row.agent_notes ?? ""),
+  };
+}
+
+function mapSpeedDial(row: Record<string, unknown>): CallCenterSpeedDial {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    label: String(row.label ?? ""),
+    e164: String(row.e164 ?? ""),
+    sortOrder: Number(row.sort_order ?? 0),
   };
 }
 
@@ -665,6 +677,7 @@ export async function updateCall(
     transcriptUpdatedAt: string | null;
     whisperActive: boolean;
     bargeActive: boolean;
+    agentNotes: string;
   }>,
 ): Promise<CallCenterCall> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -692,6 +705,7 @@ export async function updateCall(
   }
   if (patch.whisperActive !== undefined) payload.whisper_active = patch.whisperActive;
   if (patch.bargeActive !== undefined) payload.barge_active = patch.bargeActive;
+  if (patch.agentNotes !== undefined) payload.agent_notes = patch.agentNotes;
 
   const result = await table<Record<string, unknown>>("call_center_calls")
     .update(payload)
@@ -1028,6 +1042,62 @@ export async function deleteWebhookEndpoint(id: string): Promise<void> {
     .delete()
     .eq("id", id);
   throwIfError((await result).error);
+}
+
+export async function listSpeedDials(userId: string): Promise<CallCenterSpeedDial[]> {
+  const result = (await table<Record<string, unknown>>("call_center_speed_dials")
+    .select("*")
+    .eq("user_id", userId)
+    .order("sort_order", { ascending: true })
+    .limit(40)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapSpeedDial);
+}
+
+export async function upsertSpeedDial(input: {
+  id?: string;
+  userId: string;
+  label: string;
+  e164: string;
+  sortOrder?: number;
+}): Promise<CallCenterSpeedDial> {
+  const payload: Record<string, unknown> = {
+    user_id: input.userId,
+    label: input.label.trim().slice(0, 80),
+    e164: normalizeE164(input.e164),
+    sort_order: input.sortOrder ?? 0,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_speed_dials")
+      .update(payload)
+      .eq("id", input.id)
+      .eq("user_id", input.userId)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Speed dial could not be saved.");
+    return mapSpeedDial(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_speed_dials")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Speed dial could not be saved.");
+  return mapSpeedDial(result.data);
+}
+
+export async function deleteSpeedDial(id: string, userId: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_speed_dials")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId);
+  throwIfError((await result).error);
+}
+
+export async function saveCallAgentNotes(callId: string, notes: string): Promise<CallCenterCall> {
+  return updateCall(callId, { agentNotes: notes.trim().slice(0, 4000) });
 }
 
 export function normalizeE164(value: string): string {

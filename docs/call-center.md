@@ -32,7 +32,7 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 
 | Path | Purpose |
 |------|---------|
-| `/call-center` | Softphone / Dialer (status, keypad outbound, ring, in-call, transfer) |
+| `/call-center` | Agent console: 3-zone dialer (status bar, keypad / in-call, queues + speed dial + notes) |
 | `/call-center/live` | Agents + active calls wallboard |
 | `/call-center/calls` | CDR filters (date, queue, direction) |
 | `/call-center/numbers` | DIDs CRUD + queue / IVR / event mapping |
@@ -65,6 +65,25 @@ Softphone migration:
 ```
 
 Adds transcript + whisper/barge columns on `call_center_calls`.
+
+Agent console migration:
+
+```bash
+#   supabase/migrations/20261112190000_call_center_agent_console.sql
+```
+
+Adds `agent_notes` on CDR and `call_center_speed_dials` favorites.
+
+## Agent console UX
+
+- **Top bar:** big status chips (Available / Busy / Away / ACW / Offline), Test ring, mic + speaker mute.
+- **Center:** large phone keypad or in-call stage (timer, Mute / Hold / Keypad / Divert / Conference / Record / Hangup).
+- **Sides:** queue membership + available agents + speed dial; recent calls with one-tap callback; call notes (saved to CDR).
+- **Incoming:** centered full-screen ring modal with Answer / Decline (Esc declines).
+- **ACW:** after hangup, countdown from queue `wrap_up_seconds`, then auto Available (or End wrap-up early).
+- **Calls:** Today / Missed / Outbound chips; expandable notes + transcript; callback.
+- **Live:** large agent tiles and active-call cards with Whisper / Barge.
+- **Keyboard:** Enter to dial (when idle), Esc to decline or hang up.
 
 ## Env vars
 
