@@ -323,6 +323,15 @@ export type CallCenterWallboard = {
   activeCalls: CallCenterCall[];
   queues: CallCenterQueue[];
   members: CallCenterQueueMember[];
+  metrics: {
+    agentsAvailable: number;
+    agentsInCall: number;
+    activeCalls: number;
+    avgSpeedAnswerSeconds: number;
+    abandonRate: number;
+    missedToday: number;
+    voicemailsPending: number;
+  };
 };
 
 export type CallCenterMediaSession = {

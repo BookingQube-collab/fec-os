@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   loadCallCenterCampaignContacts,
   loadCallCenterConfigBundle,
+  dialNextCampaignContact,
   placeCallCenterOutbound,
   removeCallCenterCampaign,
   removeCallCenterCampaignContact,
@@ -142,28 +143,46 @@ function CallCenterCampaignsPage() {
               </p>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-sm font-semibold">{t("callCenter.campaignContacts")}</h2>
-                  {canEdit ? (
+                  <div className="flex items-center gap-2">
                     <Button
                       type="button"
                       size="sm"
-                      variant="ghost"
                       onClick={async () => {
-                        const result = await removeCallCenterCampaign({ id: selectedId });
+                        const result = await dialNextCampaignContact({ campaignId: selectedId });
                         if (!result.ok) toast.error(result.error);
                         else {
-                          setSelectedId(null);
+                          toast.success(t("callCenter.dialNextDone"));
                           await queryClient.invalidateQueries({
-                            queryKey: ["call-center", "config"],
+                            queryKey: ["call-center", "campaign-contacts", selectedId],
                           });
                         }
                       }}
                     >
-                      <Trash2 className="me-1 h-4 w-4" />
-                      {t("callCenterAdmin.delete")}
+                      {t("callCenter.dialNext")}
                     </Button>
-                  ) : null}
+                    {canEdit ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          const result = await removeCallCenterCampaign({ id: selectedId });
+                          if (!result.ok) toast.error(result.error);
+                          else {
+                            setSelectedId(null);
+                            await queryClient.invalidateQueries({
+                              queryKey: ["call-center", "config"],
+                            });
+                          }
+                        }}
+                      >
+                        <Trash2 className="me-1 h-4 w-4" />
+                        {t("callCenterAdmin.delete")}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
                 {canEdit ? (
                   <div className="flex flex-wrap items-end gap-2">

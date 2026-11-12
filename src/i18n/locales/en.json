@@ -2076,6 +2076,7 @@
     "dialNext": "Dial next contact",
     "dialNextDone": "Dialed next pending contact.",
     "skills": "Skills (comma-separated)",
+    "memberPriority": "Priority",
     "metricAsa": "ASA",
     "metricAbandon": "Abandon rate",
     "metricInCall": "Agents in call",

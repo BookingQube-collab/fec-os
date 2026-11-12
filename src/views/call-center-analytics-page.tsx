@@ -75,6 +75,22 @@ function CallCenterAnalyticsPage() {
           />
           <MetricCard label={t("callCenter.metricActiveCalls")} value={String(data?.activeCalls ?? 0)} />
           <MetricCard label={t("callCenter.metricMissed")} value={String(data?.missedToday ?? 0)} />
+          <MetricCard
+            label={t("callCenter.metricAsa")}
+            value={`${data?.avgSpeedAnswerSeconds ?? 0}s`}
+          />
+          <MetricCard
+            label={t("callCenter.metricAbandon")}
+            value={`${data?.abandonRate ?? 0}%`}
+          />
+          <MetricCard
+            label={t("callCenter.metricInCall")}
+            value={String(data?.agentsInCall ?? 0)}
+          />
+          <MetricCard
+            label={t("callCenter.metricVoicemail")}
+            value={String(data?.voicemailsPending ?? 0)}
+          />
           <MetricCard label={t("callCenter.metricAway")} value={String(data?.agentsAway ?? 0)} />
           <MetricCard label={t("callCenter.metricOffline")} value={String(data?.agentsOffline ?? 0)} />
         </div>

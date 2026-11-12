@@ -96,6 +96,66 @@ function CallCenterLivePage() {
         <p className="text-sm text-destructive">{t("callCenter.loadError")}</p>
       ) : (
         <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+            <div className="rounded-2xl border border-border/50 bg-card p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.metricInCall")}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {wallboard.data?.metrics?.agentsInCall ??
+                  (wallboard.data?.agents ?? []).filter((a) => a.status === "busy").length}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/50 bg-card p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.agentsWall")}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {wallboard.data?.metrics?.agentsAvailable ??
+                  (wallboard.data?.agents ?? []).filter((a) => a.status === "available").length}
+                <span className="text-sm font-normal text-muted-foreground">
+                  {" "}
+                  / {(wallboard.data?.agents ?? []).length}
+                </span>
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/50 bg-card p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.activeCalls")}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {wallboard.data?.metrics?.activeCalls ?? (wallboard.data?.activeCalls ?? []).length}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/50 bg-card p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.metricAsa")}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {wallboard.data?.metrics?.avgSpeedAnswerSeconds ?? 0}s
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/50 bg-card p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.metricAbandon")}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {wallboard.data?.metrics?.abandonRate ?? 0}%
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/50 bg-card p-3">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.metricMissed")} / {t("callCenter.metricVoicemail")}
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {wallboard.data?.metrics?.missedToday ?? 0}
+                <span className="text-sm font-normal text-muted-foreground">
+                  {" "}
+                  / {wallboard.data?.metrics?.voicemailsPending ?? 0}
+                </span>
+              </p>
+            </div>
+          </div>
           <section>
             <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.agentsWall")}</h2>
             {(wallboard.data?.agents ?? []).length === 0 ? (

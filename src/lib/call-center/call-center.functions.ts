@@ -710,13 +710,28 @@ export const deleteCallCenterSpeedDial = createSafeAuthenticatedAction(
 export const loadCallCenterWallboard = createSafeAuthenticatedAction(
   z.object({}),
   async () => {
-    const [agents, activeCalls, queues, members] = await Promise.all([
+    const [agents, activeCalls, queues, members, analytics] = await Promise.all([
       listAgentStatuses(),
       listActiveCalls(),
       listQueues(),
       listQueueMembers(),
+      getAnalyticsSummary(),
     ]);
-    return { agents, activeCalls, queues, members };
+    return {
+      agents,
+      activeCalls,
+      queues,
+      members,
+      metrics: {
+        agentsAvailable: analytics.agentsAvailable,
+        agentsInCall: analytics.agentsInCall,
+        activeCalls: analytics.activeCalls,
+        avgSpeedAnswerSeconds: analytics.avgSpeedAnswerSeconds,
+        abandonRate: analytics.abandonRate,
+        missedToday: analytics.missedToday,
+        voicemailsPending: analytics.voicemailsPending,
+      },
+    };
   },
   { auth: AGENT_AUTH },
 );
@@ -964,17 +979,21 @@ export const setCallCenterRecording = createSafeAuthenticatedAction(
     enabled: z.boolean(),
     recordingUrl: z.string().trim().max(2000).optional(),
   }),
-  async (data) =>
-    updateCall(data.callId, {
+  async (data) => {
+    const existing = await getCall(data.callId);
+    if (!existing) throw new Error("Call not found.");
+    return updateCall(data.callId, {
       recordingEnabled: data.enabled,
       ...(data.recordingUrl != null ? { recordingUrl: data.recordingUrl } : {}),
       metadata: {
+        ...existing.metadata,
         recordingRequested: data.enabled,
         recordingNote: data.enabled
           ? "Recording flagged — LiveKit egress URL fills when media capture is wired."
           : "Recording disabled",
       },
-    }),
+    });
+  },
   { auth: AGENT_AUTH },
 );
 

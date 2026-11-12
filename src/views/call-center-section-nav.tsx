@@ -12,6 +12,7 @@ import {
   PhoneCall,
   Radio,
   Settings,
+  Voicemail,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const LINKS: { href: string; key: string; icon: LucideIcon; exact?: boolean }[] 
   { href: "/call-center/calls", key: "calls", icon: PhoneCall },
   { href: "/call-center/numbers", key: "numbers", icon: Hash },
   { href: "/call-center/ivr", key: "ivr", icon: Workflow },
+  { href: "/call-center/voicemail", key: "voicemail", icon: Voicemail },
   { href: "/call-center/queues", key: "queues", icon: ListOrdered },
   { href: "/call-center/campaigns", key: "campaigns", icon: Activity },
   { href: "/call-center/analytics", key: "analytics", icon: BarChart3 },

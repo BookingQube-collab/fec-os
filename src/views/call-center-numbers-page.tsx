@@ -146,6 +146,7 @@ function CallCenterNumbersPage() {
             <p className="text-sm text-muted-foreground">{t("callCenter.configReadOnly")}</p>
           )}
 
+          <p className="text-xs text-muted-foreground">{t("callCenter.numbersMappingHint")}</p>
           <ul className="space-y-2">
             {(bundle.data?.dids ?? []).map((d) => {
               const queue = bundle.data?.queues.find((q) => q.id === d.queueId);
@@ -155,15 +156,32 @@ function CallCenterNumbersPage() {
                   key={d.id}
                   className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card px-3 py-2.5 text-sm"
                 >
-                  <div>
+                  <div className="min-w-0 space-y-2">
                     <p className="font-medium">
                       {d.e164} {d.label ? `· ${d.label}` : ""}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {queue?.name ?? "—"} · IVR {menu?.name ?? "—"}
-                      {d.eventId ? ` · event ${d.eventId.slice(0, 8)}…` : ""}
                       {!d.isActive ? " · inactive" : ""}
                     </p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="rounded-md border border-border bg-muted/40 px-2 py-1 font-mono">
+                        {d.e164}
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="rounded-md border border-sky-700/25 bg-sky-50 px-2 py-1">
+                        IVR {menu?.name ?? "off"}
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="rounded-md border border-teal-700/25 bg-teal-50 px-2 py-1">
+                        {queue?.name ?? "no queue"}
+                      </span>
+                      {d.eventId ? (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="rounded-md border border-border px-2 py-1">
+                            event {d.eventId.slice(0, 8)}…
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                   {canEdit ? (
                     <Button

@@ -23,6 +23,8 @@ import {
   declineCallCenterCall,
   deleteCallCenterSpeedDial,
   hangupCallCenterCall,
+  saveCallCenterDisposition,
+  setCallCenterRecording,
   holdCallCenterCall,
   loadCallCenterAgentWorkspace,
   loadCallCenterWallboard,
@@ -95,9 +97,12 @@ type SoftphoneContextValue = {
   onDtmf: (digit: string) => Promise<void>;
   onTransfer: (type: "cold" | "warm", target: string) => Promise<void>;
   onSaveNotes: () => Promise<void>;
+  onSaveDisposition: (code: string, notes?: string) => Promise<void>;
+  onToggleRecording: () => Promise<void>;
   onAddSpeedDial: (label: string, e164: string) => Promise<void>;
   onDeleteSpeedDial: (id: string) => Promise<void>;
   endAcwEarly: () => Promise<void>;
+  lastEndedCallId: string | null;
   refresh: () => Promise<void>;
 };
 
@@ -150,6 +155,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   const [notesDraft, setNotesDraft] = useState("");
   const [notesCallId, setNotesCallId] = useState<string | null>(null);
   const [acwRemaining, setAcwRemaining] = useState<number | null>(null);
+  const [lastEndedCallId, setLastEndedCallId] = useState<string | null>(null);
+  const missedAlertedRef = useRef<Set<string>>(new Set());
   const acwTimerRef = useRef<number | null>(null);
   const wrapUpRef = useRef(30);
 
@@ -188,6 +195,26 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
 
   const incoming = ringingQuery.data?.[0] ?? workspace.data?.ringing[0] ?? null;
   wrapUpRef.current = workspace.data?.wrapUpSeconds ?? 30;
+
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+    const myQueueIds = new Set((workspace.data?.myQueues ?? []).map((q) => q.id));
+    const recent = workspace.data?.recentCalls ?? [];
+    for (const call of recent.slice(0, 12)) {
+      if (!["missed", "declined"].includes(call.status)) continue;
+      if (call.direction === "outbound") continue;
+      if (missedAlertedRef.current.has(call.id)) continue;
+      const age = Date.now() - new Date(call.startedAt).getTime();
+      if (age > 15 * 60_000) continue;
+      const forMe =
+        call.agentUserId === uid ||
+        (!call.agentUserId && !!call.queueId && myQueueIds.has(call.queueId));
+      if (!forMe) continue;
+      missedAlertedRef.current.add(call.id);
+      toast.message(t("callCenter.missedCallAlert", { from: call.fromE164 || call.toE164 || "—" }));
+    }
+  }, [workspace.data?.recentCalls, workspace.data?.myQueues, user?.id, t]);
 
   useEffect(() => {
     try {
@@ -378,6 +405,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       toast.error(result.error);
       return;
     }
+    setLastEndedCallId(activeCall.id);
     setActiveCall(null);
     setMedia(null);
     setHeld(false);
@@ -445,6 +473,41 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     }
     toast.success(t("callCenter.notesSaved"));
     await refresh();
+  }
+
+  async function onSaveDisposition(code: string, notes?: string) {
+    const callId = lastEndedCallId || notesCallId || activeCall?.id;
+    if (!callId) {
+      toast.error(t("callCenter.notesNoCall"));
+      return;
+    }
+    setPending(true);
+    const result = await saveCallCenterDisposition({
+      callId,
+      dispositionCode: code,
+      dispositionNotes: notes ?? "",
+    });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(t("callCenter.dispositionSaved"));
+    await refresh();
+  }
+
+  async function onToggleRecording() {
+    if (!activeCall) return;
+    const enabled = !activeCall.recordingEnabled;
+    setPending(true);
+    const result = await setCallCenterRecording({ callId: activeCall.id, enabled });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setActiveCall(result.data);
+    toast.success(enabled ? t("callCenter.recordingOn") : t("callCenter.recordingOff"));
   }
 
   async function onAddSpeedDial(label: string, e164: string) {
@@ -542,9 +605,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     onDtmf,
     onTransfer,
     onSaveNotes,
+    onSaveDisposition,
+    onToggleRecording,
     onAddSpeedDial,
     onDeleteSpeedDial,
     endAcwEarly,
+    lastEndedCallId,
     refresh,
   };
 

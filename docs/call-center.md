@@ -116,7 +116,7 @@ Adds after-hours greeting/action, CDR disposition + recording flag, queue member
 | Voicemail inbox | `/call-center/voicemail` — Add test voicemail; Mark listened |
 | ACW wrap-up codes | Hang up a call → disposition chips on dialer → Save disposition |
 | Recording flag + playback | In-call **Recording** toggle; Calls detail plays `recording_url` when set |
-| Live wallboard metrics + whisper/barge | `/call-center/live` — in-call / available counts; Whisper/Barge on active calls (admin) |
+| Live wallboard metrics + whisper/barge | `/call-center/live` — available / in-call / ASA / abandon / missed / voicemail; Whisper/Barge on active calls (admin) |
 | Analytics ASA / abandon / voicemail | `/call-center/analytics` |
 | Queue member priority + skills | `/call-center/queues` |
 | DID → IVR → Queue visual map | `/call-center/numbers` |

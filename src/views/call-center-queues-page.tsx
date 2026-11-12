@@ -39,6 +39,8 @@ function CallCenterQueuesPage() {
   const [strategy, setStrategy] = useState<CallCenterQueueStrategy>("simultaneous");
   const [memberQueueId, setMemberQueueId] = useState("");
   const [memberUserId, setMemberUserId] = useState(user?.id ?? "");
+  const [memberSkills, setMemberSkills] = useState("");
+  const [memberPriority, setMemberPriority] = useState("100");
 
   const bundle = useQuery({
     queryKey: ["call-center", "config"],
@@ -173,6 +175,21 @@ function CallCenterQueuesPage() {
                   <Label>{t("callCenterAdmin.userId")}</Label>
                   <Input value={memberUserId} onChange={(e) => setMemberUserId(e.target.value)} />
                 </div>
+                <div className="w-24 space-y-1.5">
+                  <Label>{t("callCenter.memberPriority")}</Label>
+                  <Input
+                    value={memberPriority}
+                    onChange={(e) => setMemberPriority(e.target.value)}
+                  />
+                </div>
+                <div className="min-w-[12rem] flex-1 space-y-1.5">
+                  <Label>{t("callCenter.skills")}</Label>
+                  <Input
+                    value={memberSkills}
+                    onChange={(e) => setMemberSkills(e.target.value)}
+                    placeholder="arabic, events"
+                  />
+                </div>
                 <Button
                   type="button"
                   onClick={async () => {
@@ -180,15 +197,21 @@ function CallCenterQueuesPage() {
                       toast.error(t("callCenterAdmin.memberRequired"));
                       return;
                     }
+                    const skills = memberSkills
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
                     const result = await saveCallCenterQueueMember({
                       queueId: memberQueueId,
                       userId: memberUserId,
-                      priority: 100,
+                      priority: Number(memberPriority) || 100,
                       isActive: true,
+                      skills,
                     });
                     if (!result.ok) toast.error(result.error);
                     else {
                       toast.success(t("callCenterAdmin.memberSaved"));
+                      setMemberSkills("");
                       await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
                     }
                   }}
@@ -205,6 +228,7 @@ function CallCenterQueuesPage() {
                     <span>
                       {queue?.name ?? m.queueId.slice(0, 8)} · {m.userId.slice(0, 8)}… · p
                       {m.priority}
+                      {m.skills?.length ? ` · skills: ${m.skills.join(", ")}` : ""}
                     </span>
                     {canEdit ? (
                       <Button

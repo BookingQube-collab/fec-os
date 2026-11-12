@@ -85,6 +85,10 @@ function CallCenterSettingsPage() {
   const [holidayDate, setHolidayDate] = useState("");
   const [webhookName, setWebhookName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [afterHoursGreeting, setAfterHoursGreeting] = useState("");
+  const [afterHoursAction, setAfterHoursAction] = useState<"voicemail" | "hangup" | "queue">(
+    "voicemail",
+  );
 
   useEffect(() => {
     if (!bundle.data || hydrated) return;
@@ -92,6 +96,8 @@ function CallCenterSettingsPage() {
     setEnabled(s.enabled);
     setIvrEnabled(s.ivrEnabled);
     setBusinessHoursEnabled(s.businessHoursEnabled);
+    setAfterHoursGreeting(s.afterHoursGreeting);
+    setAfterHoursAction(s.afterHoursAction);
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
@@ -137,6 +143,8 @@ function CallCenterSettingsPage() {
       notes,
       outboundCallerIdE164: outboundCallerId,
       webhookOutboundUrl,
+      afterHoursGreeting,
+      afterHoursAction,
     });
     setSaving(false);
     if (!result.ok) {
@@ -229,6 +237,30 @@ function CallCenterSettingsPage() {
 
           <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
             <h2 className="text-sm font-semibold">{t("callCenter.businessHours")}</h2>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.afterHoursGreeting")}</Label>
+              <Textarea
+                rows={2}
+                value={afterHoursGreeting}
+                onChange={(e) => setAfterHoursGreeting(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.afterHoursAction")}</Label>
+              <Select
+                value={afterHoursAction}
+                onValueChange={(v) => setAfterHoursAction(v as "voicemail" | "hangup" | "queue")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="voicemail">voicemail</SelectItem>
+                  <SelectItem value="hangup">hangup</SelectItem>
+                  <SelectItem value="queue">queue (still ring)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               {DAYS.map((day) => (
                 <div key={day} className="flex flex-wrap items-center gap-2 text-sm">

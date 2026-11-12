@@ -41,6 +41,67 @@ const DIAL_KEYS = [
   { digit: "#", letters: "" },
 ] as const;
 
+const DISPOSITIONS = [
+  "resolved",
+  "callback",
+  "voicemail_followup",
+  "wrong_number",
+  "spam",
+  "info_only",
+  "escalated",
+  "other",
+] as const;
+
+function AcwDispositionPanel({
+  onSave,
+  pending,
+}: {
+  onSave: (code: string, notes: string) => void;
+  pending: boolean;
+}) {
+  const { t } = useTranslation();
+  const [code, setCode] = useState<string>("resolved");
+  const [notes, setNotes] = useState("");
+  return (
+    <section className="rounded-2xl border border-amber-600/25 bg-amber-50/60 p-4">
+      <p className="text-sm font-semibold text-foreground">{t("callCenter.disposition")}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {DISPOSITIONS.map((d) => (
+          <button
+            key={d}
+            type="button"
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs font-medium",
+              code === d
+                ? "border-foreground/20 bg-foreground text-background"
+                : "border-border bg-card text-foreground/80",
+            )}
+            onClick={() => setCode(d)}
+          >
+            {d}
+          </button>
+        ))}
+      </div>
+      <Textarea
+        className="mt-2"
+        rows={2}
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder={t("callCenter.dispositionNotes")}
+      />
+      <Button
+        type="button"
+        size="sm"
+        className="mt-2"
+        disabled={pending}
+        onClick={() => onSave(code, notes)}
+      >
+        {t("callCenter.saveDisposition")}
+      </Button>
+    </section>
+  );
+}
+
 function statusLabelKey(status: CallCenterAgentStatusValue) {
   return `callCenter.status.${status}` as const;
 }
@@ -158,11 +219,32 @@ function CallCenterPage() {
               </Button>
               {phone.acwRemaining != null ? (
                 <Button type="button" size="sm" className="min-h-10" onClick={() => void phone.endAcwEarly()}>
-                  {t("callCenter.endAcw")}
+                  {t("callCenter.endAcw")} ({phone.acwRemaining}s)
+                </Button>
+              ) : null}
+              {phone.activeCall ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="min-h-10"
+                  disabled={phone.pending}
+                  onClick={() => void phone.onToggleRecording()}
+                >
+                  {phone.activeCall.recordingEnabled
+                    ? t("callCenter.recordingOn")
+                    : t("callCenter.toggleRecording")}
                 </Button>
               ) : null}
             </div>
           </header>
+
+          {phone.acwRemaining != null ? (
+            <AcwDispositionPanel
+              onSave={(code, notes) => void phone.onSaveDisposition(code, notes)}
+              pending={phone.pending}
+            />
+          ) : null}
 
           {!phone.callCenterEnabled ? (
             <p className="rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">

@@ -319,7 +319,10 @@ function CallCenterCallsPage() {
                     <p className="text-xs text-muted-foreground">
                       {new Date(call.startedAt).toLocaleString()} · {call.direction}
                       {call.talkSeconds != null ? ` · ${call.talkSeconds}s` : ""}
-                      {call.recordingUrl ? ` · ${t("callCenter.hasRecording")}` : ""}
+                      {call.recordingUrl || call.recordingEnabled
+                        ? ` · ${t("callCenter.hasRecording")}`
+                        : ""}
+                      {call.dispositionCode ? ` · ${call.dispositionCode}` : ""}
                       {call.transferType ? ` · ${call.transferType} → ${call.transferTarget}` : ""}
                       {call.transcriptStatus !== "none"
                         ? ` · ${t("callCenter.hasTranscript")}`
@@ -348,6 +351,21 @@ function CallCenterCallsPage() {
                 </div>
                 {expandedId === call.id ? (
                   <div className="mt-3 grid gap-3 rounded-xl border border-border/60 p-3 lg:grid-cols-2">
+                    {(call.recordingUrl || call.recordingEnabled) && (
+                      <div className="space-y-2 lg:col-span-2">
+                        <p className="text-xs font-medium text-foreground">
+                          {t("callCenter.playRecording")}
+                          {call.recordingEnabled && !call.recordingUrl
+                            ? " (flagged — URL pending egress)"
+                            : ""}
+                        </p>
+                        {call.recordingUrl ? (
+                          <audio controls className="w-full max-w-xl" src={call.recordingUrl}>
+                            <track kind="captions" />
+                          </audio>
+                        ) : null}
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-foreground">{t("callCenter.callNotes")}</p>
                       <Textarea
