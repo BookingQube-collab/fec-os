@@ -52,9 +52,11 @@ export function toPublicSettings(
     telnyxConnectionId: row?.telnyx_connection_id?.trim() ?? "",
     telnyxKeyLast4: secretLast4(row?.telnyx_api_key ?? ""),
     telnyxKeySet: (row?.telnyx_api_key?.trim() ?? "").length > 0,
+    telnyxWebhookSecretLast4: secretLast4(row?.telnyx_webhook_secret ?? ""),
     telnyxWebhookSecretSet: (row?.telnyx_webhook_secret?.trim() ?? "").length > 0,
     livekitSipTrunkId: row?.livekit_sip_trunk_id?.trim() ?? "",
     livekitSipDispatchRuleId: row?.livekit_sip_dispatch_rule_id?.trim() ?? "",
+    webhookSecretLast4: secretLast4(row?.webhook_shared_secret ?? ""),
     webhookSecretSet: (row?.webhook_shared_secret?.trim() ?? "").length > 0,
     notes: row?.notes ?? "",
     sipConfigured: isSipConfigured(row),
@@ -88,6 +90,9 @@ export function toPublicSettings(
     whatsappAccessTokenSet: whatsappToken.length > 0 || Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()),
     whatsappAccessTokenLast4: secretLast4(
       whatsappToken || process.env.WHATSAPP_ACCESS_TOKEN?.trim() || "",
+    ),
+    whatsappVerifyTokenLast4: secretLast4(
+      row?.whatsapp_verify_token?.trim() || process.env.WHATSAPP_VERIFY_TOKEN?.trim() || "",
     ),
     whatsappVerifyTokenSet:
       Boolean(row?.whatsapp_verify_token?.trim()) ||

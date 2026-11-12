@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { CallCenterSecretField } from "@/components/call-center/secret-field";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -370,21 +371,16 @@ function CallCenterAiPage() {
                   onChange={(e) => setModel(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>{t("callCenter.aiApiKey")}</Label>
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  placeholder={
-                    settings?.aiApiKeySet
-                      ? t("callCenterAdmin.keyLast4", { last4: settings.aiApiKeyLast4 })
-                      : "sk-…"
-                  }
-                  value={apiKey}
-                  disabled={!canEdit}
-                  onChange={(e) => setApiKey(e.target.value)}
-                />
-              </div>
+              <CallCenterSecretField
+                id="cc-ai-api-key"
+                label={t("callCenter.aiApiKey")}
+                value={apiKey}
+                onChange={setApiKey}
+                isSet={Boolean(settings?.aiApiKeySet)}
+                last4={settings?.aiApiKeyLast4 ?? ""}
+                revealField="ai_api_key"
+                disabled={!canEdit}
+              />
               <div className="space-y-1.5">
                 <Label>{t("callCenter.aiBaseUrl")}</Label>
                 <Input

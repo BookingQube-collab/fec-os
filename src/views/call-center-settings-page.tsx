@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { CallCenterSecretField } from "@/components/call-center/secret-field";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -173,6 +174,7 @@ function CallCenterSettingsPage() {
     setTelnyxApiKey("");
     setTelnyxWebhookSecret("");
     setWebhookSharedSecret("");
+    setHydrated(false);
     await queryClient.invalidateQueries({ queryKey: ["call-center"] });
   }
 
@@ -455,33 +457,33 @@ function CallCenterSettingsPage() {
                 onChange={(e) => setTelnyxConnectionId(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenterAdmin.telnyxApiKey")}</Label>
-              <Input
-                type="password"
-                value={telnyxApiKey}
-                onChange={(e) => setTelnyxApiKey(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenterAdmin.webhookSecret")}</Label>
-              <Input
-                type="password"
-                value={webhookSharedSecret}
-                onChange={(e) => setWebhookSharedSecret(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenterAdmin.telnyxWebhookSecret")}</Label>
-              <Input
-                type="password"
-                value={telnyxWebhookSecret}
-                onChange={(e) => setTelnyxWebhookSecret(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
+            <CallCenterSecretField
+              id="cc-telnyx-api-key"
+              label={t("callCenterAdmin.telnyxApiKey")}
+              value={telnyxApiKey}
+              onChange={setTelnyxApiKey}
+              isSet={Boolean(bundle.data?.settings.telnyxKeySet)}
+              last4={bundle.data?.settings.telnyxKeyLast4 ?? ""}
+              revealField="telnyx_api_key"
+            />
+            <CallCenterSecretField
+              id="cc-webhook-shared-secret"
+              label={t("callCenterAdmin.webhookSecret")}
+              value={webhookSharedSecret}
+              onChange={setWebhookSharedSecret}
+              isSet={Boolean(bundle.data?.settings.webhookSecretSet)}
+              last4={bundle.data?.settings.webhookSecretLast4 ?? ""}
+              revealField="webhook_shared_secret"
+            />
+            <CallCenterSecretField
+              id="cc-telnyx-webhook-secret"
+              label={t("callCenterAdmin.telnyxWebhookSecret")}
+              value={telnyxWebhookSecret}
+              onChange={setTelnyxWebhookSecret}
+              isSet={Boolean(bundle.data?.settings.telnyxWebhookSecretSet)}
+              last4={bundle.data?.settings.telnyxWebhookSecretLast4 ?? ""}
+              revealField="telnyx_webhook_secret"
+            />
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.livekitSipTrunkId")}</Label>
               <Input

@@ -280,6 +280,26 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
   { auth: ADMIN_AUTH },
 );
 
+/** Admin-only: return one stored secret so the settings form can reveal/edit it. */
+export const revealCallCenterSettingSecret = createSafeAuthenticatedAction(
+  z.object({
+    field: z.enum([
+      "telnyx_api_key",
+      "telnyx_webhook_secret",
+      "webhook_shared_secret",
+      "ai_api_key",
+      "whatsapp_access_token",
+      "whatsapp_verify_token",
+    ]),
+  }),
+  async (data) => {
+    const row = await loadSettingsRow();
+    const value = row?.[data.field]?.trim() ?? "";
+    return { field: data.field, value };
+  },
+  { auth: ADMIN_AUTH },
+);
+
 export const saveCallCenterQueue = createSafeAuthenticatedAction(
   z.object({
     id: z.string().uuid().optional(),

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { CallCenterSecretField } from "@/components/call-center/secret-field";
 import { FecButton as Button, FecLoader, FecPageHeader } from "@/components/fec";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -124,6 +125,7 @@ function AdminCallCenterPage() {
     setTelnyxApiKey("");
     setTelnyxWebhookSecret("");
     setWebhookSharedSecret("");
+    setHydrated(false);
     await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     toast.success(t("callCenterAdmin.saved"));
   }
@@ -282,46 +284,33 @@ function AdminCallCenterPage() {
                     onChange={(e) => setTelnyxConnectionId(e.target.value)}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cc-key">{t("callCenterAdmin.telnyxApiKey")}</Label>
-                  <Input
-                    id="cc-key"
-                    type="password"
-                    autoComplete="new-password"
-                    value={telnyxApiKey}
-                    onChange={(e) => setTelnyxApiKey(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {bundle.data?.settings.telnyxKeySet
-                      ? t("callCenterAdmin.keyLast4", { last4: bundle.data.settings.telnyxKeyLast4 })
-                      : t("callCenterAdmin.keyEmpty")}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cc-wh">{t("callCenterAdmin.webhookSecret")}</Label>
-                  <Input
-                    id="cc-wh"
-                    type="password"
-                    autoComplete="new-password"
-                    value={webhookSharedSecret}
-                    onChange={(e) => setWebhookSharedSecret(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {bundle.data?.settings.webhookSecretSet
-                      ? t("callCenterAdmin.secretSet")
-                      : t("callCenterAdmin.secretEmpty")}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cc-telnyx-wh">{t("callCenterAdmin.telnyxWebhookSecret")}</Label>
-                  <Input
-                    id="cc-telnyx-wh"
-                    type="password"
-                    autoComplete="new-password"
-                    value={telnyxWebhookSecret}
-                    onChange={(e) => setTelnyxWebhookSecret(e.target.value)}
-                  />
-                </div>
+                <CallCenterSecretField
+                  id="cc-key"
+                  label={t("callCenterAdmin.telnyxApiKey")}
+                  value={telnyxApiKey}
+                  onChange={setTelnyxApiKey}
+                  isSet={Boolean(bundle.data?.settings.telnyxKeySet)}
+                  last4={bundle.data?.settings.telnyxKeyLast4 ?? ""}
+                  revealField="telnyx_api_key"
+                />
+                <CallCenterSecretField
+                  id="cc-wh"
+                  label={t("callCenterAdmin.webhookSecret")}
+                  value={webhookSharedSecret}
+                  onChange={setWebhookSharedSecret}
+                  isSet={Boolean(bundle.data?.settings.webhookSecretSet)}
+                  last4={bundle.data?.settings.webhookSecretLast4 ?? ""}
+                  revealField="webhook_shared_secret"
+                />
+                <CallCenterSecretField
+                  id="cc-telnyx-wh"
+                  label={t("callCenterAdmin.telnyxWebhookSecret")}
+                  value={telnyxWebhookSecret}
+                  onChange={setTelnyxWebhookSecret}
+                  isSet={Boolean(bundle.data?.settings.telnyxWebhookSecretSet)}
+                  last4={bundle.data?.settings.telnyxWebhookSecretLast4 ?? ""}
+                  revealField="telnyx_webhook_secret"
+                />
                 <div className="space-y-2">
                   <Label htmlFor="cc-trunk">{t("callCenterAdmin.livekitSipTrunkId")}</Label>
                   <Input

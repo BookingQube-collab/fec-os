@@ -121,6 +121,17 @@ export type CallCenterSettingsRow = {
   tts_greeting_text: string;
 };
 
+export const CALL_CENTER_SECRET_FIELDS = [
+  "telnyx_api_key",
+  "telnyx_webhook_secret",
+  "webhook_shared_secret",
+  "ai_api_key",
+  "whatsapp_access_token",
+  "whatsapp_verify_token",
+] as const;
+
+export type CallCenterSecretField = (typeof CALL_CENTER_SECRET_FIELDS)[number];
+
 export type CallCenterSettingsPublic = {
   enabled: boolean;
   ivrEnabled: boolean;
@@ -132,9 +143,11 @@ export type CallCenterSettingsPublic = {
   telnyxConnectionId: string;
   telnyxKeyLast4: string;
   telnyxKeySet: boolean;
+  telnyxWebhookSecretLast4: string;
   telnyxWebhookSecretSet: boolean;
   livekitSipTrunkId: string;
   livekitSipDispatchRuleId: string;
+  webhookSecretLast4: string;
   webhookSecretSet: boolean;
   notes: string;
   sipConfigured: boolean;
@@ -163,6 +176,7 @@ export type CallCenterSettingsPublic = {
   whatsappWabaId: string;
   whatsappAccessTokenSet: boolean;
   whatsappAccessTokenLast4: string;
+  whatsappVerifyTokenLast4: string;
   whatsappVerifyTokenSet: boolean;
   whatsappConfigured: boolean;
   outboundCallerIdE164: string;

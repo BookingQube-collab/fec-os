@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { CallCenterSecretField } from "@/components/call-center/secret-field";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -246,36 +247,24 @@ function CallCenterWhatsappPage() {
                 className="font-mono text-xs"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenter.whatsappAccessToken")}</Label>
-              <Input
-                type="password"
-                autoComplete="off"
-                placeholder={
-                  settings?.whatsappAccessTokenSet
-                    ? t("callCenterAdmin.keyLast4", {
-                        last4: settings.whatsappAccessTokenLast4,
-                      })
-                    : "EAAG…"
-                }
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenter.whatsappVerifyToken")}</Label>
-              <Input
-                type="password"
-                autoComplete="off"
-                placeholder={
-                  settings?.whatsappVerifyTokenSet
-                    ? t("callCenter.whatsappVerifySet")
-                    : t("callCenter.whatsappVerifyPlaceholder")
-                }
-                value={verifyToken}
-                onChange={(e) => setVerifyToken(e.target.value)}
-              />
-            </div>
+            <CallCenterSecretField
+              id="cc-wa-access-token"
+              label={t("callCenter.whatsappAccessToken")}
+              value={accessToken}
+              onChange={setAccessToken}
+              isSet={Boolean(settings?.whatsappAccessTokenSet)}
+              last4={settings?.whatsappAccessTokenLast4 ?? ""}
+              revealField="whatsapp_access_token"
+            />
+            <CallCenterSecretField
+              id="cc-wa-verify-token"
+              label={t("callCenter.whatsappVerifyToken")}
+              value={verifyToken}
+              onChange={setVerifyToken}
+              isSet={Boolean(settings?.whatsappVerifyTokenSet)}
+              last4={settings?.whatsappVerifyTokenLast4 ?? ""}
+              revealField="whatsapp_verify_token"
+            />
           </div>
           <p className="text-xs text-muted-foreground">{t("callCenter.whatsappEnvHint")}</p>
           <Button
