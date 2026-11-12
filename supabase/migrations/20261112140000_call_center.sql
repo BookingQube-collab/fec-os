@@ -208,28 +208,28 @@ COMMENT ON TABLE public.call_center_calls IS
 
 -- Seed a default queue so admin UI and test ring work before Telnyx arrives.
 INSERT INTO public.call_center_queues (id, name, strategy, sort_order)
-VALUES ('00000000-0000-4000-8000-0000000000cq', 'General', 'simultaneous', 0)
+VALUES ('00000000-0000-4000-8000-0000000000c0', 'General', 'simultaneous', 0)
 ON CONFLICT (id) DO NOTHING;
 
 UPDATE public.call_center_settings
-SET default_queue_id = '00000000-0000-4000-8000-0000000000cq'
+SET default_queue_id = '00000000-0000-4000-8000-0000000000c0'
 WHERE id = '00000000-0000-4000-8000-0000000000cc'
   AND default_queue_id IS NULL;
 
 INSERT INTO public.call_center_ivr_menus (id, name, greeting_text, fallback_queue_id)
 VALUES (
-  '00000000-0000-4000-8000-0000000000ci',
+  '00000000-0000-4000-8000-0000000000c1',
   'Main menu',
   'Thank you for calling. Press 1 for general support. Press 2 for events.',
-  '00000000-0000-4000-8000-0000000000cq'
+  '00000000-0000-4000-8000-0000000000c0'
 )
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.call_center_ivr_options (menu_id, digit, label, action, queue_id, sort_order)
 VALUES
-  ('00000000-0000-4000-8000-0000000000ci', '1', 'General', 'queue', '00000000-0000-4000-8000-0000000000cq', 0),
-  ('00000000-0000-4000-8000-0000000000ci', '2', 'Events', 'queue', '00000000-0000-4000-8000-0000000000cq', 1),
-  ('00000000-0000-4000-8000-0000000000ci', '0', 'Repeat', 'repeat', NULL, 9)
+  ('00000000-0000-4000-8000-0000000000c1', '1', 'General', 'queue', '00000000-0000-4000-8000-0000000000c0', 0),
+  ('00000000-0000-4000-8000-0000000000c1', '2', 'Events', 'queue', '00000000-0000-4000-8000-0000000000c0', 1),
+  ('00000000-0000-4000-8000-0000000000c1', '0', 'Repeat', 'repeat', NULL, 9)
 ON CONFLICT (menu_id, digit) DO NOTHING;
 
 ALTER TABLE public.call_center_settings ENABLE ROW LEVEL SECURITY;
