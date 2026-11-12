@@ -1,4 +1,8 @@
-import type { CallCenterSettingsPublic, CallCenterSettingsRow } from "./types";
+import type {
+  CallCenterAiProvider,
+  CallCenterSettingsPublic,
+  CallCenterSettingsRow,
+} from "./types";
 
 function secretLast4(value: string): string {
   const v = value.trim();
@@ -15,10 +19,28 @@ export function isSipConfigured(settings: CallCenterSettingsRow | null): boolean
   );
 }
 
+function normalizeAiProvider(value: unknown): CallCenterAiProvider {
+  if (value === "openai_compatible" || value === "livekit_agents" || value === "openai") {
+    return value;
+  }
+  return "openai";
+}
+
 export function toPublicSettings(
   row: CallCenterSettingsRow | null,
   livekitReady: boolean,
 ): CallCenterSettingsPublic {
+  const aiApiKey = row?.ai_api_key?.trim() ?? "";
+  const whatsappToken = row?.whatsapp_access_token?.trim() ?? "";
+  const openaiEnvOnly = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const aiConfigured =
+    aiApiKey.length > 0 ||
+    openaiEnvOnly ||
+    (row?.ai_provider === "livekit_agents" && Boolean(row.ai_livekit_agent_name?.trim()));
+  const whatsappConfigured =
+    Boolean(row?.whatsapp_phone_number_id?.trim()) &&
+    (whatsappToken.length > 0 || Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()));
+
   return {
     enabled: Boolean(row?.enabled),
     ivrEnabled: Boolean(row?.ivr_enabled ?? true),
@@ -40,6 +62,37 @@ export function toPublicSettings(
     aiFirstAnswerEnabled: Boolean(row?.ai_first_answer_enabled),
     aiHandoffEnabled: Boolean(row?.ai_handoff_enabled ?? true),
     aiNotes: row?.ai_notes ?? "",
+    aiSystemPromptEn: row?.ai_system_prompt_en ?? "",
+    aiSystemPromptAr: row?.ai_system_prompt_ar ?? "",
+    aiWelcomeEn:
+      row?.ai_welcome_en?.trim() ||
+      "Hello, thank you for calling. How can I help you today?",
+    aiWelcomeAr:
+      row?.ai_welcome_ar?.trim() ||
+      "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
+    aiProvider: normalizeAiProvider(row?.ai_provider),
+    aiModel: row?.ai_model?.trim() || "gpt-4o-mini",
+    aiApiKeySet: aiApiKey.length > 0,
+    aiApiKeyLast4: secretLast4(aiApiKey),
+    aiBaseUrl: row?.ai_base_url?.trim() ?? "",
+    aiLanguages: row?.ai_languages?.length ? row.ai_languages : ["en", "ar"],
+    aiHandoffAfterSeconds: row?.ai_handoff_after_seconds ?? 45,
+    aiHandoffKeywords: row?.ai_handoff_keywords ?? "agent,human,representative,مشغل,موظف",
+    aiHandoffQueueId: row?.ai_handoff_queue_id ?? null,
+    aiLivekitAgentName: row?.ai_livekit_agent_name?.trim() ?? "",
+    aiConfigured,
+    openaiEnvKeySet: openaiEnvOnly,
+    whatsappEnabled: Boolean(row?.whatsapp_enabled),
+    whatsappPhoneNumberId: row?.whatsapp_phone_number_id?.trim() ?? "",
+    whatsappWabaId: row?.whatsapp_waba_id?.trim() ?? "",
+    whatsappAccessTokenSet: whatsappToken.length > 0 || Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()),
+    whatsappAccessTokenLast4: secretLast4(
+      whatsappToken || process.env.WHATSAPP_ACCESS_TOKEN?.trim() || "",
+    ),
+    whatsappVerifyTokenSet:
+      Boolean(row?.whatsapp_verify_token?.trim()) ||
+      Boolean(process.env.WHATSAPP_VERIFY_TOKEN?.trim()),
+    whatsappConfigured,
     outboundCallerIdE164: row?.outbound_caller_id_e164?.trim() ?? "",
     webhookOutboundUrl: row?.webhook_outbound_url?.trim() ?? "",
     afterHoursGreeting:

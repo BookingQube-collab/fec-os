@@ -1,4 +1,5 @@
 import type { CallCenterIvrAction, CallCenterIvrMenu, CallCenterIvrOption } from "./types";
+import { CALL_CENTER_VENUE_QUEUE_IDS } from "./types";
 
 export const IVR_FLOW_VERSION = 1 as const;
 
@@ -8,6 +9,7 @@ export const IVR_NODE_TYPES = [
   "play",
   "queue",
   "agent",
+  "ai",
   "hangup",
   "hours",
   "voicemail",
@@ -25,6 +27,12 @@ export type IvrNodeData = {
   label: string;
   greetingText?: string;
   messageText?: string;
+  /** English TTS / prompt (persisted on flow_json). */
+  greetingEn?: string;
+  /** Arabic TTS / prompt (persisted on flow_json). */
+  greetingAr?: string;
+  messageEn?: string;
+  messageAr?: string;
   digits?: IvrMenuDigit[];
   queueId?: string | null;
   agentUserId?: string | null;
@@ -32,6 +40,11 @@ export type IvrNodeData = {
   transferSipUri?: string;
   timeoutSeconds?: number;
   maxRetries?: number;
+  /** AI Agent node */
+  aiEnabled?: boolean;
+  aiSystemPrompt?: string;
+  aiLanguage?: "en" | "ar" | "auto";
+  aiHandoffQueueId?: string | null;
 };
 
 export type IvrFlowNode = {
@@ -109,6 +122,10 @@ export function parseIvrFlowJson(raw: unknown): IvrFlowJson {
         label: String(dataRaw.label ?? type),
         greetingText: dataRaw.greetingText != null ? String(dataRaw.greetingText) : undefined,
         messageText: dataRaw.messageText != null ? String(dataRaw.messageText) : undefined,
+        greetingEn: dataRaw.greetingEn != null ? String(dataRaw.greetingEn) : undefined,
+        greetingAr: dataRaw.greetingAr != null ? String(dataRaw.greetingAr) : undefined,
+        messageEn: dataRaw.messageEn != null ? String(dataRaw.messageEn) : undefined,
+        messageAr: dataRaw.messageAr != null ? String(dataRaw.messageAr) : undefined,
         digits: digitsRaw
           ?.filter((d): d is Record<string, unknown> => Boolean(d) && typeof d === "object")
           .map((d) => ({
@@ -126,6 +143,17 @@ export function parseIvrFlowJson(raw: unknown): IvrFlowJson {
         timeoutSeconds:
           dataRaw.timeoutSeconds != null ? Number(dataRaw.timeoutSeconds) : undefined,
         maxRetries: dataRaw.maxRetries != null ? Number(dataRaw.maxRetries) : undefined,
+        aiEnabled: dataRaw.aiEnabled != null ? Boolean(dataRaw.aiEnabled) : undefined,
+        aiSystemPrompt:
+          dataRaw.aiSystemPrompt != null ? String(dataRaw.aiSystemPrompt) : undefined,
+        aiLanguage:
+          dataRaw.aiLanguage === "en" || dataRaw.aiLanguage === "ar" || dataRaw.aiLanguage === "auto"
+            ? dataRaw.aiLanguage
+            : undefined,
+        aiHandoffQueueId:
+          dataRaw.aiHandoffQueueId != null && dataRaw.aiHandoffQueueId !== ""
+            ? String(dataRaw.aiHandoffQueueId)
+            : null,
       },
     });
   }
@@ -166,11 +194,18 @@ export function flowHasGraph(flow: IvrFlowJson | null | undefined): boolean {
 export function defaultNodeData(type: IvrNodeType): IvrNodeData {
   switch (type) {
     case "start":
-      return { label: "Start / Greeting", greetingText: "Thank you for calling." };
+      return {
+        label: "Start / Greeting",
+        greetingText: "Thank you for calling FEC.",
+        greetingEn: "Thank you for calling FEC.",
+        greetingAr: "شكراً لاتصالك بـ FEC.",
+      };
     case "menu":
       return {
         label: "Menu",
         greetingText: "Press 1 for support. Press 2 for events.",
+        greetingEn: "Press 1 for support. Press 2 for events.",
+        greetingAr: "اضغط 1 للدعم. اضغط 2 للفعاليات.",
         digits: [
           { digit: "1", label: "Option 1" },
           { digit: "2", label: "Option 2" },
@@ -179,11 +214,26 @@ export function defaultNodeData(type: IvrNodeType): IvrNodeData {
         maxRetries: 2,
       };
     case "play":
-      return { label: "Play message", messageText: "Please hold." };
+      return {
+        label: "Play message",
+        messageText: "Please hold.",
+        messageEn: "Please hold.",
+        messageAr: "يرجى الانتظار.",
+      };
     case "queue":
       return { label: "Route to queue", queueId: null };
     case "agent":
       return { label: "Route to agent", agentUserId: null };
+    case "ai":
+      return {
+        label: "AI Agent",
+        aiEnabled: true,
+        aiLanguage: "auto",
+        aiSystemPrompt:
+          "You are the FEC call-center first responder. Greet the caller, answer venue questions, and hand off to a human queue when needed.",
+        aiHandoffQueueId: null,
+        queueId: null,
+      };
     case "hangup":
       return { label: "Hangup" };
     case "hours":
@@ -195,6 +245,222 @@ export function defaultNodeData(type: IvrNodeType): IvrNodeData {
     default:
       return { label: type };
   }
+}
+
+export type IvrSpeakLang = "en" | "ar";
+
+/** Resolve the spoken prompt for a node (EN/AR with legacy fallbacks). */
+export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): string {
+  if (lang === "ar") {
+    return (
+      node.data.greetingAr ||
+      node.data.messageAr ||
+      node.data.greetingText ||
+      node.data.messageText ||
+      node.data.label ||
+      ""
+    );
+  }
+  return (
+    node.data.greetingEn ||
+    node.data.messageEn ||
+    node.data.greetingText ||
+    node.data.messageText ||
+    node.data.label ||
+    ""
+  );
+}
+
+export type FecVenueQueueMap = {
+  inflatapark: string;
+  urbanArena: string;
+  kidsDriving: string;
+  birthday: string;
+};
+
+/**
+ * Bilingual Maqsam-style Main menu:
+ * Start → Language (1 EN / 2 AR) → Venue menu → queues.
+ */
+export function buildFecVenuesTemplate(
+  queues: FecVenueQueueMap = {
+    inflatapark: CALL_CENTER_VENUE_QUEUE_IDS.inflatapark,
+    urbanArena: CALL_CENTER_VENUE_QUEUE_IDS.urbanArena,
+    kidsDriving: CALL_CENTER_VENUE_QUEUE_IDS.kidsDriving,
+    birthday: CALL_CENTER_VENUE_QUEUE_IDS.birthday,
+  },
+): IvrFlowJson {
+  const startId = "node-start";
+  const langId = "node-menu-lang";
+  const venueEnId = "node-menu-venues-en";
+  const venueArId = "node-menu-venues-ar";
+  const aiId = "node-ai";
+
+  const venueDefs = [
+    {
+      digit: "1",
+      en: "InflataPark",
+      ar: "إنفلاتا بارك",
+      queueId: queues.inflatapark,
+      qEn: "node-q-inflatapark",
+      qAr: "node-q-inflatapark-ar",
+    },
+    {
+      digit: "2",
+      en: "Urban Arena",
+      ar: "أوربان أرينا",
+      queueId: queues.urbanArena,
+      qEn: "node-q-urban",
+      qAr: "node-q-urban-ar",
+    },
+    {
+      digit: "3",
+      en: "Kids Driving School",
+      ar: "مدرسة القيادة للأطفال",
+      queueId: queues.kidsDriving,
+      qEn: "node-q-kids",
+      qAr: "node-q-kids-ar",
+    },
+    {
+      digit: "4",
+      en: "Birthday enquiry",
+      ar: "استفسار أعياد الميلاد",
+      queueId: queues.birthday,
+      qEn: "node-q-birthday",
+      qAr: "node-q-birthday-ar",
+    },
+  ] as const;
+
+  const langGreetingEn =
+    "Thank you for calling FEC. For English, press 1. للعربية، اضغط 2.";
+  const langGreetingAr =
+    "شكراً لاتصالك بـ FEC. للإنجليزية اضغط 1. للعربية اضغط 2.";
+  const venueGreetingEn =
+    "Press 1 for InflataPark, 2 for Urban Arena, 3 for Kids Driving School, or 4 for Birthday enquiry.";
+  const venueGreetingAr =
+    "اضغط 1 لإنفلاتا بارك، 2 لأوربان أرينا، 3 لمدرسة القيادة للأطفال، أو 4 لاستفسار أعياد الميلاد.";
+
+  const nodes: IvrFlowNode[] = [
+    {
+      id: startId,
+      type: "start",
+      position: { x: 40, y: 220 },
+      data: {
+        label: "Start / Greeting",
+        greetingText: langGreetingEn,
+        greetingEn: langGreetingEn,
+        greetingAr: langGreetingAr,
+      },
+    },
+    {
+      id: langId,
+      type: "menu",
+      position: { x: 320, y: 200 },
+      data: {
+        label: "Language",
+        greetingText: langGreetingEn,
+        greetingEn: langGreetingEn,
+        greetingAr: langGreetingAr,
+        digits: [
+          { digit: "1", label: "English" },
+          { digit: "2", label: "العربية" },
+        ],
+        timeoutSeconds: 10,
+        maxRetries: 2,
+      },
+    },
+    {
+      id: venueEnId,
+      type: "menu",
+      position: { x: 620, y: 40 },
+      data: {
+        label: "Venues (EN)",
+        greetingText: venueGreetingEn,
+        greetingEn: venueGreetingEn,
+        greetingAr: venueGreetingAr,
+        digits: venueDefs.map((v) => ({ digit: v.digit, label: v.en })),
+        timeoutSeconds: 12,
+        maxRetries: 2,
+      },
+    },
+    {
+      id: venueArId,
+      type: "menu",
+      position: { x: 620, y: 380 },
+      data: {
+        label: "الأماكن (AR)",
+        greetingText: venueGreetingAr,
+        greetingEn: venueGreetingEn,
+        greetingAr: venueGreetingAr,
+        digits: venueDefs.map((v) => ({ digit: v.digit, label: v.ar })),
+        timeoutSeconds: 12,
+        maxRetries: 2,
+      },
+    },
+    {
+      id: aiId,
+      type: "ai",
+      position: { x: 320, y: 420 },
+      data: {
+        label: "AI first responder",
+        aiEnabled: true,
+        aiLanguage: "auto",
+        aiSystemPrompt:
+          "You are FEC's bilingual phone assistant for InflataPark, Urban Arena, Kids Driving School, and birthday enquiries. Answer briefly, then hand off to the matching queue when the caller needs a human.",
+        aiHandoffQueueId: queues.inflatapark,
+        queueId: queues.inflatapark,
+      },
+    },
+  ];
+
+  for (const v of venueDefs) {
+    nodes.push(
+      {
+        id: v.qEn,
+        type: "queue",
+        position: { x: 960, y: 20 + (Number(v.digit) - 1) * 100 },
+        data: { label: v.en, queueId: v.queueId },
+      },
+      {
+        id: v.qAr,
+        type: "queue",
+        position: { x: 960, y: 360 + (Number(v.digit) - 1) * 100 },
+        data: { label: v.ar, queueId: v.queueId },
+      },
+    );
+  }
+
+  const edges: IvrFlowEdge[] = [
+    { id: "e-start-lang", source: startId, target: langId, sourceHandle: "out", label: "next" },
+    { id: "e-lang-en", source: langId, target: venueEnId, sourceHandle: "1", label: "1" },
+    { id: "e-lang-ar", source: langId, target: venueArId, sourceHandle: "2", label: "2" },
+  ];
+
+  for (const v of venueDefs) {
+    edges.push(
+      {
+        id: `e-en-${v.digit}`,
+        source: venueEnId,
+        target: v.qEn,
+        sourceHandle: v.digit,
+        label: v.digit,
+      },
+      {
+        id: `e-ar-${v.digit}`,
+        source: venueArId,
+        target: v.qAr,
+        sourceHandle: v.digit,
+        label: v.digit,
+      },
+    );
+  }
+
+  return {
+    version: IVR_FLOW_VERSION,
+    nodes,
+    edges,
+    viewport: { x: 0, y: 0, zoom: 0.75 },
+  };
 }
 
 /** Build a canvas graph from existing menu + digit options (first-load migration). */
@@ -390,6 +656,8 @@ export function nodeActionFromType(type: IvrNodeType): CallCenterIvrAction | nul
       return "hangup";
     case "agent":
       return "agent";
+    case "ai":
+      return "ai";
     case "menu":
       return "menu";
     default:
@@ -464,7 +732,7 @@ function flattenMenuNode(flow: IvrFlowJson, menuNode: IvrFlowNode): FlattenedIvr
       digit: d.digit,
       label: d.label || target.data.label || action,
       action: action === "menu" ? "menu" : action,
-      queueId: target.data.queueId ?? null,
+      queueId: target.data.queueId ?? target.data.aiHandoffQueueId ?? null,
       eventId: target.data.eventId ?? null,
       transferSipUri: target.data.transferSipUri ?? "",
       agentUserId: target.data.agentUserId ?? null,
@@ -499,19 +767,64 @@ function flattenMenuNode(flow: IvrFlowJson, menuNode: IvrFlowNode): FlattenedIvr
   return out.sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-/** Simulate digit path for the Test preview toolbar. */
+export type IvrPathStep = {
+  nodeId: string;
+  type: IvrNodeType;
+  label: string;
+  spokenEn: string;
+  spokenAr: string;
+  spoken: string;
+};
+
+export type IvrPathSimulation = {
+  path: IvrPathStep[];
+  terminal: string;
+  language: IvrSpeakLang;
+  queueId: string | null;
+  queueLabel: string | null;
+  aiAnswered: boolean;
+};
+
+function pushPathStep(
+  path: IvrPathStep[],
+  node: IvrFlowNode,
+  language: IvrSpeakLang,
+): void {
+  const spokenEn = nodeSpokenText(node, "en");
+  const spokenAr = nodeSpokenText(node, "ar");
+  path.push({
+    nodeId: node.id,
+    type: node.type,
+    label: node.data.label,
+    spokenEn,
+    spokenAr,
+    spoken: language === "ar" ? spokenAr || spokenEn : spokenEn || spokenAr,
+  });
+}
+
+/** Simulate digit path for the Test preview toolbar (e.g. `12` = English → Urban Arena). */
 export function simulateDigitPath(
   flow: IvrFlowJson,
   digits: string[],
-): { path: Array<{ nodeId: string; type: IvrNodeType; label: string }>; terminal: string } {
-  let node = findEntryInteractiveNode(flow) ?? findStartNode(flow);
-  const path: Array<{ nodeId: string; type: IvrNodeType; label: string }> = [];
-  if (!node) return { path, terminal: "Empty flow" };
+): IvrPathSimulation {
+  let node = findStartNode(flow) ?? findEntryInteractiveNode(flow);
+  const path: IvrPathStep[] = [];
+  let language: IvrSpeakLang = "en";
+  if (!node) {
+    return {
+      path,
+      terminal: "Empty flow",
+      language,
+      queueId: null,
+      queueLabel: null,
+      aiAnswered: false,
+    };
+  }
 
-  // Walk through non-interactive until menu
+  // Walk through non-interactive until menu / terminal
   let guard = 0;
-  while (node && node.type !== "menu" && guard < 20) {
-    path.push({ nodeId: node.id, type: node.type, label: node.data.label });
+  while (node && !["menu", "queue", "agent", "ai", "hangup", "voicemail", "event"].includes(node.type) && guard < 20) {
+    pushPathStep(path, node, language);
     if (node.type === "hours") {
       node = followHandleEdge(flow, node.id, "open") ?? followDefaultEdge(flow, node.id);
     } else if (node.type === "play" || node.type === "start") {
@@ -522,27 +835,83 @@ export function simulateDigitPath(
     guard += 1;
   }
 
-  if (!node) return { path, terminal: "Dead end" };
-  path.push({ nodeId: node.id, type: node.type, label: node.data.label });
+  if (!node) {
+    return {
+      path,
+      terminal: "Dead end",
+      language,
+      queueId: null,
+      queueLabel: null,
+      aiAnswered: false,
+    };
+  }
+  pushPathStep(path, node, language);
 
+  let digitIndex = 0;
   for (const digit of digits) {
     if (node.type !== "menu") break;
     const next = followDigitEdge(flow, node.id, digit);
-    if (!next) return { path, terminal: `Invalid digit ${digit}` };
+    if (!next) {
+      return {
+        path,
+        terminal: `Invalid digit ${digit}`,
+        language,
+        queueId: null,
+        queueLabel: null,
+        aiAnswered: false,
+      };
+    }
+    // First menu digit on a Language menu flips EN/AR for spoken script.
+    if (digitIndex === 0 && /lang|language|لغة/i.test(node.data.label || "")) {
+      language = digit === "2" ? "ar" : "en";
+    } else if (
+      digitIndex === 0 &&
+      digit === "2" &&
+      (node.data.digits ?? []).some((d) => /arab|عر/i.test(d.label))
+    ) {
+      language = "ar";
+    }
+    const prior = path[path.length - 1];
+    if (prior && prior.type === "menu") {
+      prior.spoken = language === "ar" ? prior.spokenAr || prior.spokenEn : prior.spokenEn || prior.spokenAr;
+    }
     node = next;
-    path.push({ nodeId: node.id, type: node.type, label: node.data.label });
+    pushPathStep(path, node, language);
+    digitIndex += 1;
+
     if (node.type === "play") {
-      node = followDefaultEdge(flow, node.id) ?? node;
-      if (node.id !== next.id) {
-        path.push({ nodeId: node.id, type: node.type, label: node.data.label });
+      const afterPlay = followDefaultEdge(flow, node.id);
+      if (afterPlay && afterPlay.id !== node.id) {
+        node = afterPlay;
+        pushPathStep(path, node, language);
       }
     }
-    if (["queue", "agent", "hangup", "voicemail", "event"].includes(node.type)) {
-      return { path, terminal: `Reached ${node.type}: ${node.data.label}` };
+    if (["queue", "agent", "ai", "hangup", "voicemail", "event"].includes(node.type)) {
+      const queueId = node.data.queueId ?? node.data.aiHandoffQueueId ?? null;
+      return {
+        path,
+        terminal:
+          node.type === "ai"
+            ? `AI agent answering → ${node.data.label}${queueId ? " (handoff queue linked)" : ""}`
+            : node.type === "queue" || node.type === "event"
+              ? `Reached queue: ${node.data.label}`
+              : `Reached ${node.type}: ${node.data.label}`,
+        language,
+        queueId,
+        queueLabel: node.type === "queue" || node.type === "event" ? node.data.label : null,
+        aiAnswered: node.type === "ai",
+      };
     }
   }
 
-  return { path, terminal: `At ${node.type}: ${node.data.label}` };
+  return {
+    path,
+    terminal: `At ${node.type}: ${node.data.label}`,
+    language,
+    queueId: node.data.queueId ?? null,
+    queueLabel: node.type === "queue" ? node.data.label : null,
+    aiAnswered: node.type === "ai",
+  };
 }
 
 export function autoLayoutFlow(flow: IvrFlowJson): IvrFlowJson {

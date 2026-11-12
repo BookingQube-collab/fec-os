@@ -23,9 +23,11 @@ import {
   Plus,
   Save,
   Trash2,
+  Volume2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -39,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   autoLayoutFlow,
@@ -49,8 +52,15 @@ import {
   type IvrFlowNode,
   type IvrNodeData,
   type IvrNodeType,
+  type IvrPathSimulation,
   IVR_NODE_TYPES,
 } from "@/lib/call-center/ivr-flow";
+import {
+  playIvrVoicePreview,
+  playIvrVoicePreviewSequence,
+  stopIvrVoicePreview,
+  type IvrPreviewLang,
+} from "@/lib/call-center/ivr-voice-preview";
 import { cn } from "@/lib/utils";
 
 import { ivrNodeTypes } from "./ivr-nodes";
@@ -61,11 +71,37 @@ const PALETTE: { type: IvrNodeType; label: string }[] = [
   { type: "play", label: "Play message" },
   { type: "queue", label: "Route to queue" },
   { type: "agent", label: "Route to agent" },
+  { type: "ai", label: "AI Agent" },
   { type: "hangup", label: "Hangup" },
   { type: "hours", label: "Business hours" },
   { type: "voicemail", label: "Voicemail" },
   { type: "event", label: "Event route" },
 ];
+
+function ListenButton({
+  text,
+  lang,
+  label = "Listen",
+}: {
+  text: string;
+  lang: IvrPreviewLang;
+  label?: string;
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={() => {
+        const result = playIvrVoicePreview(text, lang);
+        if (!result.ok) toast.error(result.error);
+      }}
+    >
+      <Volume2 className="me-1 h-3.5 w-3.5" />
+      {label}
+    </Button>
+  );
+}
 
 function toRfNodes(flow: IvrFlowJson): Node[] {
   return flow.nodes.map((n) => ({
@@ -177,26 +213,77 @@ function Inspector({
       </div>
 
       {(type === "start" || type === "menu") && (
-        <div className="space-y-1.5">
-          <Label>Greeting / prompt</Label>
-          <Textarea
-            rows={3}
-            disabled={!canEdit}
-            value={data.greetingText ?? ""}
-            onChange={(e) => patch({ greetingText: e.target.value })}
-          />
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Greeting (English)</Label>
+              <ListenButton
+                text={data.greetingEn || data.greetingText || ""}
+                lang="en"
+              />
+            </div>
+            <Textarea
+              rows={3}
+              disabled={!canEdit}
+              value={data.greetingEn ?? data.greetingText ?? ""}
+              onChange={(e) =>
+                patch({
+                  greetingEn: e.target.value,
+                  greetingText: e.target.value,
+                })
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Greeting (Arabic)</Label>
+              <ListenButton text={data.greetingAr || ""} lang="ar" />
+            </div>
+            <Textarea
+              rows={3}
+              dir="rtl"
+              disabled={!canEdit}
+              value={data.greetingAr ?? ""}
+              onChange={(e) => patch({ greetingAr: e.target.value })}
+              placeholder="النص بالعربية…"
+            />
+          </div>
         </div>
       )}
 
       {type === "play" && (
-        <div className="space-y-1.5">
-          <Label>Message text</Label>
-          <Textarea
-            rows={3}
-            disabled={!canEdit}
-            value={data.messageText ?? ""}
-            onChange={(e) => patch({ messageText: e.target.value })}
-          />
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Message (English)</Label>
+              <ListenButton text={data.messageEn || data.messageText || ""} lang="en" />
+            </div>
+            <Textarea
+              rows={3}
+              disabled={!canEdit}
+              value={data.messageEn ?? data.messageText ?? ""}
+              onChange={(e) =>
+                patch({
+                  messageEn: e.target.value,
+                  messageText: e.target.value,
+                })
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Message (Arabic)</Label>
+              <ListenButton text={data.messageAr || ""} lang="ar" />
+            </div>
+            <Textarea
+              rows={3}
+              dir="rtl"
+              disabled={!canEdit}
+              value={data.messageAr ?? ""}
+              onChange={(e) => patch({ messageAr: e.target.value })}
+              placeholder="النص بالعربية…"
+            />
+          </div>
         </div>
       )}
 
@@ -333,6 +420,83 @@ function Inspector({
         </div>
       )}
 
+      {type === "ai" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label>Enable AI answer</Label>
+              <p className="text-xs text-muted-foreground">First responder on this node</p>
+            </div>
+            <Switch
+              checked={data.aiEnabled !== false}
+              disabled={!canEdit}
+              onCheckedChange={(v) => patch({ aiEnabled: v })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Language</Label>
+            <Select
+              value={data.aiLanguage || "auto"}
+              disabled={!canEdit}
+              onValueChange={(v) =>
+                patch({ aiLanguage: v as "en" | "ar" | "auto" })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto (from IVR path)</SelectItem>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="ar">Arabic</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>System prompt</Label>
+            <Textarea
+              rows={4}
+              disabled={!canEdit}
+              value={data.aiSystemPrompt ?? ""}
+              onChange={(e) => patch({ aiSystemPrompt: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Handoff queue on fail</Label>
+            <Select
+              value={data.aiHandoffQueueId || data.queueId || "none"}
+              disabled={!canEdit}
+              onValueChange={(v) =>
+                patch({
+                  aiHandoffQueueId: v === "none" ? null : v,
+                  queueId: v === "none" ? null : v,
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {queues.map((q) => (
+                  <SelectItem key={q.id} value={q.id}>
+                    {q.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Global flags live on{" "}
+            <Link href="/call-center/ai" className="underline underline-offset-2">
+              Call Center → AI
+            </Link>
+            . Reaching this node sets CDR metadata <code>ai_answered</code> (LiveKit Agents
+            handoff is stubbed until Agents is deployed).
+          </p>
+        </div>
+      )}
+
       {(type === "event" || type === "queue" || type === "voicemail") && (
         <div className="space-y-1.5">
           <Label>Event id</Label>
@@ -365,21 +529,25 @@ function CanvasInner({
   agents,
   canEdit,
   saving,
+  applyingTemplate,
   onSave,
+  onApplyVenuesTemplate,
 }: {
   initialFlow: IvrFlowJson;
   queues: QueueOpt[];
   agents: AgentOpt[];
   canEdit: boolean;
   saving: boolean;
+  applyingTemplate?: boolean;
   onSave: (flow: IvrFlowJson) => Promise<void>;
+  onApplyVenuesTemplate?: () => Promise<void>;
 }) {
   const { fitView, zoomIn, zoomOut, getViewport, setViewport } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(toRfNodes(initialFlow));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toRfEdges(initialFlow));
   const [selected, setSelected] = useState<Node | null>(null);
-  const [previewDigits, setPreviewDigits] = useState("");
-  const [previewResult, setPreviewResult] = useState("");
+  const [previewDigits, setPreviewDigits] = useState("12");
+  const [preview, setPreview] = useState<IvrPathSimulation | null>(null);
 
   useEffect(() => {
     setNodes(toRfNodes(initialFlow));
@@ -390,6 +558,8 @@ function CanvasInner({
       requestAnimationFrame(() => fitView({ padding: 0.2 }));
     }
   }, [initialFlow, setNodes, setEdges, setViewport, fitView]);
+
+  useEffect(() => () => stopIvrVoicePreview(), []);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -453,10 +623,24 @@ function CanvasInner({
   function runPreview() {
     const flow = fromRf(nodes, edges, getViewport());
     const digits = previewDigits.split("").filter((d) => /^[0-9*#]$/.test(d));
+    setPreview(simulateDigitPath(flow, digits));
+  }
+
+  function listenPreviewPath() {
+    const flow = fromRf(nodes, edges, getViewport());
+    const digits = previewDigits.split("").filter((d) => /^[0-9*#]$/.test(d));
     const result = simulateDigitPath(flow, digits);
-    setPreviewResult(
-      `${result.path.map((p) => p.label).join(" → ") || "(empty)"}\n${result.terminal}`,
+    setPreview(result);
+    const speakable = result.path.filter((p) =>
+      ["start", "menu", "play", "ai"].includes(p.type),
     );
+    const played = playIvrVoicePreviewSequence(
+      speakable.map((p) => ({
+        text: p.spoken,
+        lang: result.language,
+      })),
+    );
+    if (!played.ok) toast.error(played.error);
   }
 
   async function handleSave() {
@@ -505,6 +689,17 @@ function CanvasInner({
               {saving ? "Saving…" : "Save flow"}
             </Button>
           ) : null}
+          {canEdit && onApplyVenuesTemplate ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={applyingTemplate || saving}
+              onClick={() => void onApplyVenuesTemplate()}
+            >
+              {applyingTemplate ? "Applying…" : "Apply FEC venues template"}
+            </Button>
+          ) : null}
           <Button type="button" size="sm" variant="outline" onClick={() => zoomIn()}>
             <ZoomIn className="h-3.5 w-3.5" />
           </Button>
@@ -518,15 +713,23 @@ function CanvasInner({
             <LayoutGrid className="me-1 h-3.5 w-3.5" />
             Auto-layout
           </Button>
-          <div className="ms-auto flex items-center gap-1.5">
+          <div className="ms-auto flex flex-wrap items-center gap-1.5">
             <Input
-              className="h-8 w-28"
+              className="h-8 w-32"
               placeholder="Digits e.g. 12"
+              title="Path example: 12 = English → Urban Arena; 23 = Arabic → Kids Driving School"
               value={previewDigits}
               onChange={(e) => setPreviewDigits(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") runPreview();
+              }}
             />
             <Button type="button" size="sm" variant="secondary" onClick={runPreview}>
               Test
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={listenPreviewPath}>
+              <Volume2 className="me-1 h-3.5 w-3.5" />
+              Listen
             </Button>
           </div>
         </div>
@@ -558,9 +761,31 @@ function CanvasInner({
           </ReactFlow>
         </div>
 
-        {previewResult ? (
-          <div className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-sm rounded-lg border border-border/50 bg-card/95 px-3 py-2 text-xs whitespace-pre-wrap shadow-sm">
-            {previewResult}
+        {preview ? (
+          <div className="absolute bottom-3 left-3 z-10 max-w-md rounded-lg border border-border/50 bg-card/95 px-3 py-2 text-xs shadow-sm">
+            <p className="font-semibold text-foreground">
+              Path ({preview.language.toUpperCase()}):{" "}
+              {preview.path.map((p) => p.label).join(" → ") || "(empty)"}
+            </p>
+            <p className="mt-1 text-muted-foreground">{preview.terminal}</p>
+            {preview.queueLabel || preview.queueId ? (
+              <p className="mt-1 text-muted-foreground">
+                Queue: {preview.queueLabel || preview.queueId}
+              </p>
+            ) : null}
+            {preview.aiAnswered ? (
+              <p className="mt-1 text-muted-foreground">CDR flag: ai_answered</p>
+            ) : null}
+            <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+              <p className="font-medium text-foreground/90">Spoken script</p>
+              {preview.path
+                .filter((p) => ["start", "menu", "play", "ai"].includes(p.type) && p.spoken)
+                .map((p) => (
+                  <p key={`${p.nodeId}-script`} className="text-muted-foreground">
+                    <span className="font-medium text-foreground/80">{p.label}:</span> {p.spoken}
+                  </p>
+                ))}
+            </div>
           </div>
         ) : null}
       </div>
@@ -590,7 +815,9 @@ export function IvrFlowCanvas(props: {
   agents: AgentOpt[];
   canEdit: boolean;
   saving: boolean;
+  applyingTemplate?: boolean;
   onSave: (flow: IvrFlowJson) => Promise<void>;
+  onApplyVenuesTemplate?: () => Promise<void>;
 }) {
   return (
     <ReactFlowProvider>

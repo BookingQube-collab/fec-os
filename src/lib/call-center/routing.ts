@@ -461,6 +461,78 @@ async function resolveTerminalIvrNode(params: {
         message: "Offered to agent via IVR.",
       };
     }
+    if (current.type === "ai") {
+      const settings = await loadSettingsRow();
+      const nodeEnabled = current.data.aiEnabled !== false;
+      const settingsFirstAnswer = Boolean(settings?.ai_first_answer_enabled);
+      // Node switch is enough for canvas routing; settings flag is recorded for Agents dispatch.
+      const aiActive = nodeEnabled;
+      const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
+      const handoffQueueId =
+        current.data.aiHandoffQueueId ?? current.data.queueId ?? call.queueId ?? null;
+      const meta = {
+        ...((call.metadata as Record<string, unknown>) ?? {}),
+        ivrNodeId: current.id,
+        ai_answered: true,
+        aiEnabled: aiActive,
+        aiFirstAnswerSetting: settingsFirstAnswer,
+        aiLanguage: current.data.aiLanguage ?? "auto",
+        aiSystemPrompt: current.data.aiSystemPrompt ?? settings?.ai_notes ?? "",
+        livekitAgentsHandoff: true,
+        aiHandoffEnabled: settings?.ai_handoff_enabled !== false,
+        aiHandoffQueueId: handoffQueueId,
+      };
+
+      if (!aiActive) {
+        // Node disabled → fall through to handoff queue if configured
+        if (handoffQueueId) {
+          const queues = await listQueues();
+          const queue = queues.find((q) => q.id === handoffQueueId);
+          if (queue) {
+            const updated = await updateCall(call.id, {
+              ivrDigit: digit,
+              queueId: queue.id,
+              status: "queued",
+              livekitRoom,
+              metadata: { ...meta, ai_answered: false, aiSkipped: true },
+            });
+            return offerToQueue({
+              call: updated,
+              queue,
+              eventId: call.eventId,
+            });
+          }
+        }
+        const updated = await updateCall(call.id, {
+          status: "ivr",
+          ivrDigit: digit,
+          livekitRoom,
+          metadata: { ...meta, ai_answered: false, aiSkipped: true },
+        });
+        return {
+          call: updated,
+          offeredUserIds: [],
+          phase: "ivr",
+          message: "AI node disabled — configure /call-center/ai or enable the node.",
+        };
+      }
+
+      // Stub: mark CDR for LiveKit Agents handoff; keep call answered until Agents worker joins.
+      const updated = await updateCall(call.id, {
+        status: "answered",
+        ivrDigit: digit,
+        livekitRoom,
+        answeredAt: new Date().toISOString(),
+        queueId: handoffQueueId ?? call.queueId,
+        metadata: meta,
+      });
+      return {
+        call: updated,
+        offeredUserIds: [],
+        phase: "queue",
+        message: "AI agent answering (LiveKit Agents stub). CDR: ai_answered=true.",
+      };
+    }
     if (current.type === "queue" || current.type === "event") {
       const terminal: IvrFlowNode = current;
       if (terminal.data.transferSipUri) {
@@ -625,6 +697,31 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
       offeredUserIds: [agentUserId],
       phase: "queue",
       message: "Offered to agent via IVR.",
+    };
+  }
+  if (option.action === "ai") {
+    const settings = await loadSettingsRow();
+    const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
+    const updated = await updateCall(call.id, {
+      status: "answered",
+      ivrDigit: digit,
+      livekitRoom,
+      answeredAt: new Date().toISOString(),
+      queueId: option.queueId ?? call.queueId,
+      metadata: {
+        ...meta,
+        ai_answered: true,
+        livekitAgentsHandoff: true,
+        aiHandoffEnabled: settings?.ai_handoff_enabled !== false,
+        aiHandoffQueueId: option.queueId,
+        targetNodeId: option.targetNodeId,
+      },
+    });
+    return {
+      call: updated,
+      offeredUserIds: [],
+      phase: "queue",
+      message: "AI agent answering (LiveKit Agents stub). CDR: ai_answered=true.",
     };
   }
   if (option.action === "transfer_sip") {

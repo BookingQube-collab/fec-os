@@ -2,6 +2,7 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
+  Bot,
   Clock3,
   Headphones,
   MessageSquareText,
@@ -25,6 +26,7 @@ const TYPE_META: Record<
   play: { icon: Radio, accent: "border-amber-700/35 bg-amber-50", title: "Play" },
   queue: { icon: Headphones, accent: "border-teal-700/35 bg-teal-50", title: "Queue" },
   agent: { icon: PhoneForwarded, accent: "border-cyan-800/35 bg-cyan-50", title: "Agent" },
+  ai: { icon: Bot, accent: "border-indigo-800/35 bg-indigo-50", title: "AI" },
   hangup: { icon: PhoneOff, accent: "border-rose-700/35 bg-rose-50", title: "Hangup" },
   hours: { icon: Clock3, accent: "border-stone-600/35 bg-stone-50", title: "Hours" },
   voicemail: { icon: Voicemail, accent: "border-orange-700/35 bg-orange-50", title: "Voicemail" },
@@ -182,6 +184,8 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
       <p className="px-3 py-2 text-xs text-muted-foreground">
         {nodeType === "queue" && (nodeData.queueId ? "Queue linked" : "Pick a queue")}
         {nodeType === "agent" && (nodeData.agentUserId ? "Agent linked" : "Pick an agent")}
+        {nodeType === "ai" &&
+          (nodeData.aiEnabled === false ? "AI disabled" : "AI answers call (LiveKit stub)")}
         {nodeType === "event" && (nodeData.eventId ? "Event linked" : "Optional event id")}
         {nodeType === "hangup" && "End call"}
         {nodeType === "voicemail" && "Leave a message (stub)"}
@@ -196,6 +200,7 @@ export const ivrNodeTypes = {
   play: IvrFlowNodeView,
   queue: IvrFlowNodeView,
   agent: IvrFlowNodeView,
+  ai: IvrFlowNodeView,
   hangup: IvrFlowNodeView,
   hours: IvrFlowNodeView,
   voicemail: IvrFlowNodeView,

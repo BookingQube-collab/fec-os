@@ -36,6 +36,9 @@ import {
   type CallCenterTagCatalogItem,
   type CallCenterBlacklistEntry,
   type CallCenterAgentPerformanceRow,
+  type CallCenterAiProvider,
+  type CallCenterWhatsappConversation,
+  type CallCenterWhatsappMessage,
 } from "./types";
 
 type DbError = { message: string } | null;
@@ -154,7 +157,64 @@ function mapAgentStatus(row: Record<string, unknown>): CallCenterAgentStatus {
     statusSince: String(row.status_since ?? new Date().toISOString()),
     lastCallAt: row.last_call_at ? String(row.last_call_at) : null,
     extension: String(row.extension ?? ""),
+    displayNameOverride: String(row.display_name_override ?? ""),
+    maxConcurrentCalls: Math.max(1, Number(row.max_concurrent_calls ?? 1) || 1),
+    canWhisper: Boolean(row.can_whisper ?? false),
+    canBarge: Boolean(row.can_barge ?? false),
+    isActive: row.is_active !== false,
+    skills: Array.isArray(row.skills) ? row.skills.map(String) : [],
   };
+}
+
+function mapWhatsappConversation(row: Record<string, unknown>): CallCenterWhatsappConversation {
+  return {
+    id: String(row.id),
+    waId: String(row.wa_id ?? ""),
+    customerE164: String(row.customer_e164 ?? ""),
+    customerName: String(row.customer_name ?? ""),
+    assignedAgentId: row.assigned_agent_id ? String(row.assigned_agent_id) : null,
+    status: (row.status as CallCenterWhatsappConversation["status"]) || "open",
+    lastMessageAt: String(row.last_message_at ?? new Date().toISOString()),
+    lastMessagePreview: String(row.last_message_preview ?? ""),
+    unreadCount: Number(row.unread_count ?? 0),
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : {},
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapWhatsappMessage(row: Record<string, unknown>): CallCenterWhatsappMessage {
+  return {
+    id: String(row.id),
+    conversationId: String(row.conversation_id),
+    direction: (row.direction as CallCenterWhatsappMessage["direction"]) || "inbound",
+    body: String(row.body ?? ""),
+    waMessageId: String(row.wa_message_id ?? ""),
+    status: (row.status as CallCenterWhatsappMessage["status"]) || "received",
+    errorText: String(row.error_text ?? ""),
+    sentBy: row.sent_by ? String(row.sent_by) : null,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+async function resolveProfileNames(userIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) return names;
+  const result = await supabaseAdmin
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", unique);
+  throwIfError(result.error as DbError);
+  for (const row of result.data ?? []) {
+    const id = String((row as { id: string }).id);
+    const name = String((row as { display_name?: string | null }).display_name ?? "").trim();
+    if (name) names.set(id, name);
+  }
+  return names;
 }
 
 export function mapCall(row: Record<string, unknown>): CallCenterCall {
@@ -285,7 +345,14 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+
+function normalizeAiProvider(value: unknown): CallCenterAiProvider {
+  if (value === "openai_compatible" || value === "livekit_agents" || value === "openai") {
+    return value;
+  }
+  return "openai";
+}
 
 export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   const result = await table<Record<string, unknown>>("call_center_settings")
@@ -316,6 +383,32 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     ai_first_answer_enabled: Boolean(row.ai_first_answer_enabled),
     ai_handoff_enabled: row.ai_handoff_enabled !== false,
     ai_notes: String(row.ai_notes ?? ""),
+    ai_system_prompt_en: String(row.ai_system_prompt_en ?? ""),
+    ai_system_prompt_ar: String(row.ai_system_prompt_ar ?? ""),
+    ai_welcome_en: String(
+      row.ai_welcome_en ?? "Hello, thank you for calling. How can I help you today?",
+    ),
+    ai_welcome_ar: String(
+      row.ai_welcome_ar ?? "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
+    ),
+    ai_provider: normalizeAiProvider(row.ai_provider),
+    ai_model: String(row.ai_model ?? "gpt-4o-mini"),
+    ai_api_key: String(row.ai_api_key ?? ""),
+    ai_base_url: String(row.ai_base_url ?? ""),
+    ai_languages: Array.isArray(row.ai_languages)
+      ? row.ai_languages.map(String)
+      : ["en", "ar"],
+    ai_handoff_after_seconds: Number(row.ai_handoff_after_seconds ?? 45),
+    ai_handoff_keywords: String(
+      row.ai_handoff_keywords ?? "agent,human,representative,مشغل,موظف",
+    ),
+    ai_handoff_queue_id: row.ai_handoff_queue_id ? String(row.ai_handoff_queue_id) : null,
+    ai_livekit_agent_name: String(row.ai_livekit_agent_name ?? ""),
+    whatsapp_enabled: Boolean(row.whatsapp_enabled),
+    whatsapp_phone_number_id: String(row.whatsapp_phone_number_id ?? ""),
+    whatsapp_waba_id: String(row.whatsapp_waba_id ?? ""),
+    whatsapp_access_token: String(row.whatsapp_access_token ?? ""),
+    whatsapp_verify_token: String(row.whatsapp_verify_token ?? ""),
     outbound_caller_id_e164: String(row.outbound_caller_id_e164 ?? ""),
     webhook_outbound_url: String(row.webhook_outbound_url ?? ""),
     after_hours_greeting: String(
@@ -362,6 +455,24 @@ export async function saveSettingsRow(
         ai_first_answer_enabled: row.ai_first_answer_enabled,
         ai_handoff_enabled: row.ai_handoff_enabled,
         ai_notes: row.ai_notes,
+        ai_system_prompt_en: row.ai_system_prompt_en,
+        ai_system_prompt_ar: row.ai_system_prompt_ar,
+        ai_welcome_en: row.ai_welcome_en,
+        ai_welcome_ar: row.ai_welcome_ar,
+        ai_provider: row.ai_provider,
+        ai_model: row.ai_model,
+        ai_api_key: row.ai_api_key,
+        ai_base_url: row.ai_base_url,
+        ai_languages: row.ai_languages,
+        ai_handoff_after_seconds: row.ai_handoff_after_seconds,
+        ai_handoff_keywords: row.ai_handoff_keywords,
+        ai_handoff_queue_id: row.ai_handoff_queue_id,
+        ai_livekit_agent_name: row.ai_livekit_agent_name,
+        whatsapp_enabled: row.whatsapp_enabled,
+        whatsapp_phone_number_id: row.whatsapp_phone_number_id,
+        whatsapp_waba_id: row.whatsapp_waba_id,
+        whatsapp_access_token: row.whatsapp_access_token,
+        whatsapp_verify_token: row.whatsapp_verify_token,
         outbound_caller_id_e164: row.outbound_caller_id_e164,
         webhook_outbound_url: row.webhook_outbound_url,
         after_hours_greeting: row.after_hours_greeting,
@@ -413,14 +524,28 @@ export async function upsertQueue(input: {
     updated_at: new Date().toISOString(),
   };
   if (input.id) {
-    const result = await table<Record<string, unknown>>("call_center_queues")
-      .update(payload)
+    const existing = await table<Record<string, unknown>>("call_center_queues")
+      .select("id")
       .eq("id", input.id)
+      .maybeSingle();
+    throwIfError(existing.error);
+    if (existing.data) {
+      const result = await table<Record<string, unknown>>("call_center_queues")
+        .update(payload)
+        .eq("id", input.id)
+        .select("*")
+        .maybeSingle();
+      throwIfError(result.error);
+      if (!result.data) throw new Error("Queue could not be saved.");
+      return mapQueue(result.data);
+    }
+    const inserted = await table<Record<string, unknown>>("call_center_queues")
+      .insert({ ...payload, id: input.id })
       .select("*")
       .maybeSingle();
-    throwIfError(result.error);
-    if (!result.data) throw new Error("Queue could not be saved.");
-    return mapQueue(result.data);
+    throwIfError(inserted.error);
+    if (!inserted.data) throw new Error("Queue could not be saved.");
+    return mapQueue(inserted.data);
   }
   const result = await table<Record<string, unknown>>("call_center_queues")
     .insert(payload)
@@ -754,7 +879,16 @@ export async function getAgentStatus(userId: string): Promise<CallCenterAgentSta
 export async function setAgentStatus(
   userId: string,
   status: CallCenterAgentStatusValue,
-  extras?: { lastCallAt?: string | null; extension?: string },
+  extras?: {
+    lastCallAt?: string | null;
+    extension?: string;
+    displayNameOverride?: string;
+    maxConcurrentCalls?: number;
+    canWhisper?: boolean;
+    canBarge?: boolean;
+    isActive?: boolean;
+    skills?: string[];
+  },
 ): Promise<CallCenterAgentStatus> {
   const now = new Date().toISOString();
   const payload: Record<string, unknown> = {
@@ -765,6 +899,16 @@ export async function setAgentStatus(
   };
   if (extras?.lastCallAt !== undefined) payload.last_call_at = extras.lastCallAt;
   if (extras?.extension !== undefined) payload.extension = extras.extension.trim();
+  if (extras?.displayNameOverride !== undefined) {
+    payload.display_name_override = extras.displayNameOverride.trim();
+  }
+  if (extras?.maxConcurrentCalls !== undefined) {
+    payload.max_concurrent_calls = extras.maxConcurrentCalls;
+  }
+  if (extras?.canWhisper !== undefined) payload.can_whisper = extras.canWhisper;
+  if (extras?.canBarge !== undefined) payload.can_barge = extras.canBarge;
+  if (extras?.isActive !== undefined) payload.is_active = extras.isActive;
+  if (extras?.skills !== undefined) payload.skills = extras.skills;
   const result = await table<Record<string, unknown>>("call_center_agent_status")
     .upsert(payload, { onConflict: "user_id" })
     .select("*")
@@ -772,6 +916,52 @@ export async function setAgentStatus(
   throwIfError(result.error);
   if (!result.data) throw new Error("Agent status could not be saved.");
   return mapAgentStatus(result.data);
+}
+
+export async function updateCallCenterAgentProfile(input: {
+  userId: string;
+  extension: string;
+  displayNameOverride: string;
+  maxConcurrentCalls: number;
+  canWhisper: boolean;
+  canBarge: boolean;
+  isActive: boolean;
+  skills: string[];
+  queueIds: string[];
+  status?: CallCenterAgentStatusValue;
+}): Promise<CallCenterAgentStatus> {
+  const existing = await getAgentStatus(input.userId);
+  const saved = await setAgentStatus(input.userId, input.status ?? existing?.status ?? "offline", {
+    lastCallAt: existing?.lastCallAt ?? null,
+    extension: input.extension,
+    displayNameOverride: input.displayNameOverride,
+    maxConcurrentCalls: input.maxConcurrentCalls,
+    canWhisper: input.canWhisper,
+    canBarge: input.canBarge,
+    isActive: input.isActive,
+    skills: input.skills,
+  });
+
+  const members = await listQueueMembers();
+  const mine = members.filter((m) => m.userId === input.userId);
+  const desired = new Set(input.queueIds);
+  for (const member of mine) {
+    if (!desired.has(member.queueId)) {
+      await deleteQueueMember(member.id);
+    }
+  }
+  for (const queueId of input.queueIds) {
+    const existingMember = mine.find((m) => m.queueId === queueId);
+    await upsertQueueMember({
+      id: existingMember?.id,
+      queueId,
+      userId: input.userId,
+      priority: existingMember?.priority ?? 100,
+      isActive: true,
+      skills: input.skills,
+    });
+  }
+  return saved;
 }
 
 export async function setAgentExtension(
@@ -1630,12 +1820,21 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
     .gte("started_at", fromIso)
     .limit(2000)) as ListResult<Record<string, unknown>>;
   throwIfError(calls.error);
+  const members = await listQueueMembers();
+  const queueIdsByUser = new Map<string, string[]>();
+  for (const member of members) {
+    if (!member.isActive) continue;
+    const list = queueIdsByUser.get(member.userId) ?? [];
+    list.push(member.queueId);
+    queueIdsByUser.set(member.userId, list);
+  }
 
   const byAgent = new Map<string, CallCenterAgentPerformanceRow>();
   for (const row of agents.data ?? []) {
     const mapped = mapAgentStatus(row);
     byAgent.set(mapped.userId, {
       userId: mapped.userId,
+      displayName: mapped.displayNameOverride || mapped.userId.slice(0, 8),
       extension: mapped.extension,
       status: mapped.status,
       callsHandled: 0,
@@ -1644,6 +1843,13 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
       outbound: 0,
       avgHandleSeconds: 0,
       totalTalkSeconds: 0,
+      displayNameOverride: mapped.displayNameOverride,
+      maxConcurrentCalls: mapped.maxConcurrentCalls,
+      canWhisper: mapped.canWhisper,
+      canBarge: mapped.canBarge,
+      isActive: mapped.isActive,
+      skills: mapped.skills,
+      queueIds: queueIdsByUser.get(mapped.userId) ?? [],
     });
   }
 
@@ -1654,6 +1860,7 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
     if (!entry) {
       entry = {
         userId: call.agentUserId,
+        displayName: call.agentUserId.slice(0, 8),
         extension: "",
         status: "offline",
         callsHandled: 0,
@@ -1662,6 +1869,13 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
         outbound: 0,
         avgHandleSeconds: 0,
         totalTalkSeconds: 0,
+        displayNameOverride: "",
+        maxConcurrentCalls: 1,
+        canWhisper: false,
+        canBarge: false,
+        isActive: true,
+        skills: [],
+        queueIds: queueIdsByUser.get(call.agentUserId) ?? [],
       };
       byAgent.set(call.agentUserId, entry);
     }
@@ -1674,11 +1888,197 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
     }
   }
 
+  const names = await resolveProfileNames([...byAgent.keys()]);
   return [...byAgent.values()]
     .map((row) => ({
       ...row,
+      displayName:
+        row.displayNameOverride.trim() ||
+        names.get(row.userId) ||
+        row.userId.slice(0, 8),
       avgHandleSeconds:
         row.answered > 0 ? Math.round(row.totalTalkSeconds / row.answered) : 0,
     }))
     .sort((a, b) => b.callsHandled - a.callsHandled);
+}
+
+export async function listWhatsappConversations(): Promise<CallCenterWhatsappConversation[]> {
+  const result = (await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+    .select("*")
+    .order("last_message_at", { ascending: false })
+    .limit(100)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapWhatsappConversation);
+}
+
+export async function listWhatsappMessages(
+  conversationId: string,
+): Promise<CallCenterWhatsappMessage[]> {
+  const result = (await table<Record<string, unknown>>("call_center_whatsapp_messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true })
+    .limit(200)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapWhatsappMessage);
+}
+
+export async function getWhatsappConversation(
+  id: string,
+): Promise<CallCenterWhatsappConversation | null> {
+  const result = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  throwIfError(result.error);
+  return result.data ? mapWhatsappConversation(result.data) : null;
+}
+
+export async function assignWhatsappConversation(
+  conversationId: string,
+  agentUserId: string | null,
+): Promise<CallCenterWhatsappConversation> {
+  const result = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+    .update({
+      assigned_agent_id: agentUserId,
+      updated_at: new Date().toISOString(),
+      status: "open",
+    })
+    .eq("id", conversationId)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Conversation not found.");
+  return mapWhatsappConversation(result.data);
+}
+
+export async function upsertWhatsappInboundMessage(input: {
+  waId: string;
+  customerE164: string;
+  customerName: string;
+  body: string;
+  waMessageId: string;
+  rawPayload: Record<string, unknown>;
+}): Promise<{ conversation: CallCenterWhatsappConversation; message: CallCenterWhatsappMessage }> {
+  const now = new Date().toISOString();
+  const existing = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+    .select("*")
+    .eq("wa_id", input.waId)
+    .maybeSingle();
+  throwIfError(existing.error);
+
+  let conversationRow = existing.data;
+  if (!conversationRow) {
+    const created = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+      .insert({
+        wa_id: input.waId,
+        customer_e164: input.customerE164,
+        customer_name: input.customerName,
+        status: "open",
+        last_message_at: now,
+        last_message_preview: input.body.slice(0, 240),
+        unread_count: 1,
+        updated_at: now,
+      })
+      .select("*")
+      .maybeSingle();
+    throwIfError(created.error);
+    conversationRow = created.data;
+  } else {
+    const updated = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+      .update({
+        customer_e164: input.customerE164 || String(conversationRow.customer_e164 ?? ""),
+        customer_name: input.customerName || String(conversationRow.customer_name ?? ""),
+        last_message_at: now,
+        last_message_preview: input.body.slice(0, 240),
+        unread_count: Number(conversationRow.unread_count ?? 0) + 1,
+        updated_at: now,
+        status: "open",
+      })
+      .eq("id", conversationRow.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(updated.error);
+    conversationRow = updated.data;
+  }
+  if (!conversationRow) throw new Error("Could not save WhatsApp conversation.");
+
+  const message = await table<Record<string, unknown>>("call_center_whatsapp_messages")
+    .insert({
+      conversation_id: conversationRow.id,
+      direction: "inbound",
+      body: input.body,
+      wa_message_id: input.waMessageId,
+      status: "received",
+      raw_payload: input.rawPayload,
+    })
+    .select("*")
+    .maybeSingle();
+  throwIfError(message.error);
+  if (!message.data) throw new Error("Could not save WhatsApp message.");
+
+  return {
+    conversation: mapWhatsappConversation(conversationRow),
+    message: mapWhatsappMessage(message.data),
+  };
+}
+
+export async function insertWhatsappOutboundMessage(input: {
+  conversationId: string;
+  body: string;
+  waMessageId: string;
+  status: CallCenterWhatsappMessage["status"];
+  errorText?: string;
+  sentBy: string;
+}): Promise<CallCenterWhatsappMessage> {
+  const now = new Date().toISOString();
+  const message = await table<Record<string, unknown>>("call_center_whatsapp_messages")
+    .insert({
+      conversation_id: input.conversationId,
+      direction: "outbound",
+      body: input.body,
+      wa_message_id: input.waMessageId,
+      status: input.status,
+      error_text: input.errorText ?? "",
+      sent_by: input.sentBy,
+    })
+    .select("*")
+    .maybeSingle();
+  throwIfError(message.error);
+  if (!message.data) throw new Error("Could not save outbound message.");
+
+  await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+    .update({
+      last_message_at: now,
+      last_message_preview: input.body.slice(0, 240),
+      unread_count: 0,
+      updated_at: now,
+    })
+    .eq("id", input.conversationId);
+
+  return mapWhatsappMessage(message.data);
+}
+
+export function resolveWhatsappAccessToken(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.whatsapp_access_token?.trim() ||
+    process.env.WHATSAPP_ACCESS_TOKEN?.trim() ||
+    ""
+  );
+}
+
+export function resolveWhatsappVerifyToken(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.whatsapp_verify_token?.trim() ||
+    process.env.WHATSAPP_VERIFY_TOKEN?.trim() ||
+    ""
+  );
+}
+
+export function resolveWhatsappPhoneNumberId(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.whatsapp_phone_number_id?.trim() ||
+    process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
+    ""
+  );
 }

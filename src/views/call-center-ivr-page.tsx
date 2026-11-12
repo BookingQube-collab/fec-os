@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  applyCallCenterFecVenuesIvrTemplate,
   loadCallCenterConfigBundle,
   removeCallCenterIvrMenu,
   saveCallCenterIvrFlow,
@@ -44,6 +45,7 @@ function CallCenterIvrPage() {
   const [selectedMenuId, setSelectedMenuId] = useState<string>("");
   const [newMenuName, setNewMenuName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
 
   const bundle = useQuery({
     queryKey: ["call-center", "config"],
@@ -120,11 +122,13 @@ function CallCenterIvrPage() {
     if (!activeMenu) return;
     setSaving(true);
     try {
+      const start = flow.nodes.find((n) => n.type === "start");
       const result = await saveCallCenterIvrFlow({
         menuId: activeMenu.id,
         name: activeMenu.name,
         greetingText:
-          flow.nodes.find((n) => n.type === "start")?.data.greetingText ??
+          start?.data.greetingEn ||
+          start?.data.greetingText ||
           activeMenu.greetingText,
         fallbackQueueId: activeMenu.fallbackQueueId,
         isActive: activeMenu.isActive,
@@ -138,6 +142,22 @@ function CallCenterIvrPage() {
       await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleApplyVenuesTemplate() {
+    if (!activeMenu) return;
+    setApplyingTemplate(true);
+    try {
+      const result = await applyCallCenterFecVenuesIvrTemplate({ menuId: activeMenu.id });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("FEC venues IVR template applied (EN/AR → venues → queues).");
+      await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
+    } finally {
+      setApplyingTemplate(false);
     }
   }
 
@@ -225,7 +245,9 @@ function CallCenterIvrPage() {
               agents={agents}
               canEdit={canEdit}
               saving={saving}
+              applyingTemplate={applyingTemplate}
               onSave={handleSaveFlow}
+              onApplyVenuesTemplate={canEdit ? handleApplyVenuesTemplate : undefined}
             />
           ) : (
             <p className="rounded-2xl border border-dashed border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">

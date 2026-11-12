@@ -91,13 +91,40 @@ Adds `flow_json` on `call_center_ivr_menus` (nodes / edges / viewport) and exten
 Open `/call-center/ivr` (admin edit; agents can view).
 
 1. Pick or create a menu (seed **Main menu** migrates into the canvas on first open).
-2. Drag steps from the left palette onto the infinite canvas: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, Hangup, Business hours, Voicemail, Event route.
-3. Connect handles: Start/Play use `out`; Menu digits (1,2,…) each have a source handle; Hours has `open` / `closed`.
-4. Click a node → right inspector edits greeting, digits, queue, agent, event id, etc.
-5. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** (simulate digit path without a live call).
-6. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options.
+2. Click **Apply FEC venues template** once to load the bilingual Maqsam-style flow (creates venue queues if missing):
+   - Start → **Language** (1 English / 2 Arabic)
+   - Venue menu: 1 InflataPark · 2 Urban Arena · 3 Kids Driving School · 4 Birthday enquiry → matching queues
+   - Optional **AI Agent** node (first responder stub) is included on the canvas for wiring
+3. Drag steps from the left palette: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, **AI Agent**, Hangup, Business hours, Voicemail, Event route.
+4. Connect handles: Start/Play use `out`; Menu digits (1,2,…) each have a source handle; Hours has `open` / `closed`.
+5. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`).
+6. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** + **Listen** (simulate digit path and hear the spoken script without a live call).
+7. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options.
 
 Assign the menu on `/call-center/numbers` (DID → IVR menu) and keep **IVR enabled** in Settings.
+
+Venue queues migration:
+
+```bash
+#   supabase/migrations/20261112230000_call_center_ivr_venues.sql
+```
+
+Adds InflataPark / Urban Arena / Kids Driving School / Birthday enquiry queues and allows IVR option action `ai`.
+
+### Test the bilingual venue IVR (no Telnyx)
+
+1. Open `/call-center/ivr`, select **Main menu**, click **Apply FEC venues template**, then **Save flow** if you edited further.
+2. In the Test field enter digit paths and click **Test** (or press Enter):
+   - `11` → English → InflataPark queue
+   - `12` → English → Urban Arena
+   - `13` → English → Kids Driving School
+   - `14` → English → Birthday enquiry
+   - `21` → Arabic → إنفلاتا بارك
+   - `22` → Arabic → أوربان أرينا
+   - `23` / `24` → Arabic venues 3 / 4
+3. Click **Listen** to hear the greetings for that path (browser TTS). Select a Start / Menu / Play node and use inspector **Listen** for EN or AR alone.
+4. To exercise agent ringing without PSTN: open `/call-center`, set status **Available**, click **Test ring** (see Local test without Telnyx below).
+5. AI path: connect or reach the **AI Agent** node; Test shows `ai_answered`. Real voice AI still needs LiveKit Agents + Telnyx SIP (configure flags on `/call-center/ai`).
 
 Parity migration:
 
@@ -122,6 +149,9 @@ Adds phonebook, tag catalog, blacklist, park orbit columns, agent extensions, we
 | Capability | Where / how to verify |
 |------------|------------------------|
 | Visual IVR canvas | `/call-center/ivr` — drag nodes, connect digits, Save; reload restores positions |
+| FEC bilingual venues template | **Apply FEC venues template** — Language → venues → queues; Test digits `12` etc. |
+| Voice preview (Listen) | Inspector + Test path use browser `speechSynthesis` (EN/AR) |
+| AI Agent IVR node | Palette + CDR `ai_answered` stub; flags on `/call-center/ai` |
 | Nested / hours / voicemail IVR nodes | Canvas + inbound DTMF walker in `routing.ts` |
 | Business hours + holidays enforce routing | Settings → enable hours; closed → after-hours action (voicemail/hangup/queue) |
 | Voicemail inbox | `/call-center/voicemail` — Add test voicemail; Mark listened |

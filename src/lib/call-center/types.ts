@@ -4,6 +4,14 @@ export const CALL_CENTER_SETTINGS_ID = "00000000-0000-4000-8000-0000000000cc";
 export const CALL_CENTER_DEFAULT_QUEUE_ID = "00000000-0000-4000-8000-0000000000c0";
 export const CALL_CENTER_DEFAULT_IVR_MENU_ID = "00000000-0000-4000-8000-0000000000c1";
 
+/** Venue queues used by the FEC bilingual IVR template. */
+export const CALL_CENTER_VENUE_QUEUE_IDS = {
+  inflatapark: "00000000-0000-4000-8000-0000000000d1",
+  urbanArena: "00000000-0000-4000-8000-0000000000d2",
+  kidsDriving: "00000000-0000-4000-8000-0000000000d3",
+  birthday: "00000000-0000-4000-8000-0000000000d4",
+} as const;
+
 export const CALL_CENTER_AGENT_STATUSES = ["available", "busy", "away", "acw", "offline"] as const;
 export type CallCenterAgentStatusValue = (typeof CALL_CENTER_AGENT_STATUSES)[number];
 
@@ -18,6 +26,7 @@ export const CALL_CENTER_IVR_ACTIONS = [
   "repeat",
   "menu",
   "agent",
+  "ai",
 ] as const;
 export type CallCenterIvrAction = (typeof CALL_CENTER_IVR_ACTIONS)[number];
 
@@ -61,6 +70,9 @@ export type CallCenterContactStatus = (typeof CALL_CENTER_CONTACT_STATUSES)[numb
 
 export type CallCenterAfterHoursAction = "voicemail" | "hangup" | "queue";
 
+export const CALL_CENTER_AI_PROVIDERS = ["openai", "openai_compatible", "livekit_agents"] as const;
+export type CallCenterAiProvider = (typeof CALL_CENTER_AI_PROVIDERS)[number];
+
 export type CallCenterSettingsRow = {
   enabled: boolean;
   ivr_enabled: boolean;
@@ -79,6 +91,24 @@ export type CallCenterSettingsRow = {
   ai_first_answer_enabled: boolean;
   ai_handoff_enabled: boolean;
   ai_notes: string;
+  ai_system_prompt_en: string;
+  ai_system_prompt_ar: string;
+  ai_welcome_en: string;
+  ai_welcome_ar: string;
+  ai_provider: CallCenterAiProvider;
+  ai_model: string;
+  ai_api_key: string;
+  ai_base_url: string;
+  ai_languages: string[];
+  ai_handoff_after_seconds: number;
+  ai_handoff_keywords: string;
+  ai_handoff_queue_id: string | null;
+  ai_livekit_agent_name: string;
+  whatsapp_enabled: boolean;
+  whatsapp_phone_number_id: string;
+  whatsapp_waba_id: string;
+  whatsapp_access_token: string;
+  whatsapp_verify_token: string;
   outbound_caller_id_e164: string;
   webhook_outbound_url: string;
   after_hours_greeting: string;
@@ -112,6 +142,29 @@ export type CallCenterSettingsPublic = {
   aiFirstAnswerEnabled: boolean;
   aiHandoffEnabled: boolean;
   aiNotes: string;
+  aiSystemPromptEn: string;
+  aiSystemPromptAr: string;
+  aiWelcomeEn: string;
+  aiWelcomeAr: string;
+  aiProvider: CallCenterAiProvider;
+  aiModel: string;
+  aiApiKeySet: boolean;
+  aiApiKeyLast4: string;
+  aiBaseUrl: string;
+  aiLanguages: string[];
+  aiHandoffAfterSeconds: number;
+  aiHandoffKeywords: string;
+  aiHandoffQueueId: string | null;
+  aiLivekitAgentName: string;
+  aiConfigured: boolean;
+  openaiEnvKeySet: boolean;
+  whatsappEnabled: boolean;
+  whatsappPhoneNumberId: string;
+  whatsappWabaId: string;
+  whatsappAccessTokenSet: boolean;
+  whatsappAccessTokenLast4: string;
+  whatsappVerifyTokenSet: boolean;
+  whatsappConfigured: boolean;
   outboundCallerIdE164: string;
   webhookOutboundUrl: string;
   afterHoursGreeting: string;
@@ -215,6 +268,12 @@ export type CallCenterAgentStatus = {
   statusSince: string;
   lastCallAt: string | null;
   extension: string;
+  displayNameOverride: string;
+  maxConcurrentCalls: number;
+  canWhisper: boolean;
+  canBarge: boolean;
+  isActive: boolean;
+  skills: string[];
 };
 
 export type CallCenterCall = {
@@ -290,6 +349,7 @@ export type CallCenterBlacklistEntry = {
 
 export type CallCenterAgentPerformanceRow = {
   userId: string;
+  displayName: string;
   extension: string;
   status: CallCenterAgentStatusValue;
   callsHandled: number;
@@ -298,6 +358,40 @@ export type CallCenterAgentPerformanceRow = {
   outbound: number;
   avgHandleSeconds: number;
   totalTalkSeconds: number;
+  displayNameOverride: string;
+  maxConcurrentCalls: number;
+  canWhisper: boolean;
+  canBarge: boolean;
+  isActive: boolean;
+  skills: string[];
+  queueIds: string[];
+};
+
+export type CallCenterWhatsappConversation = {
+  id: string;
+  waId: string;
+  customerE164: string;
+  customerName: string;
+  assignedAgentId: string | null;
+  status: "open" | "pending" | "closed";
+  lastMessageAt: string;
+  lastMessagePreview: string;
+  unreadCount: number;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterWhatsappMessage = {
+  id: string;
+  conversationId: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  waMessageId: string;
+  status: "received" | "sent" | "delivered" | "read" | "failed" | "queued";
+  errorText: string;
+  sentBy: string | null;
+  createdAt: string;
 };
 
 export type CallCenterSpeedDial = {
