@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     shellFxEnabled,
     prefersReducedMotion,
   });
-  const chatRoute = pathname === "/chat";
+  const chatRoute = pathname === "/chat" || pathname === "/ember" || pathname.startsWith("/ember/");
   const accountRoute = pathname === "/profile";
 
   return (

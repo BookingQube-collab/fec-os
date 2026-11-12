@@ -53,6 +53,7 @@
       "procurement": "المشتريات",
       "events": "إدارة المشاريع",
       "training": "التدريب",
+      "ember": "دردشة الفريق",
       "administration": "الإدارة"
     },
     "groups": {
@@ -112,6 +113,23 @@
     "eventsCalendar": "التقويم",
     "eventsTasks": "مهامي في الفعاليات",
     "eventsReports": "التقارير",
+    "ember": "دردشة الفريق",
+    "emberWorkspace": "مساحة العمل",
+    "emberRooms": "الغرف",
+    "emberNewRoom": "غرفة جديدة",
+    "emberDms": "الرسائل المباشرة",
+    "emberActivity": "النشاط",
+    "emberSearch": "بحث",
+    "emberFiles": "الملفات",
+    "emberProfile": "الملف الشخصي",
+    "emberPush": "الإشعارات",
+    "emberBots": "البوتات والويب هوك",
+    "emberAgents": "وكلاء الذكاء",
+    "emberSettings": "الإعدادات",
+    "emberStyles": "CSS مخصص",
+    "emberSectionChat": "الدردشة",
+    "emberSectionFind": "البحث",
+    "emberSectionAdmin": "الإدارة",
     "forecasts": "التوقعات",
     "decisions": "القرارات",
     "leaderboard": "لوحة المتصدرين",
@@ -14509,6 +14527,121 @@
       "trainingHours": "ساعات التدريب",
       "upcomingSessions": "جلسات قادمة",
       "complianceGaps": "فجوات الالتزام"
+    }
+  },
+  "emberNav": {
+    "label": "أقسام دردشة الفريق",
+    "workspace": "مساحة العمل",
+    "rooms": "الغرف",
+    "newRoom": "غرفة جديدة",
+    "dms": "الرسائل المباشرة",
+    "search": "بحث",
+    "files": "الملفات",
+    "bots": "البوتات",
+    "agents": "الوكلاء",
+    "profile": "الملف",
+    "push": "الإشعارات",
+    "settings": "الإعدادات",
+    "styles": "الأنماط"
+  },
+  "ember": {
+    "kicker": "دردشة الفريق",
+    "noAccess": "ليس لديك صلاحية لدردشة الفريق.",
+    "shell": {
+      "railLabel": "تنقل دردشة الفريق",
+      "railHome": "الرئيسية",
+      "railDms": "رسائل مباشرة",
+      "railActivity": "النشاط",
+      "railSearch": "بحث",
+      "railAdmin": "إدارة",
+      "railProfile": "الملف",
+      "workspaceName": "دردشة فريق FEC",
+      "workspaceTagline": "غرف ورسائل وبوتات على Vercel",
+      "channels": "القنوات",
+      "directMessages": "الرسائل المباشرة",
+      "newRoom": "غرفة جديدة",
+      "newDm": "رسالة جديدة",
+      "emptyList": "لا محادثات بعد.",
+      "emptyHeading": "اختر قناة أو رسالة مباشرة",
+      "emptyBody": "واجهة دردشة الفريق بنفس تخطيط Ember على بيانات FEC.",
+      "threadTitle": "خيط {{channel}}",
+      "threadCount": "{{count}} ردود",
+      "threadLoading": "جاري تحميل الخيط…"
+    },
+    "filesNativeHint": "ابحث في ملفات المحادثة المخزّنة في Supabase. اختر نوع الملف لتضييق النتائج.",
+    "settingsNativeHint": "إعدادات الإشعارات والدفع لمركز محادثة FEC (نفس بيانات مركز التواصل).",
+    "pushNativeHint": "سجّل هذا المتصفح لإشعارات دفع محادثة FEC.",
+    "profileNativeHint": "ملف الموظف في FEC هو المصدر الرسمي. إعدادات دفع دردشة الفريق أدناه.",
+    "openFecProfile": "فتح ملف FEC",
+    "botsNativeTitle": "البوتات الواردة (Vercel)",
+    "botsNativeBody": "لا نستخدم ويب هوك Cloudflare المتوافق مع Slack. استخدم تكاملات البريد/الإشعارات في FEC للتنبيهات الصادرة؛ يمكن إضافة ويب هوك وارد لاحقاً كمسارات API على Vercel.",
+    "openEmailIntegrations": "فتح إعدادات البريد",
+    "agentsNativeTitle": "مساعدو الذكاء",
+    "agentsNativeBody": "تستخدم دردشة الفريق تكاملات الذكاء في إدارة FEC بدل Workers AI. اضبط المزودين هنا ثم استخدم مساعدي FEC حيث تكون مفعّلة.",
+    "openAiIntegrations": "فتح تكاملات الذكاء",
+    "stylesNativeTitle": "المظهر",
+    "stylesNativeBody": "دردشة الفريق تستخدم نظام تصميم FEC. لا يوجد Worker منفصل لـ CSS على Vercel.",
+    "tabs": {
+      "workspace": {
+        "title": "مساحة العمل",
+        "subtitle": "كل الغرف والرسائل المباشرة على مركز محادثة FEC.",
+        "body": "مراسلة أصلية على Vercel وSupabase — نفس المحادثات في مركز التواصل."
+      },
+      "rooms": {
+        "title": "الغرف",
+        "subtitle": "مجموعات ومواقع وأقسام وغرف خاصة.",
+        "body": "المحادثات غير المباشرة فقط. أنشئ مجموعات، شارك ملفات، تفاعل، وابدأ مكالمات LiveKit."
+      },
+      "newRoom": {
+        "title": "غرفة جديدة",
+        "subtitle": "إنشاء محادثة جماعية.",
+        "body": "يفتح حوار إنشاء مجموعة على قائمة الغرف."
+      },
+      "dms": {
+        "title": "الرسائل المباشرة",
+        "subtitle": "محادثات فردية.",
+        "body": "قائمة الرسائل المباشرة مع الإنشاء. الإشارات والتفاعلات والملفات عبر مركز المحادثة."
+      },
+      "search": {
+        "title": "بحث",
+        "subtitle": "ابحث عن الرسائل والأشخاص والملفات.",
+        "body": "يفتح بحث مركز المحادثة في محادثاتك."
+      },
+      "files": {
+        "title": "الملفات",
+        "subtitle": "المرفقات في تخزين المحادثة.",
+        "body": "ابحث في الملفات المرفوعة إلى محادثة FEC (Supabase Storage)، وليس Cloudflare R2."
+      },
+      "bots": {
+        "title": "البوتات والويب هوك",
+        "subtitle": "تكاملات على Vercel.",
+        "body": "حالة البوتات الواردة بدون Cloudflare."
+      },
+      "agents": {
+        "title": "وكلاء الذكاء",
+        "subtitle": "مزودو الذكاء في FEC.",
+        "body": "اضبط النماذج في تكاملات الذكاء بالإدارة."
+      },
+      "profile": {
+        "title": "الملف الشخصي",
+        "subtitle": "حساب FEC والدفع.",
+        "body": "الملف وإشعارات الجهاز لدردشة الفريق."
+      },
+      "push": {
+        "title": "الدفع",
+        "subtitle": "دفع المتصفح للمحادثة.",
+        "body": "إدارة اشتراك دفع المحادثة لهذا الجهاز."
+      },
+      "settings": {
+        "title": "الإعدادات",
+        "subtitle": "الإشعارات والدفع.",
+        "body": "تفضيلات إشعارات المحادثة العامة مع دفع الجهاز."
+      },
+      "styles": {
+        "title": "الأنماط",
+        "subtitle": "نظام تصميم FEC.",
+        "body": "لا يوجد Worker منفصل لمظهر المحادثة — دردشة الفريق تطابق FEC."
+      }
     }
   }
 }

@@ -40,12 +40,15 @@ export type ComposerReply = {
   id: string;
   senderName: string;
   body: string | null;
+  /** Slack-style side thread root (message id). */
+  threadRootId?: string;
 };
 
 export type ComposerSend = {
   body: string;
   clientMessageId: string;
   replyToMessageId?: string;
+  threadRootMessageId?: string;
   attachments: PickedAttachment[];
   voiceNote?: boolean;
   requireAcknowledgement?: boolean;
@@ -284,6 +287,7 @@ export function MessageComposer({
     const mentionUserIds = mentionIdsForBody("");
     if (!mentionUserIds) return;
     const replyToMessageId = reply?.id;
+    const threadRootMessageId = reply?.threadRootId;
     onSend({
       body: "",
       clientMessageId: ready.clientMessageId,
@@ -300,6 +304,7 @@ export function MessageComposer({
         },
       ],
       ...(replyToMessageId ? { replyToMessageId } : {}),
+      ...(threadRootMessageId ? { threadRootMessageId } : {}),
     });
     URL.revokeObjectURL(ready.objectUrl);
   }
@@ -311,6 +316,7 @@ export function MessageComposer({
     if (!mentionUserIds) return;
     const clientMessageId = crypto.randomUUID();
     const replyToMessageId = reply?.id;
+    const threadRootMessageId = reply?.threadRootId;
     const attachments = files;
     setValue("");
     setMentions([]);
@@ -326,6 +332,7 @@ export function MessageComposer({
       attachments,
       mentionUserIds,
       ...(replyToMessageId ? { replyToMessageId } : {}),
+      ...(threadRootMessageId ? { threadRootMessageId } : {}),
       ...(announcement ? { requireAcknowledgement: requireAck } : {}),
     });
     revokePreviews(attachments);

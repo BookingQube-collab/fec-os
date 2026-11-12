@@ -1,0 +1,155 @@
+/* Team Chat Ember shell — scoped slate chrome (Vercel / Supabase only). */
+.ember-shell {
+  --ember-bg: #1a1d24;
+  --ember-rail: #12151a;
+  --ember-sidebar: #1e222a;
+  --ember-panel: #232833;
+  --ember-border: rgba(255, 255, 255, 0.08);
+  --ember-text: #e8eaef;
+  --ember-muted: #9aa3b2;
+  --ember-accent: #f97316;
+  --ember-active: rgba(249, 115, 22, 0.16);
+  --ember-hover: rgba(255, 255, 255, 0.05);
+  --ember-unread: #ef4444;
+  color: var(--ember-text);
+  background: var(--ember-bg);
+  border: 1px solid var(--ember-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.ember-shell a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ember-shell__rail {
+  background: var(--ember-rail);
+  border-inline-end: 1px solid var(--ember-border);
+}
+
+.ember-shell__rail-btn {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.65rem;
+  color: var(--ember-muted);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.ember-shell__rail-btn:hover {
+  background: var(--ember-hover);
+  color: var(--ember-text);
+}
+
+.ember-shell__rail-btn.is-active {
+  background: var(--ember-active);
+  color: var(--ember-accent);
+}
+
+.ember-shell__sidebar {
+  background: var(--ember-sidebar);
+  border-inline-end: 1px solid var(--ember-border);
+}
+
+.ember-shell__section-label {
+  color: var(--ember-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ember-shell__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  color: var(--ember-muted);
+  text-align: start;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.ember-shell__row:hover {
+  background: var(--ember-hover);
+  color: var(--ember-text);
+}
+
+.ember-shell__row.is-active {
+  background: var(--ember-active);
+  color: var(--ember-text);
+  font-weight: 600;
+}
+
+.ember-shell__main,
+.ember-shell__thread {
+  background: var(--ember-panel);
+}
+
+.ember-shell__thread {
+  border-inline-start: 1px solid var(--ember-border);
+}
+
+.ember-shell .bg-card,
+.ember-shell .bg-background,
+.ember-shell .bg-muted {
+  background-color: transparent;
+}
+
+.ember-shell .border-border {
+  border-color: var(--ember-border);
+}
+
+.ember-shell .text-muted-foreground {
+  color: var(--ember-muted);
+}
+
+.ember-shell .text-foreground {
+  color: var(--ember-text);
+}
+
+.ember-bot-card {
+  margin-top: 0.35rem;
+  border: 1px solid var(--ember-border, rgba(255, 255, 255, 0.08));
+  border-inline-start: 3px solid var(--ember-accent, #f97316);
+  border-radius: 0.65rem;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 0.75rem 0.85rem;
+}
+
+.ember-bot-card__title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.ember-bot-card__fields {
+  display: grid;
+  gap: 0.35rem 1rem;
+  margin-top: 0.55rem;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+}
+
+.ember-bot-card__field-label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ember-muted, #9aa3b2);
+}
+
+.ember-bot-card__field-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ember-bot-card__footer {
+  margin: 0.55rem 0 0;
+  font-size: 0.75rem;
+  color: var(--ember-muted, #9aa3b2);
+}

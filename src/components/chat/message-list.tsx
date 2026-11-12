@@ -31,6 +31,7 @@ export function MessageList({
   onLoadOlder,
   onRetry,
   onReply,
+  onReplyInThread,
   onToggleReaction,
   onPin,
   onSave,
@@ -58,6 +59,7 @@ export function MessageList({
   onLoadOlder: () => void;
   onRetry: (clientMessageId: string) => void;
   onReply: (message: MessageBubbleModel) => void;
+  onReplyInThread?: (message: MessageBubbleModel) => void;
   onToggleReaction: (messageId: string, emoji: string, mine: boolean) => void;
   onPin: (messageId: string, pinned: boolean) => void;
   onSave: (messageId: string, saved: boolean) => void;
@@ -239,6 +241,7 @@ export function MessageList({
                 bookmarkPending={bookmarkPendingId === message.id}
                 onRetry={onRetry}
                 onReply={onReply}
+                onReplyInThread={onReplyInThread}
                 onToggleReaction={onToggleReaction}
                 onPin={onPin}
                 onSave={onSave}

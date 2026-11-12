@@ -252,6 +252,8 @@ export const sendTextMessageSchema = z.object({
   }),
   clientMessageId: z.string().uuid(),
   replyToMessageId: z.string().uuid().optional(),
+  /** Slack-style side thread: replies hang under this root message in the same room. */
+  threadRootMessageId: z.string().uuid().optional(),
   mentionUserIds: chatMentionUserIdsField,
   /** Stored as metadata.require_ack on ANNOUNCEMENT messages. Ignored for other kinds. */
   requireAcknowledgement: z.boolean().optional(),
@@ -285,4 +287,8 @@ export const listMessagesSchema = z.object({
   cursor: listCursorSchema.optional(),
   through: listCursorSchema.optional(),
   limit: z.number().int().min(1).max(CHAT_MESSAGE_PAGE_MAX).default(CHAT_MESSAGE_PAGE_DEFAULT),
+  /** When set, only messages in this Slack-style thread (root + replies). */
+  threadRootMessageId: z.string().uuid().optional(),
+  /** Main room timeline: exclude side-thread replies (thread_root IS NULL). Default true when no thread filter. */
+  mainTimelineOnly: z.boolean().optional(),
 });

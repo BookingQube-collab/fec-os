@@ -20,6 +20,7 @@ const EN_LABELS: Record<NavDepartmentId, string> = {
   procurement: "Procurement",
   events: "Project Management",
   training: "Training",
+  ember: "Team Chat",
 };
 
 const AR_LABELS: Record<NavDepartmentId, string> = {
@@ -35,6 +36,7 @@ const AR_LABELS: Record<NavDepartmentId, string> = {
   procurement: "المشتريات",
   events: "إدارة المشاريع",
   training: "التدريب",
+  ember: "دردشة الفريق",
 };
 
 const ALIASES: Record<NavDepartmentId, readonly string[]> = {
@@ -50,6 +52,7 @@ const ALIASES: Record<NavDepartmentId, readonly string[]> = {
   procurement: ["procurement", EN_LABELS.procurement, AR_LABELS.procurement],
   events: ["project management", "events", EN_LABELS.events, AR_LABELS.events, "إدارة المشاريع"],
   training: ["training", EN_LABELS.training, AR_LABELS.training],
+  ember: ["team chat", "ember", "slack", EN_LABELS.ember, AR_LABELS.ember, "دردشة"],
 };
 
 export function defaultNavDepartmentOrder(): NavDepartmentId[] {

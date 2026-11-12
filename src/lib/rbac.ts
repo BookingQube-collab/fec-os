@@ -368,6 +368,14 @@ export const CAPABILITIES = {
   "chat.create_group": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
   "chat.manage_members": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
 
+  // Ember Team Chat (Cloudflare sidecar). Opens the full Ember product via deep links.
+  // view: same floor + ops audience as chat.view. manage: workspace/bots admin surfaces.
+  "ember.view": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
+  ],
+  "ember.manage": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+
   // Training engine. Platform domain, not an HR submodule.
   // Floor roles learn through enrollments; they do not receive training.view.
   // Keep public.training_code_allows() in the training engine migration in sync.

@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { staffDepartmentPlacement, type OrgDepartment } from "@/lib/org-hierarchy";
 import { canUserDo, ROLE_LEVELS, type AppRole } from "@/lib/rbac";
 import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import { parseBotCardFromMetadata, type ChatBotCard } from "@/lib/chat/bot-card";
 import { rosterDisplayName } from "@/lib/chat/display-rules";
 import {
   chatDirectoryUsesManagerCrew,
@@ -1488,6 +1489,7 @@ const VISIBLE_MESSAGE_COLUMNS = [
   "body",
   "metadata",
   "reply_to_message_id",
+  "thread_root_message_id",
   "created_at",
   "deleted_at",
   "content_hidden",
@@ -1542,6 +1544,12 @@ export type ChatTextMessage = {
   deletedAt: string | null;
   contentHidden: boolean;
   replyToMessageId: string | null;
+  threadRootMessageId: string | null;
+  /** From metadata when a bot/agent posted. */
+  botName: string | null;
+  agentMention: string | null;
+  /** Structured Slack/webhook card when present on bot metadata. */
+  botCard: ChatBotCard | null;
   reply: ChatReplySnippet | null;
   reactions: ChatReactionGroup[];
   attachments: ChatAttachment[];
@@ -1583,6 +1591,10 @@ function messageFrom(row: Record<string, unknown>): ChatTextMessage | null {
   const typeName = text(row.type);
   const createdAt = text(row.created_at);
   if (!id || !conversationId || !senderId || !typeName || !createdAt) return null;
+  const metadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : null;
   return {
     id,
     conversationId,
@@ -1594,6 +1606,10 @@ function messageFrom(row: Record<string, unknown>): ChatTextMessage | null {
     deletedAt: text(row.deleted_at),
     contentHidden: row.content_hidden === true,
     replyToMessageId: text(row.reply_to_message_id),
+    threadRootMessageId: text(row.thread_root_message_id),
+    botName: metadata && typeof metadata.bot_name === "string" ? metadata.bot_name : null,
+    agentMention: metadata && typeof metadata.agent_mention === "string" ? metadata.agent_mention : null,
+    botCard: parseBotCardFromMetadata(metadata),
     reply: null,
     reactions: [],
     attachments: [],
@@ -2435,6 +2451,12 @@ export const sendTextMessage = createSafeAuthenticatedAction(
         throw new Error("You cannot reply to that message.");
       }
     }
+    if (data.threadRootMessageId) {
+      const root = await visibleMessageRow(context, data.threadRootMessageId, data.conversationId);
+      if (!root || text(root.conversation_id) !== data.conversationId) {
+        throw new Error("You cannot reply in that thread.");
+      }
+    }
 
     const inserted = await chatFrom(context, "chat_messages")
       .insert({
@@ -2444,6 +2466,7 @@ export const sendTextMessage = createSafeAuthenticatedAction(
         client_message_id: data.clientMessageId,
         ...(announcement ? { metadata: { require_ack: data.requireAcknowledgement === true } } : {}),
         ...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
+        ...(data.threadRootMessageId ? { thread_root_message_id: data.threadRootMessageId } : {}),
       })
       .select("id, client_message_id, created_at")
       .maybeSingle();
@@ -2467,6 +2490,14 @@ export const sendTextMessage = createSafeAuthenticatedAction(
         messageType: announcement ? "ANNOUNCEMENT" : "TEXT",
         mentionUserIds: data.mentionUserIds,
       });
+      if (!announcement) {
+        const { maybeReplyAsChatAgent } = await import("@/lib/chat/agents.functions");
+        void maybeReplyAsChatAgent({
+          conversationId: data.conversationId,
+          body: data.body,
+          senderUserId: context.userId,
+        }).catch(() => undefined);
+      }
     }
     return visible;
   },
@@ -3078,6 +3109,11 @@ export const listMessages = createSafeAuthenticatedAction(
       .select(VISIBLE_MESSAGE_COLUMNS)
       .eq("conversation_id", data.conversationId)
       .in("type", [...CHAT_THREAD_MESSAGE_TYPES]);
+    if (data.threadRootMessageId) {
+      query = query.or(`id.eq.${data.threadRootMessageId},thread_root_message_id.eq.${data.threadRootMessageId}`);
+    } else if (data.mainTimelineOnly !== false) {
+      query = query.is("thread_root_message_id", null);
+    }
     if (data.cursor) query = query.or(chatKeysetFilter(data.cursor));
     else if (data.through) query = query.or(chatKeysetThroughFilter(data.through));
     const rows = await readRows(

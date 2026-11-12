@@ -37,6 +37,17 @@ export function conversationDisplayName(
   return title || label(`chat.kinds.${conversation.kind}`, { defaultValue: conversation.kind });
 }
 
+/** Ember-style channel label: `#Launch` for rooms, plain name for DMs. */
+export function emberChannelLabel(
+  conversation: { kind: string; title: string | null; peerName?: string | null },
+  label: (key: string, options?: { defaultValue?: string }) => string,
+): string {
+  const name = conversationDisplayName(conversation, label);
+  if (conversation.kind === "DIRECT") return name;
+  const trimmed = name.replace(/^#\s*/, "").trim();
+  return trimmed ? `#${trimmed}` : name;
+}
+
 /** Same secondary line as a person row: employee code, then job title. */
 export function directPeerRoleLine(
   employeeCode: string | null | undefined,

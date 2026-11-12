@@ -552,6 +552,40 @@ describe("admin sidebar visibility", () => {
     expect(group?.items.some((item) => item.href === "/maintenance/weekly-report/executive")).toBe(false);
   });
 
+  it("shows Team Chat (Ember) to roles with ember.view and manage tabs only to ember.manage", () => {
+    const ceo = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "ember");
+    expect(ceo).toBeTruthy();
+    const ceoHrefs = ceo?.items.map((i) => i.href) ?? [];
+    expect(ceoHrefs).toEqual(
+      expect.arrayContaining([
+        "/ember",
+        "/ember/rooms",
+        "/ember/new-room",
+        "/ember/dms",
+        "/ember/activity",
+        "/ember/search",
+        "/ember/files",
+        "/ember/profile",
+        "/ember/push",
+        "/ember/bots",
+        "/ember/agents",
+        "/ember/settings",
+        "/ember/styles",
+      ]),
+    );
+    const flyout = getDepartmentFlyoutLinks(ceo!);
+    expect(flyout.map((l) => l.href)).toEqual(expect.arrayContaining(ceoHrefs));
+    const technician = getVisibleDepartments(["technician"]).find((dept) => dept.id === "ember");
+    const techHrefs = technician?.items.map((i) => i.href) ?? [];
+    expect(techHrefs).toEqual(
+      expect.arrayContaining(["/ember", "/ember/rooms", "/ember/search", "/ember/files", "/ember/profile"]),
+    );
+    expect(techHrefs).not.toContain("/ember/bots");
+    expect(techHrefs).not.toContain("/ember/agents");
+    expect(techHrefs).not.toContain("/ember/settings");
+    expect(techHrefs).not.toContain("/ember/styles");
+  });
+
   it("shows the training catalog only to roles with training.view", () => {
     const hr = getVisibleDepartments(["hr"]).find((dept) => dept.id === "training");
     expect(hr?.items.some((item) => item.href === "/training")).toBe(true);

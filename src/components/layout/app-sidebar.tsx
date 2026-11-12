@@ -72,7 +72,7 @@ const SIDEBAR_HEAVY_ROUTES = new Set([
 ]);
 
 /** Lightweight high-frequency rail targets only (not every primary module). */
-const SIDEBAR_WARM_PREFETCH = ["/", "/people", "/events", "/maintenance", "/procurement"] as const;
+const SIDEBAR_WARM_PREFETCH = ["/", "/people", "/events", "/ember", "/maintenance", "/procurement"] as const;
 
 const FLYOUT_CLOSE_MS = 180;
 

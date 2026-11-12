@@ -35,7 +35,29 @@ const CONVERSATION_QUERY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9
 
 type HubTab = "chats" | "updates" | "inbox";
 
-export function ChatHub() {
+/** Surface filter for embedding Chat Hub inside Team Chat tabs (Vercel / Supabase only). */
+export type ChatHubSurface = "all" | "rooms" | "dms" | "activity";
+
+export type ChatHubProps = {
+  surface?: ChatHubSurface;
+  /** Hide Communication Hub breadcrumb / updates / inbox chrome when nested under Team Chat. */
+  compact?: boolean;
+  autoOpenSearch?: boolean;
+  autoOpenCreate?: boolean;
+  autoOpenCompose?: boolean;
+  autoOpenNotify?: boolean;
+  breadcrumbLabelKey?: string;
+};
+
+export function ChatHub({
+  surface = "all",
+  compact = false,
+  autoOpenSearch = false,
+  autoOpenCreate = false,
+  autoOpenCompose = false,
+  autoOpenNotify = false,
+  breadcrumbLabelKey = "nav.communicationHub",
+}: ChatHubProps = {}) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const roles = useUserRoles();
@@ -49,11 +71,11 @@ export function ChatHub() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useChatKeyboardInset(frameRef);
   const [tab, setTab] = useState<HubTab>("chats");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(autoOpenCreate);
+  const [composeOpen, setComposeOpen] = useState(autoOpenCompose);
+  const [searchOpen, setSearchOpen] = useState(autoOpenSearch);
   const [savedOpen, setSavedOpen] = useState(false);
-  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(autoOpenNotify);
   const [focus, setFocus] = useState<ChatJumpTarget | null>(null);
   const [unavailable, setUnavailable] = useState<ChatDirectoryPerson | null>(null);
   const saved = useSavedMessages();
@@ -65,7 +87,15 @@ export function ChatHub() {
   const canManageCapability = canUserDo(roles, "chat.manage_members");
   const canCompose = canSend || canCreate;
   const people = canSend ? (directory.data?.people ?? []) : [];
-  const rows = withDirectPeerLabels(conversations.data ?? [], people);
+  const allRows = withDirectPeerLabels(conversations.data ?? [], people);
+  const rows =
+    surface === "dms"
+      ? allRows.filter((row) => row.kind === "DIRECT")
+      : surface === "rooms"
+        ? allRows.filter((row) => row.kind !== "DIRECT")
+        : surface === "activity"
+          ? allRows.filter((row) => row.unreadCount > 0)
+          : allRows;
   const listLoading = conversations.isLoading || (canSend && directory.isLoading && rows.length === 0);
   const listError = conversations.isError
     ? conversations.error instanceof Error
@@ -78,7 +108,7 @@ export function ChatHub() {
       : null;
   const selected = rows.find((row) => row.id === selectedId) ?? null;
   const paneOpen = Boolean(selected || unavailable);
-  const chatUnread = rows.reduce((sum, row) => sum + (row.unreadCount > 0 ? row.unreadCount : 0), 0);
+  const chatUnread = allRows.reduce((sum, row) => sum + (row.unreadCount > 0 ? row.unreadCount : 0), 0);
   const chatBadge = chatUnreadBadgeLabel(chatUnread);
   const updatesBadge = chatUnreadBadgeLabel(activity.updates);
   const inboxBadge = chatUnreadBadgeLabel(activity.inboxCount);
@@ -217,46 +247,50 @@ export function ChatHub() {
 
   return (
     <div ref={frameRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="mb-3 shrink-0 space-y-3">
-        <p className="text-sm text-muted-foreground">
-          <span>{t("chat.breadcrumbWorkspace")}</span>
-          <span aria-hidden className="px-1.5">/</span>
-          <span className="font-medium text-foreground">{t("nav.communicationHub")}</span>
-        </p>
-        <div role="tablist" aria-label={t("nav.communicationHub")} className="chat-hub-tabs fec-inner-tabs">
-          {tabs.map((item) => {
-            const active = tab === item.id;
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                id={`chat-tab-${item.id}`}
-                aria-selected={active}
-                aria-controls={`chat-panel-${item.id}`}
-                onClick={() => selectTab(item.id)}
-                className={cn("fec-inner-tab", active && "is-active")}
-              >
-                <Icon aria-hidden />
-                {item.label}
-                {item.count ? (
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 text-[11px] font-semibold",
-                      active ? "bg-primary-foreground/15 text-primary-foreground" : "bg-secondary text-foreground",
-                    )}
-                  >
-                    {item.count}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
+      {!compact ? (
+        <div className="mb-3 shrink-0 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            <span>{t("chat.breadcrumbWorkspace")}</span>
+            <span aria-hidden className="px-1.5">
+              /
+            </span>
+            <span className="font-medium text-foreground">{t(breadcrumbLabelKey)}</span>
+          </p>
+          <div role="tablist" aria-label={t(breadcrumbLabelKey)} className="chat-hub-tabs fec-inner-tabs">
+            {tabs.map((item) => {
+              const active = tab === item.id;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  id={`chat-tab-${item.id}`}
+                  aria-selected={active}
+                  aria-controls={`chat-panel-${item.id}`}
+                  onClick={() => selectTab(item.id)}
+                  className={cn("fec-inner-tab", active && "is-active")}
+                >
+                  <Icon aria-hidden />
+                  {item.label}
+                  {item.count ? (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 text-[11px] font-semibold",
+                        active ? "bg-primary-foreground/15 text-primary-foreground" : "bg-secondary text-foreground",
+                      )}
+                    >
+                      {item.count}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {tab === "chats" ? (
+      {tab === "chats" || compact ? (
         <div
           id="chat-panel-chats"
           role="tabpanel"

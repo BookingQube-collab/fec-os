@@ -192,7 +192,9 @@ function toBubble(
     mine,
     grouped: false,
     delivery,
-    senderName,
+    senderName: message.botName ? `${message.botName} (bot)` : message.agentMention ? `@${message.agentMention}` : senderName,
+    threadRootMessageId: message.threadRootMessageId,
+    botCard: message.botCard,
     reactions: message.reactions,
     reply,
     attachments,
@@ -263,6 +265,9 @@ export function ConversationThread({
   onOpenMessage,
   onOpenPerson,
   onOpenFile,
+  onOpenSideThread,
+  hideComposer = false,
+  collapseThreadReplies = false,
 }: {
   conversation: ChatConversationSummary;
   currentUserId: string | null;
@@ -277,6 +282,11 @@ export function ConversationThread({
   onOpenMessage: (message: ChatSearchMessage) => void;
   onOpenPerson: (person: ChatDirectoryPerson) => void;
   onOpenFile: (file: ChatSearchFile) => void;
+  /** Ember shell: open replies in a side panel instead of composer-only reply. */
+  onOpenSideThread?: (rootMessageId: string) => void;
+  hideComposer?: boolean;
+  /** Hide thread replies in the main timeline (Ember side-panel threads). */
+  collapseThreadReplies?: boolean;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -471,8 +481,12 @@ export function ConversationThread({
     return covered ? "read" : "sent";
   }
 
+  const timelineMessages = collapseThreadReplies
+    ? serverMessages.filter((message) => !message.threadRootMessageId)
+    : serverMessages;
+
   const bubbles: MessageBubbleModel[] = [
-    ...serverMessages.map((message) =>
+    ...timelineMessages.map((message) =>
       toBubble(
         message,
         message.senderId === currentUserId,
@@ -496,6 +510,8 @@ export function ConversationThread({
         grouped: false,
         delivery: item.status,
         senderName: names.get(currentUserId ?? "") ?? t("chat.memberLabel"),
+        threadRootMessageId: null,
+        botCard: null,
         reactions: [],
         entity: null,
         requireAcknowledgement: false,
@@ -581,6 +597,7 @@ export function ConversationThread({
       body,
       clientMessageId,
       ...(reply?.id ? { replyToMessageId: reply.id } : {}),
+      ...(reply?.threadRootId ? { threadRootMessageId: reply.threadRootId } : {}),
       ...(requireAcknowledgement != null ? { requireAcknowledgement } : {}),
       ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
     });
@@ -1233,6 +1250,25 @@ export function ConversationThread({
                 body: message.contentHidden ? null : (message.body ?? fileLabel),
               });
             }}
+            onReplyInThread={(message) => {
+              const rootId = message.threadRootMessageId ?? message.id;
+              if (onOpenSideThread) {
+                onOpenSideThread(rootId);
+                return;
+              }
+              const fileLabel =
+                message.type === "VOICE_NOTE"
+                  ? t("chat.voiceNote")
+                  : message.attachments.length > 0
+                    ? t("chat.attachment")
+                    : null;
+              setReplyTarget({
+                id: message.id,
+                senderName: message.senderName,
+                body: message.contentHidden ? null : (message.body ?? fileLabel),
+                threadRootId: rootId,
+              });
+            }}
             onToggleReaction={toggleReaction}
             onLatestVisible={onLatestVisible}
             createActions={createActions}
@@ -1246,34 +1282,42 @@ export function ConversationThread({
               {typingLabel}
             </p>
           )}
-          <MessageComposer
-            conversationId={conversation.id}
-            canPost={canPost}
-            canAttach={canAttach}
-            announcement={announcementRoom}
-            reply={replyTarget}
-            mentionMembers={mentionMembers}
-            mentionsReady={members.isSuccess}
-            onCancelReply={() => setReplyTarget(null)}
-            onActivity={onActivity}
-            onCreatePoll={canPost ? publishPoll : undefined}
-            onShare={async (input) => {
-              const result = await shareEntityInChat({ conversationId: conversation.id, ...input });
-              if (!result.ok) throw new Error(result.error);
-              await queryClient.invalidateQueries({ queryKey: queryKeys.chat.messages(conversation.id) });
-              await queryClient.invalidateQueries({ queryKey: queryKeys.chat.list() });
-            }}
-            onSend={({ body, clientMessageId, replyToMessageId, attachments, voiceNote, requireAcknowledgement, mentionUserIds }) => {
-              const reply = replyTarget && replyTarget.id === replyToMessageId ? replyTarget : null;
-              setReplyTarget(null);
-              if (attachments.length === 0) {
-                void deliver(body, clientMessageId, reply, requireAcknowledgement, mentionUserIds);
-                return;
-              }
-              const files = attachments.map((file) => holdAttachment(file));
-              void deliverFiles({ body, clientMessageId, reply, attachments: files, voiceNote, mentionUserIds });
-            }}
-          />
+          {hideComposer ? null : (
+            <MessageComposer
+              conversationId={conversation.id}
+              canPost={canPost}
+              canAttach={canAttach}
+              announcement={announcementRoom}
+              reply={replyTarget}
+              mentionMembers={mentionMembers}
+              mentionsReady={members.isSuccess}
+              onCancelReply={() => setReplyTarget(null)}
+              onActivity={onActivity}
+              onCreatePoll={canPost ? publishPoll : undefined}
+              onShare={async (input) => {
+                const result = await shareEntityInChat({ conversationId: conversation.id, ...input });
+                if (!result.ok) throw new Error(result.error);
+                await queryClient.invalidateQueries({ queryKey: queryKeys.chat.messages(conversation.id) });
+                await queryClient.invalidateQueries({ queryKey: queryKeys.chat.list() });
+              }}
+              onSend={({ body, clientMessageId, replyToMessageId, threadRootMessageId, attachments, voiceNote, requireAcknowledgement, mentionUserIds }) => {
+                const reply =
+                  replyTarget && replyTarget.id === replyToMessageId
+                    ? {
+                        ...replyTarget,
+                        ...(threadRootMessageId ? { threadRootId: threadRootMessageId } : {}),
+                      }
+                    : null;
+                setReplyTarget(null);
+                if (attachments.length === 0) {
+                  void deliver(body, clientMessageId, reply, requireAcknowledgement, mentionUserIds);
+                  return;
+                }
+                const files = attachments.map((file) => holdAttachment(file));
+                void deliverFiles({ body, clientMessageId, reply, attachments: files, voiceNote, mentionUserIds });
+              }}
+            />
+          )}
           {createTarget ? (
             <CreateFromMessageDialog
               key={`${createTarget.messageId}:${createTarget.action}`}

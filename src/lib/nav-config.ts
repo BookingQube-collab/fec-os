@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bell,
   BellRing,
+  Bot,
   Briefcase,
   Building,
   Building2,
@@ -18,12 +19,16 @@ import {
   Code2,
   Crown,
   FileBarChart,
+  FileStack,
   FileText,
+  Flame,
   FolderKanban,
   History,
   LifeBuoy,
   Lightbulb,
   Mail,
+  Palette,
+  PlusSquare,
   Receipt,
   Scale,
   ScrollText,
@@ -44,6 +49,7 @@ import {
   Phone,
   Presentation,
   Radio,
+  Search,
   Settings,
   Shield,
   ShieldCheck,
@@ -105,7 +111,8 @@ export type NavDepartmentId =
   | "admin"
   | "procurement"
   | "events"
-  | "training";
+  | "training"
+  | "ember";
 
 export type NavAudience = "executive" | "supervisor" | "maintenance" | "all";
 
@@ -202,6 +209,35 @@ const EVENTS_NAV_GROUP: SidebarNavGroup = {
     ]),
   ],
 };
+
+/** Team Chat modules — flat department items (same pattern as People / Training). */
+const EMBER_SECTION = {
+  chat: "nav.emberSectionChat",
+  find: "nav.emberSectionFind",
+  admin: "nav.emberSectionAdmin",
+} as const;
+
+const EMBER_NAV_ITEMS: NavItem[] = [
+  ...withSection(EMBER_SECTION.chat, [
+    { href: "/ember", labelKey: "nav.emberWorkspace", icon: Flame, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/rooms", labelKey: "nav.emberRooms", icon: MessagesSquare, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/new-room", labelKey: "nav.emberNewRoom", icon: PlusSquare, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/dms", labelKey: "nav.emberDms", icon: Users, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/activity", labelKey: "nav.emberActivity", icon: Activity, capability: "ember.view", departmentId: "ember" },
+  ]),
+  ...withSection(EMBER_SECTION.find, [
+    { href: "/ember/search", labelKey: "nav.emberSearch", icon: Search, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/files", labelKey: "nav.emberFiles", icon: FileStack, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/profile", labelKey: "nav.emberProfile", icon: UserRound, capability: "ember.view", departmentId: "ember" },
+    { href: "/ember/push", labelKey: "nav.emberPush", icon: Bell, capability: "ember.view", departmentId: "ember" },
+  ]),
+  ...withSection(EMBER_SECTION.admin, [
+    { href: "/ember/bots", labelKey: "nav.emberBots", icon: Bot, capability: "ember.manage", departmentId: "ember" },
+    { href: "/ember/agents", labelKey: "nav.emberAgents", icon: Sparkles, capability: "ember.manage", departmentId: "ember" },
+    { href: "/ember/settings", labelKey: "nav.emberSettings", icon: Settings, capability: "ember.manage", departmentId: "ember" },
+    { href: "/ember/styles", labelKey: "nav.emberStyles", icon: Palette, capability: "ember.manage", departmentId: "ember" },
+  ]),
+];
 
 /** Own My day entry. Attendance, roster, leave, issues, documents, payslips, and KRA stay inside the page. */
 export const EMPLOYEE_SECTION_NAV: Array<NavItem> = [
@@ -652,6 +688,13 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     ],
   },
   {
+    id: "ember",
+    labelKey: "nav.departments.ember",
+    icon: Flame,
+    audience: ["executive", "supervisor", "all"],
+    items: EMBER_NAV_ITEMS,
+  },
+  {
     id: "compliance",
     labelKey: "nav.departments.compliance",
     icon: ShieldCheck,
@@ -741,10 +784,10 @@ const ADMIN_RAIL_HREF = "/admin";
 
 /** One representative href per department — rail construction also unique-by-departmentId. */
 const PRIMARY_RAIL_ORDER: Record<NavAudience, string[]> = {
-  executive: ["/", "/people", "/admin", "/revenue", "/events", "/maintenance", "/procurement", "/compliance/e3-tracker"],
-  supervisor: ["/", "/people", "/events", "/maintenance", "/compliance/e3-tracker", "/procurement", "/inventory", "/admin"],
-  maintenance: ["/", "/arcade", "/maintenance", "/inventory", "/compliance/amc-schedule", "/people", "/procurement", "/events"],
-  all: ["/", "/people", "/events", "/maintenance", "/compliance/e3-tracker", "/inventory", "/procurement", "/admin"],
+  executive: ["/", "/people", "/admin", "/revenue", "/events", "/ember", "/maintenance", "/procurement"],
+  supervisor: ["/", "/people", "/events", "/ember", "/maintenance", "/procurement", "/inventory", "/admin"],
+  maintenance: ["/", "/arcade", "/maintenance", "/inventory", "/ember", "/people", "/procurement", "/events"],
+  all: ["/", "/people", "/events", "/ember", "/maintenance", "/inventory", "/procurement", "/admin"],
 };
 
 const EXECUTIVE_ROLES: AppRole[] = ["ceo", "coo", "cfo", "regional_ops"];

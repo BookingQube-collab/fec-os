@@ -5,9 +5,11 @@ import { Bookmark, MoreHorizontal, Pin, Reply, SmilePlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AttachmentCard, type AttachmentCardModel } from "@/components/chat/attachment-card";
+import { BotMessageCard } from "@/components/chat/bot-message-card";
 import { EntityCard } from "@/components/chat/entity-card";
 import { PollMessage, type PollView } from "@/components/chat/poll-message";
 import { VoiceMessage } from "@/components/chat/voice-message";
+import type { ChatBotCard } from "@/lib/chat/bot-card";
 import { CHAT_ENTITY_FALLBACK_BODY } from "@/lib/chat/entity-rules";
 import type { ChatActionKind } from "@/lib/chat/action-rules";
 import type { ChatSharedEntity } from "@/lib/chat.functions";
@@ -46,6 +48,7 @@ export type MessageBubbleModel = {
   grouped: boolean;
   delivery: "uploading" | "sending" | "failed" | "sent" | "read" | null;
   senderName: string;
+  threadRootMessageId: string | null;
   reactions: MessageReactionModel[];
   reply: MessageReplyModel | null;
   attachments: AttachmentCardModel[];
@@ -54,6 +57,7 @@ export type MessageBubbleModel = {
   acknowledged?: boolean;
   acknowledgementCount?: number;
   poll?: PollView | null;
+  botCard?: ChatBotCard | null;
 };
 
 function formatTime(value: string, locale: string): string {
@@ -70,6 +74,7 @@ export function MessageBubble({
   bookmarkPending,
   onRetry,
   onReply,
+  onReplyInThread,
   onToggleReaction,
   onPin,
   onSave,
@@ -87,6 +92,7 @@ export function MessageBubble({
   bookmarkPending: boolean;
   onRetry: (clientMessageId: string) => void;
   onReply: (message: MessageBubbleModel) => void;
+  onReplyInThread?: (message: MessageBubbleModel) => void;
   onToggleReaction: (messageId: string, emoji: string, mine: boolean) => void;
   onPin: (messageId: string, pinned: boolean) => void;
   onSave: (messageId: string, saved: boolean) => void;
@@ -151,8 +157,16 @@ export function MessageBubble({
             onVote={(optionIds) => onVote?.(poll.id, optionIds)}
           />
         ) : null}
-        {!deleted && !poll && message.body != null && !(shared && message.body === CHAT_ENTITY_FALLBACK_BODY) && !(voice && message.body.trim().toLowerCase() === t("chat.voiceNote").trim().toLowerCase()) ? (
+        {!deleted && !poll && message.body != null && !(shared && message.body === CHAT_ENTITY_FALLBACK_BODY) && !(voice && message.body.trim().toLowerCase() === t("chat.voiceNote").trim().toLowerCase()) && !message.botCard ? (
           <p className="whitespace-pre-wrap break-words">{message.body}</p>
+        ) : null}
+        {!deleted && message.botCard ? (
+          <>
+            {message.body && !message.botCard.text ? (
+              <p className="mb-1 whitespace-pre-wrap break-words">{message.body}</p>
+            ) : null}
+            <BotMessageCard card={message.botCard} />
+          </>
         ) : null}
         {!deleted && shared ? <EntityCard entity={message.entity} /> : null}
         {!deleted && voice && !voiceFile ? <p className="text-xs">{t("chat.attachmentUnavailable")}</p> : null}
@@ -230,6 +244,12 @@ export function MessageBubble({
                 <DropdownMenuItem onSelect={() => onReply(message)}>
                   <Reply aria-hidden />
                   {t("chat.reply")}
+                </DropdownMenuItem>
+              ) : null}
+              {interactive && onReplyInThread ? (
+                <DropdownMenuItem onSelect={() => onReplyInThread(message)}>
+                  <Reply aria-hidden />
+                  {t("chat.replyInThread")}
                 </DropdownMenuItem>
               ) : null}
               {interactive

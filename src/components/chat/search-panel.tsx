@@ -16,6 +16,7 @@ export function SearchPanel({
   conversationId,
   canFilterDepartments,
   locked = false,
+  defaultFileType = "",
   onOpenConversation,
   onOpenMessage,
   onOpenPerson,
@@ -25,6 +26,7 @@ export function SearchPanel({
   canFilterDepartments: boolean;
   /** Keep results inside the open conversation. */
   locked?: boolean;
+  defaultFileType?: ChatSearchFileType | "";
   onOpenConversation: (id: string) => void;
   onOpenMessage: (message: ChatSearchMessage) => void;
   onOpenPerson: (person: ChatDirectoryPerson) => void;
@@ -34,7 +36,7 @@ export function SearchPanel({
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [thisRoom, setThisRoom] = useState(locked);
-  const [fileType, setFileType] = useState<ChatSearchFileType | "">("");
+  const [fileType, setFileType] = useState<ChatSearchFileType | "">(defaultFileType);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [locationId, setLocationId] = useState("");

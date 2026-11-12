@@ -53,6 +53,7 @@
       "procurement": "Procurement",
       "events": "Project Management",
       "training": "Training",
+      "ember": "Team Chat",
       "administration": "Administration"
     },
     "groups": {
@@ -112,6 +113,23 @@
     "eventsCalendar": "Calendar",
     "eventsTasks": "My event tasks",
     "eventsReports": "Reports",
+    "ember": "Team Chat",
+    "emberWorkspace": "Workspace",
+    "emberRooms": "Rooms",
+    "emberNewRoom": "New room",
+    "emberDms": "Direct messages",
+    "emberActivity": "Activity",
+    "emberSearch": "Search",
+    "emberFiles": "Files",
+    "emberProfile": "Profile",
+    "emberPush": "Push",
+    "emberBots": "Bots & webhooks",
+    "emberAgents": "AI agents",
+    "emberSettings": "Settings",
+    "emberStyles": "Custom CSS",
+    "emberSectionChat": "Chat",
+    "emberSectionFind": "Find",
+    "emberSectionAdmin": "Admin",
     "forecasts": "Forecasts",
     "decisions": "Decisions",
     "leaderboard": "Leaderboard",
@@ -1328,6 +1346,7 @@
     "typingNamed": "{{name}} is typing…",
     "typingMany": "{{names}} are typing…",
     "reply": "Reply",
+    "replyInThread": "Reply in thread",
     "replyingTo": "Replying to {{name}}",
     "cancelReply": "Cancel reply",
     "addReaction": "Add reaction",
@@ -14588,6 +14607,150 @@
       "trainingHours": "Training hours",
       "upcomingSessions": "Upcoming sessions",
       "complianceGaps": "Compliance gaps"
+    }
+  },
+  "emberNav": {
+    "label": "Team Chat sections",
+    "workspace": "Workspace",
+    "rooms": "Rooms",
+    "newRoom": "New room",
+    "dms": "DMs",
+    "activity": "Activity",
+    "search": "Search",
+    "files": "Files",
+    "bots": "Bots",
+    "agents": "Agents",
+    "profile": "Profile",
+    "push": "Push",
+    "settings": "Settings",
+    "styles": "Styles"
+  },
+  "ember": {
+    "kicker": "Team Chat",
+    "noAccess": "You do not have access to Team Chat.",
+    "shell": {
+      "railLabel": "Team Chat navigation",
+      "railHome": "Home",
+      "railDms": "Direct messages",
+      "railActivity": "Activity",
+      "railSearch": "Search",
+      "railAdmin": "Admin",
+      "railProfile": "Profile",
+      "workspaceName": "FEC Team Chat",
+      "workspaceTagline": "Rooms, DMs, bots — on Vercel",
+      "channels": "Channels",
+      "directMessages": "Direct messages",
+      "newRoom": "New room",
+      "newDm": "New DM",
+      "emptyList": "No conversations yet.",
+      "emptyHeading": "Pick a channel or DM",
+      "emptyBody": "Your Team Chat workspace mirrors Ember’s layout on FEC data.",
+      "threadTitle": "Thread {{channel}}",
+      "threadCount": "{{count}} replies",
+      "threadLoading": "Loading thread…"
+    },
+    "filesNativeHint": "Search shared chat files in Supabase storage. Pick a file type filter to narrow results.",
+    "settingsNativeHint": "Notification and push settings for FEC Chat Hub (same data as Communication Hub).",
+    "pushNativeHint": "Register this browser for FEC chat web push.",
+    "profileNativeHint": "Your FEC staff profile is the source of truth. Push for Team Chat is below.",
+    "openFecProfile": "Open FEC profile",
+    "botsManageHint": "Create Slack-compatible incoming webhooks that post into FEC rooms (Vercel API + Supabase).",
+    "botName": "Bot name",
+    "botRoom": "Default room",
+    "botRoomPick": "Select a room",
+    "createBot": "Create bot",
+    "botsCreated": "Bot created — copy the webhook URL now.",
+    "botTokenOnce": "Webhook URL (shown once — copy it)",
+    "botEnabled": "Enabled",
+    "botDisabled": "Disabled",
+    "enableBot": "Enable",
+    "disableBot": "Disable",
+    "rotateToken": "Rotate token",
+    "assignRoom": "Assign selected room",
+    "deleteBot": "Delete",
+    "botRoomsSaved": "Room assignment saved.",
+    "botError": "Bot action failed.",
+    "agentsManageHint": "Mention @agent in a room to get an automatic reply. Full model routing uses Admin AI integrations.",
+    "agentMention": "Mention key",
+    "agentName": "Display name",
+    "agentInstructions": "Instructions",
+    "createAgent": "Create agent",
+    "agentCreated": "Agent created.",
+    "agentNoInstructions": "No instructions yet.",
+    "enableAgent": "Enable",
+    "disableAgent": "Disable",
+    "deleteAgent": "Delete",
+    "agentError": "Agent action failed.",
+    "agentsNativeBody": "Optional: configure FEC AI providers for richer agent replies.",
+    "openAiIntegrations": "Open AI integrations",
+    "stylesNativeTitle": "Look and feel",
+    "stylesNativeBody": "Team Chat uses the FEC design system. There is no separate Ember custom-CSS Worker on Vercel.",
+    "tabs": {
+      "workspace": {
+        "title": "Workspace",
+        "subtitle": "All rooms and DMs on FEC Chat Hub.",
+        "body": "Native messaging on Vercel + Supabase — rooms, threads, reactions, files, LiveKit."
+      },
+      "rooms": {
+        "title": "Rooms",
+        "subtitle": "Groups, sites, departments, and private rooms.",
+        "body": "Non-DM conversations. Use Reply in thread for Slack-style side threads."
+      },
+      "newRoom": {
+        "title": "New room",
+        "subtitle": "Create a group conversation.",
+        "body": "Opens the create-group dialog on the rooms list."
+      },
+      "dms": {
+        "title": "Direct messages",
+        "subtitle": "One-to-one chats.",
+        "body": "DM list with compose. Mentions, reactions, and files use Chat Hub."
+      },
+      "activity": {
+        "title": "Activity",
+        "subtitle": "Unread conversations only.",
+        "body": "Same as Ember Activity — rooms and DMs with unread messages."
+      },
+      "search": {
+        "title": "Search",
+        "subtitle": "Find messages, people, and files.",
+        "body": "Opens Chat Hub search over your conversations."
+      },
+      "files": {
+        "title": "Files",
+        "subtitle": "Attachments in chat storage.",
+        "body": "Search files uploaded to FEC chat (Supabase Storage)."
+      },
+      "bots": {
+        "title": "Bots & webhooks",
+        "subtitle": "Slack-compatible incoming webhooks on Vercel.",
+        "body": "Create bots and POST {\"text\":\"...\"} to the webhook URL."
+      },
+      "agents": {
+        "title": "AI agents",
+        "subtitle": "Mentionable agents in rooms.",
+        "body": "Create @agents that auto-reply when mentioned."
+      },
+      "profile": {
+        "title": "Profile",
+        "subtitle": "FEC account and push.",
+        "body": "Profile and device notifications for Team Chat."
+      },
+      "push": {
+        "title": "Push",
+        "subtitle": "Browser push for chat.",
+        "body": "Manage this device’s chat push subscription."
+      },
+      "settings": {
+        "title": "Settings",
+        "subtitle": "Notifications and push.",
+        "body": "Global chat notification preferences plus device push."
+      },
+      "styles": {
+        "title": "Styles",
+        "subtitle": "FEC design system.",
+        "body": "No separate chat theme Worker — Team Chat matches FEC."
+      }
     }
   }
 }

@@ -2,6 +2,7 @@
 @source "../src";
 @source "../app";
 @import "tw-animate-css";
+@import "./styles/ember-shell.css";
 
 @custom-variant dark (&:is(.dark *));
 
