@@ -104,8 +104,8 @@ export function CallCenterShell({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="cc-shell -mx-1 flex min-h-[calc(100dvh-7.5rem)] gap-0 overflow-hidden rounded-2xl border border-border/50 bg-[color-mix(in_oklab,var(--background)_92%,#0f172a_8%)] sm:-mx-0">
-      <aside className="cc-shell__rail hidden border-e border-border/40 bg-[color-mix(in_oklab,var(--card)_88%,#0b1220_12%)] px-1.5 py-3 sm:flex">
+    <div className="cc-shell -mx-1 flex min-h-[calc(100dvh-7.5rem)] gap-0 overflow-hidden rounded-2xl border border-border/50 bg-background sm:-mx-0">
+      <aside className="cc-shell__rail hidden border-e border-border/40 bg-[var(--surface-2)] px-1.5 py-3 sm:flex">
         <div className="flex w-full flex-col">
           <div className="mb-3 flex flex-col items-center gap-1 px-1">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground text-background">
