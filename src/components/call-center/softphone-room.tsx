@@ -1,12 +1,17 @@
 "use client";
 
-import { ConnectionState, Room, RoomEvent } from "livekit-client";
+import { ConnectionState, Room, RoomEvent, Track } from "livekit-client";
 import { ArrowRightLeft, Grid3X3, Mic, MicOff, Pause, PhoneOff, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  ensureRemoteAudioPlays,
+  stopSoftphoneRingtone,
+  unlockSoftphoneAudio,
+} from "@/lib/call-center/softphone-audio";
 
 function isLiveKitAccessToken(value: string): boolean {
   const parts = value.split(".");
@@ -43,33 +48,49 @@ export function CallCenterSoftphoneRoom({
   const [transferTarget, setTransferTarget] = useState("");
 
   useEffect(() => {
+    stopSoftphoneRingtone();
+    void unlockSoftphoneAudio();
+  }, []);
+
+  useEffect(() => {
     if (!isLiveKitAccessToken(token) || !serverUrl.startsWith("wss://")) return;
-    const room = new Room();
+    const room = new Room({
+      // Prefer speaker output when the browser supports it.
+      audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+    });
     roomRef.current = room;
     const attached = new Set<HTMLMediaElement>();
     let cancelled = false;
 
-    const mountTrack = (track: { kind: string; attach: () => HTMLMediaElement }) => {
-      if (track.kind !== "audio") return;
+    const mountRemoteAudio = (track: Track) => {
+      if (track.kind !== Track.Kind.Audio) return;
       const element = track.attach();
       element.className = "sr-only";
       attached.add(element);
       audioRef.current?.appendChild(element);
+      void ensureRemoteAudioPlays(element);
+    };
+
+    const attachExistingRemotes = () => {
+      room.remoteParticipants.forEach((participant) => {
+        participant.audioTrackPublications.forEach((publication) => {
+          if (publication.track) mountRemoteAudio(publication.track);
+        });
+      });
     };
 
     const refresh = () => setConnection(room.state);
 
     room.on(RoomEvent.ConnectionStateChanged, refresh);
-    room.on(RoomEvent.TrackSubscribed, (track) => mountTrack(track));
-    room.on(RoomEvent.LocalTrackPublished, (publication) => {
-      if (publication.track) mountTrack(publication.track);
-    });
+    room.on(RoomEvent.TrackSubscribed, (track) => mountRemoteAudio(track));
     room.on(RoomEvent.Disconnected, refresh);
 
     void (async () => {
       try {
+        await unlockSoftphoneAudio();
         await room.connect(serverUrl, token);
         if (cancelled) return;
+        attachExistingRemotes();
         await room.localParticipant.setMicrophoneEnabled(true);
         if (!cancelled) refresh();
       } catch {
@@ -82,7 +103,10 @@ export function CallCenterSoftphoneRoom({
 
     return () => {
       cancelled = true;
-      for (const element of attached) element.remove();
+      for (const element of attached) {
+        element.pause();
+        element.remove();
+      }
       attached.clear();
       room.localParticipant.trackPublications.forEach((publication) => {
         publication.track?.stop();

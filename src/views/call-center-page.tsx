@@ -32,6 +32,10 @@ import {
   testCallCenterRing,
   transferCallCenterCall,
 } from "@/lib/call-center/call-center.functions";
+import {
+  stopSoftphoneRingtone,
+  unlockSoftphoneAudio,
+} from "@/lib/call-center/softphone-audio";
 import type {
   CallCenterAgentStatusValue,
   CallCenterCall,
@@ -85,6 +89,7 @@ function CallCenterPage() {
   const incoming = ringingQuery.data?.[0] ?? workspace.data?.ringing[0] ?? null;
 
   async function changeStatus(status: CallCenterAgentStatusValue) {
+    await unlockSoftphoneAudio();
     setPending(true);
     const result = await setCallCenterAgentStatus({ status });
     setPending(false);
@@ -97,6 +102,7 @@ function CallCenterPage() {
   }
 
   async function onTestRing() {
+    await unlockSoftphoneAudio();
     setPending(true);
     const result = await testCallCenterRing({});
     setPending(false);
@@ -109,6 +115,8 @@ function CallCenterPage() {
   }
 
   async function onDial() {
+    stopSoftphoneRingtone();
+    await unlockSoftphoneAudio();
     setPending(true);
     const result = await placeCallCenterOutbound({
       toE164: dialDigits,
@@ -122,12 +130,17 @@ function CallCenterPage() {
     setActiveCall(result.data.call);
     setMedia(result.data.media);
     setHeld(false);
+    if (!result.data.media.token || !result.data.media.serverUrl.startsWith("wss://")) {
+      toast.message(t("callCenter.mediaNotConfigured"));
+    }
     await queryClient.invalidateQueries({ queryKey: ["call-center"] });
     toast.success(t("callCenter.outboundStarted"));
   }
 
   async function onAnswer() {
     if (!incoming) return;
+    stopSoftphoneRingtone();
+    await unlockSoftphoneAudio();
     setPending(true);
     const result = await answerCallCenterCall({ callId: incoming.id });
     setPending(false);
@@ -138,11 +151,15 @@ function CallCenterPage() {
     setActiveCall(result.data.call);
     setMedia(result.data.media);
     setHeld(false);
+    if (!result.data.media.token || !result.data.media.serverUrl.startsWith("wss://")) {
+      toast.error(t("callCenter.mediaNotConfigured"));
+    }
     await queryClient.invalidateQueries({ queryKey: ["call-center"] });
   }
 
   async function onDecline() {
     if (!incoming) return;
+    stopSoftphoneRingtone();
     setPending(true);
     const result = await declineCallCenterCall({ callId: incoming.id });
     setPending(false);
@@ -155,6 +172,7 @@ function CallCenterPage() {
 
   async function onHangup() {
     if (!activeCall) return;
+    stopSoftphoneRingtone();
     setPending(true);
     const result = await hangupCallCenterCall({ callId: activeCall.id });
     setPending(false);

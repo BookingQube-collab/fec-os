@@ -76,10 +76,17 @@ Do not put Telnyx/LiveKit secrets in `NEXT_PUBLIC_*`.
 1. Apply both call_center migrations.
 2. Ensure LiveKit is configured (Admin → Chat calls) **or** skip media and still exercise ring / outbound CDR UI.
 3. Open `/call-center/queues`, add yourself as a queue member (your auth user id). CEO/COO admin required for edits.
-4. Open `/call-center`, set status to **Available**, click **Test ring**.
-5. Answer / decline / hangup; check `/call-center/calls` and `/call-center/live`.
-6. Use the outbound keypad to place a manual outbound CDR.
-7. Edit IVR / Numbers / Settings as admin; open Analytics for today’s cards.
+4. Open `/call-center`, set status to **Available**, click **Test ring** (this also unlocks browser audio).
+5. You should hear a **looping ringtone** while the incoming popup is visible. Answer / Decline stops it.
+6. Answer / decline / hangup; check `/call-center/calls` and `/call-center/live`.
+7. Use the outbound keypad to place a manual outbound CDR (LiveKit remote audio when Chat calls is configured).
+8. Edit IVR / Numbers / Settings as admin; open Analytics for today’s cards.
+
+### Softphone audio notes
+
+- Ringtone is Web Audio (dual-tone), unlocked on first pointer/key gesture under `/call-center` and on Test ring / status / Answer.
+- If the browser blocked autoplay, the popup shows **Tap to enable ringtone**.
+- Answered call voice requires LiveKit (`Admin → Chat calls`). Without it, ringtone still works; in-call UI shows media-not-configured.
 
 Webhook demo without a secret (non-production or `?demo=1`):
 
