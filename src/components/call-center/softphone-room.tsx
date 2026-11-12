@@ -1,11 +1,12 @@
 "use client";
 
 import { ConnectionState, Room, RoomEvent } from "livekit-client";
-import { Grid3X3, Mic, MicOff, Pause, PhoneOff, Play } from "lucide-react";
+import { ArrowRightLeft, Grid3X3, Mic, MicOff, Pause, PhoneOff, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 function isLiveKitAccessToken(value: string): boolean {
   const parts = value.split(".");
@@ -21,6 +22,7 @@ export function CallCenterSoftphoneRoom({
   onHangup,
   onHoldToggle,
   onDtmf,
+  onTransfer,
 }: {
   token: string;
   serverUrl: string;
@@ -28,6 +30,7 @@ export function CallCenterSoftphoneRoom({
   onHangup: () => void;
   onHoldToggle: () => void;
   onDtmf: (digit: string) => void;
+  onTransfer?: (type: "cold" | "warm", target: string) => void;
 }) {
   const { t } = useTranslation();
   const audioRef = useRef<HTMLDivElement>(null);
@@ -36,6 +39,8 @@ export function CallCenterSoftphoneRoom({
   const [failed, setFailed] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [showPad, setShowPad] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferTarget, setTransferTarget] = useState("");
 
   useEffect(() => {
     if (!isLiveKitAccessToken(token) || !serverUrl.startsWith("wss://")) return;
@@ -152,6 +157,17 @@ export function CallCenterSoftphoneRoom({
         >
           <Grid3X3 aria-hidden />
         </Button>
+        {onTransfer ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 px-3"
+            onClick={() => setShowTransfer((v) => !v)}
+          >
+            <ArrowRightLeft className="me-1.5 h-4 w-4" aria-hidden />
+            {t("callCenter.transfer")}
+          </Button>
+        ) : null}
         <Button type="button" variant="destructive" className="min-h-11 px-3" onClick={onHangup}>
           <PhoneOff className="me-1.5 h-4 w-4" aria-hidden />
           {t("callCenter.hangup")}
@@ -170,6 +186,34 @@ export function CallCenterSoftphoneRoom({
               {digit}
             </Button>
           ))}
+        </div>
+      ) : null}
+      {showTransfer && onTransfer ? (
+        <div className="mt-4 space-y-2 rounded-xl border border-border/60 p-3">
+          <p className="text-xs text-muted-foreground">{t("callCenter.transferHint")}</p>
+          <Input
+            value={transferTarget}
+            onChange={(e) => setTransferTarget(e.target.value)}
+            placeholder={t("callCenter.transferTarget")}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!transferTarget.trim()}
+              onClick={() => onTransfer("warm", transferTarget.trim())}
+            >
+              {t("callCenter.warmTransfer")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!transferTarget.trim()}
+              onClick={() => onTransfer("cold", transferTarget.trim())}
+            >
+              {t("callCenter.coldTransfer")}
+            </Button>
+          </div>
         </div>
       ) : null}
     </section>

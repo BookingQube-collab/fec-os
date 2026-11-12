@@ -6,9 +6,16 @@ import {
   CALL_CENTER_SETTINGS_ID,
   type CallCenterAgentStatus,
   type CallCenterAgentStatusValue,
+  type CallCenterAnalyticsSummary,
   type CallCenterCall,
   type CallCenterCallStatus,
+  type CallCenterCampaign,
+  type CallCenterCampaignContact,
+  type CallCenterCampaignStatus,
+  type CallCenterCdrFilters,
+  type CallCenterContactStatus,
   type CallCenterDid,
+  type CallCenterHoliday,
   type CallCenterIvrMenu,
   type CallCenterIvrOption,
   type CallCenterProvider,
@@ -17,6 +24,7 @@ import {
   type CallCenterQueueStrategy,
   type CallCenterSettingsRow,
   type CallCenterIvrAction,
+  type CallCenterWebhookEndpoint,
 } from "./types";
 
 type DbError = { message: string } | null;
@@ -30,6 +38,8 @@ type FilterBuilder<T> = {
   in: (column: string, values: unknown[]) => FilterBuilder<T>;
   is: (column: string, value: null) => FilterBuilder<T>;
   neq: (column: string, value: unknown) => FilterBuilder<T>;
+  gte: (column: string, value: unknown) => FilterBuilder<T>;
+  lte: (column: string, value: unknown) => FilterBuilder<T>;
   order: (column: string, options?: { ascending?: boolean }) => FilterBuilder<T>;
   limit: (count: number) => FilterBuilder<T>;
   select: (columns?: string) => FilterBuilder<T>;
@@ -151,11 +161,68 @@ export function mapCall(row: Record<string, unknown>): CallCenterCall {
     offeredAt: row.offered_at ? String(row.offered_at) : null,
     answeredAt: row.answered_at ? String(row.answered_at) : null,
     endedAt: row.ended_at ? String(row.ended_at) : null,
+    recordingUrl: String(row.recording_url ?? ""),
+    transferType: (row.transfer_type as CallCenterCall["transferType"]) ?? null,
+    transferTarget: String(row.transfer_target ?? ""),
+    transferredAt: row.transferred_at ? String(row.transferred_at) : null,
+    campaignId: row.campaign_id ? String(row.campaign_id) : null,
+    talkSeconds: row.talk_seconds != null ? Number(row.talk_seconds) : null,
+  };
+}
+
+function mapHoliday(row: Record<string, unknown>): CallCenterHoliday {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    holidayDate: String(row.holiday_date ?? ""),
+    isClosed: Boolean(row.is_closed ?? true),
+    notes: String(row.notes ?? ""),
+  };
+}
+
+function mapCampaign(row: Record<string, unknown>): CallCenterCampaign {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    status: (row.status as CallCenterCampaignStatus) || "draft",
+    callerIdE164: String(row.caller_id_e164 ?? ""),
+    queueId: row.queue_id ? String(row.queue_id) : null,
+    eventId: row.event_id ? String(row.event_id) : null,
+    scriptText: String(row.script_text ?? ""),
+    scheduledStart: row.scheduled_start ? String(row.scheduled_start) : null,
+    scheduledEnd: row.scheduled_end ? String(row.scheduled_end) : null,
+    isActive: Boolean(row.is_active ?? true),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapCampaignContact(row: Record<string, unknown>): CallCenterCampaignContact {
+  return {
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    e164: String(row.e164 ?? ""),
+    displayName: String(row.display_name ?? ""),
+    status: (row.status as CallCenterContactStatus) || "pending",
+    lastAttemptAt: row.last_attempt_at ? String(row.last_attempt_at) : null,
+    attemptCount: Number(row.attempt_count ?? 0),
+    notes: String(row.notes ?? ""),
+  };
+}
+
+function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndpoint {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    url: String(row.url ?? ""),
+    events: Array.isArray(row.events) ? row.events.map(String) : ["call.ended"],
+    isActive: Boolean(row.is_active ?? true),
+    secretHint: String(row.secret_hint ?? ""),
   };
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, outbound_caller_id_e164, webhook_outbound_url";
 
 export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   const result = await table<Record<string, unknown>>("call_center_settings")
@@ -183,6 +250,11 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     livekit_sip_dispatch_rule_id: String(row.livekit_sip_dispatch_rule_id ?? ""),
     webhook_shared_secret: String(row.webhook_shared_secret ?? ""),
     notes: String(row.notes ?? ""),
+    ai_first_answer_enabled: Boolean(row.ai_first_answer_enabled),
+    ai_handoff_enabled: row.ai_handoff_enabled !== false,
+    ai_notes: String(row.ai_notes ?? ""),
+    outbound_caller_id_e164: String(row.outbound_caller_id_e164 ?? ""),
+    webhook_outbound_url: String(row.webhook_outbound_url ?? ""),
   };
 }
 
@@ -208,6 +280,11 @@ export async function saveSettingsRow(
         livekit_sip_dispatch_rule_id: row.livekit_sip_dispatch_rule_id,
         webhook_shared_secret: row.webhook_shared_secret,
         notes: row.notes,
+        ai_first_answer_enabled: row.ai_first_answer_enabled,
+        ai_handoff_enabled: row.ai_handoff_enabled,
+        ai_notes: row.ai_notes,
+        outbound_caller_id_e164: row.outbound_caller_id_e164,
+        webhook_outbound_url: row.webhook_outbound_url,
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -523,6 +600,8 @@ export async function createCall(input: {
   provider: CallCenterProvider;
   providerCallId?: string;
   offeredAt?: string | null;
+  answeredAt?: string | null;
+  campaignId?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<CallCenterCall> {
   const now = new Date().toISOString();
@@ -542,6 +621,8 @@ export async function createCall(input: {
       provider: input.provider,
       provider_call_id: input.providerCallId ?? "",
       offered_at: input.offeredAt ?? null,
+      answered_at: input.answeredAt ?? null,
+      campaign_id: input.campaignId ?? null,
       metadata: input.metadata ?? {},
       started_at: now,
       updated_at: now,
@@ -567,6 +648,12 @@ export async function updateCall(
     answeredAt: string | null;
     endedAt: string | null;
     metadata: Record<string, unknown>;
+    recordingUrl: string;
+    transferType: "cold" | "warm" | null;
+    transferTarget: string;
+    transferredAt: string | null;
+    campaignId: string | null;
+    talkSeconds: number | null;
   }>,
 ): Promise<CallCenterCall> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -581,6 +668,12 @@ export async function updateCall(
   if (patch.answeredAt !== undefined) payload.answered_at = patch.answeredAt;
   if (patch.endedAt !== undefined) payload.ended_at = patch.endedAt;
   if (patch.metadata !== undefined) payload.metadata = patch.metadata;
+  if (patch.recordingUrl !== undefined) payload.recording_url = patch.recordingUrl;
+  if (patch.transferType !== undefined) payload.transfer_type = patch.transferType;
+  if (patch.transferTarget !== undefined) payload.transfer_target = patch.transferTarget;
+  if (patch.transferredAt !== undefined) payload.transferred_at = patch.transferredAt;
+  if (patch.campaignId !== undefined) payload.campaign_id = patch.campaignId;
+  if (patch.talkSeconds !== undefined) payload.talk_seconds = patch.talkSeconds;
 
   const result = await table<Record<string, unknown>>("call_center_calls")
     .update(payload)
@@ -640,6 +733,283 @@ export async function listRingingCallsForAgent(userId: string): Promise<CallCent
     byId.set(call.id, call);
   }
   return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+
+export async function listAgentStatuses(): Promise<CallCenterAgentStatus[]> {
+  const result = (await table<Record<string, unknown>>("call_center_agent_status")
+    .select("*")
+    .order("updated_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapAgentStatus);
+}
+
+export async function listActiveCalls(): Promise<CallCenterCall[]> {
+  const result = (await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .in("status", ["ringing", "queued", "ivr", "offered", "answered", "held"])
+    .order("started_at", { ascending: false })
+    .limit(100)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapCall);
+}
+
+export async function listCallsFiltered(filters: CallCenterCdrFilters = {}): Promise<CallCenterCall[]> {
+  let query = table<Record<string, unknown>>("call_center_calls").select("*");
+  if (filters.fromDate) query = query.gte("started_at", filters.fromDate);
+  if (filters.toDate) query = query.lte("started_at", filters.toDate);
+  if (filters.agentUserId) query = query.eq("agent_user_id", filters.agentUserId);
+  if (filters.queueId) query = query.eq("queue_id", filters.queueId);
+  if (filters.eventId) query = query.eq("event_id", filters.eventId);
+  if (filters.direction) query = query.eq("direction", filters.direction);
+  if (filters.status) query = query.eq("status", filters.status);
+  const result = (await query
+    .order("started_at", { ascending: false })
+    .limit(filters.limit ?? 100)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapCall);
+}
+
+export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary> {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const fromIso = startOfDay.toISOString();
+  const [todayCalls, agents, active] = await Promise.all([
+    listCallsFiltered({ fromDate: fromIso, limit: 500 }),
+    listAgentStatuses(),
+    listActiveCalls(),
+  ]);
+  const answeredToday = todayCalls.filter(
+    (c) => c.answeredAt || c.status === "answered" || c.status === "ended",
+  ).length;
+  const missedToday = todayCalls.filter((c) =>
+    ["missed", "declined", "failed"].includes(c.status),
+  ).length;
+  const handled = todayCalls.filter((c) => c.answeredAt && c.endedAt);
+  let avgHandleSeconds = 0;
+  if (handled.length > 0) {
+    const total = handled.reduce((sum, call) => {
+      if (call.talkSeconds != null) return sum + call.talkSeconds;
+      const start = new Date(call.answeredAt!).getTime();
+      const end = new Date(call.endedAt!).getTime();
+      return sum + Math.max(0, Math.round((end - start) / 1000));
+    }, 0);
+    avgHandleSeconds = Math.round(total / handled.length);
+  }
+  return {
+    callsToday: todayCalls.length,
+    answeredToday,
+    missedToday,
+    answerRate: todayCalls.length === 0 ? 0 : Math.round((answeredToday / todayCalls.length) * 100),
+    avgHandleSeconds,
+    agentsAvailable: agents.filter((a) => a.status === "available").length,
+    agentsBusy: agents.filter((a) => a.status === "busy").length,
+    agentsAway: agents.filter((a) => a.status === "away" || a.status === "acw").length,
+    agentsOffline: agents.filter((a) => a.status === "offline").length,
+    activeCalls: active.length,
+  };
+}
+
+export async function listHolidays(): Promise<CallCenterHoliday[]> {
+  const result = (await table<Record<string, unknown>>("call_center_holidays")
+    .select("*")
+    .order("holiday_date", { ascending: true })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapHoliday);
+}
+
+export async function upsertHoliday(input: {
+  id?: string;
+  name: string;
+  holidayDate: string;
+  isClosed: boolean;
+  notes: string;
+}): Promise<CallCenterHoliday> {
+  const payload: Record<string, unknown> = {
+    name: input.name,
+    holiday_date: input.holidayDate,
+    is_closed: input.isClosed,
+    notes: input.notes,
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_holidays")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Holiday could not be saved.");
+    return mapHoliday(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_holidays")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Holiday could not be saved.");
+  return mapHoliday(result.data);
+}
+
+export async function deleteHoliday(id: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_holidays").delete().eq("id", id);
+  throwIfError((await result).error);
+}
+
+export async function listCampaigns(): Promise<CallCenterCampaign[]> {
+  const result = (await table<Record<string, unknown>>("call_center_campaigns")
+    .select("*")
+    .order("updated_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapCampaign);
+}
+
+export async function upsertCampaign(input: {
+  id?: string;
+  name: string;
+  status: CallCenterCampaignStatus;
+  callerIdE164: string;
+  queueId: string | null;
+  eventId: string | null;
+  scriptText: string;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  isActive: boolean;
+}): Promise<CallCenterCampaign> {
+  const payload: Record<string, unknown> = {
+    name: input.name,
+    status: input.status,
+    caller_id_e164: normalizeE164(input.callerIdE164) || input.callerIdE164,
+    queue_id: input.queueId,
+    event_id: input.eventId,
+    script_text: input.scriptText,
+    scheduled_start: input.scheduledStart,
+    scheduled_end: input.scheduledEnd,
+    is_active: input.isActive,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_campaigns")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Campaign could not be saved.");
+    return mapCampaign(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_campaigns")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Campaign could not be saved.");
+  return mapCampaign(result.data);
+}
+
+export async function deleteCampaign(id: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_campaigns").delete().eq("id", id);
+  throwIfError((await result).error);
+}
+
+export async function listCampaignContacts(campaignId: string): Promise<CallCenterCampaignContact[]> {
+  const result = (await table<Record<string, unknown>>("call_center_campaign_contacts")
+    .select("*")
+    .eq("campaign_id", campaignId)
+    .order("created_at", { ascending: true })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapCampaignContact);
+}
+
+export async function upsertCampaignContact(input: {
+  id?: string;
+  campaignId: string;
+  e164: string;
+  displayName: string;
+  status?: CallCenterContactStatus;
+  notes?: string;
+}): Promise<CallCenterCampaignContact> {
+  const payload: Record<string, unknown> = {
+    campaign_id: input.campaignId,
+    e164: normalizeE164(input.e164),
+    display_name: input.displayName,
+    status: input.status ?? "pending",
+    notes: input.notes ?? "",
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_campaign_contacts")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Contact could not be saved.");
+    return mapCampaignContact(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_campaign_contacts")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Contact could not be saved.");
+  return mapCampaignContact(result.data);
+}
+
+export async function deleteCampaignContact(id: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_campaign_contacts")
+    .delete()
+    .eq("id", id);
+  throwIfError((await result).error);
+}
+
+export async function listWebhookEndpoints(): Promise<CallCenterWebhookEndpoint[]> {
+  const result = (await table<Record<string, unknown>>("call_center_webhook_endpoints")
+    .select("*")
+    .order("created_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapWebhookEndpoint);
+}
+
+export async function upsertWebhookEndpoint(input: {
+  id?: string;
+  name: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  secretHint: string;
+}): Promise<CallCenterWebhookEndpoint> {
+  const payload: Record<string, unknown> = {
+    name: input.name,
+    url: input.url,
+    events: input.events,
+    is_active: input.isActive,
+    secret_hint: input.secretHint,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_webhook_endpoints")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Webhook could not be saved.");
+    return mapWebhookEndpoint(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_webhook_endpoints")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Webhook could not be saved.");
+  return mapWebhookEndpoint(result.data);
+}
+
+export async function deleteWebhookEndpoint(id: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_webhook_endpoints")
+    .delete()
+    .eq("id", id);
+  throwIfError((await result).error);
 }
 
 export function normalizeE164(value: string): string {

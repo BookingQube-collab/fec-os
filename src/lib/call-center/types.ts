@@ -29,6 +29,26 @@ export type CallCenterCallStatus = (typeof CALL_CENTER_CALL_STATUSES)[number];
 export const CALL_CENTER_PROVIDERS = ["none", "telnyx", "livekit_sip", "test"] as const;
 export type CallCenterProvider = (typeof CALL_CENTER_PROVIDERS)[number];
 
+export const CALL_CENTER_CAMPAIGN_STATUSES = [
+  "draft",
+  "active",
+  "paused",
+  "completed",
+  "cancelled",
+] as const;
+export type CallCenterCampaignStatus = (typeof CALL_CENTER_CAMPAIGN_STATUSES)[number];
+
+export const CALL_CENTER_CONTACT_STATUSES = [
+  "pending",
+  "dialing",
+  "answered",
+  "no_answer",
+  "failed",
+  "skipped",
+  "completed",
+] as const;
+export type CallCenterContactStatus = (typeof CALL_CENTER_CONTACT_STATUSES)[number];
+
 export type CallCenterSettingsRow = {
   enabled: boolean;
   ivr_enabled: boolean;
@@ -44,6 +64,11 @@ export type CallCenterSettingsRow = {
   livekit_sip_dispatch_rule_id: string;
   webhook_shared_secret: string;
   notes: string;
+  ai_first_answer_enabled: boolean;
+  ai_handoff_enabled: boolean;
+  ai_notes: string;
+  outbound_caller_id_e164: string;
+  webhook_outbound_url: string;
 };
 
 export type CallCenterSettingsPublic = {
@@ -64,6 +89,11 @@ export type CallCenterSettingsPublic = {
   notes: string;
   sipConfigured: boolean;
   livekitReady: boolean;
+  aiFirstAnswerEnabled: boolean;
+  aiHandoffEnabled: boolean;
+  aiNotes: string;
+  outboundCallerIdE164: string;
+  webhookOutboundUrl: string;
 };
 
 export type CallCenterQueue = {
@@ -144,6 +174,75 @@ export type CallCenterCall = {
   offeredAt: string | null;
   answeredAt: string | null;
   endedAt: string | null;
+  recordingUrl: string;
+  transferType: "cold" | "warm" | null;
+  transferTarget: string;
+  transferredAt: string | null;
+  campaignId: string | null;
+  talkSeconds: number | null;
+};
+
+export type CallCenterHoliday = {
+  id: string;
+  name: string;
+  holidayDate: string;
+  isClosed: boolean;
+  notes: string;
+};
+
+export type CallCenterCampaign = {
+  id: string;
+  name: string;
+  status: CallCenterCampaignStatus;
+  callerIdE164: string;
+  queueId: string | null;
+  eventId: string | null;
+  scriptText: string;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterCampaignContact = {
+  id: string;
+  campaignId: string;
+  e164: string;
+  displayName: string;
+  status: CallCenterContactStatus;
+  lastAttemptAt: string | null;
+  attemptCount: number;
+  notes: string;
+};
+
+export type CallCenterWebhookEndpoint = {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  secretHint: string;
+};
+
+export type CallCenterAnalyticsSummary = {
+  callsToday: number;
+  answeredToday: number;
+  missedToday: number;
+  answerRate: number;
+  avgHandleSeconds: number;
+  agentsAvailable: number;
+  agentsBusy: number;
+  agentsAway: number;
+  agentsOffline: number;
+  activeCalls: number;
+};
+
+export type CallCenterWallboard = {
+  agents: CallCenterAgentStatus[];
+  activeCalls: CallCenterCall[];
+  queues: CallCenterQueue[];
+  members: CallCenterQueueMember[];
 };
 
 export type CallCenterMediaSession = {
@@ -159,4 +258,15 @@ export type InboundRouteResult = {
   offeredUserIds: string[];
   phase: "ivr" | "queue" | "ended";
   message: string;
+};
+
+export type CallCenterCdrFilters = {
+  fromDate?: string | null;
+  toDate?: string | null;
+  agentUserId?: string | null;
+  queueId?: string | null;
+  eventId?: string | null;
+  direction?: "inbound" | "outbound" | "internal_test" | null;
+  status?: CallCenterCallStatus | null;
+  limit?: number;
 };

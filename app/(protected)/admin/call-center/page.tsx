@@ -1,3 +1,5 @@
-import { lazyView } from "@/lib/lazy-view";
+import { redirect } from "next/navigation";
 
-export default lazyView(() => import("@/views/admin-call-center-page"), "dashboard");
+export default function AdminCallCenterRedirect() {
+  redirect("/call-center/settings");
+}

@@ -364,17 +364,102 @@ export async function hangupCall(callId: string, agentUserId: string): Promise<C
   if (existing.agentUserId && existing.agentUserId !== agentUserId) {
     throw new Error("Call belongs to another agent.");
   }
+  const now = new Date().toISOString();
+  let talkSeconds: number | null = null;
+  if (existing.answeredAt) {
+    talkSeconds = Math.max(
+      0,
+      Math.round((new Date(now).getTime() - new Date(existing.answeredAt).getTime()) / 1000),
+    );
+  }
   const call = await updateCall(callId, {
     status: "ended",
     hangupReason: "Agent hangup",
-    endedAt: new Date().toISOString(),
+    endedAt: now,
+    talkSeconds,
   });
   const status = await getAgentStatus(agentUserId);
-  // Move to ACW briefly if they were on a call; admin can tune wrap-up later.
   if (status && status.status === "busy") {
-    await setAgentStatus(agentUserId, "acw", { lastCallAt: new Date().toISOString() });
+    await setAgentStatus(agentUserId, "acw", { lastCallAt: now });
   }
   return call;
+}
+
+export async function placeOutboundCall(input: {
+  agentUserId: string;
+  toE164: string;
+  fromE164?: string;
+  campaignId?: string | null;
+  eventId?: string | null;
+}): Promise<{ call: CallCenterCall; media: CallCenterMediaSession }> {
+  const settings = await loadSettingsRow();
+  const toE164 = normalizeE164(input.toE164);
+  if (!toE164 || toE164.length < 8) throw new Error("Enter a valid E.164 number.");
+  const fromE164 =
+    normalizeE164(input.fromE164 || "") ||
+    normalizeE164(settings?.outbound_caller_id_e164 || "") ||
+    "outbound";
+  const now = new Date().toISOString();
+  const sipLikely = Boolean(
+    settings &&
+      (settings.telnyx_sip_uri.trim() ||
+        settings.telnyx_api_key.trim() ||
+        settings.livekit_sip_trunk_id.trim()),
+  );
+  const call = await createCall({
+    direction: "outbound",
+    status: "answered",
+    fromE164,
+    toE164,
+    agentUserId: input.agentUserId,
+    campaignId: input.campaignId ?? null,
+    eventId: input.eventId ?? null,
+    provider: sipLikely ? "telnyx" : "test",
+    offeredAt: now,
+    answeredAt: now,
+    metadata: { outboundManual: true, sipOutboundPending: true },
+  });
+  const livekitRoom = roomNameForCall(call.id);
+  const updated = await updateCall(call.id, { livekitRoom });
+  await setAgentStatus(input.agentUserId, "busy", { lastCallAt: now });
+  const media = await issueAgentMediaToken({
+    roomName: livekitRoom,
+    userId: input.agentUserId,
+    displayName: "Agent",
+  });
+  return { call: updated, media };
+}
+
+export async function requestTransfer(input: {
+  callId: string;
+  agentUserId: string;
+  type: "cold" | "warm";
+  target: string;
+}): Promise<CallCenterCall> {
+  const { getCall } = await import("./db");
+  const existing = await getCall(input.callId);
+  if (!existing) throw new Error("Call not found.");
+  if (existing.agentUserId !== input.agentUserId) {
+    throw new Error("Call belongs to another agent.");
+  }
+  if (!["answered", "held"].includes(existing.status)) {
+    throw new Error("Call is not active.");
+  }
+  const now = new Date().toISOString();
+  return updateCall(input.callId, {
+    transferType: input.type,
+    transferTarget: input.target.trim(),
+    transferredAt: now,
+    hangupReason:
+      input.type === "cold" ? `cold_transfer:${input.target}` : `warm_transfer:${input.target}`,
+    status: input.type === "cold" ? "ended" : "held",
+    endedAt: input.type === "cold" ? now : null,
+    metadata: {
+      transferPendingSip: true,
+      transferType: input.type,
+      transferTarget: input.target.trim(),
+    },
+  });
 }
 
 export async function holdCall(callId: string, agentUserId: string, held: boolean): Promise<CallCenterCall> {

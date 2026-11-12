@@ -133,7 +133,7 @@ function AdminPage() {
       ) : null}
       {canManage ? (
         <Link
-          href="/admin/call-center"
+          href="/call-center/settings"
           className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs transition-shadow hover:shadow-elevated-sm"
         >
           <div className="flex min-w-0 items-start gap-3">

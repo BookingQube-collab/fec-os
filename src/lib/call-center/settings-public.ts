@@ -37,5 +37,10 @@ export function toPublicSettings(
     notes: row?.notes ?? "",
     sipConfigured: isSipConfigured(row),
     livekitReady,
+    aiFirstAnswerEnabled: Boolean(row?.ai_first_answer_enabled),
+    aiHandoffEnabled: Boolean(row?.ai_handoff_enabled ?? true),
+    aiNotes: row?.ai_notes ?? "",
+    outboundCallerIdE164: row?.outbound_caller_id_e164?.trim() ?? "",
+    webhookOutboundUrl: row?.webhook_outbound_url?.trim() ?? "",
   };
 }
