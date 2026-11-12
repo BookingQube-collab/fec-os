@@ -118,7 +118,7 @@ INSERT INTO public.call_center_whatsapp_conversations (
   id, wa_id, customer_e164, customer_name, status, last_message_at, last_message_preview, unread_count
 )
 VALUES (
-  '00000000-0000-4000-8000-0000000000w1',
+  '00000000-0000-4000-8000-0000000000e1',
   '97455551234',
   '+97455551234',
   'Demo Customer',
@@ -133,8 +133,8 @@ INSERT INTO public.call_center_whatsapp_messages (
   id, conversation_id, direction, body, wa_message_id, status, raw_payload
 )
 SELECT
-  '00000000-0000-4000-8000-0000000000m1',
-  '00000000-0000-4000-8000-0000000000w1',
+  '00000000-0000-4000-8000-0000000000e2',
+  '00000000-0000-4000-8000-0000000000e1',
   'inbound',
   'Hi — I need help with my booking.',
   'wamid.DEMO_INBOUND_1',
@@ -142,7 +142,7 @@ SELECT
   '{"demo": true}'::jsonb
 WHERE NOT EXISTS (
   SELECT 1 FROM public.call_center_whatsapp_messages
-  WHERE id = '00000000-0000-4000-8000-0000000000m1'
+  WHERE id = '00000000-0000-4000-8000-0000000000e2'
 );
 
 COMMIT;

@@ -24,8 +24,8 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | Power dialer / campaigns | `/call-center/campaigns` (manual + list scaffold) |
 | Live / historical dashboards | `/call-center/analytics` |
 | Account settings, hours, BYOC | `/call-center/settings` |
-| AI Agent | `/call-center/ai` (config stub + LiveKit Agents comment) |
-| WhatsApp | `/call-center/whatsapp` (coming / Meta later) |
+| AI Agent | `/call-center/ai` (prompts, model, handoff, test) |
+| WhatsApp | `/call-center/whatsapp` (Meta Cloud API + inbox) |
 | Event-linked routing | DID / IVR option / queue `event_id` |
 
 ## Routes
@@ -41,15 +41,16 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | `/call-center/queues` | Queues + members CRUD |
 | `/call-center/campaigns` | Outbound campaigns + contacts + dial |
 | `/call-center/analytics` | Today metrics (volume, answer rate, AHT, agents) |
-| `/call-center/agents` | Agent performance + internal extensions |
+| `/call-center/agents` | Agent performance, names, extension + Edit profile |
 | `/call-center/contacts` | Shared phonebook / click-to-call |
 | `/call-center/blacklist` | Blocked numbers |
 | `/call-center/settings` | SIP/Telnyx/LiveKit, welcome/hold/TTS stubs, hours, holidays, webhooks |
-| `/call-center/ai` | AI first-answer + handoff flags |
-| `/call-center/whatsapp` | WhatsApp stub |
+| `/call-center/ai` | AI Call Agent setup (prompts EN/AR, model, handoff, test) |
+| `/call-center/whatsapp` | WhatsApp settings + conversation inbox |
 | `/admin/call-center` | Redirects to `/call-center/settings` |
 | `POST /api/public/call-center/telnyx` | Telnyx inbound webhook stub |
 | `POST /api/public/call-center/livekit-sip` | LiveKit SIP dispatch stub |
+| `GET/POST /api/public/call-center/whatsapp` | Meta webhook verify + inbound message log |
 
 ## Migrations
 
@@ -142,6 +143,42 @@ Batch 2 migration:
 
 Adds phonebook, tag catalog, blacklist, park orbit columns, agent extensions, welcome/hold/TTS settings stubs.
 
+Agents / AI / WhatsApp migration:
+
+```bash
+#   supabase/migrations/20261112240000_call_center_agents_ai_whatsapp.sql
+```
+
+Adds agent edit fields (`display_name_override`, max concurrent, whisper/barge, skills, active), expanded AI prompt/provider columns, WhatsApp Cloud API settings on `call_center_settings`, and `call_center_whatsapp_conversations` / `call_center_whatsapp_messages` (with a demo conversation seed).
+
+## AI Call Agent
+
+Open `/call-center/ai` (admin edit).
+
+1. Enable **AI first answer** and set EN/AR welcome + system prompts.
+2. Choose provider (`openai` / `openai_compatible` / `livekit_agents`), model, optional API key (masked; blank keeps saved), languages, LiveKit agent name.
+3. Handoff: after N seconds, keyword list, target queue.
+4. **Run test** uses the FEC AI gateway (falls back to `OPENAI_API_KEY`).
+5. IVR canvas **AI Agent** node links here for global flags; node-local prompt still lives on the flow.
+
+Status badge shows configured vs missing keys (`ai_api_key` or `OPENAI_API_KEY`, or LiveKit agent name when provider is `livekit_agents`).
+
+## WhatsApp (Meta Cloud API)
+
+Open `/call-center/whatsapp`.
+
+1. Set Phone number ID, WABA ID, access token, webhook verify token (or use env below).
+2. Point Meta callback to `https://<host>/api/public/call-center/whatsapp`.
+3. Inbox lists conversations/messages; assign an agent and reply — sends via Graph API when token + phone number ID are set (graceful failed log otherwise).
+
+Local demo ingest:
+
+```bash
+curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
+  -H "Content-Type: application/json" \
+  -d "{\"from\":\"+97455551234\",\"text\":\"Hello from demo\",\"name\":\"Demo Customer\"}"
+```
+
 ## Maqsam parity (Done vs Later)
 
 ### Done in FEC
@@ -170,6 +207,9 @@ Adds phonebook, tag catalog, blacklist, park orbit columns, agent extensions, we
 | Call park / retrieve | Dialer **Park**; retrieve from park orbit strip |
 | CDR CSV export | `/call-center/calls` → Export CSV |
 | Agent performance + extensions | `/call-center/agents` — set ext, dial colleagues by extension |
+| Agent editor (name, queues, skills, whisper/barge) | `/call-center/agents` → Edit |
+| AI Call Agent setup | `/call-center/ai` |
+| WhatsApp inbox + Meta webhook | `/call-center/whatsapp` + `/api/public/call-center/whatsapp` |
 | Blocklist | `/call-center/blacklist` — inbound reject / outbound block |
 | Welcome / hold / TTS settings stubs | Settings → Welcome / hold / TTS fields |
 
@@ -181,7 +221,7 @@ Adds phonebook, tag catalog, blacklist, park orbit columns, agent extensions, we
 - Click-to-call from People / event staff directory (Call Center phonebook is live)
 - Skill-based routing engine (skills are stored; matching not yet scored)
 - Full power dialer pacing / AMD
-- WhatsApp Meta Cloud API production channel
+- WhatsApp template library / multi-chat pacing beyond first inbox slice
 - Keyword search across recordings, mobile app, concurrent multi-chat
 - Warm park transfer notifications to other agents beyond orbit strip
 
@@ -206,8 +246,13 @@ Adds phonebook, tag catalog, blacklist, park orbit columns, agent extensions, we
 | `CALL_CENTER_WEBHOOK_SECRET` | Webhooks | Optional; Settings UI secret preferred |
 | `TELNYX_WEBHOOK_SECRET` | Webhooks | Optional Telnyx signing secret |
 | `TELNYX_API_KEY` | Later | Prefer Call Center → Settings field |
+| `OPENAI_API_KEY` | AI test / fallback | Used when Call Center AI API key is empty |
+| `WHATSAPP_ACCESS_TOKEN` | WhatsApp | Fallback if admin token empty |
+| `WHATSAPP_VERIFY_TOKEN` | WhatsApp webhook | Fallback verify token |
+| `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp | Fallback phone number id |
+| `WHATSAPP_WABA_ID` | WhatsApp | Optional WABA id fallback |
 
-Do not put Telnyx/LiveKit secrets in `NEXT_PUBLIC_*`.
+Do not put Telnyx/LiveKit/WhatsApp secrets in `NEXT_PUBLIC_*`.
 
 ## Local test without Telnyx
 
