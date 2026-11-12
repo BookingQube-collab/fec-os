@@ -167,6 +167,12 @@ export function mapCall(row: Record<string, unknown>): CallCenterCall {
     transferredAt: row.transferred_at ? String(row.transferred_at) : null,
     campaignId: row.campaign_id ? String(row.campaign_id) : null,
     talkSeconds: row.talk_seconds != null ? Number(row.talk_seconds) : null,
+    transcriptText: String(row.transcript_text ?? ""),
+    transcriptStatus:
+      (row.transcript_status as CallCenterCall["transcriptStatus"]) || "none",
+    transcriptUpdatedAt: row.transcript_updated_at ? String(row.transcript_updated_at) : null,
+    whisperActive: Boolean(row.whisper_active ?? false),
+    bargeActive: Boolean(row.barge_active ?? false),
   };
 }
 
@@ -654,6 +660,11 @@ export async function updateCall(
     transferredAt: string | null;
     campaignId: string | null;
     talkSeconds: number | null;
+    transcriptText: string;
+    transcriptStatus: CallCenterCall["transcriptStatus"];
+    transcriptUpdatedAt: string | null;
+    whisperActive: boolean;
+    bargeActive: boolean;
   }>,
 ): Promise<CallCenterCall> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -674,6 +685,13 @@ export async function updateCall(
   if (patch.transferredAt !== undefined) payload.transferred_at = patch.transferredAt;
   if (patch.campaignId !== undefined) payload.campaign_id = patch.campaignId;
   if (patch.talkSeconds !== undefined) payload.talk_seconds = patch.talkSeconds;
+  if (patch.transcriptText !== undefined) payload.transcript_text = patch.transcriptText;
+  if (patch.transcriptStatus !== undefined) payload.transcript_status = patch.transcriptStatus;
+  if (patch.transcriptUpdatedAt !== undefined) {
+    payload.transcript_updated_at = patch.transcriptUpdatedAt;
+  }
+  if (patch.whisperActive !== undefined) payload.whisper_active = patch.whisperActive;
+  if (patch.bargeActive !== undefined) payload.barge_active = patch.bargeActive;
 
   const result = await table<Record<string, unknown>>("call_center_calls")
     .update(payload)

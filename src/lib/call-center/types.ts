@@ -180,6 +180,19 @@ export type CallCenterCall = {
   transferredAt: string | null;
   campaignId: string | null;
   talkSeconds: number | null;
+  transcriptText: string;
+  transcriptStatus: "none" | "partial" | "final" | "stub";
+  transcriptUpdatedAt: string | null;
+  whisperActive: boolean;
+  bargeActive: boolean;
+};
+
+export type CallCenterSupervisorMode = "whisper" | "barge";
+
+export type CallCenterTransferTarget = {
+  userId: string;
+  status: CallCenterAgentStatusValue;
+  label: string;
 };
 
 export type CallCenterHoliday = {

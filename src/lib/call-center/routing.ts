@@ -430,6 +430,9 @@ export async function placeOutboundCall(input: {
   return { call: updated, media };
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function requestTransfer(input: {
   callId: string;
   agentUserId: string;
@@ -446,19 +449,120 @@ export async function requestTransfer(input: {
     throw new Error("Call is not active.");
   }
   const now = new Date().toISOString();
+  const target = input.target.trim();
+  const targetIsAgent = UUID_RE.test(target);
+
+  if (input.type === "cold" && targetIsAgent) {
+    // Re-offer same CDR to destination agent (in-app divert). SIP REFER still pending for PSTN.
+    await setAgentStatus(input.agentUserId, "acw", { lastCallAt: now });
+    return updateCall(input.callId, {
+      transferType: "cold",
+      transferTarget: target,
+      transferredAt: now,
+      hangupReason: `cold_transfer:${target}`,
+      status: "offered",
+      agentUserId: target,
+      offeredAt: now,
+      answeredAt: null,
+      endedAt: null,
+      metadata: {
+        transferPendingSip: true,
+        transferType: "cold",
+        transferTarget: target,
+        previousAgentUserId: input.agentUserId,
+      },
+    });
+  }
+
   return updateCall(input.callId, {
     transferType: input.type,
-    transferTarget: input.target.trim(),
+    transferTarget: target,
     transferredAt: now,
     hangupReason:
-      input.type === "cold" ? `cold_transfer:${input.target}` : `warm_transfer:${input.target}`,
+      input.type === "cold" ? `cold_transfer:${target}` : `warm_transfer:${target}`,
     status: input.type === "cold" ? "ended" : "held",
     endedAt: input.type === "cold" ? now : null,
     metadata: {
       transferPendingSip: true,
       transferType: input.type,
-      transferTarget: input.target.trim(),
+      transferTarget: target,
+      warmConsultRoom: input.type === "warm" ? existing.livekitRoom : undefined,
     },
+  });
+}
+
+export async function issueSupervisorMediaToken(input: {
+  roomName: string;
+  userId: string;
+  mode: "whisper" | "barge";
+}): Promise<CallCenterMediaSession> {
+  const provider = await getCallProvider();
+  if (provider.name !== "livekit") {
+    return {
+      provider: "none",
+      roomName: input.roomName,
+      token: "",
+      serverUrl: "",
+      expiresAt: new Date().toISOString(),
+    };
+  }
+  const session = await provider.issueToken({
+    roomName: input.roomName,
+    userId: `cc-supervisor-${input.mode}-${input.userId}`,
+    displayName: input.mode === "whisper" ? "Whisper" : "Barge",
+    canPublish: true,
+    metadata: JSON.stringify({ ccRole: input.mode }),
+  });
+  return {
+    provider: "livekit",
+    roomName: session.roomName,
+    token: session.token,
+    serverUrl: session.serverUrl ?? "",
+    expiresAt: session.expiresAt,
+  };
+}
+
+export async function startSupervisorMonitor(input: {
+  callId: string;
+  supervisorUserId: string;
+  mode: "whisper" | "barge";
+}): Promise<{ call: CallCenterCall; media: CallCenterMediaSession }> {
+  const { getCall } = await import("./db");
+  const existing = await getCall(input.callId);
+  if (!existing) throw new Error("Call not found.");
+  if (!["answered", "held"].includes(existing.status)) {
+    throw new Error("Call is not active.");
+  }
+  const livekitRoom = existing.livekitRoom || roomNameForCall(input.callId);
+  const call = await updateCall(input.callId, {
+    livekitRoom,
+    metadata: {
+      supervisorMode: input.mode,
+      supervisorUserId: input.supervisorUserId,
+    },
+    whisperActive: input.mode === "whisper",
+    bargeActive: input.mode === "barge",
+  });
+  const media = await issueSupervisorMediaToken({
+    roomName: livekitRoom,
+    userId: input.supervisorUserId,
+    mode: input.mode,
+  });
+  return { call, media };
+}
+
+export async function saveCallTranscript(input: {
+  callId: string;
+  text: string;
+  status: "partial" | "final" | "stub";
+}): Promise<CallCenterCall> {
+  const { getCall } = await import("./db");
+  const existing = await getCall(input.callId);
+  if (!existing) throw new Error("Call not found.");
+  return updateCall(input.callId, {
+    transcriptText: input.text,
+    transcriptStatus: input.status,
+    transcriptUpdatedAt: new Date().toISOString(),
   });
 }
 

@@ -58,6 +58,14 @@ supabase db push
 
 Expand migration adds: AI flags, recording/transfer columns, holidays, campaigns + contacts, webhook endpoints, outbound caller id.
 
+Softphone migration:
+
+```bash
+#   supabase/migrations/20261112180000_call_center_softphone.sql
+```
+
+Adds transcript + whisper/barge columns on `call_center_calls`.
+
 ## Env vars
 
 | Variable | Required | Notes |
@@ -103,5 +111,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/telnyx?demo=1" \
 3. Point LiveKit SIP dispatch (or a small worker) to `/api/public/call-center/livekit-sip`.
 4. Map each DID (E.164) to a queue and optional IVR menu / event.
 5. Outbound PSTN: complete Telnyx call create from `placeOutboundCall` metadata (`sipOutboundPending`).
-6. Transfers: complete SIP REFER from `transfer_type` / `transfer_target` on the CDR.
-7. AI: enable first-answer and wire LiveKit Agents using the stub in `/call-center/ai`.
+6. Transfers: complete SIP REFER from `transfer_type` / `transfer_target` on the CDR (in-app cold divert to agent UUID already re-offers).
+7. Whisper/barge: LiveKit web path is live on `/call-center/live` (admin). Full SIP isolation needs LiveKit TrackPermissions / SFU rules for trunk participants.
+8. AI: enable first-answer and wire LiveKit Agents using the stub in `/call-center/ai`.
+9. Transcripts: pluggable `transcript_text` / Generate stub on `/call-center/calls`; wire STT later.

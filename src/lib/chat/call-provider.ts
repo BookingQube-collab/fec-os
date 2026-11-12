@@ -34,6 +34,9 @@ export type CallTokenRequest = {
   userId: string;
   displayName: string;
   canPublish: boolean;
+  /** Optional LiveKit participant metadata JSON string (Call Center whisper/barge). */
+  metadata?: string;
+  canPublishData?: boolean;
 };
 
 export type CallProvider = {
@@ -68,13 +71,14 @@ function liveKitCallProvider(credentials: LiveKitCredentials): CallProvider {
         identity: request.userId,
         name: displayName,
         ttl: TOKEN_TTL_SECONDS,
+        metadata: request.metadata,
       });
       access.addGrant({
         roomJoin: true,
         room: request.roomName,
         canPublish: request.canPublish,
         canSubscribe: true,
-        canPublishData: false,
+        canPublishData: request.canPublishData ?? false,
         roomRecord: false,
       });
       const token = await access.toJwt();

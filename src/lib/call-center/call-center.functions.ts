@@ -56,6 +56,8 @@ import {
   placeOutboundCall,
   requestTransfer,
   routeInboundCall,
+  saveCallTranscript,
+  startSupervisorMonitor,
 } from "./routing";
 import { toPublicSettings } from "./settings-public";
 import type { CallCenterAgentStatusValue } from "./types";
@@ -479,6 +481,61 @@ export const transferCallCenterCall = createSafeAuthenticatedAction(
       type: data.type,
       target: data.target,
     }),
+  { auth: AGENT_AUTH },
+);
+
+export const joinCallCenterMonitor = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    mode: z.enum(["whisper", "barge"]),
+  }),
+  async (data, context) =>
+    startSupervisorMonitor({
+      callId: data.callId,
+      supervisorUserId: context.userId,
+      mode: data.mode,
+    }),
+  { auth: ADMIN_AUTH },
+);
+
+export const saveCallCenterTranscript = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    text: z.string().max(50_000),
+    status: z.enum(["partial", "final", "stub"]).optional(),
+  }),
+  async (data) =>
+    saveCallTranscript({
+      callId: data.callId,
+      text: data.text,
+      status: data.status ?? "final",
+    }),
+  { auth: AGENT_AUTH },
+);
+
+export const generateCallCenterTranscriptStub = createSafeAuthenticatedAction(
+  z.object({ callId: z.string().uuid() }),
+  async (data) => {
+    const call = await getCall(data.callId);
+    if (!call) throw new Error("Call not found.");
+    const stub = [
+      `[Stub transcript — ${new Date().toISOString()}]`,
+      `Direction: ${call.direction}`,
+      `From: ${call.fromE164 || "—"}`,
+      `To: ${call.toE164 || "—"}`,
+      `Status: ${call.status}`,
+      call.transferType
+        ? `Transfer: ${call.transferType} → ${call.transferTarget}`
+        : "Transfer: none",
+      "",
+      "No STT provider configured. Replace via saveCallCenterTranscript or wire LiveKit egress / speech service.",
+    ].join("\n");
+    return saveCallTranscript({
+      callId: data.callId,
+      text: stub,
+      status: "stub",
+    });
+  },
   { auth: AGENT_AUTH },
 );
 

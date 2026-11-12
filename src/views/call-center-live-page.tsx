@@ -1,12 +1,20 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { Ear, Users } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
-import { FecLoader } from "@/components/fec";
+import { SupervisorMonitorRoom } from "@/components/call-center/supervisor-monitor-room";
+import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
-import { loadCallCenterWallboard } from "@/lib/call-center/call-center.functions";
+import {
+  joinCallCenterMonitor,
+  loadCallCenterWallboard,
+} from "@/lib/call-center/call-center.functions";
+import type { CallCenterMediaSession, CallCenterSupervisorMode } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
@@ -19,10 +27,16 @@ function statusTone(status: string) {
 function CallCenterLivePage() {
   const { t } = useTranslation();
   const { roles } = useAuth();
-  const canUse = canUserDo(
-    roles.map((r) => r.role),
-    "call_center.view",
-  );
+  const roleNames = roles.map((r) => r.role);
+  const canUse = canUserDo(roleNames, "call_center.view");
+  const canSupervise = canUserDo(roleNames, "admin.view");
+  const [monitor, setMonitor] = useState<{
+    callId: string;
+    mode: CallCenterSupervisorMode;
+    media: CallCenterMediaSession;
+    agentUserId: string | null;
+  } | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const wallboard = useQuery({
     queryKey: ["call-center", "wallboard"],
@@ -34,6 +48,26 @@ function CallCenterLivePage() {
       return result.data;
     },
   });
+
+  async function startMonitor(callId: string, mode: CallCenterSupervisorMode, agentUserId: string | null) {
+    setPendingId(`${callId}:${mode}`);
+    const result = await joinCallCenterMonitor({ callId, mode });
+    setPendingId(null);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    if (!result.data.media.token || !result.data.media.serverUrl.startsWith("wss://")) {
+      toast.error(t("callCenter.mediaNotConfigured"));
+      return;
+    }
+    setMonitor({
+      callId,
+      mode,
+      media: result.data.media,
+      agentUserId,
+    });
+  }
 
   if (!canUse) {
     return (
@@ -90,17 +124,55 @@ function CallCenterLivePage() {
               ) : (
                 (wallboard.data?.activeCalls ?? []).map((call) => {
                   const queue = wallboard.data?.queues.find((q) => q.id === call.queueId);
+                  const inCall = call.status === "answered" || call.status === "held";
                   return (
-                    <li key={call.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-                      <div className="min-w-0">
-                        <p className="font-medium">
-                          {call.fromE164 || "—"} → {call.toE164 || "—"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {queue?.name ?? "—"} · {call.direction}
-                        </p>
+                    <li key={call.id} className="space-y-2 py-2.5 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            {call.fromE164 || "—"} → {call.toE164 || "—"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {queue?.name ?? "—"} · {call.direction}
+                            {call.whisperActive ? ` · ${t("callCenter.whisper")}` : ""}
+                            {call.bargeActive ? ` · ${t("callCenter.barge")}` : ""}
+                          </p>
+                        </div>
+                        <Badge variant={statusTone(call.status)}>{call.status}</Badge>
                       </div>
-                      <Badge variant={statusTone(call.status)}>{call.status}</Badge>
+                      {canSupervise && inCall ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={pendingId === `${call.id}:whisper`}
+                            onClick={() => void startMonitor(call.id, "whisper", call.agentUserId)}
+                          >
+                            <Ear className="me-1 h-3.5 w-3.5" aria-hidden />
+                            {t("callCenter.whisper")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={pendingId === `${call.id}:barge`}
+                            onClick={() => void startMonitor(call.id, "barge", call.agentUserId)}
+                          >
+                            <Users className="me-1 h-3.5 w-3.5" aria-hidden />
+                            {t("callCenter.barge")}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {monitor?.callId === call.id ? (
+                        <SupervisorMonitorRoom
+                          token={monitor.media.token}
+                          serverUrl={monitor.media.serverUrl}
+                          mode={monitor.mode}
+                          agentUserId={monitor.agentUserId}
+                          onLeave={() => setMonitor(null)}
+                        />
+                      ) : null}
                     </li>
                   );
                 })

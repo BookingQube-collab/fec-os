@@ -1,7 +1,15 @@
 "use client";
 
 import { ConnectionState, Room, RoomEvent, Track } from "livekit-client";
-import { ArrowRightLeft, Grid3X3, Mic, MicOff, Pause, PhoneOff, Play } from "lucide-react";
+import {
+  ArrowRightLeft,
+  Grid3X3,
+  Mic,
+  MicOff,
+  Pause,
+  PhoneOff,
+  Play,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +20,7 @@ import {
   stopSoftphoneRingtone,
   unlockSoftphoneAudio,
 } from "@/lib/call-center/softphone-audio";
+import type { CallCenterTransferTarget } from "@/lib/call-center/types";
 
 function isLiveKitAccessToken(value: string): boolean {
   const parts = value.split(".");
@@ -20,10 +29,23 @@ function isLiveKitAccessToken(value: string): boolean {
 
 const KEYPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"] as const;
 
+function formatElapsed(totalSeconds: number) {
+  const m = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${m}:${s}`;
+}
+
 export function CallCenterSoftphoneRoom({
   token,
   serverUrl,
   held,
+  answeredAt,
+  transferTargets = [],
+  compact = false,
   onHangup,
   onHoldToggle,
   onDtmf,
@@ -32,6 +54,9 @@ export function CallCenterSoftphoneRoom({
   token: string;
   serverUrl: string;
   held: boolean;
+  answeredAt?: string | null;
+  transferTargets?: CallCenterTransferTarget[];
+  compact?: boolean;
   onHangup: () => void;
   onHoldToggle: () => void;
   onDtmf: (digit: string) => void;
@@ -43,9 +68,10 @@ export function CallCenterSoftphoneRoom({
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Disconnected);
   const [failed, setFailed] = useState(false);
   const [micOn, setMicOn] = useState(true);
-  const [showPad, setShowPad] = useState(false);
+  const [showPad, setShowPad] = useState(true);
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferTarget, setTransferTarget] = useState("");
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     stopSoftphoneRingtone();
@@ -53,9 +79,16 @@ export function CallCenterSoftphoneRoom({
   }, []);
 
   useEffect(() => {
+    const start = answeredAt ? new Date(answeredAt).getTime() : Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [answeredAt]);
+
+  useEffect(() => {
     if (!isLiveKitAccessToken(token) || !serverUrl.startsWith("wss://")) return;
     const room = new Room({
-      // Prefer speaker output when the browser supports it.
       audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
     });
     roomRef.current = room;
@@ -137,10 +170,19 @@ export function CallCenterSoftphoneRoom({
     <section
       role="region"
       aria-label={t("callCenter.inCall")}
-      className="rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs"
+      className={
+        compact
+          ? "rounded-2xl border border-border/50 bg-card p-3 shadow-elevated-xs"
+          : "rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs"
+      }
     >
       <div ref={audioRef} className="sr-only" />
-      <p className="text-sm font-medium">{t("callCenter.inCall")}</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium">{t("callCenter.inCall")}</p>
+        <p className="font-mono text-lg tabular-nums tracking-wide text-foreground">
+          {formatElapsed(elapsed)}
+        </p>
+      </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {!mediaReady
           ? t("callCenter.mediaNotConfigured")
@@ -189,7 +231,7 @@ export function CallCenterSoftphoneRoom({
             onClick={() => setShowTransfer((v) => !v)}
           >
             <ArrowRightLeft className="me-1.5 h-4 w-4" aria-hidden />
-            {t("callCenter.transfer")}
+            {t("callCenter.divert")}
           </Button>
         ) : null}
         <Button type="button" variant="destructive" className="min-h-11 px-3" onClick={onHangup}>
@@ -198,13 +240,13 @@ export function CallCenterSoftphoneRoom({
         </Button>
       </div>
       {showPad ? (
-        <div className="mt-4 grid max-w-[14rem] grid-cols-3 gap-2">
+        <div className="mt-4 grid max-w-[15rem] grid-cols-3 gap-2">
           {KEYPAD.map((digit) => (
             <Button
               key={digit}
               type="button"
               variant="secondary"
-              className="min-h-11 font-semibold"
+              className="min-h-12 text-lg font-semibold"
               onClick={() => onDtmf(digit)}
             >
               {digit}
@@ -213,8 +255,26 @@ export function CallCenterSoftphoneRoom({
         </div>
       ) : null}
       {showTransfer && onTransfer ? (
-        <div className="mt-4 space-y-2 rounded-xl border border-border/60 p-3">
+        <div className="mt-4 space-y-3 rounded-xl border border-border/60 p-3">
+          <p className="text-xs font-medium text-foreground">{t("callCenter.divertTitle")}</p>
           <p className="text-xs text-muted-foreground">{t("callCenter.transferHint")}</p>
+          {transferTargets.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {transferTargets.map((agent) => (
+                <Button
+                  key={agent.userId}
+                  type="button"
+                  size="sm"
+                  variant={transferTarget === agent.userId ? "default" : "secondary"}
+                  onClick={() => setTransferTarget(agent.userId)}
+                >
+                  {agent.label}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t("callCenter.noAvailableAgents")}</p>
+          )}
           <Input
             value={transferTarget}
             onChange={(e) => setTransferTarget(e.target.value)}

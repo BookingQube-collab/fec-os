@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
@@ -15,17 +16,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  generateCallCenterTranscriptStub,
   loadCallCenterCdr,
   loadCallCenterConfigBundle,
+  saveCallCenterTranscript,
 } from "@/lib/call-center/call-center.functions";
+import type { CallCenterCall } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
 function CallCenterCallsPage() {
   const { t } = useTranslation();
   const { roles } = useAuth();
+  const queryClient = useQueryClient();
   const canUse = canUserDo(
     roles.map((r) => r.role),
     "call_center.view",
@@ -40,6 +46,9 @@ function CallCenterCallsPage() {
     queueId: "",
     direction: "",
   });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draftTranscript, setDraftTranscript] = useState("");
+  const [pending, setPending] = useState(false);
 
   const config = useQuery({
     queryKey: ["call-center", "config"],
@@ -71,6 +80,40 @@ function CallCenterCallsPage() {
       return result.data;
     },
   });
+
+  function openTranscript(call: CallCenterCall) {
+    setExpandedId((id) => (id === call.id ? null : call.id));
+    setDraftTranscript(call.transcriptText || "");
+  }
+
+  async function onGenerateStub(callId: string) {
+    setPending(true);
+    const result = await generateCallCenterTranscriptStub({ callId });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setDraftTranscript(result.data.transcriptText);
+    toast.success(t("callCenter.transcriptGenerated"));
+    await queryClient.invalidateQueries({ queryKey: ["call-center", "cdr"] });
+  }
+
+  async function onSaveTranscript(callId: string) {
+    setPending(true);
+    const result = await saveCallCenterTranscript({
+      callId,
+      text: draftTranscript,
+      status: "final",
+    });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(t("callCenter.transcriptSaved"));
+    await queryClient.invalidateQueries({ queryKey: ["call-center", "cdr"] });
+  }
 
   if (!canUse) {
     return (
@@ -151,19 +194,61 @@ function CallCenterCallsPage() {
             <li className="p-8 text-center text-sm text-muted-foreground">{t("callCenter.noCalls")}</li>
           ) : (
             (cdr.data ?? []).map((call) => (
-              <li key={call.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium">
-                    {call.fromE164 || "—"} → {call.toE164 || "—"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(call.startedAt).toLocaleString()} · {call.direction}
-                    {call.talkSeconds != null ? ` · ${call.talkSeconds}s` : ""}
-                    {call.recordingUrl ? ` · ${t("callCenter.hasRecording")}` : ""}
-                    {call.transferType ? ` · ${call.transferType} → ${call.transferTarget}` : ""}
-                  </p>
+              <li key={call.id} className="px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium">
+                      {call.fromE164 || "—"} → {call.toE164 || "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(call.startedAt).toLocaleString()} · {call.direction}
+                      {call.talkSeconds != null ? ` · ${call.talkSeconds}s` : ""}
+                      {call.recordingUrl ? ` · ${t("callCenter.hasRecording")}` : ""}
+                      {call.transferType ? ` · ${call.transferType} → ${call.transferTarget}` : ""}
+                      {call.transcriptStatus !== "none"
+                        ? ` · ${t("callCenter.hasTranscript")}`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => openTranscript(call)}>
+                      {t("callCenter.transcript")}
+                    </Button>
+                    <Badge variant="secondary">{call.status}</Badge>
+                  </div>
                 </div>
-                <Badge variant="secondary">{call.status}</Badge>
+                {expandedId === call.id ? (
+                  <div className="mt-3 space-y-2 rounded-xl border border-border/60 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {t("callCenter.transcriptStatus")}: {call.transcriptStatus}
+                    </p>
+                    <Textarea
+                      value={draftTranscript}
+                      onChange={(e) => setDraftTranscript(e.target.value)}
+                      rows={8}
+                      className="font-mono text-xs"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={pending}
+                        onClick={() => void onGenerateStub(call.id)}
+                      >
+                        {t("callCenter.generateTranscript")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => void onSaveTranscript(call.id)}
+                      >
+                        {t("callCenter.saveTranscript")}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
               </li>
             ))
           )}
