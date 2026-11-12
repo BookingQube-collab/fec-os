@@ -383,11 +383,30 @@ export default function EmployeeMePage() {
         );
         return;
       }
+      if ("sandwichBlocked" in res && res.sandwichBlocked) {
+        setLeaveConflicts([]);
+        setPlannerReasons([]);
+        toast.error(
+          t("hr.leave.sandwichBlocked", {
+            defaultValue:
+              "Weekly OFF both before and after annual leave is not allowed (sandwich). Adjust dates so OFF is only before or only after leave.",
+          }),
+        );
+        return;
+      }
       if ("blocked" in res && res.blocked) {
         setLeaveConflicts(res.conflicts);
         setPlannerReasons([]);
         toast.error(t("hr.leave.overlapBlocked"));
         return;
+      }
+      if ("sickAnnualSplit" in res && res.sickAnnualSplit) {
+        toast.message(
+          t("hr.leave.sickAnnualSplitHint", {
+            defaultValue:
+              "Sick quota used — remaining days submitted as annual leave (HR → GM) with your medical document.",
+          }),
+        );
       }
       if (res.requiresAck) {
         setLeaveConflicts(res.conflicts);

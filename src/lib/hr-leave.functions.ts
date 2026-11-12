@@ -75,6 +75,15 @@ import {
 } from "@/lib/hr-advanced";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { evaluateHoLeavePlannerForStaff } from "@/lib/hr-leave-planner.functions";
+import {
+  addCalendarDays,
+  annualTierDaysFromPolicy,
+  detectAnnualLeaveSandwich,
+  resolveAnnualLeaveTier,
+  sickAnnualFollowOnApprovalSteps,
+  splitSickToAnnual,
+  type WeeklyOffLookup,
+} from "@/lib/hr-leave-policy";
 import { policyNumber } from "@/lib/hr-policy";
 import { readLeaveAllotmentDefaults, readPolicySection } from "@/lib/hr-policy-read";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
@@ -363,6 +372,8 @@ async function syncApprovedLeaveToAttendance(
 
   // Monthly roster reads leave via attendance_leave_records overlay on assignment rows.
   // Ensure each leave day has a roster cell (and clear shift times so the grid shows AL/SL).
+  // Only touch dates inside the leave span — never clear legitimate adjacent weekly OFF
+  // (prefix/suffix OFF outside date_from..date_to stay OFF).
   if (resolvedRosterLeave) {
     const { data: existingAssignments, error: assignErr } = await db
       .from("attendance_roster_assignments")
@@ -484,16 +495,32 @@ async function loadLeaveConflicts(
 
 async function seedLeaveApprovalSteps(
   leaveId: string,
-  opts?: { skipManagerSeat?: boolean; skipSiteSeat?: boolean; openingStep?: HrLeaveApprovalRole | null },
+  opts?: {
+    skipManagerSeat?: boolean;
+    skipSiteSeat?: boolean;
+    openingStep?: HrLeaveApprovalRole | null;
+    /** Sick→annual follow-on: HR then GM (no manager/site/ops seats). */
+    approvalProfile?: "default" | "hr_then_gm";
+  },
 ) {
-  const skipManagerSeat = Boolean(opts?.skipManagerSeat);
-  const skipSiteSeat = Boolean(opts?.skipSiteSeat);
-  const steps = leaveApprovalStepsForRequester({ skipManagerSeat, skipSiteSeat }).map((s) => ({
-    leave_id: leaveId,
-    step_order: s.stepOrder,
-    step_role: s.stepRole,
-    status: s.status,
-  }));
+  const profile = opts?.approvalProfile ?? "default";
+  const steps =
+    profile === "hr_then_gm"
+      ? sickAnnualFollowOnApprovalSteps().map((s) => ({
+          leave_id: leaveId,
+          step_order: s.stepOrder,
+          step_role: s.stepRole,
+          status: s.status,
+        }))
+      : leaveApprovalStepsForRequester({
+          skipManagerSeat: Boolean(opts?.skipManagerSeat),
+          skipSiteSeat: Boolean(opts?.skipSiteSeat),
+        }).map((s) => ({
+          leave_id: leaveId,
+          step_order: s.stepOrder,
+          step_role: s.stepRole,
+          status: s.status,
+        }));
   // Caller already authenticated + capability-checked. Seed via service role — RLS write
   // on hr_leave_approvals is role_level >= 55 only (same pattern as missed-punch step seed).
   const { error } = await supabaseAdmin.from("hr_leave_approvals").insert(steps);
@@ -501,11 +528,82 @@ async function seedLeaveApprovalSteps(
   const opening =
     opts?.openingStep === null
       ? null
-      : (opts?.openingStep ?? leaveOpeningStepRole(skipManagerSeat, skipSiteSeat));
+      : profile === "hr_then_gm"
+        ? ("hr" as HrLeaveApprovalRole)
+        : (opts?.openingStep ??
+          leaveOpeningStepRole(Boolean(opts?.skipManagerSeat), Boolean(opts?.skipSiteSeat)));
   await supabaseAdmin
     .from("hr_leave_requests")
     .update({ current_step_role: opening, updated_at: new Date().toISOString() })
     .eq("id", leaveId);
+}
+
+/** Roster OFF + standing weekly_off_weekday for sandwich checks (±14d around leave). */
+async function loadWeeklyOffLookupForLeave(
+  staffId: string,
+  dateFrom: string,
+  dateTo: string,
+  weeklyOffWeekday: number | null | undefined,
+): Promise<WeeklyOffLookup> {
+  const from = addCalendarDays(dateFrom.slice(0, 10), -14);
+  const to = addCalendarDays(dateTo.slice(0, 10), 14);
+  const { data: rows, error } = await supabaseAdmin
+    .from("attendance_roster_assignments")
+    .select("work_date, is_week_off")
+    .eq("staff_id", staffId)
+    .gte("work_date", from)
+    .lte("work_date", to);
+  if (error && !tableMissing(error.message)) throw error;
+  const rosterOffDates = new Set<string>();
+  const rosterPublishedDates = new Set<string>();
+  for (const row of rows ?? []) {
+    const day = String(row.work_date).slice(0, 10);
+    rosterPublishedDates.add(day);
+    if (row.is_week_off) rosterOffDates.add(day);
+  }
+  return {
+    rosterOffDates,
+    rosterPublishedDates,
+    weeklyOffWeekday: weeklyOffWeekday ?? null,
+  };
+}
+
+async function remainingSickDaysForStaff(
+  context: AuthContext,
+  staffId: string,
+  year: number,
+  sickAllotment: number,
+): Promise<number> {
+  const { data: allotment } = await context.supabase
+    .from("hr_leave_balances")
+    .select("allotted_days, carried_forward, expired_days, pending_days")
+    .eq("staff_id", staffId)
+    .eq("period_year", year)
+    .eq("leave_type", "sick")
+    .maybeSingle();
+  const allotted = allotment
+    ? Number(allotment.allotted_days ?? 0)
+    : sickAllotment;
+  const carried = Number((allotment as { carried_forward?: number } | null)?.carried_forward ?? 0);
+  const expired = Number((allotment as { expired_days?: number } | null)?.expired_days ?? 0);
+  const pending = Number((allotment as { pending_days?: number } | null)?.pending_days ?? 0);
+
+  const { data: leaveRows } = await context.supabase
+    .from("hr_leave_requests")
+    .select("leave_type, days, status, date_from")
+    .eq("staff_id", staffId)
+    .eq("status", "approved")
+    .eq("leave_type", "sick");
+  const used = sumUsedLeaveDays(
+    (leaveRows ?? []).map((r) => ({
+      leaveType: String(r.leave_type),
+      days: Number(r.days ?? 0),
+      status: String(r.status),
+      dateFrom: String(r.date_from),
+    })),
+    year,
+  );
+  return Math.max(0, allotted + carried - expired - (used.sick ?? 0) - pending);
 }
 
 /** Repair orphan pending leave that was inserted before approval-step seed used admin. */
@@ -527,17 +625,24 @@ async function loadOrRepairLeaveApprovalSteps(
       status: String(s.status),
     }));
   }
-  const skipSiteSeat = currentStepRole === "ops";
-  const skipManagerSeat = skipSiteSeat || currentStepRole === "site";
-  const opening =
-    currentStepRole === "manager" || currentStepRole === "site" || currentStepRole === "ops" || currentStepRole === "hr"
-      ? (currentStepRole as HrLeaveApprovalRole)
-      : leaveOpeningStepRole(skipManagerSeat, skipSiteSeat);
-  await seedLeaveApprovalSteps(leaveId, {
-    skipManagerSeat,
-    skipSiteSeat,
-    openingStep: opening,
-  });
+  if (currentStepRole === "hr" || currentStepRole === "gm") {
+    await seedLeaveApprovalSteps(leaveId, {
+      openingStep: currentStepRole as HrLeaveApprovalRole,
+      approvalProfile: "hr_then_gm",
+    });
+  } else {
+    const skipSiteSeat = currentStepRole === "ops";
+    const skipManagerSeat = skipSiteSeat || currentStepRole === "site";
+    const opening =
+      currentStepRole === "manager" || currentStepRole === "site" || currentStepRole === "ops"
+        ? (currentStepRole as HrLeaveApprovalRole)
+        : leaveOpeningStepRole(skipManagerSeat, skipSiteSeat);
+    await seedLeaveApprovalSteps(leaveId, {
+      skipManagerSeat,
+      skipSiteSeat,
+      openingStep: opening,
+    });
+  }
   const { data: repaired, error: repairErr } = await supabaseAdmin
     .from("hr_leave_approvals")
     .select("id, step_order, step_role, status")
@@ -1137,23 +1242,49 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
 
     const { data: staffRow } = await context.supabase
       .from("staff")
-      .select("hire_date")
+      .select("hire_date, job_title, department, staff_role")
       .eq("id", staffId)
       .maybeSingle();
+    const { data: profileExt } = await context.supabase
+      .from("staff_profile_ext")
+      .select("employment_category, is_management")
+      .eq("staff_id", staffId)
+      .maybeSingle();
     const leavePolicy = await readPolicySection(context, "leave").catch(() => null);
+    const tierCfg = leavePolicy
+      ? annualTierDaysFromPolicy(leavePolicy)
+      : annualTierDaysFromPolicy({});
+    const asOfDate = new Date().toISOString().slice(0, 10);
+    const hireDate = (staffRow as { hire_date?: string | null } | null)?.hire_date ?? null;
+    const tier = resolveAnnualLeaveTier({
+      hireDate,
+      asOfDate: asOfDate < `${year}-01-01` ? `${year}-12-31` : asOfDate > `${year}-12-31` ? `${year}-12-31` : asOfDate,
+      jobTitle: (staffRow as { job_title?: string | null } | null)?.job_title,
+      department: (staffRow as { department?: string | null } | null)?.department,
+      staffRole: (staffRow as { staff_role?: string | null } | null)?.staff_role,
+      employmentCategory: (profileExt as { employment_category?: string | null } | null)?.employment_category,
+      isManagement: (profileExt as { is_management?: boolean | null } | null)?.is_management,
+      under5yDays: tierCfg.under5yDays,
+      fiveYearPlusDays: tierCfg.fiveYearPlusDays,
+      managementDays: tierCfg.managementDays,
+      tenureYearsThreshold: tierCfg.tenureYearsThreshold,
+      titleKeywords: tierCfg.titleKeywords,
+    });
     const allotmentDefaults = leavePolicy
       ? {
-          annual: policyNumber(leavePolicy.annual_days, DEFAULT_ANNUAL_ALLOTMENT),
+          annual: tier.annualDays,
           sick: policyNumber(leavePolicy.sick_days, DEFAULT_SICK_ALLOTMENT),
         }
-      : await readLeaveAllotmentDefaults(context).catch(() => ({
-          annual: DEFAULT_ANNUAL_ALLOTMENT,
-          sick: DEFAULT_SICK_ALLOTMENT,
-        }));
+      : await readLeaveAllotmentDefaults(context)
+          .catch(() => ({
+            annual: DEFAULT_ANNUAL_ALLOTMENT,
+            sick: DEFAULT_SICK_ALLOTMENT,
+          }))
+          .then((d) => ({ ...d, annual: tier.annualDays }));
     const fromHireDate = leavePolicy ? leavePolicy.annual_from_hire_date !== false : true;
 
     const accrual = annualAccrualFromHireDate({
-      hireDate: (staffRow as { hire_date?: string | null } | null)?.hire_date ?? null,
+      hireDate,
       year,
       annualDays: allotmentDefaults.annual,
       fromHireDate,
@@ -1194,7 +1325,12 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
         accruedDays: accrual.accruedDays,
         monthsAccrued: accrual.monthsAccrued,
         fullYearDays: accrual.fullYearDays,
-        hireDate: (staffRow as { hire_date?: string | null } | null)?.hire_date ?? null,
+        hireDate,
+        tierCode: tier.code,
+        tierAnnualDays: tier.annualDays,
+        monthlyAccrual: tier.monthlyAccrual,
+        yearsOfService: tier.yearsOfService,
+        tierReason: tier.reason,
       },
     };
   },
@@ -1284,17 +1420,23 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
 
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, employee_code, location_id, user_id, hire_date, job_title, department, staff_role")
+      .select(
+        "id, full_name, employee_code, location_id, user_id, hire_date, job_title, department, staff_role, weekly_off_weekday",
+      )
       .eq("id", requestedStaffId)
       .is("deleted_at", null)
       .maybeSingle();
     if (staffErr) throw staffErr;
     if (!staff) throw new Error("Staff not found.");
 
+    const leavePolicy = await readPolicySection(context, "leave").catch(
+      () => ({} as Record<string, unknown>),
+    );
+    const tierCfg = annualTierDaysFromPolicy(leavePolicy);
+
     if (data.leaveType === "emergency") {
-      const policy = await readPolicySection(context, "leave").catch(() => ({} as Record<string, unknown>));
-      const min = policyNumber(policy.emergency_min_days, 1);
-      const max = policyNumber(policy.emergency_max_days, policyNumber(policy.emergency_days, 7));
+      const min = policyNumber(leavePolicy.emergency_min_days, 1);
+      const max = policyNumber(leavePolicy.emergency_max_days, policyNumber(leavePolicy.emergency_days, 7));
       if (days < min || days > max) {
         throw new Error(`Emergency leave must be between ${min} and ${max} days.`);
       }
@@ -1320,6 +1462,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         requiresAck: false as const,
         blocked: true as const,
         plannerBlocked: true as const,
+        sandwichBlocked: false as const,
         plannerReasons: planner.reasons,
         plannerCodes: planner.codes,
         finalized: false as const,
@@ -1328,6 +1471,39 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
     }
     const plannerOverride = Boolean(planner?.wouldDecline && data.leaveType === "emergency");
     const plannerOverrideReasons = plannerOverride ? planner!.reasons : [];
+
+    // Annual leave: block OFF+AL+OFF sandwich on submit (prefix OR suffix alone is allowed).
+    // Adjacent weekly OFF outside the leave span is never cleared on approve.
+    if (data.leaveType === "annual" && tierCfg.sandwichBlockSubmit) {
+      const lookup = await loadWeeklyOffLookupForLeave(
+        String(staff.id),
+        data.dateFrom,
+        data.dateTo,
+        (staff as { weekly_off_weekday?: number | null }).weekly_off_weekday,
+      );
+      const sandwich = detectAnnualLeaveSandwich({
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        lookup,
+      });
+      if (sandwich.isSandwich) {
+        return {
+          id: null as string | null,
+          days,
+          conflicts: [] as Awaited<ReturnType<typeof loadLeaveConflicts>>,
+          requiresAck: false as const,
+          blocked: true as const,
+          plannerBlocked: false as const,
+          sandwichBlocked: true as const,
+          sandwichPrefixDates: sandwich.prefixOffDates,
+          sandwichSuffixDates: sandwich.suffixOffDates,
+          plannerReasons: [] as string[],
+          plannerCodes: [] as string[],
+          finalized: false as const,
+          openingStep: null as string | null,
+        };
+      }
+    }
 
     if (data.leaveType === "comp_off") {
       if (!data.compOffBalanceId) throw new Error("Comp-off leave requires a balance row.");
@@ -1361,6 +1537,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         requiresAck: false as const,
         blocked: true as const,
         plannerBlocked: false as const,
+        sandwichBlocked: false as const,
         plannerReasons: [] as string[],
         plannerCodes: [] as string[],
         finalized: false as const,
@@ -1375,6 +1552,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         requiresAck: true as const,
         blocked: false as const,
         plannerBlocked: false as const,
+        sandwichBlocked: false as const,
         plannerReasons: [] as string[],
         plannerCodes: [] as string[],
         finalized: false as const,
@@ -1382,9 +1560,29 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       };
     }
 
+    // Sick → annual: after contractual sick quota, excess consumes annual with medical docs + HR→GM.
+    const leaveYear = Number(data.dateFrom.slice(0, 4));
+    const sickAllotment = policyNumber(leavePolicy.sick_days, DEFAULT_SICK_ALLOTMENT);
+    let sickSplit: ReturnType<typeof splitSickToAnnual> | null = null;
+    if (data.leaveType === "sick") {
+      const remainingSick = await remainingSickDaysForStaff(
+        context,
+        String(staff.id),
+        leaveYear,
+        sickAllotment,
+      );
+      sickSplit = splitSickToAnnual({
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        remainingSickDays: remainingSick,
+      });
+    }
+    const needsMedicalDoc =
+      data.leaveType === "sick" || Boolean(sickSplit?.requiresMedicalDocs);
+
     // Upload medical docs only after soft conflicts are acknowledged (avoids orphan uploads + re-upload on Submit anyway).
-    let documentId: string | null = data.leaveType === "sick" ? (data.documentId ?? null) : null;
-    if (data.leaveType === "sick" && data.document) {
+    let documentId: string | null = needsMedicalDoc ? (data.documentId ?? null) : null;
+    if (needsMedicalDoc && data.document) {
       documentId = await uploadLeaveSupportingDocument(context, {
         staffId: String(staff.id),
         filename: data.document.filename,
@@ -1403,6 +1601,13 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       if (!doc || doc.deleted_at || doc.staff_id !== staff.id) {
         throw new Error("Supporting document not found.");
       }
+    }
+    if (needsMedicalDoc && !documentId) {
+      throw new Error(
+        sickSplit?.requiresAnnualFollowOn
+          ? "Medical documents are required when sick leave quota is exhausted and absence continues on annual leave."
+          : "Medical / sick document is required for sick leave.",
+      );
     }
 
     const linked = await loadLinkedStaffRecord(context.userId);
@@ -1473,132 +1678,352 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       : null;
     const reason = [data.reason?.trim() || null, teamNote].filter(Boolean).join(" ") || null;
 
-    const requestNumber = await nextLeaveRequestNumber(context);
     const leaveDb = isSelf ? context.supabase : supabaseAdmin;
-    const { data: row, error } = await leaveDb
-      .from("hr_leave_requests")
-      .insert({
-        staff_id: staff.id,
-        leave_type: data.leaveType,
-        date_from: data.dateFrom,
-        date_to: data.dateTo,
-        days,
-        reason,
-        status: "pending",
-        created_by: context.userId,
-        emergency_treatment: data.leaveType === "emergency" ? data.emergencyTreatment ?? "unpaid" : null,
-        maternity_delivery_date: data.leaveType === "maternity" ? data.maternityDeliveryDate ?? null : null,
-        compassionate_scope:
-          data.leaveType === "compassionate" ? data.compassionateScope ?? "inside_qatar" : null,
-        attach_annual_before: data.attachAnnualBefore ?? 0,
-        attach_annual_after: data.attachAnnualAfter ?? 0,
-        comp_off_balance_id: data.compOffBalanceId ?? null,
-        document_id: documentId,
-        current_step_role: openingStep,
-        payroll_impact: false,
-        request_number: requestNumber,
-        planner_override: plannerOverride,
-        planner_override_reasons: plannerOverrideReasons,
-      })
-      .select("id, request_number")
-      .single();
-    if (error) {
-      if (/duplicate|unique|hr_leave_requests_pending_exact/i.test(error.message)) {
-        throw new Error(
-          "A pending leave request already exists for these dates. Open Approve / Request instead of submitting again.",
-        );
-      }
-      throw error;
-    }
 
-    await seedLeaveApprovalSteps(row.id as string, {
-      skipManagerSeat,
-      skipSiteSeat,
-      openingStep,
-    });
+    type InsertLeavePart = {
+      leaveType: (typeof HR_LEAVE_TYPES)[number];
+      dateFrom: string;
+      dateTo: string;
+      partDays: number;
+      approvalProfile: "default" | "hr_then_gm";
+      policyMeta: Record<string, unknown>;
+      reasonExtra?: string | null;
+    };
 
-    if (finalizeNow) {
-      await supabaseAdmin
-        .from("hr_leave_approvals")
-        .update({
-          status: "approved",
-          acted_by: context.userId,
-          acted_at: new Date().toISOString(),
-          comments: teamNote,
+    /** One leave row + approval seats. HR→GM never team-finalizes. */
+    async function insertLeavePart(part: InsertLeavePart): Promise<{
+      id: string;
+      requestNumber: string;
+      openingStep: HrLeaveApprovalRole | null;
+      finalized: boolean;
+      syncedDays: number;
+    }> {
+      const useHrGm = part.approvalProfile === "hr_then_gm";
+      const partFinalize = finalizeNow && !useHrGm;
+      const partOpening: HrLeaveApprovalRole | null = partFinalize
+        ? null
+        : useHrGm
+          ? "hr"
+          : openingStep;
+      const requestNumber = await nextLeaveRequestNumber(context);
+      const partReason = [reason, part.reasonExtra].filter(Boolean).join(" ") || null;
+      const { data: inserted, error: insertErr } = await leaveDb
+        .from("hr_leave_requests")
+        .insert({
+          staff_id: staff.id,
+          leave_type: part.leaveType,
+          date_from: part.dateFrom,
+          date_to: part.dateTo,
+          days: part.partDays,
+          reason: partReason,
+          status: "pending",
+          created_by: context.userId,
+          emergency_treatment:
+            part.leaveType === "emergency" ? data.emergencyTreatment ?? "unpaid" : null,
+          maternity_delivery_date:
+            part.leaveType === "maternity" ? data.maternityDeliveryDate ?? null : null,
+          compassionate_scope:
+            part.leaveType === "compassionate" ? data.compassionateScope ?? "inside_qatar" : null,
+          attach_annual_before: data.attachAnnualBefore ?? 0,
+          attach_annual_after: data.attachAnnualAfter ?? 0,
+          comp_off_balance_id: data.compOffBalanceId ?? null,
+          document_id: documentId,
+          current_step_role: partOpening,
+          payroll_impact: false,
+          request_number: requestNumber,
+          planner_override: plannerOverride,
+          planner_override_reasons: plannerOverrideReasons,
+          policy_meta: part.policyMeta,
         })
-        .eq("leave_id", row.id)
-        .neq("status", "skipped");
-      const synced = await finalizeLeaveApproval(
-        context,
-        {
-          id: String(row.id),
-          staff_id: String(staff.id),
-          leave_type: data.leaveType,
-          date_from: data.dateFrom,
-          date_to: data.dateTo,
-          request_number: (row.request_number as string | null) ?? requestNumber,
-          staff: {
-            full_name: staff.full_name,
-            user_id: staff.user_id,
-            location_id: staff.location_id,
+        .select("id, request_number")
+        .single();
+      if (insertErr) {
+        if (/duplicate|unique|hr_leave_requests_pending_exact/i.test(insertErr.message)) {
+          throw new Error(
+            "A pending leave request already exists for these dates. Open Approve / Request instead of submitting again.",
+          );
+        }
+        // policy_meta column may be missing before migration — retry without it.
+        if (/policy_meta|schema cache/i.test(insertErr.message)) {
+          const { data: retryRow, error: retryErr } = await leaveDb
+            .from("hr_leave_requests")
+            .insert({
+              staff_id: staff.id,
+              leave_type: part.leaveType,
+              date_from: part.dateFrom,
+              date_to: part.dateTo,
+              days: part.partDays,
+              reason: partReason,
+              status: "pending",
+              created_by: context.userId,
+              emergency_treatment:
+                part.leaveType === "emergency" ? data.emergencyTreatment ?? "unpaid" : null,
+              maternity_delivery_date:
+                part.leaveType === "maternity" ? data.maternityDeliveryDate ?? null : null,
+              compassionate_scope:
+                part.leaveType === "compassionate" ? data.compassionateScope ?? "inside_qatar" : null,
+              attach_annual_before: data.attachAnnualBefore ?? 0,
+              attach_annual_after: data.attachAnnualAfter ?? 0,
+              comp_off_balance_id: data.compOffBalanceId ?? null,
+              document_id: documentId,
+              current_step_role: partOpening,
+              payroll_impact: false,
+              request_number: requestNumber,
+              planner_override: plannerOverride,
+              planner_override_reasons: plannerOverrideReasons,
+            })
+            .select("id, request_number")
+            .single();
+          if (retryErr) throw retryErr;
+          await seedLeaveApprovalSteps(retryRow.id as string, {
+            skipManagerSeat,
+            skipSiteSeat,
+            openingStep: partOpening,
+            approvalProfile: part.approvalProfile,
+          });
+          return {
+            id: String(retryRow.id),
+            requestNumber: String(retryRow.request_number ?? requestNumber),
+            openingStep: partOpening,
+            finalized: false,
+            syncedDays: 0,
+          };
+        }
+        throw insertErr;
+      }
+
+      await seedLeaveApprovalSteps(inserted.id as string, {
+        skipManagerSeat,
+        skipSiteSeat,
+        openingStep: partOpening,
+        approvalProfile: part.approvalProfile,
+      });
+
+      if (partFinalize) {
+        await supabaseAdmin
+          .from("hr_leave_approvals")
+          .update({
+            status: "approved",
+            acted_by: context.userId,
+            acted_at: new Date().toISOString(),
+            comments: teamNote,
+          })
+          .eq("leave_id", inserted.id)
+          .neq("status", "skipped");
+        const synced = await finalizeLeaveApproval(
+          context,
+          {
+            id: String(inserted.id),
+            staff_id: String(staff.id),
+            leave_type: part.leaveType,
+            date_from: part.dateFrom,
+            date_to: part.dateTo,
+            request_number: (inserted.request_number as string | null) ?? requestNumber,
+            staff: {
+              full_name: staff.full_name,
+              user_id: staff.user_id,
+              location_id: staff.location_id,
+            },
           },
-        },
-        teamNote,
-        false,
-      );
+          teamNote,
+          false,
+        );
+        return {
+          id: String(inserted.id),
+          requestNumber: String(inserted.request_number ?? requestNumber),
+          openingStep: null,
+          finalized: true,
+          syncedDays: synced.syncedDays,
+        };
+      }
+
       return {
-        id: row.id as string,
-        requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
-        days,
-        conflicts,
-        requiresAck: false as const,
-        blocked: false as const,
-        plannerBlocked: false as const,
-        plannerReasons: [] as string[],
-        plannerCodes: [] as string[],
-        plannerOverride,
-        finalized: true as const,
-        openingStep: null as string | null,
-        syncedDays: synced.syncedDays,
+        id: String(inserted.id),
+        requestNumber: String(inserted.request_number ?? requestNumber),
+        openingStep: partOpening,
+        finalized: false,
+        syncedDays: 0,
       };
     }
 
-    let firstUserIds: string[] = [];
-    if (directory && openingStep) {
-      firstUserIds = leaveApproverUserIdsForStep(directory, openingStep, {
-        locationId: (staff.location_id as string | null) ?? "",
-        staffId: staff.id as string,
-        requestedBy: context.userId,
-        requesterStaffId: staff.id as string,
+    // Auto-split sick → annual when quota exhausted (clear UX: two linked requests).
+    const parts: InsertLeavePart[] = [];
+    if (sickSplit?.requiresAnnualFollowOn) {
+      if (sickSplit.sickDays > 0 && sickSplit.sickDateFrom && sickSplit.sickDateTo) {
+        parts.push({
+          leaveType: "sick",
+          dateFrom: sickSplit.sickDateFrom,
+          dateTo: sickSplit.sickDateTo,
+          partDays: sickSplit.sickDays,
+          approvalProfile: "default",
+          policyMeta: {
+            sick_annual_split: true,
+            portion: "sick",
+            remaining_sick_before: sickSplit.remainingSickBefore,
+          },
+          reasonExtra: "Sick portion (within annual sick quota).",
+        });
+      }
+      if (sickSplit.annualDays > 0 && sickSplit.annualDateFrom && sickSplit.annualDateTo) {
+        // Sandwich still applies to the annual follow-on block.
+        if (tierCfg.sandwichBlockSubmit) {
+          const lookup = await loadWeeklyOffLookupForLeave(
+            String(staff.id),
+            sickSplit.annualDateFrom,
+            sickSplit.annualDateTo,
+            (staff as { weekly_off_weekday?: number | null }).weekly_off_weekday,
+          );
+          const sandwich = detectAnnualLeaveSandwich({
+            dateFrom: sickSplit.annualDateFrom,
+            dateTo: sickSplit.annualDateTo,
+            lookup,
+          });
+          if (sandwich.isSandwich) {
+            return {
+              id: null as string | null,
+              days,
+              conflicts,
+              requiresAck: false as const,
+              blocked: true as const,
+              plannerBlocked: false as const,
+              sandwichBlocked: true as const,
+              sandwichPrefixDates: sandwich.prefixOffDates,
+              sandwichSuffixDates: sandwich.suffixOffDates,
+              plannerReasons: [] as string[],
+              plannerCodes: [] as string[],
+              finalized: false as const,
+              openingStep: null as string | null,
+            };
+          }
+        }
+        parts.push({
+          leaveType: "annual",
+          dateFrom: sickSplit.annualDateFrom,
+          dateTo: sickSplit.annualDateTo,
+          partDays: sickSplit.annualDays,
+          approvalProfile: "hr_then_gm",
+          policyMeta: {
+            sick_annual_split: true,
+            portion: "annual_follow_on",
+            remaining_sick_before: sickSplit.remainingSickBefore,
+            approval_profile: "hr_then_gm",
+            requires_medical_docs: true,
+          },
+          reasonExtra:
+            "Annual follow-on after sick quota exhausted — medical docs attached; approval HR → GM.",
+        });
+      }
+    } else {
+      parts.push({
+        leaveType: data.leaveType,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        partDays: days,
+        approvalProfile: "default",
+        policyMeta: {},
       });
-    } else if (openingStep === "site") {
-      firstUserIds = employeeRoute.siteUserIds;
-    } else if (openingStep === "manager") {
-      firstUserIds = employeeRoute.managerUserIds;
     }
-    await notifyLeaveWaitingOnStep({
-      leaveId: row.id as string,
-      staffName: staff.full_name,
-      dateFrom: data.dateFrom,
-      locationId: staff.location_id,
-      requestNumber: (row.request_number as string | null) ?? requestNumber,
-      stepRole: openingStep ?? "manager",
-      opsLane,
-      userIds: firstUserIds,
-    });
+
+    const created: Array<{
+      id: string;
+      requestNumber: string;
+      openingStep: HrLeaveApprovalRole | null;
+      finalized: boolean;
+      syncedDays: number;
+      leaveType: string;
+    }> = [];
+    for (const part of parts) {
+      const row = await insertLeavePart(part);
+      created.push({ ...row, leaveType: part.leaveType });
+    }
+
+    // Link split siblings in policy_meta when both exist.
+    if (created.length === 2) {
+      const [a, b] = created;
+      await supabaseAdmin
+        .from("hr_leave_requests")
+        .update({
+          policy_meta: {
+            sick_annual_split: true,
+            portion: a.leaveType === "sick" ? "sick" : "annual_follow_on",
+            linked_leave_id: b.id,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", a.id)
+        .then(() => undefined)
+        .catch(() => undefined);
+      await supabaseAdmin
+        .from("hr_leave_requests")
+        .update({
+          policy_meta: {
+            sick_annual_split: true,
+            portion: b.leaveType === "sick" ? "sick" : "annual_follow_on",
+            linked_leave_id: a.id,
+            approval_profile: b.leaveType === "annual" ? "hr_then_gm" : undefined,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", b.id)
+        .then(() => undefined)
+        .catch(() => undefined);
+    }
+
+    const primary = created[0];
+    if (!primary) throw new Error("Leave submit produced no request.");
+
+    // Notify opening seat for each non-finalized part.
+    for (const row of created) {
+      if (row.finalized || !row.openingStep) continue;
+      let firstUserIds: string[] = [];
+      if (directory && row.openingStep) {
+        firstUserIds = leaveApproverUserIdsForStep(directory, row.openingStep, {
+          locationId: (staff.location_id as string | null) ?? "",
+          staffId: staff.id as string,
+          requestedBy: context.userId,
+          requesterStaffId: staff.id as string,
+        });
+      } else if (row.openingStep === "site") {
+        firstUserIds = employeeRoute.siteUserIds;
+      } else if (row.openingStep === "manager") {
+        firstUserIds = employeeRoute.managerUserIds;
+      }
+      await notifyLeaveWaitingOnStep({
+        leaveId: row.id,
+        staffName: staff.full_name,
+        dateFrom: data.dateFrom,
+        locationId: staff.location_id,
+        requestNumber: row.requestNumber,
+        stepRole: row.openingStep,
+        opsLane,
+        userIds: firstUserIds,
+      });
+    }
+
+    const anyFinalized = created.some((c) => c.finalized);
+    const syncedDays = created.reduce((n, c) => n + c.syncedDays, 0);
     return {
-      id: row.id as string,
-      requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
+      id: primary.id,
+      requestNumber: primary.requestNumber,
       days,
       conflicts,
       requiresAck: false as const,
       blocked: false as const,
       plannerBlocked: false as const,
+      sandwichBlocked: false as const,
       plannerReasons: [] as string[],
       plannerCodes: [] as string[],
       plannerOverride,
-      finalized: false as const,
-      openingStep: openingStep as string | null,
+      finalized: anyFinalized && created.every((c) => c.finalized),
+      openingStep: primary.openingStep as string | null,
+      syncedDays,
+      sickAnnualSplit: Boolean(sickSplit?.requiresAnnualFollowOn),
+      splitRequests: created.map((c) => ({
+        id: c.id,
+        requestNumber: c.requestNumber,
+        leaveType: c.leaveType,
+        openingStep: c.openingStep,
+      })),
     };
   },
   { auth: { capability: "hr.employee_app" } },
@@ -1760,6 +2185,19 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
         );
       }
     }
+    if (stepRole === "gm") {
+      // Sick→annual follow-on terminal seat. Sr. Site / HoO titles must not clear it.
+      if (srSiteActor || opsTitleActor) {
+        throw new ForbiddenError("General Manager approval required for this leave path.");
+      }
+      const isGmRole = (context.roles ?? []).includes("branch_gm");
+      const title = (actorJobTitle ?? "").toLowerCase();
+      const isGmTitle =
+        title.includes("general manager") || /(^|[^a-z])gm([^a-z]|$)/i.test(title);
+      if (!isGmRole && !isGmTitle) {
+        throw new ForbiddenError("General Manager approval required.");
+      }
+    }
     if (stepRole === "manager") {
       // Title seats win — Sr. Site / HoO / F&B never clear the supervisor seat (even with manage).
       if (srSiteActor) {
@@ -1792,7 +2230,11 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
 
     if (data.action === "rejected") {
       const rejectActor: HrLeaveActor =
-        stepRole === "hr" || stepRole === "manager" || stepRole === "site" || stepRole === "ops"
+        stepRole === "hr" ||
+        stepRole === "manager" ||
+        stepRole === "site" ||
+        stepRole === "ops" ||
+        stepRole === "gm"
           ? stepRole
           : "manager";
       assertLeaveTransition("pending", "rejected", rejectActor);
@@ -1872,9 +2314,10 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
     );
     const nextRole = next ? String(next.step_role) : null;
 
-    // Ops (HoO / F&B) is terminal: sync roster leave + notify HR. Legacy hr also finalizes.
-    if (shouldFinalizeLeaveOnApprove(stepRole, nextRole) || (!next && manage)) {
-      if (next && (nextRole === "hr" || nextRole === "gm")) {
+    // Ops (HoO / F&B) is terminal on the normal ladder. GM is terminal on HR→GM.
+    // Do not skip a pending GM seat after HR (sick→annual path).
+    if (shouldFinalizeLeaveOnApprove(stepRole, nextRole) || (!next && manage && stepRole !== "hr")) {
+      if (next && nextRole === "hr" && stepRole === "ops") {
         const { error: skipErr } = await leaveDb
           .from("hr_leave_approvals")
           .update({
@@ -1886,6 +2329,7 @@ export const actOnLeaveApproval = createSafeAuthenticatedAction(
           .eq("id", next.id);
         if (skipErr) throw skipErr;
       }
+      // Never skip GM after ops/hr — only ops→legacy hr notify seat is skipped.
       const result = await finalizeLeaveApproval(
         context,
         existing as {
@@ -2398,4 +2842,19 @@ export const listEmployeeTimeline = createAuthenticatedAction(
       ],
     },
   },
+);
+
+/**
+ * Phase 4 skeleton — dry-run parse of a verified leave-balance CSV.
+ * Does not invent or write balances. Apply via upsertLeaveBalance after HR confirms.
+ */
+export const dryRunLeaveBalanceImport = createAuthenticatedAction(
+  z.object({
+    csvText: z.string().min(1).max(2_000_000),
+  }),
+  async (data) => {
+    const { dryRunLeaveBalanceCsv } = await import("@/lib/hr-leave-balance-import");
+    return dryRunLeaveBalanceCsv(data.csvText);
+  },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.manage"] } },
 );

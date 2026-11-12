@@ -172,6 +172,9 @@ export function leaveApproverUserIdsForStep(
   if (step === "hr") {
     return [...directory.hrUserIds];
   }
+  if (step === "gm") {
+    return [...(directory.generalManagerUserIds ?? [])];
+  }
   return [];
 }
 

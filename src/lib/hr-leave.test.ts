@@ -116,11 +116,16 @@ describe("leave status transitions", () => {
     expect(shouldFinalizeLeaveOnApprove("ops", "hr")).toBe(true);
     expect(shouldFinalizeLeaveOnApprove("site", "ops")).toBe(false);
     expect(shouldFinalizeLeaveOnApprove("manager", "site")).toBe(false);
+    // Sick→annual: HR advances to GM; GM finalizes.
+    expect(shouldFinalizeLeaveOnApprove("hr", "gm")).toBe(false);
+    expect(shouldFinalizeLeaveOnApprove("gm", null)).toBe(true);
+    expect(shouldFinalizeLeaveOnApprove("hr", null)).toBe(true);
     expect(leaveStepSeatLabel("manager")).toBe("Supervisor");
     expect(leaveStepSeatLabel("site")).toBe("Sr. Site Supervisor");
     expect(leaveStepSeatLabel("ops")).toBe("Head of Operations");
     expect(leaveStepSeatLabel("ops", { opsLane: "fnb_manager" })).toBe("F&B Manager");
     expect(leaveStepSeatLabel("hr")).toBe("HR");
+    expect(leaveStepSeatLabel("gm")).toBe("General Manager");
     expect(isLeaveSiteStepActor("Sr. Site Supervisor")).toBe(true);
     expect(isLeaveSiteStepActor("Site Supervisor")).toBe(false);
     // Legacy manager→ops: first seat was Sr. Site — trail must not say Supervisor.

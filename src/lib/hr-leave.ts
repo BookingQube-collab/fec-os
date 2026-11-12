@@ -29,9 +29,10 @@ export type HrLeaveStatus = (typeof HR_LEAVE_STATUSES)[number];
 
 /**
  * Leave seats: manager (line / Venue supervisor) → site (Sr. Site) → ops (HoO / F&B).
- * `hr` remains for legacy in-flight rows only (notify-only on the ops-final ladder).
+ * `hr` remains for legacy in-flight rows (notify-only on the ops-final ladder).
+ * `gm` is the terminal seat on the sick→annual follow-on path (HR → GM).
  */
-export const HR_LEAVE_APPROVAL_ROLES = ["manager", "site", "ops", "hr"] as const;
+export const HR_LEAVE_APPROVAL_ROLES = ["manager", "site", "ops", "hr", "gm"] as const;
 export type HrLeaveApprovalRole = (typeof HR_LEAVE_APPROVAL_ROLES)[number];
 
 export const HR_LEAVE_APPROVAL_STATUSES = ["pending", "approved", "skipped", "rejected"] as const;
@@ -43,7 +44,7 @@ export type HrEmergencyTreatment = (typeof HR_EMERGENCY_TREATMENTS)[number];
 export const HR_COMPASSIONATE_SCOPES = ["inside_qatar", "outside_qatar"] as const;
 export type HrCompassionateScope = (typeof HR_COMPASSIONATE_SCOPES)[number];
 
-export type HrLeaveActor = "employee" | "hr" | "manager" | "site" | "ops";
+export type HrLeaveActor = "employee" | "hr" | "manager" | "site" | "ops" | "gm";
 
 const TRANSITIONS: Record<HrLeaveStatus, Partial<Record<HrLeaveActor, HrLeaveStatus[]>>> = {
   pending: {
@@ -52,6 +53,7 @@ const TRANSITIONS: Record<HrLeaveStatus, Partial<Record<HrLeaveActor, HrLeaveSta
     manager: ["rejected"],
     site: ["rejected"],
     ops: ["rejected"],
+    gm: ["approved", "rejected"],
   },
   approved: {},
   rejected: {},
@@ -145,14 +147,17 @@ export function leaveTeamSubmitOpening(input: {
 
 /**
  * HoO / F&B approval writes attendance_leave_records (roster leave codes) and finishes
- * the request. Legacy `hr` seats still finalize when reached.
- * Attendance must not wait on an HR signature seat.
+ * the request. GM is terminal on the sick→annual HR→GM path.
+ * Legacy `hr` finalizes only when nothing follows (do not skip a pending GM seat).
+ * Attendance must not wait on an HR signature seat on the normal ops ladder.
  */
 export function shouldFinalizeLeaveOnApprove(
   stepRole: HrLeaveApprovalRole | string,
   nextStepRole: string | null | undefined,
 ): boolean {
-  if (stepRole === "ops" || stepRole === "hr") return true;
+  if (stepRole === "ops" || stepRole === "gm") return true;
+  if (stepRole === "hr" && nextStepRole === "gm") return false;
+  if (stepRole === "hr" && !nextStepRole) return true;
   if (!nextStepRole) return true;
   return false;
 }
@@ -259,6 +264,7 @@ export function leaveStepSeatLabel(
     return opts?.opsLane === "fnb_manager" ? "F&B Manager" : "Head of Operations";
   }
   if (stepRole === "hr") return "HR";
+  if (stepRole === "gm") return "General Manager";
   return "Supervisor";
 }
 

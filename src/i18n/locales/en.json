@@ -10749,6 +10749,13 @@
       "noAccess": "You cannot review leave requests.",
       "conflictWarn": "This leave overlaps attendance or a public holiday.",
       "overlapBlocked": "Overlapping leave requests are not allowed.",
+      "sandwichBlocked": "Weekly OFF both before and after annual leave is not allowed (sandwich). Adjust dates so OFF is only before or only after leave.",
+      "sandwichHelp": "Prefix OFF or suffix OFF with annual leave is allowed. Combining both (OFF + annual + OFF) is blocked on submit.",
+      "sickAnnualSplitHint": "Sick quota used — remaining days submitted as annual leave (HR → GM) with your medical document.",
+      "sickQuotaExhaustedDocs": "Medical documents are required when sick leave quota is exhausted and absence continues on annual leave.",
+      "tierUnder5y": "Under 5 years from DOJ — 21 days/year (1.75/month)",
+      "tier5yPlus": "5+ years from DOJ — 28 days/year (2.33/month)",
+      "tierManagement": "Management staff — 30 days/year (2.50/month)",
       "emergencyTreatment": "Emergency treatment",
       "emergencyTreatments": {
         "deduct_annual": "Deduct from annual",
@@ -10780,6 +10787,7 @@
       "carriedForward": "Carried forward",
       "carriedLabel": "{{days}} carried forward",
       "accrualHint": "Annual accrued {{accrued}}d over {{months}} mo (hire {{hire}})",
+      "accrualTierHint": "Tier {{tier}} · {{fullYear}}d/year ({{monthly}}/mo)",
       "saveBalance": "Save allotment",
       "balanceSaved": "Leave balance saved",
       "remaining": "{{remaining}} left ({{used}} used of {{allotted}})",
@@ -10800,7 +10808,8 @@
         "site": "Sr. Site Supervisor",
         "ops": "Head of Operations",
         "opsFnb": "F&B Manager",
-        "hr": "HR verification"
+        "hr": "HR verification",
+        "gm": "General Manager"
       },
       "status": {
         "pending": "Pending",

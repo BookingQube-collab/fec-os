@@ -18,7 +18,7 @@ import {
 } from "@/lib/hr-leave-routing";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 
-const LEAVE_STEPS = new Set<HrLeaveApprovalRole>(["manager", "site", "ops", "hr"]);
+const LEAVE_STEPS = new Set<HrLeaveApprovalRole>(["manager", "site", "ops", "hr", "gm"]);
 
 /**
  * Roles that already approve a punch step somewhere in the chain.
@@ -35,12 +35,13 @@ function asRoles(roles: readonly string[]): AppRole[] {
  * line / Venue supervisor at manager,
  * Sr. Site Supervisor at site,
  * Head of Operations (Operations) or F&B Manager (F&B) at ops (terminal),
- * and hr.leave.manage only for legacy hr seats.
+ * and hr.leave.manage only for legacy hr seats; branch_gm / General Manager title for gm.
  * A person does not approve their own request from this page.
  *
  * Title seats win over manage: Sr. Site with branch_gm (hr.leave.manage) still
  * only acts on the site step; HoO / F&B with regional_ops manage only act on ops —
  * manage must not clear Supervisor, Sr. Site, or the wrong ops lane.
+ * Exception: when the pending seat is `gm`, branch_gm may act (sick→annual path).
  */
 export function canApproveLeaveOnMyDay(input: {
   roles: readonly string[];
@@ -60,6 +61,13 @@ export function canApproveLeaveOnMyDay(input: {
   const step = input.stepRole as HrLeaveApprovalRole;
   const srSite = isLeaveSiteStepActor(input.jobTitle);
   const opsTitle = isLeaveOpsStepActor(input.jobTitle, input.department);
+  // GM seat (sick→annual) — branch_gm role or General Manager title; not Sr. Site / HoO title seats.
+  if (step === "gm") {
+    if (srSite || opsTitle) return false;
+    if (roles.includes("branch_gm")) return true;
+    const title = (input.jobTitle ?? "").toLowerCase();
+    return title.includes("general manager") || /(^|[^a-z])gm([^a-z]|$)/i.test(title);
+  }
   // Title seats are exclusive — manage / approve_manager must not unlock other seats.
   if (srSite) {
     return step === "site";
@@ -99,6 +107,19 @@ export function mayReviewStaffLeaveOnMyDay(input: {
   if (isLeaveSiteStepActor(input.jobTitle)) return true;
   // Venue / line Supervisor holds the manager seat (team may be under Team Leads).
   if (isLeaveLineSupervisorTitle(input.jobTitle, input.staffRole)) return true;
+  // GM seat for sick→annual follow-on.
+  if (
+    canApproveLeaveOnMyDay({
+      roles: input.roles,
+      stepRole: "gm",
+      isOwnRequest: false,
+      isLineManager: false,
+      jobTitle: input.jobTitle,
+      department: input.department,
+    })
+  ) {
+    return true;
+  }
   return canApproveLeaveOnMyDay({
     roles: input.roles,
     stepRole: "manager",

@@ -660,6 +660,17 @@ export function HrLeaveWorkspace({
                     months: balances.data.accrual.monthsAccrued,
                     hire: balances.data.accrual.hireDate ?? "—",
                   })}
+                  {"tierCode" in balances.data.accrual && balances.data.accrual.tierCode ? (
+                    <>
+                      {" · "}
+                      {t("hr.leave.accrualTierHint", {
+                        tier: String(balances.data.accrual.tierCode),
+                        fullYear: balances.data.accrual.tierAnnualDays ?? balances.data.accrual.fullYearDays,
+                        monthly: balances.data.accrual.monthlyAccrual ?? "—",
+                        defaultValue: `Tier ${balances.data.accrual.tierCode} · ${balances.data.accrual.tierAnnualDays ?? balances.data.accrual.fullYearDays}d/year`,
+                      })}
+                    </>
+                  ) : null}
                 </p>
               ) : null}
               {balances.data?.balances?.length ? (

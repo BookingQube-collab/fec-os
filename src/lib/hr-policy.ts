@@ -32,6 +32,23 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
   leave: {
     sick_days: 15,
     annual_days: 21,
+    /** Tiered annual entitlement (see hr-leave-policy.ts). Management wins over tenure. */
+    annual_days_under_5y: 21,
+    annual_days_5y_plus: 28,
+    annual_days_management: 30,
+    annual_tenure_years_threshold: 5,
+    /** Block OFF+AL+OFF sandwich on submit (safer than silent deduct). */
+    sandwich_block_submit: true,
+    management_title_keywords: [
+      "manager",
+      "director",
+      "general manager",
+      "gm",
+      "head of",
+      "hoo",
+      "head of operations",
+      "chief",
+    ],
     annual_from_hire_date: true,
     emergency_days: 7,
     emergency_min_days: 1,
