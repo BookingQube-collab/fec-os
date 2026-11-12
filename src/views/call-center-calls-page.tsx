@@ -21,10 +21,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  exportCallCenterCdrCsv,
   generateCallCenterTranscriptStub,
   loadCallCenterCdr,
   loadCallCenterConfigBundle,
+  loadCallCenterTagCatalog,
   saveCallCenterAgentNotes,
+  saveCallCenterCallTags,
   saveCallCenterTranscript,
 } from "@/lib/call-center/call-center.functions";
 import type { CallCenterCall } from "@/lib/call-center/types";
@@ -64,6 +67,7 @@ function CallCenterCallsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftTranscript, setDraftTranscript] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
+  const [draftTags, setDraftTags] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
 
   const config = useQuery({
@@ -73,6 +77,16 @@ function CallCenterCallsPage() {
       const result = await loadCallCenterConfigBundle({});
       if (!result.ok) throw new Error(result.error);
       return result.data;
+    },
+  });
+
+  const tagsCatalog = useQuery({
+    queryKey: ["call-center", "tags"],
+    enabled: canUse,
+    queryFn: async () => {
+      const result = await loadCallCenterTagCatalog({});
+      if (!result.ok) throw new Error(result.error);
+      return result.data.tags.filter((tag) => tag.isActive);
     },
   });
 
@@ -157,6 +171,35 @@ function CallCenterCallsPage() {
     setExpandedId((id) => (id === call.id ? null : call.id));
     setDraftTranscript(call.transcriptText || "");
     setDraftNotes(call.agentNotes || "");
+    setDraftTags(call.tags ?? []);
+  }
+
+  async function onExportCsv() {
+    setPending(true);
+    const result = await exportCallCenterCdrCsv({
+      fromDate: applied.fromDate || null,
+      toDate: applied.toDate || null,
+      queueId: applied.queueId || null,
+      direction:
+        applied.direction === "inbound" ||
+        applied.direction === "outbound" ||
+        applied.direction === "internal_test"
+          ? applied.direction
+          : null,
+    });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    const blob = new Blob([result.data.csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `call-center-cdr-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(t("callCenter.csvExported", { count: result.data.count }));
   }
 
   async function onGenerateStub(callId: string) {
@@ -292,6 +335,9 @@ function CallCenterCallsPage() {
         >
           {t("callCenter.applyFilters")}
         </Button>
+        <Button type="button" variant="outline" disabled={pending} onClick={() => void onExportCsv()}>
+          {t("callCenter.exportCsv")}
+        </Button>
       </section>
 
       {cdr.isLoading ? (
@@ -381,6 +427,58 @@ function CallCenterCallsPage() {
                       >
                         {t("callCenter.saveNotes")}
                       </Button>
+                      <div className="pt-2">
+                        <p className="text-xs font-medium text-foreground">{t("callCenter.callTags")}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(tagsCatalog.data ?? []).map((tag) => {
+                            const on = draftTags.includes(tag.name);
+                            return (
+                              <button
+                                key={tag.id}
+                                type="button"
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1 text-xs font-medium",
+                                  on
+                                    ? "border-foreground/20 bg-foreground text-background"
+                                    : "border-border bg-card text-muted-foreground",
+                                )}
+                                style={on ? undefined : { borderColor: tag.color }}
+                                onClick={() =>
+                                  setDraftTags((prev) =>
+                                    on ? prev.filter((x) => x !== tag.name) : [...prev, tag.name],
+                                  )
+                                }
+                              >
+                                {tag.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="mt-2"
+                          disabled={pending}
+                          onClick={() => {
+                            void (async () => {
+                              setPending(true);
+                              const result = await saveCallCenterCallTags({
+                                callId: call.id,
+                                tags: draftTags,
+                              });
+                              setPending(false);
+                              if (!result.ok) {
+                                toast.error(result.error);
+                                return;
+                              }
+                              toast.success(t("callCenter.tagsSaved"));
+                              await queryClient.invalidateQueries({ queryKey: ["call-center", "cdr"] });
+                            })();
+                          }}
+                        >
+                          {t("callCenter.saveTags")}
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-foreground">

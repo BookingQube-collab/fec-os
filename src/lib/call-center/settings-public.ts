@@ -46,5 +46,15 @@ export function toPublicSettings(
       row?.after_hours_greeting?.trim() ||
       "We are currently closed. Please leave a message or call back during business hours.",
     afterHoursAction: row?.after_hours_action ?? "voicemail",
+    welcomeGreeting:
+      row?.welcome_greeting?.trim() ||
+      "Thank you for calling. Please hold while we connect you.",
+    welcomeAudioUrl: row?.welcome_audio_url?.trim() ?? "",
+    holdMusicUrl: row?.hold_music_url?.trim() ?? "",
+    ttsEnabled: Boolean(row?.tts_enabled),
+    ttsVoice: row?.tts_voice?.trim() || "en-US-Neural2-A",
+    ttsGreetingText:
+      row?.tts_greeting_text?.trim() ||
+      "Welcome. Press a digit from the menu or stay on the line.",
   };
 }

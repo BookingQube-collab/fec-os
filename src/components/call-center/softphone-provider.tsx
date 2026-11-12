@@ -27,9 +27,12 @@ import {
   setCallCenterRecording,
   holdCallCenterCall,
   loadCallCenterAgentWorkspace,
+  loadCallCenterParkedCalls,
   loadCallCenterWallboard,
+  parkCallCenterCall,
   placeCallCenterOutbound,
   pollCallCenterIncoming,
+  retrieveCallCenterParkedCall,
   saveCallCenterAgentNotes,
   saveCallCenterSpeedDial,
   sendCallCenterDtmf,
@@ -94,6 +97,9 @@ type SoftphoneContextValue = {
   onDecline: () => Promise<void>;
   onHangup: () => Promise<void>;
   onHoldToggle: () => Promise<void>;
+  onPark: () => Promise<void>;
+  onRetrieveParked: (callId: string) => Promise<void>;
+  parkedCalls: CallCenterCall[];
   onDtmf: (digit: string) => Promise<void>;
   onTransfer: (type: "cold" | "warm", target: string) => Promise<void>;
   onSaveNotes: () => Promise<void>;
@@ -169,6 +175,17 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
+  });
+
+  const parkedQuery = useQuery({
+    queryKey: ["call-center", "parked"],
+    enabled: canUse,
+    queryFn: async () => {
+      const result = await loadCallCenterParkedCalls({});
+      if (!result.ok) throw new Error(result.error);
+      return result.data.calls;
+    },
+    refetchInterval: canUse ? 8_000 : false,
   });
 
   const wallboard = useQuery({
@@ -428,6 +445,40 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     setActiveCall(result.data);
   }
 
+  async function onPark() {
+    if (!activeCall) return;
+    setPending(true);
+    const result = await parkCallCenterCall({ callId: activeCall.id });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(t("callCenter.parked", { slot: result.data.parkedSlot }));
+    setActiveCall(null);
+    setMedia(null);
+    setHeld(false);
+    setMicMuted(false);
+    startAcwTimer(wrapUpRef.current);
+    await queryClient.invalidateQueries({ queryKey: ["call-center", "parked"] });
+    await refresh();
+  }
+
+  async function onRetrieveParked(callId: string) {
+    setPending(true);
+    const result = await retrieveCallCenterParkedCall({ callId });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setActiveCall(result.data);
+    setHeld(false);
+    toast.success(t("callCenter.retrieved"));
+    await queryClient.invalidateQueries({ queryKey: ["call-center", "parked"] });
+    await refresh();
+  }
+
   async function onDtmf(digit: string) {
     if (!activeCall) return;
     const result = await sendCallCenterDtmf({ callId: activeCall.id, digit });
@@ -602,6 +653,9 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     onDecline,
     onHangup,
     onHoldToggle,
+    onPark,
+    onRetrieveParked,
+    parkedCalls: parkedQuery.data ?? [],
     onDtmf,
     onTransfer,
     onSaveNotes,

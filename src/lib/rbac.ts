@@ -378,13 +378,14 @@ export const CAPABILITIES = {
 
   // Call Center softphone + queues (Telnyx / LiveKit SIP BYO).
   // view: agents who can open /call-center. Admin config uses admin.view.
+  // tech_supervisor included so site leads can wallboard / dial when needed.
   "call_center.view": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
-    "hr", "customer_service",
+    "tech_supervisor", "hr", "customer_service",
   ],
   "call_center.agent": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
-    "hr", "customer_service",
+    "tech_supervisor", "hr", "customer_service",
   ],
 
   // Training engine. Platform domain, not an HR submodule.

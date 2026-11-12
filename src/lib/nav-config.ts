@@ -113,7 +113,8 @@ export type NavDepartmentId =
   | "procurement"
   | "events"
   | "training"
-  | "ember";
+  | "ember"
+  | "call_center";
 
 export type NavAudience = "executive" | "supervisor" | "maintenance" | "all";
 
@@ -240,6 +241,75 @@ const EMBER_NAV_ITEMS: NavItem[] = [
   ]),
 ];
 
+/** Call Center product — own rail department so it is not buried under Operations. */
+const CALL_CENTER_SECTION = {
+  agent: "nav.callCenterSectionAgent",
+  admin: "nav.callCenterSectionAdmin",
+} as const;
+
+const CALL_CENTER_NAV_ITEMS: NavItem[] = [
+  ...withSection(CALL_CENTER_SECTION.agent, [
+    {
+      href: "/call-center",
+      labelKey: "nav.callCenter",
+      icon: Headphones,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+    {
+      href: "/call-center/live",
+      labelKey: "nav.callCenterLive",
+      icon: Radio,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+    {
+      href: "/call-center/calls",
+      labelKey: "nav.callCenterCalls",
+      icon: Phone,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+    {
+      href: "/call-center/contacts",
+      labelKey: "nav.callCenterContacts",
+      icon: Users,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+    {
+      href: "/call-center/voicemail",
+      labelKey: "nav.callCenterVoicemail",
+      icon: Phone,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+  ]),
+  ...withSection(CALL_CENTER_SECTION.admin, [
+    {
+      href: "/call-center/queues",
+      labelKey: "nav.callCenterQueues",
+      icon: ListChecks,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+    {
+      href: "/call-center/analytics",
+      labelKey: "nav.callCenterAnalytics",
+      icon: BarChart3,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+    {
+      href: "/call-center/settings",
+      labelKey: "nav.callCenterSettings",
+      icon: Settings,
+      capability: "call_center.view",
+      departmentId: "call_center",
+    },
+  ]),
+];
+
 /** Own My day entry. Attendance, roster, leave, issues, documents, payslips, and KRA stay inside the page. */
 export const EMPLOYEE_SECTION_NAV: Array<NavItem> = [
   { href: "/hr/me", labelKey: "nav.hrMyDay", icon: UserRound, capability: "hr.employee_app" },
@@ -284,8 +354,9 @@ const EMPLOYEE_FLAT_RAIL: NavItem[] = [
   { href: "/procurement/my-requests", labelKey: "nav.procurementMyRequests", icon: Wallet, capability: "procurement.create" },
 ];
 
-/** Training and HR help desk for employee-home roles that still use the department rail. */
+/** Training, Call Center, and HR help desk for employee-home roles that still use the department rail. */
 const EMPLOYEE_PINNED_RAIL: NavItem[] = [
+  { href: "/call-center", labelKey: "nav.callCenter", icon: Headphones, capability: "call_center.view" },
   { href: "/training/learning", labelKey: "nav.trainingLearning", icon: GraduationCap, capability: "training.learn" },
   { href: "/people/hr/helpdesk", labelKey: "nav.hrHelpdesk", icon: LifeBuoy, capability: "hr.employee_app" },
 ];
@@ -591,7 +662,6 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
         { href: "/notifications", labelKey: "nav.notifications", icon: Bell, capability: "notifications.view" },
         { href: "/chat", labelKey: "nav.chat", icon: MessagesSquare, capability: "chat.view" },
         { href: "/chat", labelKey: "nav.communicationHub", icon: MessagesSquare, capability: "chat.view" },
-        { href: "/call-center", labelKey: "nav.callCenter", icon: Headphones, capability: "call_center.view" },
         { href: "/profile", labelKey: "nav.myAccount", icon: UserRound, capability: "dashboard.view" },
       ]),
     ],
@@ -698,6 +768,13 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     items: EMBER_NAV_ITEMS,
   },
   {
+    id: "call_center",
+    labelKey: "nav.departments.callCenter",
+    icon: Headphones,
+    audience: ["executive", "supervisor", "all"],
+    items: CALL_CENTER_NAV_ITEMS,
+  },
+  {
     id: "compliance",
     labelKey: "nav.departments.compliance",
     icon: ShieldCheck,
@@ -788,10 +865,10 @@ const ADMIN_RAIL_HREF = "/admin";
 
 /** One representative href per department — rail construction also unique-by-departmentId. */
 const PRIMARY_RAIL_ORDER: Record<NavAudience, string[]> = {
-  executive: ["/", "/people", "/admin", "/revenue", "/events", "/ember", "/maintenance", "/procurement"],
-  supervisor: ["/", "/people", "/events", "/ember", "/maintenance", "/procurement", "/inventory", "/admin"],
+  executive: ["/", "/people", "/call-center", "/admin", "/events", "/ember", "/maintenance", "/procurement"],
+  supervisor: ["/", "/people", "/call-center", "/events", "/ember", "/maintenance", "/procurement", "/admin"],
   maintenance: ["/", "/arcade", "/maintenance", "/inventory", "/ember", "/people", "/procurement", "/events"],
-  all: ["/", "/people", "/events", "/ember", "/maintenance", "/inventory", "/procurement", "/admin"],
+  all: ["/", "/people", "/call-center", "/events", "/ember", "/maintenance", "/procurement", "/admin"],
 };
 
 const EXECUTIVE_ROLES: AppRole[] = ["ceo", "coo", "cfo", "regional_ops"];
@@ -999,6 +1076,31 @@ export function getPrimaryRailNav(roles: AppRole[], actor?: NavAccessActor): Pri
       let drop = -1;
       for (let i = rail.length - 1; i >= 0; i -= 1) {
         if (rail[i]?.departmentId !== "admin") {
+          drop = i;
+          break;
+        }
+      }
+      if (drop >= 0) rail.splice(drop, 1);
+    }
+    const at = rail[0]?.href === "/" ? 1 : 0;
+    rail.splice(at, 0, pinned);
+  }
+
+  // Call Center is a product shell — pin the dialer on the main rail whenever the
+  // actor can open it, even if a custom sidebar order dropped the department.
+  const callCenterItem = NAV_ITEM_LOOKUP.get("/call-center");
+  if (
+    callCenterItem &&
+    visibleHrefs.has("/call-center") &&
+    canActorPerform(roles, "call_center.view", actor) &&
+    !rail.some((item) => item.departmentId === "call_center" || item.href === "/call-center")
+  ) {
+    const pinned: PrimaryRailItem = { ...callCenterItem, departmentId: "call_center" };
+    if (rail.length >= PRIMARY_RAIL_MAX) {
+      let drop = -1;
+      for (let i = rail.length - 1; i >= 0; i -= 1) {
+        const id = rail[i]?.departmentId;
+        if (id !== "admin" && id !== "arcade") {
           drop = i;
           break;
         }

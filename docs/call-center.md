@@ -41,7 +41,10 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | `/call-center/queues` | Queues + members CRUD |
 | `/call-center/campaigns` | Outbound campaigns + contacts + dial |
 | `/call-center/analytics` | Today metrics (volume, answer rate, AHT, agents) |
-| `/call-center/settings` | SIP/Telnyx/LiveKit, business hours, holidays, webhooks |
+| `/call-center/agents` | Agent performance + internal extensions |
+| `/call-center/contacts` | Shared phonebook / click-to-call |
+| `/call-center/blacklist` | Blocked numbers |
+| `/call-center/settings` | SIP/Telnyx/LiveKit, welcome/hold/TTS stubs, hours, holidays, webhooks |
 | `/call-center/ai` | AI first-answer + handoff flags |
 | `/call-center/whatsapp` | WhatsApp stub |
 | `/admin/call-center` | Redirects to `/call-center/settings` |
@@ -104,6 +107,14 @@ Parity migration:
 
 Adds after-hours greeting/action, CDR disposition + recording flag, queue member skills, and `call_center_voicemails`.
 
+Batch 2 migration:
+
+```bash
+#   supabase/migrations/20261112220000_call_center_maqsam_batch2.sql
+```
+
+Adds phonebook, tag catalog, blacklist, park orbit columns, agent extensions, welcome/hold/TTS settings stubs.
+
 ## Maqsam parity (Done vs Later)
 
 ### Done in FEC
@@ -122,16 +133,27 @@ Adds after-hours greeting/action, CDR disposition + recording flag, queue member
 | DID → IVR → Queue visual map | `/call-center/numbers` |
 | Campaign dial-next | `/call-center/campaigns` → Dial next contact |
 | Missed-call toast | Softphone workspace surfaces recent missed/declined |
+| Main FEC sidebar Call Center rail | Headphones icon + label on primary rail / expanded Call Center department |
+| Product shell vertical module rail | Dialer / Live / Calls / Contacts / … inside `/call-center` |
+| Phonebook + click-to-call | `/call-center/contacts` |
+| Call tags on CDR | Calls detail → tag chips → Save tags |
+| Call park / retrieve | Dialer **Park**; retrieve from park orbit strip |
+| CDR CSV export | `/call-center/calls` → Export CSV |
+| Agent performance + extensions | `/call-center/agents` — set ext, dial colleagues by extension |
+| Blocklist | `/call-center/blacklist` — inbound reject / outbound block |
+| Welcome / hold / TTS settings stubs | Settings → Welcome / hold / TTS fields |
 
 ### Later (not full Maqsam clone)
 
-- LiveKit egress auto-upload of recordings / voicemail audio
+- LiveKit egress auto-upload of recordings / voicemail audio (URLs are stored; play when set)
+- Provider-side play of welcome audio / hold music / TTS (settings stored only)
 - True multi-party conference (beyond warm-transfer consult intent)
-- Click-to-call from People / event staff directory
+- Click-to-call from People / event staff directory (Call Center phonebook is live)
 - Skill-based routing engine (skills are stored; matching not yet scored)
 - Full power dialer pacing / AMD
 - WhatsApp Meta Cloud API production channel
 - Keyword search across recordings, mobile app, concurrent multi-chat
+- Warm park transfer notifications to other agents beyond orbit strip
 
 ## Agent console UX
 

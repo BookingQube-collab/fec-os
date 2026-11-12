@@ -89,6 +89,12 @@ function CallCenterSettingsPage() {
   const [afterHoursAction, setAfterHoursAction] = useState<"voicemail" | "hangup" | "queue">(
     "voicemail",
   );
+  const [welcomeGreeting, setWelcomeGreeting] = useState("");
+  const [welcomeAudioUrl, setWelcomeAudioUrl] = useState("");
+  const [holdMusicUrl, setHoldMusicUrl] = useState("");
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsVoice, setTtsVoice] = useState("en-US-Neural2-A");
+  const [ttsGreetingText, setTtsGreetingText] = useState("");
 
   useEffect(() => {
     if (!bundle.data || hydrated) return;
@@ -98,6 +104,12 @@ function CallCenterSettingsPage() {
     setBusinessHoursEnabled(s.businessHoursEnabled);
     setAfterHoursGreeting(s.afterHoursGreeting);
     setAfterHoursAction(s.afterHoursAction);
+    setWelcomeGreeting(s.welcomeGreeting);
+    setWelcomeAudioUrl(s.welcomeAudioUrl);
+    setHoldMusicUrl(s.holdMusicUrl);
+    setTtsEnabled(s.ttsEnabled);
+    setTtsVoice(s.ttsVoice);
+    setTtsGreetingText(s.ttsGreetingText);
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
@@ -145,6 +157,12 @@ function CallCenterSettingsPage() {
       webhookOutboundUrl,
       afterHoursGreeting,
       afterHoursAction,
+      welcomeGreeting,
+      welcomeAudioUrl,
+      holdMusicUrl,
+      ttsEnabled,
+      ttsVoice,
+      ttsGreetingText,
     });
     setSaving(false);
     if (!result.ok) {
@@ -231,6 +249,54 @@ function CallCenterSettingsPage() {
               <div className="space-y-1.5">
                 <Label>{t("callCenter.outboundCallerId")}</Label>
                 <Input value={outboundCallerId} onChange={(e) => setOutboundCallerId(e.target.value)} />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
+            <h2 className="text-sm font-semibold">{t("callCenter.mediaSettings")}</h2>
+            <p className="text-xs text-muted-foreground">{t("callCenter.mediaSettingsHint")}</p>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.welcomeGreeting")}</Label>
+              <Textarea
+                rows={2}
+                value={welcomeGreeting}
+                onChange={(e) => setWelcomeGreeting(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.welcomeAudioUrl")}</Label>
+                <Input
+                  value={welcomeAudioUrl}
+                  onChange={(e) => setWelcomeAudioUrl(e.target.value)}
+                  placeholder="https://…"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.holdMusicUrl")}</Label>
+                <Input
+                  value={holdMusicUrl}
+                  onChange={(e) => setHoldMusicUrl(e.target.value)}
+                  placeholder="https://…"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">{t("callCenter.ttsEnabled")}</p>
+                <p className="text-xs text-muted-foreground">{t("callCenter.ttsHint")}</p>
+              </div>
+              <Switch checked={ttsEnabled} onCheckedChange={setTtsEnabled} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.ttsVoice")}</Label>
+                <Input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.ttsGreetingText")}</Label>
+                <Input value={ttsGreetingText} onChange={(e) => setTtsGreetingText(e.target.value)} />
               </div>
             </div>
           </section>

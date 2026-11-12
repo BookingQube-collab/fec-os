@@ -6,21 +6,25 @@ import { getCallProvider } from "@/lib/chat/call-provider";
 import { createSafeAuthenticatedAction } from "@/lib/server/create-action";
 
 import {
+  deleteBlacklistEntry,
   deleteCampaign,
   deleteCampaignContact,
   deleteDid,
   deleteHoliday,
   deleteIvrMenu,
   deleteIvrOption,
+  deletePhoneContact,
   deleteQueue,
   deleteQueueMember,
   deleteWebhookEndpoint,
+  getAgentPerformance,
   getAgentStatus,
   getAnalyticsSummary,
   getCall,
   keepSecret,
   listActiveCalls,
   listAgentStatuses,
+  listBlacklist,
   listCampaignContacts,
   listCampaigns,
   listCallsFiltered,
@@ -28,22 +32,29 @@ import {
   listHolidays,
   listIvrMenus,
   listIvrOptions,
+  listParkedCalls,
+  listPhoneContacts,
   listQueueMembers,
   listQueues,
   listRecentCalls,
   listRingingCallsForAgent,
   listSpeedDials,
+  listTagCatalog,
   listWebhookEndpoints,
   loadSettingsRow,
   saveCallAgentNotes,
   saveSettingsRow,
+  setAgentExtension,
   setAgentStatus,
   updateCall,
   deleteSpeedDial,
+  upsertBlacklistEntry,
   upsertCampaign,
   upsertCampaignContact,
   upsertDid,
   upsertHoliday,
+  upsertPhoneContact,
+  upsertTagCatalogItem,
   createVoicemail,
   listVoicemails,
   markVoicemailListened,
@@ -62,8 +73,10 @@ import {
   hangupCall,
   holdCall,
   issueAgentMediaToken,
+  parkCall,
   placeOutboundCall,
   requestTransfer,
+  retrieveParkedCall,
   routeInboundCall,
   saveCallTranscript,
   startSupervisorMonitor,
@@ -134,6 +147,12 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     webhookOutboundUrl: z.string().trim().max(500).optional(),
     afterHoursGreeting: z.string().max(2000).optional(),
     afterHoursAction: z.enum(["voicemail", "hangup", "queue"]).optional(),
+    welcomeGreeting: z.string().max(2000).optional(),
+    welcomeAudioUrl: z.string().max(1000).optional(),
+    holdMusicUrl: z.string().max(1000).optional(),
+    ttsEnabled: z.boolean().optional(),
+    ttsVoice: z.string().max(120).optional(),
+    ttsGreetingText: z.string().max(2000).optional(),
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
@@ -169,6 +188,18 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           "We are currently closed. Please leave a message or call back during business hours.",
         after_hours_action: data.afterHoursAction ?? existing?.after_hours_action ?? "voicemail",
         webhook_outbound_url: data.webhookOutboundUrl ?? existing?.webhook_outbound_url ?? "",
+        welcome_greeting:
+          data.welcomeGreeting ??
+          existing?.welcome_greeting ??
+          "Thank you for calling. Please hold while we connect you.",
+        welcome_audio_url: data.welcomeAudioUrl ?? existing?.welcome_audio_url ?? "",
+        hold_music_url: data.holdMusicUrl ?? existing?.hold_music_url ?? "",
+        tts_enabled: data.ttsEnabled ?? existing?.tts_enabled ?? false,
+        tts_voice: data.ttsVoice ?? existing?.tts_voice ?? "en-US-Neural2-A",
+        tts_greeting_text:
+          data.ttsGreetingText ??
+          existing?.tts_greeting_text ??
+          "Welcome. Press a digit from the menu or stay on the line.",
       },
       context.userId,
     );
@@ -577,7 +608,7 @@ export const refreshCallCenterMedia = createSafeAuthenticatedAction(
 
 export const placeCallCenterOutbound = createSafeAuthenticatedAction(
   z.object({
-    toE164: z.string().trim().min(4).max(20),
+    toE164: z.string().trim().min(2).max(20),
     fromE164: z.string().trim().max(20).optional(),
     campaignId: optionalUuid.optional(),
     eventId: optionalUuid.optional(),
@@ -1055,4 +1086,211 @@ export const createCallCenterTestVoicemail = createSafeAuthenticatedAction(
       promptText: data.promptText || "Test voicemail — please call back.",
     }),
   { auth: ADMIN_AUTH },
+);
+
+export const loadCallCenterContacts = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => ({ contacts: await listPhoneContacts(300) }),
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterContact = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    displayName: z.string().trim().min(1).max(160),
+    e164: z.string().trim().min(4).max(20),
+    company: z.string().max(160).optional(),
+    email: z.string().max(200).optional(),
+    notes: z.string().max(2000).optional(),
+    tags: z.array(z.string().max(40)).max(20).optional(),
+    isFavorite: z.boolean().optional(),
+  }),
+  async (data, context) =>
+    upsertPhoneContact({
+      id: data.id,
+      displayName: data.displayName,
+      e164: data.e164,
+      company: data.company,
+      email: data.email,
+      notes: data.notes,
+      tags: data.tags,
+      isFavorite: data.isFavorite,
+      createdBy: context.userId,
+    }),
+  { auth: AGENT_AUTH },
+);
+
+export const removeCallCenterContact = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data) => {
+    await deletePhoneContact(data.id);
+    return { ok: true as const };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterTagCatalog = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => ({ tags: await listTagCatalog() }),
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterTagCatalogItem = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().trim().min(1).max(40),
+    color: z.string().max(20).optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+  }),
+  async (data) =>
+    upsertTagCatalogItem({
+      id: data.id,
+      name: data.name,
+      color: data.color,
+      isActive: data.isActive,
+      sortOrder: data.sortOrder,
+    }),
+  { auth: ADMIN_AUTH },
+);
+
+export const saveCallCenterCallTags = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    tags: z.array(z.string().trim().min(1).max(40)).max(20),
+  }),
+  async (data) => updateCall(data.callId, { tags: data.tags.map((t) => t.toLowerCase()) }),
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterBlacklist = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => ({ entries: await listBlacklist() }),
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterBlacklistEntry = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    e164: z.string().trim().min(4).max(20),
+    reason: z.string().max(500).optional(),
+    isActive: z.boolean().optional(),
+  }),
+  async (data, context) =>
+    upsertBlacklistEntry({
+      id: data.id,
+      e164: data.e164,
+      reason: data.reason,
+      isActive: data.isActive,
+      createdBy: context.userId,
+    }),
+  { auth: ADMIN_AUTH },
+);
+
+export const removeCallCenterBlacklistEntry = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data) => {
+    await deleteBlacklistEntry(data.id);
+    return { ok: true as const };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const parkCallCenterCall = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    slot: z.string().trim().max(8).optional(),
+  }),
+  async (data, context) => parkCall(data.callId, context.userId, data.slot),
+  { auth: AGENT_AUTH },
+);
+
+export const retrieveCallCenterParkedCall = createSafeAuthenticatedAction(
+  z.object({ callId: z.string().uuid() }),
+  async (data, context) => retrieveParkedCall(data.callId, context.userId),
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterParkedCalls = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => ({ calls: await listParkedCalls() }),
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterAgentExtension = createSafeAuthenticatedAction(
+  z.object({ extension: z.string().trim().max(6) }),
+  async (data, context) => setAgentExtension(context.userId, data.extension),
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterAgentPerformance = createSafeAuthenticatedAction(
+  z.object({
+    fromDate: z.string().datetime().optional().nullable(),
+  }),
+  async (data) => {
+    const from =
+      data.fromDate ||
+      (() => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        return d.toISOString();
+      })();
+    return { rows: await getAgentPerformance(from) };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const exportCallCenterCdrCsv = createSafeAuthenticatedAction(
+  z.object({
+    fromDate: z.string().datetime().optional().nullable(),
+    toDate: z.string().datetime().optional().nullable(),
+    queueId: optionalUuid.optional(),
+    direction: z.enum(["inbound", "outbound", "internal_test"]).optional().nullable(),
+  }),
+  async (data) => {
+    const calls = await listCallsFiltered({
+      fromDate: data.fromDate ?? null,
+      toDate: data.toDate ?? null,
+      queueId: data.queueId ?? null,
+      direction: data.direction ?? null,
+      limit: 1000,
+    });
+    const header = [
+      "id",
+      "started_at",
+      "direction",
+      "status",
+      "from",
+      "to",
+      "agent_user_id",
+      "queue_id",
+      "talk_seconds",
+      "disposition",
+      "tags",
+      "recording_url",
+    ];
+    const lines = [
+      header.join(","),
+      ...calls.map((c) =>
+        [
+          c.id,
+          c.startedAt,
+          c.direction,
+          c.status,
+          c.fromE164,
+          c.toE164,
+          c.agentUserId ?? "",
+          c.queueId ?? "",
+          c.talkSeconds ?? "",
+          c.dispositionCode,
+          c.tags.join("|"),
+          c.recordingUrl,
+        ]
+          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+          .join(","),
+      ),
+    ];
+    return { csv: lines.join("\n"), count: calls.length };
+  },
+  { auth: AGENT_AUTH },
 );

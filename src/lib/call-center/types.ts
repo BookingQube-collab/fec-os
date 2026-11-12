@@ -83,6 +83,12 @@ export type CallCenterSettingsRow = {
   webhook_outbound_url: string;
   after_hours_greeting: string;
   after_hours_action: CallCenterAfterHoursAction;
+  welcome_greeting: string;
+  welcome_audio_url: string;
+  hold_music_url: string;
+  tts_enabled: boolean;
+  tts_voice: string;
+  tts_greeting_text: string;
 };
 
 export type CallCenterSettingsPublic = {
@@ -110,6 +116,12 @@ export type CallCenterSettingsPublic = {
   webhookOutboundUrl: string;
   afterHoursGreeting: string;
   afterHoursAction: CallCenterAfterHoursAction;
+  welcomeGreeting: string;
+  welcomeAudioUrl: string;
+  holdMusicUrl: string;
+  ttsEnabled: boolean;
+  ttsVoice: string;
+  ttsGreetingText: string;
 };
 
 export const CALL_CENTER_DISPOSITION_CODES = [
@@ -202,6 +214,7 @@ export type CallCenterAgentStatus = {
   status: CallCenterAgentStatusValue;
   statusSince: string;
   lastCallAt: string | null;
+  extension: string;
 };
 
 export type CallCenterCall = {
@@ -240,6 +253,51 @@ export type CallCenterCall = {
   dispositionCode: string;
   dispositionNotes: string;
   recordingEnabled: boolean;
+  tags: string[];
+  parkedSlot: string;
+  parkedAt: string | null;
+  parkedBy: string | null;
+};
+
+export type CallCenterPhoneContact = {
+  id: string;
+  displayName: string;
+  e164: string;
+  company: string;
+  email: string;
+  notes: string;
+  tags: string[];
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterTagCatalogItem = {
+  id: string;
+  name: string;
+  color: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export type CallCenterBlacklistEntry = {
+  id: string;
+  e164: string;
+  reason: string;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type CallCenterAgentPerformanceRow = {
+  userId: string;
+  extension: string;
+  status: CallCenterAgentStatusValue;
+  callsHandled: number;
+  answered: number;
+  missed: number;
+  outbound: number;
+  avgHandleSeconds: number;
+  totalTalkSeconds: number;
 };
 
 export type CallCenterSpeedDial = {

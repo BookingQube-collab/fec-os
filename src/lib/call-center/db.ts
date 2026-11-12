@@ -32,6 +32,10 @@ import {
   type CallCenterSpeedDial,
   type CallCenterVoicemail,
   type CallCenterWebhookEndpoint,
+  type CallCenterPhoneContact,
+  type CallCenterTagCatalogItem,
+  type CallCenterBlacklistEntry,
+  type CallCenterAgentPerformanceRow,
 } from "./types";
 
 type DbError = { message: string } | null;
@@ -149,6 +153,7 @@ function mapAgentStatus(row: Record<string, unknown>): CallCenterAgentStatus {
     status: (row.status as CallCenterAgentStatusValue) || "offline",
     statusSince: String(row.status_since ?? new Date().toISOString()),
     lastCallAt: row.last_call_at ? String(row.last_call_at) : null,
+    extension: String(row.extension ?? ""),
   };
 }
 
@@ -193,6 +198,10 @@ export function mapCall(row: Record<string, unknown>): CallCenterCall {
     dispositionCode: String(row.disposition_code ?? ""),
     dispositionNotes: String(row.disposition_notes ?? ""),
     recordingEnabled: Boolean(row.recording_enabled ?? false),
+    tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+    parkedSlot: String(row.parked_slot ?? ""),
+    parkedAt: row.parked_at ? String(row.parked_at) : null,
+    parkedBy: row.parked_by ? String(row.parked_by) : null,
   };
 }
 
@@ -276,7 +285,7 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
 
 export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   const result = await table<Record<string, unknown>>("call_center_settings")
@@ -315,6 +324,16 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     ),
     after_hours_action:
       (row.after_hours_action as CallCenterSettingsRow["after_hours_action"]) || "voicemail",
+    welcome_greeting: String(
+      row.welcome_greeting ?? "Thank you for calling. Please hold while we connect you.",
+    ),
+    welcome_audio_url: String(row.welcome_audio_url ?? ""),
+    hold_music_url: String(row.hold_music_url ?? ""),
+    tts_enabled: Boolean(row.tts_enabled ?? false),
+    tts_voice: String(row.tts_voice ?? "en-US-Neural2-A"),
+    tts_greeting_text: String(
+      row.tts_greeting_text ?? "Welcome. Press a digit from the menu or stay on the line.",
+    ),
   };
 }
 
@@ -347,6 +366,12 @@ export async function saveSettingsRow(
         webhook_outbound_url: row.webhook_outbound_url,
         after_hours_greeting: row.after_hours_greeting,
         after_hours_action: row.after_hours_action,
+        welcome_greeting: row.welcome_greeting,
+        welcome_audio_url: row.welcome_audio_url,
+        hold_music_url: row.hold_music_url,
+        tts_enabled: row.tts_enabled,
+        tts_voice: row.tts_voice,
+        tts_greeting_text: row.tts_greeting_text,
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -729,7 +754,7 @@ export async function getAgentStatus(userId: string): Promise<CallCenterAgentSta
 export async function setAgentStatus(
   userId: string,
   status: CallCenterAgentStatusValue,
-  extras?: { lastCallAt?: string | null },
+  extras?: { lastCallAt?: string | null; extension?: string },
 ): Promise<CallCenterAgentStatus> {
   const now = new Date().toISOString();
   const payload: Record<string, unknown> = {
@@ -739,6 +764,7 @@ export async function setAgentStatus(
     updated_at: now,
   };
   if (extras?.lastCallAt !== undefined) payload.last_call_at = extras.lastCallAt;
+  if (extras?.extension !== undefined) payload.extension = extras.extension.trim();
   const result = await table<Record<string, unknown>>("call_center_agent_status")
     .upsert(payload, { onConflict: "user_id" })
     .select("*")
@@ -746,6 +772,17 @@ export async function setAgentStatus(
   throwIfError(result.error);
   if (!result.data) throw new Error("Agent status could not be saved.");
   return mapAgentStatus(result.data);
+}
+
+export async function setAgentExtension(
+  userId: string,
+  extension: string,
+): Promise<CallCenterAgentStatus> {
+  const existing = await getAgentStatus(userId);
+  return setAgentStatus(userId, existing?.status ?? "offline", {
+    lastCallAt: existing?.lastCallAt ?? null,
+    extension,
+  });
 }
 
 export async function listAvailableAgents(userIds: string[]): Promise<CallCenterAgentStatus[]> {
@@ -837,6 +874,10 @@ export async function updateCall(
     dispositionCode: string;
     dispositionNotes: string;
     recordingEnabled: boolean;
+    tags: string[];
+    parkedSlot: string;
+    parkedAt: string | null;
+    parkedBy: string | null;
   }>,
 ): Promise<CallCenterCall> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -869,6 +910,10 @@ export async function updateCall(
   if (patch.dispositionCode !== undefined) payload.disposition_code = patch.dispositionCode;
   if (patch.dispositionNotes !== undefined) payload.disposition_notes = patch.dispositionNotes;
   if (patch.recordingEnabled !== undefined) payload.recording_enabled = patch.recordingEnabled;
+  if (patch.tags !== undefined) payload.tags = patch.tags;
+  if (patch.parkedSlot !== undefined) payload.parked_slot = patch.parkedSlot;
+  if (patch.parkedAt !== undefined) payload.parked_at = patch.parkedAt;
+  if (patch.parkedBy !== undefined) payload.parked_by = patch.parkedBy;
 
   const result = await table<Record<string, unknown>>("call_center_calls")
     .update(payload)
@@ -1357,4 +1402,283 @@ export function secretLast4(value: string): string {
 export function keepSecret(previous: string, submitted: string): string {
   const incoming = submitted.trim();
   return incoming.length > 0 ? incoming : previous;
+}
+
+function mapPhoneContact(row: Record<string, unknown>): CallCenterPhoneContact {
+  return {
+    id: String(row.id),
+    displayName: String(row.display_name ?? ""),
+    e164: String(row.e164 ?? ""),
+    company: String(row.company ?? ""),
+    email: String(row.email ?? ""),
+    notes: String(row.notes ?? ""),
+    tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+    isFavorite: Boolean(row.is_favorite ?? false),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapTagCatalog(row: Record<string, unknown>): CallCenterTagCatalogItem {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    color: String(row.color ?? "#64748b"),
+    isActive: Boolean(row.is_active ?? true),
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
+function mapBlacklist(row: Record<string, unknown>): CallCenterBlacklistEntry {
+  return {
+    id: String(row.id),
+    e164: String(row.e164 ?? ""),
+    reason: String(row.reason ?? ""),
+    isActive: Boolean(row.is_active ?? true),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+export async function listPhoneContacts(limit = 200): Promise<CallCenterPhoneContact[]> {
+  const result = (await table<Record<string, unknown>>("call_center_contacts")
+    .select("*")
+    .order("display_name", { ascending: true })
+    .limit(limit)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? [])
+    .map(mapPhoneContact)
+    .sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || a.displayName.localeCompare(b.displayName));
+}
+
+export async function upsertPhoneContact(input: {
+  id?: string;
+  displayName: string;
+  e164: string;
+  company?: string;
+  email?: string;
+  notes?: string;
+  tags?: string[];
+  isFavorite?: boolean;
+  createdBy?: string | null;
+}): Promise<CallCenterPhoneContact> {
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    display_name: input.displayName.trim(),
+    e164: normalizeE164(input.e164),
+    company: (input.company ?? "").trim(),
+    email: (input.email ?? "").trim(),
+    notes: (input.notes ?? "").trim().slice(0, 2000),
+    tags: input.tags ?? [],
+    is_favorite: Boolean(input.isFavorite),
+    updated_at: now,
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_contacts")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Contact could not be updated.");
+    return mapPhoneContact(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_contacts")
+    .insert({
+      ...payload,
+      created_by: input.createdBy ?? null,
+      created_at: now,
+    })
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Contact could not be created.");
+  return mapPhoneContact(result.data);
+}
+
+export async function deletePhoneContact(id: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_contacts").delete().eq("id", id);
+  throwIfError(result.error);
+}
+
+export async function listTagCatalog(): Promise<CallCenterTagCatalogItem[]> {
+  const result = (await table<Record<string, unknown>>("call_center_tag_catalog")
+    .select("*")
+    .order("sort_order", { ascending: true })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapTagCatalog);
+}
+
+export async function upsertTagCatalogItem(input: {
+  id?: string;
+  name: string;
+  color?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+}): Promise<CallCenterTagCatalogItem> {
+  const payload = {
+    name: input.name.trim().toLowerCase(),
+    color: input.color?.trim() || "#64748b",
+    is_active: input.isActive ?? true,
+    sort_order: input.sortOrder ?? 0,
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_tag_catalog")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Tag could not be updated.");
+    return mapTagCatalog(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_tag_catalog")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Tag could not be created.");
+  return mapTagCatalog(result.data);
+}
+
+export async function listBlacklist(): Promise<CallCenterBlacklistEntry[]> {
+  const result = (await table<Record<string, unknown>>("call_center_blacklist")
+    .select("*")
+    .order("created_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapBlacklist);
+}
+
+export async function isNumberBlacklisted(e164: string): Promise<boolean> {
+  const normalized = normalizeE164(e164);
+  if (!normalized) return false;
+  const result = await table<Record<string, unknown>>("call_center_blacklist")
+    .select("id")
+    .eq("e164", normalized)
+    .eq("is_active", true)
+    .maybeSingle();
+  throwIfError(result.error);
+  return Boolean(result.data);
+}
+
+export async function upsertBlacklistEntry(input: {
+  id?: string;
+  e164: string;
+  reason?: string;
+  isActive?: boolean;
+  createdBy?: string | null;
+}): Promise<CallCenterBlacklistEntry> {
+  const payload: Record<string, unknown> = {
+    e164: normalizeE164(input.e164),
+    reason: (input.reason ?? "").trim().slice(0, 500),
+    is_active: input.isActive ?? true,
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_blacklist")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Blacklist entry could not be updated.");
+    return mapBlacklist(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_blacklist")
+    .upsert(
+      { ...payload, created_by: input.createdBy ?? null },
+      { onConflict: "e164" },
+    )
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Blacklist entry could not be saved.");
+  return mapBlacklist(result.data);
+}
+
+export async function deleteBlacklistEntry(id: string): Promise<void> {
+  const result = await table<Record<string, unknown>>("call_center_blacklist").delete().eq("id", id);
+  throwIfError(result.error);
+}
+
+export async function listParkedCalls(): Promise<CallCenterCall[]> {
+  const result = (await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .eq("status", "held")
+    .neq("parked_slot", "")
+    .order("parked_at", { ascending: true })
+    .limit(50)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapCall);
+}
+
+export async function findAgentByExtension(extension: string): Promise<CallCenterAgentStatus | null> {
+  const ext = extension.trim();
+  if (!ext) return null;
+  const result = await table<Record<string, unknown>>("call_center_agent_status")
+    .select("*")
+    .eq("extension", ext)
+    .maybeSingle();
+  throwIfError(result.error);
+  return result.data ? mapAgentStatus(result.data) : null;
+}
+
+export async function getAgentPerformance(fromIso: string): Promise<CallCenterAgentPerformanceRow[]> {
+  const agents = (await table<Record<string, unknown>>("call_center_agent_status")
+    .select("*")) as ListResult<Record<string, unknown>>;
+  throwIfError(agents.error);
+  const calls = (await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .gte("started_at", fromIso)
+    .limit(2000)) as ListResult<Record<string, unknown>>;
+  throwIfError(calls.error);
+
+  const byAgent = new Map<string, CallCenterAgentPerformanceRow>();
+  for (const row of agents.data ?? []) {
+    const mapped = mapAgentStatus(row);
+    byAgent.set(mapped.userId, {
+      userId: mapped.userId,
+      extension: mapped.extension,
+      status: mapped.status,
+      callsHandled: 0,
+      answered: 0,
+      missed: 0,
+      outbound: 0,
+      avgHandleSeconds: 0,
+      totalTalkSeconds: 0,
+    });
+  }
+
+  for (const row of calls.data ?? []) {
+    const call = mapCall(row);
+    if (!call.agentUserId) continue;
+    let entry = byAgent.get(call.agentUserId);
+    if (!entry) {
+      entry = {
+        userId: call.agentUserId,
+        extension: "",
+        status: "offline",
+        callsHandled: 0,
+        answered: 0,
+        missed: 0,
+        outbound: 0,
+        avgHandleSeconds: 0,
+        totalTalkSeconds: 0,
+      };
+      byAgent.set(call.agentUserId, entry);
+    }
+    entry.callsHandled += 1;
+    if (call.status === "answered" || call.answeredAt) entry.answered += 1;
+    if (call.status === "missed" || call.status === "declined") entry.missed += 1;
+    if (call.direction === "outbound") entry.outbound += 1;
+    if (call.talkSeconds != null && call.talkSeconds > 0) {
+      entry.totalTalkSeconds += call.talkSeconds;
+    }
+  }
+
+  return [...byAgent.values()]
+    .map((row) => ({
+      ...row,
+      avgHandleSeconds:
+        row.answered > 0 ? Math.round(row.totalTalkSeconds / row.answered) : 0,
+    }))
+    .sort((a, b) => b.callsHandled - a.callsHandled);
 }

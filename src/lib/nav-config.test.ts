@@ -33,6 +33,27 @@ const ADMIN_HREFS = [
   "/admin/api-explorer",
 ] as const;
 
+describe("call center sidebar visibility", () => {
+  it("pins Call Center on the executive and supervisor rails", () => {
+    expect(getPrimaryRailNav(["coo"]).some((item) => item.href === "/call-center")).toBe(true);
+    expect(getPrimaryRailNav(["regional_ops"]).some((item) => item.departmentId === "call_center")).toBe(
+      true,
+    );
+    expect(getPrimaryRailNav(["branch_gm"]).some((item) => item.href === "/call-center")).toBe(true);
+    expect(getVisibleDepartments(["coo"]).some((dept) => dept.id === "call_center")).toBe(true);
+    expect(
+      getVisibleDepartments(["coo"])
+        .find((dept) => dept.id === "call_center")
+        ?.items.some((item) => item.href === "/call-center"),
+    ).toBe(true);
+  });
+
+  it("keeps Call Center on the employee flat rail for customer service", () => {
+    const rail = getEmployeeFlatRail(["customer_service"]);
+    expect(rail.some((item) => item.href === "/call-center")).toBe(true);
+  });
+});
+
 describe("admin sidebar visibility", () => {
   it("pins Administration on the executive rail with the full admin group", () => {
     const roles = ["ceo"] as const;

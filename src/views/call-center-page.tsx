@@ -223,21 +223,59 @@ function CallCenterPage() {
                 </Button>
               ) : null}
               {phone.activeCall ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="min-h-10"
-                  disabled={phone.pending}
-                  onClick={() => void phone.onToggleRecording()}
-                >
-                  {phone.activeCall.recordingEnabled
-                    ? t("callCenter.recordingOn")
-                    : t("callCenter.toggleRecording")}
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="min-h-10"
+                    disabled={phone.pending}
+                    onClick={() => void phone.onPark()}
+                  >
+                    {t("callCenter.park")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="min-h-10"
+                    disabled={phone.pending}
+                    onClick={() => void phone.onToggleRecording()}
+                  >
+                    {phone.activeCall.recordingEnabled
+                      ? t("callCenter.recordingOn")
+                      : t("callCenter.toggleRecording")}
+                  </Button>
+                </>
               ) : null}
             </div>
           </header>
+
+          {phone.parkedCalls.length > 0 ? (
+            <section className="rounded-2xl border border-border/50 bg-card/70 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("callCenter.parkOrbit")}
+              </p>
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {phone.parkedCalls.map((call) => (
+                  <li key={call.id}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={phone.pending}
+                      onClick={() => void phone.onRetrieveParked(call.id)}
+                    >
+                      {t("callCenter.retrieveSlot", {
+                        slot: call.parkedSlot,
+                        from: call.fromE164 || call.toE164,
+                      })}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           {phone.acwRemaining != null ? (
             <AcwDispositionPanel

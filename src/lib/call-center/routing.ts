@@ -141,6 +141,31 @@ export async function routeInboundCall(input: {
 
   const toE164 = normalizeE164(input.toE164);
   const fromE164 = normalizeE164(input.fromE164);
+  if (fromE164 && input.provider !== "test") {
+    const { isNumberBlacklisted } = await import("./db");
+    if (await isNumberBlacklisted(fromE164)) {
+      const call = await createCall({
+        direction: "inbound",
+        status: "failed",
+        fromE164,
+        toE164,
+        provider: input.provider,
+        providerCallId: input.providerCallId,
+      });
+      const failed = await updateCall(call.id, {
+        status: "failed",
+        hangupReason: "Blocked number",
+        endedAt: new Date().toISOString(),
+        metadata: { blacklisted: true },
+      });
+      return {
+        call: failed,
+        offeredUserIds: [],
+        phase: "ended",
+        message: "Caller is on the blocklist.",
+      };
+    }
+  }
   const did = toE164 ? await findDidByE164(toE164) : null;
   const queues = await listQueues();
   const defaultQueue =
@@ -714,9 +739,47 @@ export async function placeOutboundCall(input: {
   campaignId?: string | null;
   eventId?: string | null;
 }): Promise<{ call: CallCenterCall; media: CallCenterMediaSession }> {
+  const { findAgentByExtension, isNumberBlacklisted } = await import("./db");
   const settings = await loadSettingsRow();
+  const rawTarget = input.toE164.trim();
+  const extensionAgent =
+    /^\d{2,6}$/.test(rawTarget) ? await findAgentByExtension(rawTarget) : null;
+  if (extensionAgent) {
+    if (extensionAgent.userId === input.agentUserId) {
+      throw new Error("Cannot dial your own extension.");
+    }
+    const now = new Date().toISOString();
+    const call = await createCall({
+      direction: "outbound",
+      status: "answered",
+      fromE164: `ext:${input.agentUserId.slice(0, 8)}`,
+      toE164: `ext:${extensionAgent.extension || rawTarget}`,
+      agentUserId: input.agentUserId,
+      provider: "test",
+      offeredAt: now,
+      answeredAt: now,
+      metadata: {
+        internalExtension: true,
+        targetUserId: extensionAgent.userId,
+        targetExtension: extensionAgent.extension || rawTarget,
+      },
+    });
+    const livekitRoom = roomNameForCall(call.id);
+    const updated = await updateCall(call.id, { livekitRoom });
+    await setAgentStatus(input.agentUserId, "busy", { lastCallAt: now });
+    const media = await issueAgentMediaToken({
+      roomName: livekitRoom,
+      userId: input.agentUserId,
+      displayName: "Agent",
+    });
+    return { call: updated, media };
+  }
+
   const toE164 = normalizeE164(input.toE164);
-  if (!toE164 || toE164.length < 8) throw new Error("Enter a valid E.164 number.");
+  if (!toE164 || toE164.length < 8) throw new Error("Enter a valid E.164 number or extension.");
+  if (await isNumberBlacklisted(toE164)) {
+    throw new Error("This number is on the Call Center blocklist.");
+  }
   const fromE164 =
     normalizeE164(input.fromE164 || "") ||
     normalizeE164(settings?.outbound_caller_id_e164 || "") ||
@@ -898,7 +961,52 @@ export async function holdCall(callId: string, agentUserId: string, held: boolea
   }
   return updateCall(callId, {
     status: held ? "held" : "answered",
-    metadata: { holdBestEffort: true },
+    metadata: { ...existing.metadata, holdBestEffort: true },
+    ...(held
+      ? {}
+      : { parkedSlot: "", parkedAt: null, parkedBy: null }),
+  });
+}
+
+export async function parkCall(
+  callId: string,
+  agentUserId: string,
+  slot?: string,
+): Promise<CallCenterCall> {
+  const { getCall } = await import("./db");
+  const existing = await getCall(callId);
+  if (!existing) throw new Error("Call not found.");
+  if (existing.agentUserId !== agentUserId) throw new Error("Call belongs to another agent.");
+  if (!["answered", "held"].includes(existing.status)) {
+    throw new Error("Call is not active.");
+  }
+  const parkSlot = (slot?.trim() || String(Math.floor(100 + Math.random() * 800))).slice(0, 8);
+  return updateCall(callId, {
+    status: "held",
+    parkedSlot: parkSlot,
+    parkedAt: new Date().toISOString(),
+    parkedBy: agentUserId,
+    metadata: { ...existing.metadata, parked: true, holdBestEffort: true },
+  });
+}
+
+export async function retrieveParkedCall(
+  callId: string,
+  agentUserId: string,
+): Promise<CallCenterCall> {
+  const { getCall } = await import("./db");
+  const existing = await getCall(callId);
+  if (!existing) throw new Error("Call not found.");
+  if (existing.status !== "held" || !existing.parkedSlot) {
+    throw new Error("Call is not parked.");
+  }
+  return updateCall(callId, {
+    status: "answered",
+    agentUserId,
+    parkedSlot: "",
+    parkedAt: null,
+    parkedBy: null,
+    metadata: { ...existing.metadata, parked: false, retrievedBy: agentUserId },
   });
 }
 
