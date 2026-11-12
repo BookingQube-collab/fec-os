@@ -20560,6 +20560,7 @@ export type Database = {
           exit_reason: string | null
           gender: string | null
           iban: string | null
+          is_management: boolean | null
           last_working_date: string | null
           nationality: string | null
           notes: string | null
@@ -20598,6 +20599,7 @@ export type Database = {
           exit_reason?: string | null
           gender?: string | null
           iban?: string | null
+          is_management?: boolean | null
           last_working_date?: string | null
           nationality?: string | null
           notes?: string | null
@@ -20636,6 +20638,7 @@ export type Database = {
           exit_reason?: string | null
           gender?: string | null
           iban?: string | null
+          is_management?: boolean | null
           last_working_date?: string | null
           nationality?: string | null
           notes?: string | null

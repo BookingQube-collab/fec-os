@@ -1418,6 +1418,8 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       .maybeSingle();
     if (staffErr) throw staffErr;
     if (!staff) throw new Error("Staff not found.");
+    // Nested helpers close over this; keep a non-null alias so TS narrowing sticks.
+    const subject = staff;
 
     const leavePolicy = await readPolicySection(context, "leave").catch(
       () => ({} as Record<string, unknown>),
@@ -1700,7 +1702,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
       const { data: inserted, error: insertErr } = await leaveDb
         .from("hr_leave_requests")
         .insert({
-          staff_id: staff.id,
+          staff_id: subject.id,
           leave_type: part.leaveType,
           date_from: part.dateFrom,
           date_to: part.dateTo,
@@ -1738,7 +1740,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           const { data: retryRow, error: retryErr } = await leaveDb
             .from("hr_leave_requests")
             .insert({
-              staff_id: staff.id,
+              staff_id: subject.id,
               leave_type: part.leaveType,
               date_from: part.dateFrom,
               date_to: part.dateTo,
@@ -1804,15 +1806,15 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           context,
           {
             id: String(inserted.id),
-            staff_id: String(staff.id),
+            staff_id: String(subject.id),
             leave_type: part.leaveType,
             date_from: part.dateFrom,
             date_to: part.dateTo,
             request_number: (inserted.request_number as string | null) ?? requestNumber,
             staff: {
-              full_name: staff.full_name,
-              user_id: staff.user_id,
-              location_id: staff.location_id,
+              full_name: subject.full_name,
+              user_id: subject.user_id,
+              location_id: subject.location_id,
             },
           },
           teamNote,
@@ -1930,33 +1932,33 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
     // Link split siblings in policy_meta when both exist.
     if (created.length === 2) {
       const [a, b] = created;
-      await supabaseAdmin
-        .from("hr_leave_requests")
-        .update({
-          policy_meta: {
-            sick_annual_split: true,
-            portion: a.leaveType === "sick" ? "sick" : "annual_follow_on",
-            linked_leave_id: b.id,
-          },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", a.id)
-        .then(() => undefined)
-        .catch(() => undefined);
-      await supabaseAdmin
-        .from("hr_leave_requests")
-        .update({
-          policy_meta: {
-            sick_annual_split: true,
-            portion: b.leaveType === "sick" ? "sick" : "annual_follow_on",
-            linked_leave_id: a.id,
-            approval_profile: b.leaveType === "annual" ? "hr_then_gm" : undefined,
-          },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", b.id)
-        .then(() => undefined)
-        .catch(() => undefined);
+      void Promise.resolve(
+        supabaseAdmin
+          .from("hr_leave_requests")
+          .update({
+            policy_meta: {
+              sick_annual_split: true,
+              portion: a.leaveType === "sick" ? "sick" : "annual_follow_on",
+              linked_leave_id: b.id,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", a.id),
+      ).catch(() => undefined);
+      void Promise.resolve(
+        supabaseAdmin
+          .from("hr_leave_requests")
+          .update({
+            policy_meta: {
+              sick_annual_split: true,
+              portion: b.leaveType === "sick" ? "sick" : "annual_follow_on",
+              linked_leave_id: a.id,
+              approval_profile: b.leaveType === "annual" ? "hr_then_gm" : undefined,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", b.id),
+      ).catch(() => undefined);
     }
 
     const primary = created[0];
