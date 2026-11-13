@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  checkCallCenterCarrier,
   loadCallCenterConfigBundle,
   removeCallCenterHoliday,
   removeCallCenterWebhookEndpoint,
@@ -52,6 +53,22 @@ function CallCenterSettingsPage() {
       return result.data;
     },
   });
+
+  const [checkingCarrier, setCheckingCarrier] = useState(false);
+  const [carrierChecks, setCarrierChecks] = useState<Array<{ key: string; ok: boolean; detail: string }> | null>(
+    null,
+  );
+
+  async function runCarrierCheck() {
+    setCheckingCarrier(true);
+    const result = await checkCallCenterCarrier({});
+    setCheckingCarrier(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setCarrierChecks(result.data.checks);
+  }
 
   const [enabled, setEnabled] = useState(false);
   const [ivrEnabled, setIvrEnabled] = useState(true);
@@ -513,6 +530,29 @@ function CallCenterSettingsPage() {
                 value={livekitSipDispatchRuleId}
                 onChange={(e) => setLivekitSipDispatchRuleId(e.target.value)}
               />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full sm:w-auto"
+                disabled={!canEdit || checkingCarrier}
+                onClick={() => void runCarrierCheck()}
+              >
+                {checkingCarrier ? t("callCenter.carrierChecking") : t("callCenter.carrierCheck")}
+              </Button>
+              {carrierChecks ? (
+                <ul className="space-y-1 text-xs">
+                  {carrierChecks.map((check) => (
+                    <li
+                      key={check.key}
+                      className={check.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}
+                    >
+                      {check.ok ? "✓" : "✗"} {check.detail}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label>{t("callCenter.webhookOutboundUrl")}</Label>

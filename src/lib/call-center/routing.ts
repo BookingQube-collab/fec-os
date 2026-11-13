@@ -1,5 +1,7 @@
 import "server-only";
 
+import { after } from "next/server";
+
 import { getCallProvider } from "@/lib/chat/call-provider";
 
 import { isWithinBusinessHours } from "./business-hours";
@@ -578,6 +580,28 @@ async function resolveTerminalIvrNode(params: {
   return { call, offeredUserIds: [], phase: "ivr", message: "IVR path incomplete." };
 }
 
+/**
+ * IVR gave up (no valid digit after max retries): send the caller to the menu's fallback
+ * queue, else the call's queue, else the default / first active queue.
+ */
+export async function routeCallToFallbackQueue(callId: string): Promise<InboundRouteResult> {
+  const { getCall } = await import("./db");
+  const call = await getCall(callId);
+  if (!call) throw new Error("Call not found.");
+  const [menus, queues, settings] = await Promise.all([listIvrMenus(), listQueues(), loadSettingsRow()]);
+  const menu = menus.find((m) => m.id === call.ivrMenuId);
+  const preferredIds = [menu?.fallbackQueueId, call.queueId, settings?.default_queue_id];
+  const queue =
+    preferredIds
+      .map((id) => (id ? queues.find((q) => q.id === id && q.isActive) : null))
+      .find(Boolean) ??
+    queues.find((q) => q.isActive) ??
+    null;
+  if (!queue) throw new Error("No fallback queue configured.");
+  const updated = await updateCall(call.id, { queueId: queue.id, status: "queued" });
+  return offerToQueue({ call: updated, queue, eventId: call.eventId });
+}
+
 /** Apply IVR digit selection and continue to queue / hangup / etc. */
 export async function applyIvrDigit(callId: string, digit: string): Promise<InboundRouteResult> {
   const { getCall } = await import("./db");
@@ -770,6 +794,14 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   }
 
   const livekitRoom = existing.livekitRoom || roomNameForCall(callId);
+
+  // Real PSTN caller waiting on Telnyx: connect them to this room over LiveKit SIP before
+  // marking the call answered. Throws (call stays offered) when the caller can't be connected.
+  if (existing.provider === "telnyx" && existing.direction === "inbound" && existing.providerCallId) {
+    const { bridgeCallerToLiveKit } = await import("./carrier");
+    await bridgeCallerToLiveKit(existing, livekitRoom);
+  }
+
   const now = new Date().toISOString();
   const call = await updateCall(callId, {
     status: "answered",
@@ -794,11 +826,26 @@ export async function declineCall(callId: string, agentUserId: string): Promise<
   if (existing.agentUserId && existing.agentUserId !== agentUserId) {
     throw new Error("Call belongs to another agent.");
   }
-  return updateCall(callId, {
+  const isCarrierCall = existing.provider === "telnyx" || existing.provider === "livekit_sip";
+  if (isCarrierCall && !existing.agentUserId && existing.status !== "ended") {
+    // Shared (simultaneous) offer to a live caller: one agent declining must not drop the
+    // caller. Hide it for this agent only; others keep ringing.
+    const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+    const declinedBy = Array.isArray(meta.declinedBy) ? (meta.declinedBy as string[]) : [];
+    return updateCall(callId, {
+      metadata: { ...meta, declinedBy: [...new Set([...declinedBy, agentUserId])] },
+    });
+  }
+  const declined = await updateCall(callId, {
     status: "declined",
     hangupReason: "Agent declined",
     endedAt: new Date().toISOString(),
   });
+  if (isCarrierCall) {
+    const { endCarrierLeg } = await import("./carrier");
+    await endCarrierLeg(existing);
+  }
+  return declined;
 }
 
 export async function hangupCall(callId: string, agentUserId: string): Promise<CallCenterCall> {
@@ -809,22 +856,31 @@ export async function hangupCall(callId: string, agentUserId: string): Promise<C
     throw new Error("Call belongs to another agent.");
   }
   const now = new Date().toISOString();
+  const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+  const alreadyEnded = ["ended", "missed", "declined", "failed", "voicemail"].includes(existing.status);
   let talkSeconds: number | null = null;
-  if (existing.answeredAt) {
+  if (existing.answeredAt && meta.pstnState !== "dialing") {
     talkSeconds = Math.max(
       0,
       Math.round((new Date(now).getTime() - new Date(existing.answeredAt).getTime()) / 1000),
     );
   }
-  const call = await updateCall(callId, {
-    status: "ended",
-    hangupReason: "Agent hangup",
-    endedAt: now,
-    talkSeconds,
-  });
+  // Remote hangup / carrier events may already have closed the CDR; keep their timestamps.
+  const call = alreadyEnded
+    ? existing
+    : await updateCall(callId, {
+        status: "ended",
+        hangupReason: "Agent hangup",
+        endedAt: now,
+        talkSeconds,
+      });
   const status = await getAgentStatus(agentUserId);
   if (status && status.status === "busy") {
     await setAgentStatus(agentUserId, "acw", { lastCallAt: now });
+  }
+  if (!alreadyEnded && (existing.provider === "telnyx" || existing.provider === "livekit_sip")) {
+    const { endCarrierLeg } = await import("./carrier");
+    await endCarrierLeg(existing);
   }
   return call;
 }
@@ -888,6 +944,16 @@ export async function placeOutboundCall(input: {
         settings.telnyx_api_key.trim() ||
         settings.livekit_sip_trunk_id.trim()),
   );
+  const livekitReady = (await getCallProvider()).name === "livekit";
+  const pstnReady = Boolean(settings?.livekit_sip_trunk_id.trim()) && livekitReady;
+  if (sipLikely && !pstnReady) {
+    // Carrier settings exist but outbound can't actually dial: fail loudly instead of faking a call.
+    throw new Error(
+      livekitReady
+        ? "Outbound PSTN is not ready: set the LiveKit SIP outbound trunk id in Call Center → Settings."
+        : "Outbound PSTN is not ready: configure LiveKit (Admin → Chat calls or LIVEKIT_* env).",
+    );
+  }
   const call = await createCall({
     direction: "outbound",
     status: "answered",
@@ -896,10 +962,13 @@ export async function placeOutboundCall(input: {
     agentUserId: input.agentUserId,
     campaignId: input.campaignId ?? null,
     eventId: input.eventId ?? null,
-    provider: sipLikely ? "telnyx" : "test",
+    provider: pstnReady ? "livekit_sip" : "test",
     offeredAt: now,
+    // Real PSTN legs overwrite answeredAt when the callee picks up (carrier.runOutboundDial).
     answeredAt: now,
-    metadata: { outboundManual: true, sipOutboundPending: true },
+    metadata: pstnReady
+      ? { outboundManual: true, sipOutboundPending: true, pstnState: "dialing" }
+      : { outboundManual: true, simulated: true, pstnState: "simulated" },
   });
   const livekitRoom = roomNameForCall(call.id);
   const updated = await updateCall(call.id, { livekitRoom });
@@ -909,6 +978,16 @@ export async function placeOutboundCall(input: {
     userId: input.agentUserId,
     displayName: "Agent",
   });
+  if (pstnReady) {
+    const { runOutboundDial } = await import("./carrier");
+    // The dial blocks until the callee answers (up to ~60s): run it after the response so the
+    // agent joins the room (dial tone) immediately.
+    try {
+      after(() => runOutboundDial(call.id));
+    } catch {
+      void runOutboundDial(call.id).catch(() => undefined);
+    }
+  }
   return { call: updated, media };
 }
 

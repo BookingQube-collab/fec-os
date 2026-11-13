@@ -546,7 +546,7 @@ function CanvasInner({
   const [nodes, setNodes, onNodesChange] = useNodesState(toRfNodes(initialFlow));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toRfEdges(initialFlow));
   const [selected, setSelected] = useState<Node | null>(null);
-  const [previewDigits, setPreviewDigits] = useState("12");
+  const [previewDigits, setPreviewDigits] = useState("14");
   const [preview, setPreview] = useState<IvrPathSimulation | null>(null);
 
   useEffect(() => {
@@ -620,27 +620,35 @@ function CanvasInner({
     requestAnimationFrame(() => fitView({ padding: 0.2 }));
   }
 
-  function runPreview() {
-    const flow = fromRf(nodes, edges, getViewport());
-    const digits = previewDigits.split("").filter((d) => /^[0-9*#]$/.test(d));
-    setPreview(simulateDigitPath(flow, digits));
-  }
-
-  function listenPreviewPath() {
+  function runSimulation(): IvrPathSimulation {
     const flow = fromRf(nodes, edges, getViewport());
     const digits = previewDigits.split("").filter((d) => /^[0-9*#]$/.test(d));
     const result = simulateDigitPath(flow, digits);
     setPreview(result);
-    const speakable = result.path.filter((p) =>
-      ["start", "menu", "play", "ai"].includes(p.type),
-    );
-    const played = playIvrVoicePreviewSequence(
-      speakable.map((p) => ({
-        text: p.spoken,
-        lang: result.language,
-      })),
-    );
-    if (!played.ok) toast.error(played.error);
+    return result;
+  }
+
+  function runPreview() {
+    const result = runSimulation();
+    if (result.status === "invalid") toast.error(result.terminal);
+  }
+
+  function listenPreviewPath() {
+    const result = runSimulation();
+    // Start and the first menu often share the same prompt — don't read it twice.
+    const parts: Array<{ text: string; lang: IvrPreviewLang }> = [];
+    for (const step of result.path) {
+      if (!["start", "menu", "play", "ai"].includes(step.type)) continue;
+      const text = step.spoken.trim();
+      if (!text || parts[parts.length - 1]?.text === text) continue;
+      parts.push({ text, lang: result.language });
+    }
+    const played = playIvrVoicePreviewSequence(parts);
+    if (!played.ok) {
+      toast.error(played.error);
+      return;
+    }
+    if (result.status === "invalid") toast.error(result.terminal);
   }
 
   async function handleSave() {
@@ -716,8 +724,10 @@ function CanvasInner({
           <div className="ms-auto flex flex-wrap items-center gap-1.5">
             <Input
               className="h-8 w-32"
-              placeholder="Digits e.g. 12"
-              title="Path example: 12 = English → Urban Arena; 23 = Arabic → Kids Driving School"
+              inputMode="numeric"
+              aria-label="Digit path to test"
+              placeholder="Path e.g. 14"
+              title="Type one digit per menu, in order. 14 = English (1) → Birthday enquiry (4); 21 = Arabic (2) → InflataPark (1). A single digit only tests the first menu."
               value={previewDigits}
               onChange={(e) => setPreviewDigits(e.target.value)}
               onKeyDown={(e) => {
@@ -767,7 +777,23 @@ function CanvasInner({
               Path ({preview.language.toUpperCase()}):{" "}
               {preview.path.map((p) => p.label).join(" → ") || "(empty)"}
             </p>
-            <p className="mt-1 text-muted-foreground">{preview.terminal}</p>
+            <p
+              className={cn(
+                "mt-1",
+                preview.status === "invalid" || preview.status === "dead_end"
+                  ? "font-medium text-destructive"
+                  : preview.status === "waiting"
+                    ? "text-amber-700 dark:text-amber-400"
+                    : "text-muted-foreground",
+              )}
+            >
+              {preview.terminal}
+            </p>
+            {preview.ignoredDigits ? (
+              <p className="mt-1 text-muted-foreground">
+                Ignored extra digits: {preview.ignoredDigits}
+              </p>
+            ) : null}
             {preview.queueLabel || preview.queueId ? (
               <p className="mt-1 text-muted-foreground">
                 Queue: {preview.queueLabel || preview.queueId}
@@ -779,7 +805,13 @@ function CanvasInner({
             <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
               <p className="font-medium text-foreground/90">Spoken script</p>
               {preview.path
-                .filter((p) => ["start", "menu", "play", "ai"].includes(p.type) && p.spoken)
+                .filter(
+                  (p, i, all) =>
+                    ["start", "menu", "play", "ai"].includes(p.type) &&
+                    p.spoken &&
+                    // Start often shares its prompt with the first menu; show it once.
+                    !(i > 0 && all[i - 1]?.spoken === p.spoken && all[i - 1]?.type === "start"),
+                )
                 .map((p) => (
                   <p key={`${p.nodeId}-script`} className="text-muted-foreground">
                     <span className="font-medium text-foreground/80">{p.label}:</span> {p.spoken}

@@ -783,7 +783,36 @@ export type IvrPathSimulation = {
   queueId: string | null;
   queueLabel: string | null;
   aiAnswered: boolean;
+  /** ok = reached a terminal; waiting = stopped on a menu awaiting more digits; invalid = bad digit. */
+  status: "ok" | "waiting" | "invalid" | "dead_end";
+  /** 1-based position of the rejected digit within the typed path. */
+  invalidDigit?: { digit: string; position: number; menuLabel: string };
+  /** Digits accepted by the menu the caller is currently on (invalid / waiting). */
+  validDigits: Array<{ digit: string; label: string }>;
+  /** Digits typed after the path already reached a terminal (not walked). */
+  ignoredDigits: string;
 };
+
+/** Digits a menu actually routes (wired edge), with labels from the menu config. */
+export function menuWiredDigits(
+  flow: IvrFlowJson,
+  menu: IvrFlowNode,
+): Array<{ digit: string; label: string }> {
+  const labels = new Map((menu.data.digits ?? []).map((d) => [d.digit, d.label]));
+  const seen = new Set<string>();
+  const out: Array<{ digit: string; label: string }> = [];
+  for (const edge of flow.edges.filter((e) => e.source === menu.id)) {
+    const digit = edge.sourceHandle ?? edge.label ?? "";
+    if (!/^[0-9*#]$/.test(digit) || seen.has(digit)) continue;
+    seen.add(digit);
+    out.push({ digit, label: labels.get(digit) || edge.label || digit });
+  }
+  return out.sort((a, b) => a.digit.localeCompare(b.digit));
+}
+
+export function formatValidDigits(valid: Array<{ digit: string; label: string }>): string {
+  return valid.map((d) => `${d.digit} (${d.label})`).join(", ");
+}
 
 function pushPathStep(
   path: IvrPathStep[],
@@ -813,11 +842,14 @@ export function simulateDigitPath(
   if (!node) {
     return {
       path,
-      terminal: "Empty flow",
+      terminal: "Empty flow — add a Start node and a menu first.",
       language,
       queueId: null,
       queueLabel: null,
       aiAnswered: false,
+      status: "dead_end",
+      validDigits: [],
+      ignoredDigits: "",
     };
   }
 
@@ -838,27 +870,41 @@ export function simulateDigitPath(
   if (!node) {
     return {
       path,
-      terminal: "Dead end",
+      terminal: "Dead end — the Start node is not connected to a menu or action.",
       language,
       queueId: null,
       queueLabel: null,
       aiAnswered: false,
+      status: "dead_end",
+      validDigits: [],
+      ignoredDigits: "",
     };
   }
   pushPathStep(path, node, language);
 
   let digitIndex = 0;
-  for (const digit of digits) {
+  for (let i = 0; i < digits.length; i += 1) {
+    const digit = digits[i]!;
     if (node.type !== "menu") break;
     const next = followDigitEdge(flow, node.id, digit);
     if (!next) {
+      const validDigits = menuWiredDigits(flow, node);
+      const menuLabel = node.data.label || "menu";
       return {
         path,
-        terminal: `Invalid digit ${digit}`,
+        terminal: `Invalid digit ${digit} (digit ${i + 1}) on “${menuLabel}”. ${
+          validDigits.length
+            ? `Valid here: ${formatValidDigits(validDigits)}.`
+            : "This menu has no connected digits."
+        }`,
         language,
         queueId: null,
         queueLabel: null,
         aiAnswered: false,
+        status: "invalid",
+        invalidDigit: { digit, position: i + 1, menuLabel },
+        validDigits,
+        ignoredDigits: digits.slice(i + 1).join(""),
       };
     }
     // First menu digit on a Language menu flips EN/AR for spoken script.
@@ -900,8 +946,32 @@ export function simulateDigitPath(
         queueId,
         queueLabel: node.type === "queue" || node.type === "event" ? node.data.label : null,
         aiAnswered: node.type === "ai",
+        status: "ok",
+        validDigits: [],
+        ignoredDigits: digits.slice(i + 1).join(""),
       };
     }
+  }
+
+  if (node.type === "menu") {
+    const validDigits = menuWiredDigits(flow, node);
+    return {
+      path,
+      terminal: digits.length
+        ? `Waiting at “${node.data.label}” — type the next digit. ${
+            validDigits.length ? `Options: ${formatValidDigits(validDigits)}.` : ""
+          }`.trim()
+        : `Waiting at “${node.data.label}” — type the full path, one digit per menu (e.g. 14). ${
+            validDigits.length ? `First menu: ${formatValidDigits(validDigits)}.` : ""
+          }`.trim(),
+      language,
+      queueId: null,
+      queueLabel: null,
+      aiAnswered: false,
+      status: "waiting",
+      validDigits,
+      ignoredDigits: "",
+    };
   }
 
   return {
@@ -911,6 +981,9 @@ export function simulateDigitPath(
     queueId: node.data.queueId ?? null,
     queueLabel: node.type === "queue" ? node.data.label : null,
     aiAnswered: node.type === "ai",
+    status: "ok",
+    validDigits: [],
+    ignoredDigits: "",
   };
 }
 

@@ -1124,6 +1124,36 @@ export async function getCall(id: string): Promise<CallCenterCall | null> {
   return result.data ? mapCall(result.data) : null;
 }
 
+/** Carrier call id (Telnyx `call_control_id`, LiveKit SIP call id) → CDR. */
+export async function findCallByProviderCallId(
+  providerCallId: string,
+): Promise<CallCenterCall | null> {
+  const id = providerCallId.trim();
+  if (!id) return null;
+  const result = await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .eq("provider_call_id", id)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  throwIfError(result.error);
+  return result.data ? mapCall(result.data) : null;
+}
+
+/** Most recent CDR attached to a LiveKit room (rooms are one-per-call). */
+export async function findCallByLivekitRoom(roomName: string): Promise<CallCenterCall | null> {
+  const room = roomName.trim();
+  if (!room) return null;
+  const result = await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .eq("livekit_room", room)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  throwIfError(result.error);
+  return result.data ? mapCall(result.data) : null;
+}
+
 export async function listRecentCalls(limit = 40): Promise<CallCenterCall[]> {
   const result = (await table<Record<string, unknown>>("call_center_calls")
     .select("*")
@@ -1160,6 +1190,9 @@ export async function listRingingCallsForAgent(userId: string): Promise<CallCent
 
   const byId = new Map<string, CallCenterCall>();
   for (const call of [...(offered.data ?? []).map(mapCall), ...simultaneous]) {
+    // Agents who declined a shared (simultaneous) PSTN offer should not be re-rung for it.
+    const declinedBy = (call.metadata as Record<string, unknown> | null)?.declinedBy;
+    if (Array.isArray(declinedBy) && declinedBy.includes(userId)) continue;
     byId.set(call.id, call);
   }
   return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));

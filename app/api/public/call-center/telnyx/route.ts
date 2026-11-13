@@ -1,31 +1,59 @@
 import { NextResponse } from "next/server";
 
+import { handleTelnyxEvent } from "@/lib/call-center/carrier";
 import { applyIvrDigit, routeInboundCall } from "@/lib/call-center/routing";
+import { parseTelnyxEvent } from "@/lib/call-center/telnyx";
 import {
   assertCallCenterWebhook,
   extractInboundLegs,
 } from "@/lib/call-center/webhook-auth";
 
 /**
- * Telnyx inbound webhook stub.
+ * Telnyx Call Control webhook.
  * POST /api/public/call-center/telnyx
  *
- * Auth: Bearer / X-Call-Center-Secret matching Admin webhook secret,
- * or TELNYX_WEBHOOK_SECRET / CALL_CENTER_WEBHOOK_SECRET.
- * Local demo without secret: ?demo=1
+ * Set this URL as the webhook of your Telnyx Call Control Application.
  *
- * Body (flexible): { from, to, callId } or Telnyx call.initiated payload.
- * Optional: { digit, callId } to apply IVR DTMF after an IVR phase.
+ * Auth (any one):
+ *  - Telnyx ed25519 signature (telnyx-signature-ed25519 + telnyx-timestamp) when
+ *    TELNYX_PUBLIC_KEY (or the public key pasted into the webhook secret field) is set.
+ *  - Shared secret: Authorization: Bearer / X-Call-Center-Secret / `?secret=` query.
+ *  - Local demo without a secret: ?demo=1 (or non-production).
+ *
+ * Real events ({ data: { event_type, payload } }) drive answer / IVR gather / hold /
+ * hangup sync. Flat demo bodies still work:
+ *   { from, to, callId }  → routeInboundCall (CDR + agent offer only, no carrier commands)
+ *   { digit, callId }     → applyIvrDigit
  */
 export async function POST(request: Request) {
-  const authError = await assertCallCenterWebhook(request);
+  const rawBody = await request.text();
+  const authError = await assertCallCenterWebhook(request, { rawBody });
   if (authError) return authError;
 
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const demo =
+    new URL(request.url).searchParams.get("demo") === "1" || process.env.NODE_ENV !== "production";
+
+  const event = parseTelnyxEvent(body);
+  if (event) {
+    try {
+      const result = await handleTelnyxEvent(event, { demo });
+      return NextResponse.json({ ok: true, event: event.eventType, ...result });
+    } catch (e) {
+      // 200 so Telnyx does not retry (and re-route) the event; the error is logged and returned.
+      console.error("[call-center/telnyx] event failed:", event.eventType, e);
+      return NextResponse.json({
+        ok: false,
+        event: event.eventType,
+        error: e instanceof Error ? e.message : "Event handling failed",
+      });
+    }
   }
 
   const root = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
@@ -44,7 +72,7 @@ export async function POST(request: Request) {
   const legs = extractInboundLegs(body);
   if (!legs.to && !legs.from) {
     return NextResponse.json(
-      { ok: false, error: "Expected from/to (or Telnyx payload) on inbound webhook" },
+      { ok: false, error: "Expected a Telnyx Call Control event or from/to on the inbound webhook" },
       { status: 400 },
     );
   }
@@ -58,16 +86,17 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({
       ok: true,
+      demo: true,
       phase: result.phase,
       message: result.message,
       callId: result.call.id,
       livekitRoom: result.call.livekitRoom,
       offeredUserIds: result.offeredUserIds,
       status: result.call.status,
-      // Stub instruction for Telnyx Call Control / TeXML when keys arrive.
-      next: result.phase === "ivr"
-        ? { action: "play_ivr", greeting: result.message }
-        : { action: "bridge_livekit", room: result.call.livekitRoom },
+      next:
+        result.phase === "ivr"
+          ? { action: "play_ivr", greeting: result.message }
+          : { action: "bridge_livekit", room: result.call.livekitRoom },
     });
   } catch (e) {
     return NextResponse.json(
@@ -81,6 +110,6 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "fec-call-center-telnyx",
-    hint: "POST inbound call events. Configure Telnyx webhook URL to this path.",
+    hint: "POST Telnyx Call Control events. Configure the Call Control Application webhook URL to this path.",
   });
 }

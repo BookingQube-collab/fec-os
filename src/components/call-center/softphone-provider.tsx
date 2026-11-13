@@ -170,7 +170,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   const workspace = useQuery({
     queryKey: WORKSPACE_KEY,
     enabled: canUse,
-    refetchInterval: 8_000,
+    refetchInterval: activeCall ? 3_000 : 8_000,
     queryFn: async () => {
       const result = await loadCallCenterAgentWorkspace({});
       if (!result.ok) throw new Error(result.error);
@@ -287,6 +287,25 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   );
 
   useEffect(() => () => clearAcwTimer(), [clearAcwTimer]);
+
+  // Carrier events (caller hung up, PSTN dial failed, …) close the CDR server-side: mirror that here.
+  useEffect(() => {
+    if (!activeCall) return;
+    const latest = workspace.data?.recentCalls.find((c) => c.id === activeCall.id);
+    if (!latest || !["ended", "missed", "failed", "declined"].includes(latest.status)) return;
+    if (latest.status === "failed") {
+      toast.error(latest.hangupReason || t("callCenter.callFailedRemote"));
+    } else {
+      toast.message(t("callCenter.callEndedRemote"));
+    }
+    setLastEndedCallId(latest.id);
+    setActiveCall(null);
+    setMedia(null);
+    setHeld(false);
+    setMicMuted(false);
+    startAcwTimer(wrapUpRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to server CDR updates only
+  }, [workspace.data?.recentCalls, activeCall?.id]);
 
   const transferTargets = useMemo((): CallCenterTransferTarget[] => {
     const agents = wallboard.data?.agents ?? workspace.data?.agents ?? [];

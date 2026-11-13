@@ -92,6 +92,7 @@ import {
   startSupervisorMonitor,
 } from "./routing";
 import { buildFecVenuesTemplate } from "./ivr-flow";
+import { checkCarrierSetup } from "./livekit-sip";
 import { toPublicSettings } from "./settings-public";
 import {
   CALL_CENTER_VENUE_QUEUE_IDS,
@@ -136,6 +137,13 @@ export const loadCallCenterAdminBundle = createSafeAuthenticatedAction(
       webhooks,
     };
   },
+  { auth: ADMIN_AUTH },
+);
+
+/** Read-only Telnyx / LiveKit SIP readiness check (trunk + dispatch rule lookups). */
+export const checkCallCenterCarrier = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => ({ checks: await checkCarrierSetup(await loadSettingsRow()) }),
   { auth: ADMIN_AUTH },
 );
 

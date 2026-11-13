@@ -1,17 +1,41 @@
 import "server-only";
 
 import { loadSettingsRow } from "./db";
+import { resolveTelnyxPublicKey, safeEqual, verifyTelnyxSignature } from "./telnyx";
 
 /**
  * Accept inbound SIP / Telnyx webhooks when a shared secret is configured.
- * Header: Authorization: Bearer <secret> or X-Call-Center-Secret / X-Telnyx-Signature (stub).
+ * Header: Authorization: Bearer <secret> or X-Call-Center-Secret, or `?secret=` on the URL
+ * (Telnyx / LiveKit webhook URLs cannot add custom headers).
+ * Telnyx Call Control events may instead be verified with the ed25519 signature
+ * (`telnyx-signature-ed25519` + `telnyx-timestamp`) when TELNYX_PUBLIC_KEY (or the webhook
+ * secret field holding the public key) is set. Pass `rawBody` for that check.
  * Env fallbacks: CALL_CENTER_WEBHOOK_SECRET, TELNYX_WEBHOOK_SECRET.
  */
-export async function assertCallCenterWebhook(request: Request): Promise<Response | null> {
+export async function assertCallCenterWebhook(
+  request: Request,
+  options: { rawBody?: string } = {},
+): Promise<Response | null> {
   const settings = await loadSettingsRow();
+
+  const signature = request.headers.get("telnyx-signature-ed25519")?.trim() ?? "";
+  const timestamp = request.headers.get("telnyx-timestamp")?.trim() ?? "";
+  const publicKey = resolveTelnyxPublicKey(settings);
+  if (signature && timestamp && publicKey && options.rawBody !== undefined) {
+    const valid = verifyTelnyxSignature({
+      rawBody: options.rawBody,
+      signature,
+      timestamp,
+      publicKey,
+    });
+    if (valid) return null;
+    return Response.json({ ok: false, error: "Invalid Telnyx signature" }, { status: 401 });
+  }
+
+  const storedWebhookSecret = settings?.telnyx_webhook_secret?.trim() ?? "";
   const expected =
     settings?.webhook_shared_secret?.trim() ||
-    settings?.telnyx_webhook_secret?.trim() ||
+    (storedWebhookSecret && storedWebhookSecret !== publicKey ? storedWebhookSecret : "") ||
     process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
     process.env.TELNYX_WEBHOOK_SECRET?.trim() ||
     "";
@@ -38,9 +62,12 @@ export async function assertCallCenterWebhook(request: Request): Promise<Respons
   const headerSecret =
     request.headers.get("x-call-center-secret")?.trim() ||
     request.headers.get("x-telnyx-signature")?.trim() ||
+    new URL(request.url).searchParams.get("secret")?.trim() ||
     "";
 
-  if (bearer === expected || headerSecret === expected) return null;
+  if ((bearer && safeEqual(bearer, expected)) || (headerSecret && safeEqual(headerSecret, expected))) {
+    return null;
+  }
 
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 }
