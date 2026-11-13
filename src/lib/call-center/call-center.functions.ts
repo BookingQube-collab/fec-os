@@ -26,6 +26,7 @@ import {
   getWhatsappConversation,
   insertWhatsappOutboundMessage,
   keepSecret,
+  normalizeSipUriHost,
   listActiveCalls,
   listAgentStatuses,
   listBlacklist,
@@ -176,7 +177,8 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     whatsappAccessToken: z.string().max(500).optional(),
     whatsappVerifyToken: z.string().max(200).optional(),
     outboundCallerIdE164: z.string().trim().max(20).optional(),
-    webhookOutboundUrl: z.string().trim().max(500).optional(),
+    // Full https:// URLs are allowed; never treat as a secret / write-only field
+    webhookOutboundUrl: z.string().trim().max(2000).optional(),
     afterHoursGreeting: z.string().max(2000).optional(),
     afterHoursAction: z.enum(["voicemail", "hangup", "queue"]).optional(),
     welcomeGreeting: z.string().max(2000).optional(),
@@ -196,7 +198,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         business_hours_json: data.businessHoursJson ?? existing?.business_hours_json ?? {},
         timezone: data.timezone || "Asia/Qatar",
         default_queue_id: data.defaultQueueId ?? existing?.default_queue_id ?? null,
-        telnyx_sip_uri: data.telnyxSipUri,
+        telnyx_sip_uri: normalizeSipUriHost(data.telnyxSipUri),
         telnyx_connection_id: data.telnyxConnectionId,
         telnyx_api_key: keepSecret(existing?.telnyx_api_key ?? "", data.telnyxApiKey),
         telnyx_webhook_secret: keepSecret(

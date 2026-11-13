@@ -1575,6 +1575,16 @@ export async function saveCallAgentNotes(callId: string, notes: string): Promise
   return updateCall(callId, { agentNotes: notes.trim().slice(0, 4000) });
 }
 
+/** Store LiveKit/Telnyx SIP host only — strip pasted sip:/sips:/ws(s)://http(s):// prefixes. */
+export function normalizeSipUriHost(value: string): string {
+  let v = value.trim();
+  if (!v) return "";
+  v = v.replace(/^(sips?:|wss:\/\/|ws:\/\/|https?:\/\/)/i, "");
+  // Drop path / params / fragment if a full URI was pasted
+  v = v.split(/[/;?#]/)[0] ?? v;
+  return v.trim();
+}
+
 export function normalizeE164(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";

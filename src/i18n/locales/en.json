@@ -2230,6 +2230,8 @@
     "businessHoursSectionHint": "When the center is open, and what happens after hours.",
     "holidaysHint": "Closed dates that override the weekly schedule.",
     "sipSettingsHint": "Paste provider credentials when ready. Softphone Test ring works without them.",
+    "sipUriHint": "Host only — no sip: / sips: / wss:// prefix. Example: your-id.sip.livekit.cloud",
+    "webhookOutboundUrlHint": "Full https:// URL is saved and shown after Save (not a secret field).",
     "queuesAddHeading": "Add a queue",
     "queuesAddHint": "Name it, pick a strategy, then add agents below.",
     "queuesListHeading": "Queues",

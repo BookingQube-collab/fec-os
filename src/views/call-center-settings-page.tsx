@@ -28,6 +28,7 @@ import {
   saveCallCenterSettings,
   saveCallCenterWebhookEndpoint,
 } from "@/lib/call-center/call-center.functions";
+import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
@@ -97,9 +98,7 @@ function CallCenterSettingsPage() {
   const [ttsVoice, setTtsVoice] = useState("en-US-Neural2-A");
   const [ttsGreetingText, setTtsGreetingText] = useState("");
 
-  useEffect(() => {
-    if (!bundle.data || hydrated) return;
-    const s = bundle.data.settings;
+  function applyPublicSettings(s: CallCenterSettingsPublic) {
     setEnabled(s.enabled);
     setIvrEnabled(s.ivrEnabled);
     setBusinessHoursEnabled(s.businessHoursEnabled);
@@ -134,6 +133,11 @@ function CallCenterSettingsPage() {
       };
     }
     setHours(next);
+  }
+
+  useEffect(() => {
+    if (!bundle.data || hydrated) return;
+    applyPublicSettings(bundle.data.settings);
     setHydrated(true);
   }, [bundle.data, hydrated]);
 
@@ -171,10 +175,15 @@ function CallCenterSettingsPage() {
       return;
     }
     toast.success(t("callCenterAdmin.saved"));
+    // Apply server-normalized values immediately so non-secrets stay visible.
+    // Do NOT flip hydrated=false + invalidate (race rehydrates from stale cache and can wipe fields).
+    applyPublicSettings(result.data);
     setTelnyxApiKey("");
     setTelnyxWebhookSecret("");
     setWebhookSharedSecret("");
-    setHydrated(false);
+    queryClient.setQueryData(["call-center", "config"], (prev) =>
+      prev ? { ...prev, settings: result.data } : prev,
+    );
     await queryClient.invalidateQueries({ queryKey: ["call-center"] });
   }
 
@@ -448,7 +457,14 @@ function CallCenterSettingsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.telnyxSipUri")}</Label>
-              <Input value={telnyxSipUri} onChange={(e) => setTelnyxSipUri(e.target.value)} />
+              <Input
+                value={telnyxSipUri}
+                onChange={(e) => setTelnyxSipUri(e.target.value)}
+                placeholder="k4xpy1vcnur.sip.livekit.cloud"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">{t("callCenter.sipUriHint")}</p>
             </div>
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.telnyxConnectionId")}</Label>
@@ -503,8 +519,12 @@ function CallCenterSettingsPage() {
               <Input
                 value={webhookOutboundUrl}
                 onChange={(e) => setWebhookOutboundUrl(e.target.value)}
-                placeholder="https://…"
+                placeholder="https://e3fec.vercel.app/api/public/call-center/telnyx"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="url"
               />
+              <p className="text-xs text-muted-foreground">{t("callCenter.webhookOutboundUrlHint")}</p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label>{t("callCenterAdmin.notes")}</Label>

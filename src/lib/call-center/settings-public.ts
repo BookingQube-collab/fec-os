@@ -1,3 +1,4 @@
+import { normalizeSipUriHost } from "./db";
 import type {
   CallCenterAiProvider,
   CallCenterSettingsPublic,
@@ -48,7 +49,7 @@ export function toPublicSettings(
     businessHoursJson: row?.business_hours_json ?? {},
     timezone: row?.timezone?.trim() || "Asia/Qatar",
     defaultQueueId: row?.default_queue_id ?? null,
-    telnyxSipUri: row?.telnyx_sip_uri?.trim() ?? "",
+    telnyxSipUri: normalizeSipUriHost(row?.telnyx_sip_uri ?? ""),
     telnyxConnectionId: row?.telnyx_connection_id?.trim() ?? "",
     telnyxKeyLast4: secretLast4(row?.telnyx_api_key ?? ""),
     telnyxKeySet: (row?.telnyx_api_key?.trim() ?? "").length > 0,

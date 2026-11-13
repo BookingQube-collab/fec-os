@@ -122,10 +122,21 @@ function AdminCallCenterPage() {
       toast.error(result.error);
       return;
     }
+    setTelnyxSipUri(result.data.telnyxSipUri);
+    setTelnyxConnectionId(result.data.telnyxConnectionId);
+    setLivekitSipTrunkId(result.data.livekitSipTrunkId);
+    setLivekitSipDispatchRuleId(result.data.livekitSipDispatchRuleId);
+    setNotes(result.data.notes);
+    setEnabled(result.data.enabled);
+    setIvrEnabled(result.data.ivrEnabled);
+    setTimezone(result.data.timezone);
+    setDefaultQueueId(result.data.defaultQueueId ?? "");
     setTelnyxApiKey("");
     setTelnyxWebhookSecret("");
     setWebhookSharedSecret("");
-    setHydrated(false);
+    queryClient.setQueryData(QUERY_KEY, (prev) =>
+      prev ? { ...prev, settings: result.data } : prev,
+    );
     await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     toast.success(t("callCenterAdmin.saved"));
   }
@@ -271,7 +282,7 @@ function AdminCallCenterPage() {
                   <Label htmlFor="cc-sip">{t("callCenterAdmin.telnyxSipUri")}</Label>
                   <Input
                     id="cc-sip"
-                    placeholder="sip:…@sip.telnyx.com"
+                    placeholder="k4xpy1vcnur.sip.livekit.cloud"
                     value={telnyxSipUri}
                     onChange={(e) => setTelnyxSipUri(e.target.value)}
                   />
