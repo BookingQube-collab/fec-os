@@ -17,6 +17,9 @@ import {
 import type { IvrNodeData, IvrNodeType } from "@/lib/call-center/ivr-flow";
 import { cn } from "@/lib/utils";
 
+/** How many DTMF rows to show on the canvas; full list lives in the inspector. */
+const MENU_VISIBLE_DIGITS = 4;
+
 const TYPE_META: Record<
   IvrNodeType,
   { icon: typeof Play; accent: string; title: string }
@@ -32,6 +35,9 @@ const TYPE_META: Record<
   voicemail: { icon: Voicemail, accent: "border-orange-700/35 bg-orange-50", title: "Voicemail" },
   event: { icon: Route, accent: "border-lime-800/35 bg-lime-50", title: "Event" },
 };
+
+const HANDLE_CLASS =
+  "!h-3.5 !w-3.5 !border-2 !border-background !bg-foreground/75 hover:!bg-foreground";
 
 function IvrNodeShell({
   type,
@@ -51,30 +57,36 @@ function IvrNodeShell({
   return (
     <div
       className={cn(
-        "min-w-[180px] max-w-[240px] rounded-xl border bg-card shadow-sm transition-shadow",
+        "min-w-[200px] max-w-[260px] rounded-xl border bg-card shadow-sm transition-[box-shadow,ring] duration-150",
         meta.accent,
-        selected && "ring-2 ring-foreground/25 shadow-md",
+        selected
+          ? "ring-2 ring-[color-mix(in_oklab,var(--fec-star)_70%,transparent)] shadow-md"
+          : "hover:shadow-md",
       )}
     >
       {showTarget ? (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-border !bg-foreground/70"
-        />
+        <Handle type="target" position={Position.Left} className={HANDLE_CLASS} />
       ) : null}
-      <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-foreground/80" aria-hidden />
+      <div className="flex items-center gap-2.5 border-b border-border/40 px-3.5 py-2.5">
+        <Icon className="h-4 w-4 shrink-0 text-foreground/80" aria-hidden />
         <div className="min-w-0">
-          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             {meta.title}
           </p>
-          <p className="truncate text-sm font-semibold text-foreground">{data.label}</p>
+          <p className="truncate text-[0.9375rem] font-semibold leading-snug text-foreground">
+            {data.label}
+          </p>
         </div>
       </div>
       {children}
     </div>
   );
+}
+
+function promptPreview(text: string | undefined, fallback: string) {
+  const trimmed = (text ?? "").trim();
+  if (!trimmed) return fallback;
+  return trimmed.length > 90 ? `${trimmed.slice(0, 87)}…` : trimmed;
 }
 
 export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: string }) {
@@ -84,14 +96,14 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
   if (nodeType === "start") {
     return (
       <IvrNodeShell type="start" selected={selected} data={nodeData} showTarget={false}>
-        <p className="px-3 py-2 text-xs text-muted-foreground line-clamp-3">
-          {nodeData.greetingText || "Greeting"}
+        <p className="px-3.5 py-2.5 text-[0.8125rem] leading-snug text-muted-foreground line-clamp-2">
+          {promptPreview(nodeData.greetingEn || nodeData.greetingText, "Greeting")}
         </p>
         <Handle
           type="source"
           position={Position.Right}
           id="out"
-          className="!h-2.5 !w-2.5 !border-border !bg-foreground/70"
+          className={HANDLE_CLASS}
         />
       </IvrNodeShell>
     );
@@ -104,34 +116,52 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
           { digit: "1", label: "Option 1" },
           { digit: "2", label: "Option 2" },
         ];
+    const visible = digits.slice(0, MENU_VISIBLE_DIGITS);
+    const hiddenCount = digits.length - visible.length;
+
     return (
       <IvrNodeShell type="menu" selected={selected} data={nodeData}>
-        <p className="border-b border-border/30 px-3 py-1.5 text-xs text-muted-foreground line-clamp-2">
-          {nodeData.greetingText || "DTMF menu"}
+        <p className="border-b border-border/30 px-3.5 py-2 text-[0.8125rem] leading-snug text-muted-foreground line-clamp-2">
+          {promptPreview(
+            nodeData.greetingEn || nodeData.greetingText || nodeData.greetingAr,
+            "DTMF menu",
+          )}
         </p>
-        <ul className="relative space-y-1 px-2 py-2">
+        {/* All handles stay mounted so edges keep working when the list is collapsed. */}
+        <div className="relative px-2.5 py-2">
           {digits.map((d, index) => {
-            const topPct = ((index + 0.55) / Math.max(digits.length, 1)) * 100;
+            const topPct = ((index + 0.5) / Math.max(digits.length, 1)) * 100;
             return (
+              <Handle
+                key={`handle-${d.digit}`}
+                type="source"
+                position={Position.Right}
+                id={d.digit}
+                className={HANDLE_CLASS}
+                style={{ top: `${topPct}%` }}
+                title={`Key ${d.digit}`}
+              />
+            );
+          })}
+          <ul className="space-y-1">
+            {visible.map((d) => (
               <li
                 key={d.digit}
-                className="flex items-center gap-2 rounded-md bg-background/70 px-2 py-1 text-xs"
+                className="flex items-center gap-2 rounded-md bg-background/70 px-2 py-1.5 text-[0.8125rem]"
               >
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded border border-border font-semibold">
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border font-semibold">
                   {d.digit}
                 </span>
                 <span className="truncate text-foreground/90">{d.label || `Key ${d.digit}`}</span>
-                <Handle
-                  type="source"
-                  position={Position.Right}
-                  id={d.digit}
-                  className="!h-2.5 !w-2.5 !border-border !bg-foreground/70"
-                  style={{ top: `${topPct}%` }}
-                />
               </li>
-            );
-          })}
-        </ul>
+            ))}
+            {hiddenCount > 0 ? (
+              <li className="px-2 py-1 text-[0.75rem] font-medium text-muted-foreground">
+                +{hiddenCount} more — edit in inspector
+              </li>
+            ) : null}
+          </ul>
+        </div>
       </IvrNodeShell>
     );
   }
@@ -139,23 +169,23 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
   if (nodeType === "hours") {
     return (
       <IvrNodeShell type="hours" selected={selected} data={nodeData}>
-        <div className="space-y-1 px-2 py-2 text-xs">
-          <div className="relative rounded-md bg-background/70 px-2 py-1">
+        <div className="space-y-1.5 px-2.5 py-2.5 text-[0.8125rem]">
+          <div className="relative rounded-md bg-background/70 px-2.5 py-1.5">
             Open
             <Handle
               type="source"
               id="open"
               position={Position.Right}
-              className="!h-2.5 !w-2.5 !border-border !bg-emerald-700"
+              className="!h-3.5 !w-3.5 !border-2 !border-background !bg-emerald-700"
             />
           </div>
-          <div className="relative rounded-md bg-background/70 px-2 py-1">
+          <div className="relative rounded-md bg-background/70 px-2.5 py-1.5">
             Closed
             <Handle
               type="source"
               id="closed"
               position={Position.Right}
-              className="!h-2.5 !w-2.5 !border-border !bg-rose-700"
+              className="!h-3.5 !w-3.5 !border-2 !border-background !bg-rose-700"
             />
           </div>
         </div>
@@ -166,14 +196,14 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
   if (nodeType === "play") {
     return (
       <IvrNodeShell type="play" selected={selected} data={nodeData}>
-        <p className="px-3 py-2 text-xs text-muted-foreground line-clamp-3">
-          {nodeData.messageText || "Play prompt"}
+        <p className="px-3.5 py-2.5 text-[0.8125rem] leading-snug text-muted-foreground line-clamp-2">
+          {promptPreview(nodeData.messageEn || nodeData.messageText, "Play prompt")}
         </p>
         <Handle
           type="source"
           position={Position.Right}
           id="out"
-          className="!h-2.5 !w-2.5 !border-border !bg-foreground/70"
+          className={HANDLE_CLASS}
         />
       </IvrNodeShell>
     );
@@ -181,7 +211,7 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
 
   return (
     <IvrNodeShell type={nodeType} selected={selected} data={nodeData}>
-      <p className="px-3 py-2 text-xs text-muted-foreground">
+      <p className="px-3.5 py-2.5 text-[0.8125rem] text-muted-foreground">
         {nodeType === "queue" && (nodeData.queueId ? "Queue linked" : "Pick a queue")}
         {nodeType === "agent" && (nodeData.agentUserId ? "Agent linked" : "Pick an agent")}
         {nodeType === "ai" &&

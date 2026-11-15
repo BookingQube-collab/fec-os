@@ -3,7 +3,9 @@
 import {
   Background,
   BackgroundVariant,
+  ConnectionLineType,
   Controls,
+  MarkerType,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -117,6 +119,18 @@ function toRfNodes(flow: IvrFlowJson): Node[] {
   }));
 }
 
+const EDGE_BASE = {
+  type: "smoothstep" as const,
+  animated: false,
+  style: { stroke: "var(--foreground)", strokeOpacity: 0.28, strokeWidth: 1.5 },
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    width: 14,
+    height: 14,
+    color: "color-mix(in oklab, var(--foreground) 45%, transparent)",
+  },
+};
+
 function toRfEdges(flow: IvrFlowJson): Edge[] {
   return flow.edges.map((e) => ({
     id: e.id,
@@ -125,8 +139,7 @@ function toRfEdges(flow: IvrFlowJson): Edge[] {
     sourceHandle: e.sourceHandle ?? undefined,
     targetHandle: e.targetHandle ?? undefined,
     label: e.label,
-    animated: false,
-    style: { stroke: "var(--foreground)", strokeOpacity: 0.45 },
+    ...EDGE_BASE,
   }));
 }
 
@@ -177,8 +190,12 @@ function Inspector({
 }) {
   if (!node) {
     return (
-      <div className="flex h-full flex-col justify-center px-4 text-sm text-muted-foreground">
-        Select a node to edit its settings.
+      <div className="flex h-full flex-col justify-center gap-2 px-5 py-6">
+        <p className="text-sm font-semibold text-foreground">Select a step to edit</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Click a node on the canvas to edit greetings, DTMF options, audio, and routing. Use
+          Auto-layout if the flow looks crowded.
+        </p>
       </div>
     );
   }
@@ -193,13 +210,13 @@ function Inspector({
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain p-4">
       <div className="flex items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             {type}
           </p>
-          <p className="text-sm font-semibold">{data.label}</p>
+          <p className="truncate text-sm font-semibold">{data.label}</p>
         </div>
         {canEdit ? (
           <Button type="button" size="icon" variant="ghost" onClick={() => onDelete(nodeId)}>
@@ -218,7 +235,7 @@ function Inspector({
       </div>
 
       {(type === "start" || type === "menu") && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <Label>Greeting (English)</Label>
@@ -228,7 +245,8 @@ function Inspector({
               />
             </div>
             <Textarea
-              rows={3}
+              rows={5}
+              className="min-h-[7.5rem] resize-y text-sm leading-relaxed"
               disabled={!canEdit}
               value={data.greetingEn ?? data.greetingText ?? ""}
               onChange={(e) =>
@@ -245,7 +263,8 @@ function Inspector({
               <ListenButton text={data.greetingAr || ""} lang="ar" />
             </div>
             <Textarea
-              rows={3}
+              rows={5}
+              className="min-h-[7.5rem] resize-y text-sm leading-relaxed"
               dir="rtl"
               disabled={!canEdit}
               value={data.greetingAr ?? ""}
@@ -269,14 +288,15 @@ function Inspector({
       )}
 
       {type === "play" && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <Label>Message (English)</Label>
               <ListenButton text={data.messageEn || data.messageText || ""} lang="en" />
             </div>
             <Textarea
-              rows={3}
+              rows={5}
+              className="min-h-[7.5rem] resize-y text-sm leading-relaxed"
               disabled={!canEdit}
               value={data.messageEn ?? data.messageText ?? ""}
               onChange={(e) =>
@@ -293,7 +313,8 @@ function Inspector({
               <ListenButton text={data.messageAr || ""} lang="ar" />
             </div>
             <Textarea
-              rows={3}
+              rows={5}
+              className="min-h-[7.5rem] resize-y text-sm leading-relaxed"
               dir="rtl"
               disabled={!canEdit}
               value={data.messageAr ?? ""}
@@ -314,45 +335,63 @@ function Inspector({
       )}
 
       {type === "menu" && (
-        <div className="space-y-2">
-          <Label>DTMF options</Label>
-          {(data.digits ?? []).map((d, idx) => (
-            <div key={`${d.digit}-${idx}`} className="flex gap-2">
-              <Input
-                className="w-14"
-                value={d.digit}
-                disabled={!canEdit}
-                onChange={(e) => {
-                  const digits = [...(data.digits ?? [])];
-                  digits[idx] = { ...d, digit: e.target.value.slice(0, 1) };
-                  patch({ digits });
-                }}
-              />
-              <Input
-                className="flex-1"
-                value={d.label}
-                disabled={!canEdit}
-                onChange={(e) => {
-                  const digits = [...(data.digits ?? [])];
-                  digits[idx] = { ...d, label: e.target.value };
-                  patch({ digits });
-                }}
-              />
-              {canEdit ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => {
-                    const digits = (data.digits ?? []).filter((_, i) => i !== idx);
-                    patch({ digits });
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              ) : null}
-            </div>
-          ))}
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>DTMF options</Label>
+            <p className="text-[0.7rem] text-muted-foreground">
+              Digit key + spoken label. Connect each digit handle on the canvas to the next step.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {(data.digits ?? []).map((d, idx) => (
+              <div
+                key={`${d.digit}-${idx}`}
+                className="rounded-lg border border-border/50 bg-background/60 p-2.5"
+              >
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <Label className="text-[0.7rem] text-muted-foreground">Digit {idx + 1}</Label>
+                  {canEdit ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        const digits = (data.digits ?? []).filter((_, i) => i !== idx);
+                        patch({ digits });
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    className="w-14 shrink-0 text-center font-semibold"
+                    value={d.digit}
+                    disabled={!canEdit}
+                    aria-label={`DTMF digit ${idx + 1}`}
+                    onChange={(e) => {
+                      const digits = [...(data.digits ?? [])];
+                      digits[idx] = { ...d, digit: e.target.value.slice(0, 1) };
+                      patch({ digits });
+                    }}
+                  />
+                  <Input
+                    className="min-w-0 flex-1"
+                    value={d.label}
+                    disabled={!canEdit}
+                    aria-label={`DTMF label ${idx + 1}`}
+                    onChange={(e) => {
+                      const digits = [...(data.digits ?? [])];
+                      digits[idx] = { ...d, label: e.target.value };
+                      patch({ digits });
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
           {canEdit ? (
             <Button
               type="button"
@@ -587,7 +626,7 @@ function CanvasInner({
     if (initialFlow.viewport) {
       void setViewport(initialFlow.viewport);
     } else {
-      requestAnimationFrame(() => fitView({ padding: 0.2 }));
+      requestAnimationFrame(() => fitView({ padding: 0.28, maxZoom: 1 }));
     }
   }, [initialFlow, setNodes, setEdges, setViewport, fitView]);
 
@@ -656,7 +695,7 @@ function CanvasInner({
             label: connection.sourceHandle && /^[0-9*#]$/.test(connection.sourceHandle)
               ? connection.sourceHandle
               : undefined,
-            style: { stroke: "var(--foreground)", strokeOpacity: 0.45 },
+            ...EDGE_BASE,
           },
           eds,
         ),
@@ -701,7 +740,7 @@ function CanvasInner({
     const flow = autoLayoutFlow(fromRf(nodes, edges, getViewport()));
     setNodes(toRfNodes(flow));
     setEdges(toRfEdges(flow));
-    requestAnimationFrame(() => fitView({ padding: 0.2 }));
+    requestAnimationFrame(() => fitView({ padding: 0.28, maxZoom: 1 }));
   }
 
   function spokenPartsFrom(
@@ -875,8 +914,58 @@ function CanvasInner({
     return nodes.find((n) => n.id === selected.id) ?? selected;
   }, [nodes, selected]);
 
+  const displayEdges = useMemo(() => {
+    const selectedId = selectedSync?.id ?? null;
+    const previewEdgeKeys = new Set<string>();
+    if (preview?.path && preview.path.length > 1) {
+      for (let i = 0; i < preview.path.length - 1; i += 1) {
+        const from = preview.path[i]?.nodeId;
+        const to = preview.path[i + 1]?.nodeId;
+        if (from && to) previewEdgeKeys.add(`${from}->${to}`);
+      }
+    }
+
+    return edges.map((e) => {
+      const connectedToSelection =
+        !!selectedId && (e.source === selectedId || e.target === selectedId);
+      const onPreviewPath = previewEdgeKeys.has(`${e.source}->${e.target}`);
+      const emphasize = connectedToSelection || onPreviewPath;
+
+      if (!selectedId && previewEdgeKeys.size === 0) {
+        return {
+          ...e,
+          type: "smoothstep" as const,
+          animated: false,
+          style: { stroke: "var(--foreground)", strokeOpacity: 0.28, strokeWidth: 1.5 },
+          markerEnd: EDGE_BASE.markerEnd,
+          zIndex: 0,
+        };
+      }
+
+      return {
+        ...e,
+        type: "smoothstep" as const,
+        animated: emphasize && connectedToSelection,
+        style: {
+          stroke: emphasize ? "var(--fec-star)" : "var(--foreground)",
+          strokeOpacity: emphasize ? 0.92 : 0.1,
+          strokeWidth: emphasize ? 2.5 : 1.25,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: emphasize ? 16 : 12,
+          height: emphasize ? 16 : 12,
+          color: emphasize
+            ? "var(--fec-star)"
+            : "color-mix(in oklab, var(--foreground) 25%, transparent)",
+        },
+        zIndex: emphasize ? 20 : 0,
+      };
+    });
+  }, [edges, selectedSync?.id, preview]);
+
   return (
-    <div className="flex h-[min(72vh,820px)] min-h-[520px] overflow-hidden rounded-2xl border border-border/50 bg-card">
+    <div className="flex h-[min(78vh,920px)] min-h-[560px] overflow-hidden rounded-2xl border border-border/50 bg-card">
       <aside className="flex w-48 shrink-0 flex-col border-e border-border/50 bg-muted/20">
         <div className="border-b border-border/40 px-3 py-2">
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -928,7 +1017,12 @@ function CanvasInner({
           <Button type="button" size="sm" variant="outline" onClick={() => zoomOut()}>
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => fitView({ padding: 0.2 })}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => fitView({ padding: 0.28, maxZoom: 1 })}
+          >
             Fit
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={runAutoLayout}>
@@ -976,20 +1070,28 @@ function CanvasInner({
         <div className="absolute inset-0 pt-12">
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={displayEdges}
             onNodesChange={canEdit ? onNodesChange : undefined}
             onEdgesChange={canEdit ? onEdgesChange : undefined}
             onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             nodeTypes={ivrNodeTypes}
             fitView
+            fitViewOptions={{ padding: 0.28, maxZoom: 1 }}
+            minZoom={0.15}
+            maxZoom={1.75}
+            defaultEdgeOptions={EDGE_BASE}
+            connectionLineType={ConnectionLineType.SmoothStep}
             nodesDraggable={canEdit}
             nodesConnectable={canEdit}
             elementsSelectable
+            selectNodesOnDrag={false}
+            panOnScroll
+            zoomOnDoubleClick
             proOptions={{ hideAttribution: true }}
             className="bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.04),_transparent_55%)]"
           >
-            <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(15,23,42,0.12)" />
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(15,23,42,0.1)" />
             <Controls showInteractive={false} />
             <MiniMap
               pannable
@@ -1085,20 +1187,22 @@ function CanvasInner({
         ) : null}
       </div>
 
-      <aside className="w-72 shrink-0 border-s border-border/50 bg-muted/10">
-        <div className="border-b border-border/40 px-3 py-2">
+      <aside className="flex w-[22rem] shrink-0 flex-col border-s border-border/50 bg-muted/10">
+        <div className="shrink-0 border-b border-border/40 px-3 py-2">
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Inspector
           </p>
         </div>
-        <Inspector
-          node={selectedSync}
-          queues={queues}
-          agents={agents}
-          canEdit={canEdit}
-          onChange={updateNodeData}
-          onDelete={deleteNode}
-        />
+        <div className="min-h-0 flex-1">
+          <Inspector
+            node={selectedSync}
+            queues={queues}
+            agents={agents}
+            canEdit={canEdit}
+            onChange={updateNodeData}
+            onDelete={deleteNode}
+          />
+        </div>
       </aside>
     </div>
   );
