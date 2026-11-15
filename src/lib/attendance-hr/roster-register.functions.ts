@@ -66,6 +66,7 @@ import {
 import {
   findLocationsWithCompletedRosterUpload,
   insertRosterAuditEvent,
+  normalizeRosterChangeReason,
   resolveRosterPostUploadChangeReason,
   resolveRosterPostUploadChangeReasonForLocations,
   snapFromRosterRow,
@@ -1288,7 +1289,8 @@ export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (con
     );
 }, rosterAmendAuth);
 
-/** Create one assignment on a day that has none yet. Same row the amend pencil edits. */
+/** Create one assignment on a day that has none yet. Same row the amend pencil edits.
+ * New creates do not require a post-upload change reason (edits/deletes still do). */
 export const createRosterAssignment = createSafeAuthenticatedAction(
   z.object({
     locationId: z.string().uuid(),
@@ -1307,12 +1309,7 @@ export const createRosterAssignment = createSafeAuthenticatedAction(
     const db = actor.db;
     assertRosterTeamStaff(actor, data.staffId);
     await assertRosterWriteLocation(actor, context, data.locationId);
-    const changeReason = await resolveRosterPostUploadChangeReason(
-      db,
-      data.locationId,
-      data.workDate,
-      data.changeReason,
-    );
+    const changeReason = normalizeRosterChangeReason(data.changeReason);
 
     const patch = rosterPatchFromDayStatus(data.dayStatus);
     const compOffForDate = data.dayStatus === "comp_off" ? (data.compOffForDate ?? null) : null;

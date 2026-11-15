@@ -123,7 +123,8 @@ export async function locationMonthHasCompletedRosterUpload(
 
 /**
  * Reason is required only after a location-month already has a completed roster upload.
- * First add / first upload may omit a reason; later creates, edits, deletes, patterns, and re-uploads must supply one.
+ * First upload may omit a reason; later edits, deletes, patterns, and re-uploads must supply one.
+ * Single-row Add shift creates skip this gate (see createRosterAssignment).
  */
 export async function resolveRosterPostUploadChangeReason(
   db: AuthContext["supabase"],

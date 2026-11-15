@@ -153,7 +153,6 @@ type Draft = {
 
 type PendingReasonAction =
   | { type: "save"; row: RosterRegisterRow }
-  | { type: "create" }
   | { type: "delete"; id: string }
   | { type: "deleteAll"; ids: string[] | null };
 
@@ -722,7 +721,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     });
 
     const createMut = useMutation({
-      mutationFn: async (changeReason?: string) => {
+      mutationFn: async () => {
         if (!draft || !createWorkDate) throw new Error(t("people.roster.registerNothingToSave"));
         if (!createStaffId) throw new Error(t("people.roster.registerPickStaff"));
         if (!draft.locationId) throw new Error(t("people.roster.registerPickLocation"));
@@ -744,14 +743,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           dayStatus: draft.dayStatus,
           compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
           compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
-          changeReason: changeReason ?? null,
         });
         if (!result.ok) throw new Error(result.error);
         return result.data;
       },
       onSuccess: () => {
         toast.success(t("people.roster.registerAdded"));
-        setPendingReasonAction(null);
         setCreateWorkDate(null);
         setCreateStaffId("");
         setDraft(null);
@@ -842,13 +839,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       [draft?.locationId, locationNeedsChangeReason, saveMut],
     );
 
+    // New adds are audited as roster.create but do not require a change reason —
+    // reason prompts are only for edits/deletes of existing post-upload rows.
     const requestCreate = useCallback(() => {
-      if (locationNeedsChangeReason(draft?.locationId)) {
-        setPendingReasonAction({ type: "create" });
-        return;
-      }
-      createMut.mutate(undefined);
-    }, [createMut, draft?.locationId, locationNeedsChangeReason]);
+      createMut.mutate();
+    }, [createMut]);
 
     const requestDelete = useCallback(
       (id: string) => {
@@ -1851,7 +1846,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
 
         <RosterChangeReasonDialog
           open={pendingReasonAction != null}
-          pending={saveMut.isPending || createMut.isPending || deleteMut.isPending || deleteAllMut.isPending}
+          pending={saveMut.isPending || deleteMut.isPending || deleteAllMut.isPending}
           onOpenChange={(open) => {
             if (!open) setPendingReasonAction(null);
           }}
@@ -1859,7 +1854,6 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             const action = pendingReasonAction;
             if (!action) return;
             if (action.type === "save") saveMut.mutate({ row: action.row, changeReason: reason });
-            else if (action.type === "create") createMut.mutate(reason);
             else if (action.type === "delete") deleteMut.mutate({ id: action.id, changeReason: reason });
             else deleteAllMut.mutate({ ids: action.ids, changeReason: reason });
           }}
