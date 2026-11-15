@@ -79,6 +79,7 @@ import {
   addCalendarDays,
   annualTierDaysFromPolicy,
   detectAnnualLeaveSandwich,
+  sandwichAnnualCharge,
   sickAnnualFollowOnApprovalSteps,
   splitSickToAnnual,
   type WeeklyOffLookup,
@@ -1338,11 +1339,21 @@ export const previewLeaveApplyPolicy = createAuthenticatedAction(
         : null;
 
     let sandwich: ReturnType<typeof detectAnnualLeaveSandwich> | null = null;
-    if (
+    const needsSandwichCheck =
       (data.leaveType === "annual" || data.leaveType === "sick") &&
-      tierCfg.sandwichBlockSubmit &&
-      days > 0
-    ) {
+      days > 0 &&
+      (tierCfg.sandwichBlockSubmit || tierCfg.sandwichAutoDeduct);
+
+    const sickSplit =
+      data.leaveType === "sick" && remainingSick != null
+        ? splitSickToAnnual({
+            dateFrom: data.dateFrom,
+            dateTo: data.dateTo,
+            remainingSickDays: remainingSick,
+          })
+        : null;
+
+    if (needsSandwichCheck) {
       const { data: staffRow } = await context.supabase
         .from("staff")
         .select("weekly_off_weekday")
@@ -1362,27 +1373,11 @@ export const previewLeaveApplyPolicy = createAuthenticatedAction(
           dateTo: data.dateTo,
           lookup,
         });
-      }
-    }
-
-    const sickSplit =
-      data.leaveType === "sick" && remainingSick != null
-        ? splitSickToAnnual({
-            dateFrom: data.dateFrom,
-            dateTo: data.dateTo,
-            remainingSickDays: remainingSick,
-          })
-        : null;
-
-    if (sickSplit?.requiresAnnualFollowOn && sickSplit.annualDateFrom && sickSplit.annualDateTo) {
-      const { data: staffRow } = await context.supabase
-        .from("staff")
-        .select("weekly_off_weekday")
-        .eq("id", staffId)
-        .maybeSingle();
-      const weeklyOffWeekday =
-        (staffRow as { weekly_off_weekday?: number | null } | null)?.weekly_off_weekday ?? null;
-      if (tierCfg.sandwichBlockSubmit) {
+      } else if (
+        sickSplit?.requiresAnnualFollowOn &&
+        sickSplit.annualDateFrom &&
+        sickSplit.annualDateTo
+      ) {
         const lookup = await loadWeeklyOffLookupForLeave(
           staffId,
           sickSplit.annualDateFrom,
@@ -1397,12 +1392,22 @@ export const previewLeaveApplyPolicy = createAuthenticatedAction(
       }
     }
 
-    const annualDaysNeeded =
+    const sandwichCharge =
+      sandwich && !tierCfg.sandwichBlockSubmit && tierCfg.sandwichAutoDeduct
+        ? sandwichAnnualCharge(sandwich)
+        : { chargedDays: 0, chargedDates: [] as string[] };
+    const sandwichBlocked = Boolean(
+      sandwich?.isSandwich && tierCfg.sandwichBlockSubmit,
+    );
+    const sandwichAutoDeducted = sandwichCharge.chargedDays > 0;
+
+    const baseAnnualDays =
       data.leaveType === "annual"
         ? days
         : sickSplit?.requiresAnnualFollowOn
           ? sickSplit.annualDays
           : 0;
+    const annualDaysNeeded = baseAnnualDays + sandwichCharge.chargedDays;
     const insufficientBalance =
       annualDaysNeeded > 0 && (!annual.eligible || annualDaysNeeded > annual.remainingDays);
 
@@ -1410,7 +1415,10 @@ export const previewLeaveApplyPolicy = createAuthenticatedAction(
       days,
       entitlement: annual,
       remainingSickDays: remainingSick,
-      sandwichBlocked: Boolean(sandwich?.isSandwich),
+      sandwichBlocked,
+      sandwichAutoDeducted,
+      sandwichChargedDays: sandwichCharge.chargedDays,
+      sandwichChargedDates: sandwichCharge.chargedDates,
       sandwichPrefixDates: sandwich?.prefixOffDates ?? [],
       sandwichSuffixDates: sandwich?.suffixOffDates ?? [],
       sickSplit,
@@ -1693,9 +1701,15 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
     const plannerOverride = Boolean(planner?.wouldDecline && data.leaveType === "emergency");
     const plannerOverrideReasons = plannerOverride ? planner!.reasons : [];
 
-    // Annual leave: block OFF+AL+OFF sandwich on submit (prefix OR suffix alone is allowed).
+    // Annual leave sandwich (HR policy): prefix OR suffix OFF allowed; OFF+AL+OFF
+    // either blocks (sandwich_block_submit) or auto-deducts OFF days from annual.
     // Adjacent weekly OFF outside the leave span is never cleared on approve.
-    if (data.leaveType === "annual" && tierCfg.sandwichBlockSubmit) {
+    let annualSandwichCharge = { chargedDays: 0, chargedDates: [] as string[] };
+    let annualSandwichMeta: Record<string, unknown> = {};
+    if (
+      data.leaveType === "annual" &&
+      (tierCfg.sandwichBlockSubmit || tierCfg.sandwichAutoDeduct)
+    ) {
       const lookup = await loadWeeklyOffLookupForLeave(
         String(staff.id),
         data.dateFrom,
@@ -1707,7 +1721,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         dateTo: data.dateTo,
         lookup,
       });
-      if (sandwich.isSandwich) {
+      if (sandwich.isSandwich && tierCfg.sandwichBlockSubmit) {
         return {
           id: null as string | null,
           days,
@@ -1726,9 +1740,20 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           openingStep: null as string | null,
         };
       }
+      if (sandwich.isSandwich && tierCfg.sandwichAutoDeduct) {
+        annualSandwichCharge = sandwichAnnualCharge(sandwich);
+        annualSandwichMeta = {
+          sandwich: true,
+          sandwich_auto_deduct: true,
+          sandwich_charged_days: annualSandwichCharge.chargedDays,
+          sandwich_charged_dates: annualSandwichCharge.chargedDates,
+          sandwich_prefix_dates: sandwich.prefixOffDates,
+          sandwich_suffix_dates: sandwich.suffixOffDates,
+        };
+      }
     }
 
-    // Annual entitlement: only allow days within accrued YTD remaining (hire_date / 21|28|30 tiers).
+    // Annual entitlement: calendar AL days + sandwich OFF charge must fit accrued remaining.
     if (data.leaveType === "annual") {
       const leaveYear = Number(data.dateFrom.slice(0, 4)) || new Date().getFullYear();
       const annual = await remainingAnnualDaysForStaff(
@@ -1737,15 +1762,18 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         leaveYear,
         leavePolicy,
       );
-      if (!annual.eligible || days > annual.remainingDays) {
+      const annualDaysNeeded = days + annualSandwichCharge.chargedDays;
+      if (!annual.eligible || annualDaysNeeded > annual.remainingDays) {
         return {
           id: null as string | null,
-          days,
+          days: annualDaysNeeded,
           conflicts: [] as Awaited<ReturnType<typeof loadLeaveConflicts>>,
           requiresAck: false as const,
           blocked: true as const,
           plannerBlocked: false as const,
           sandwichBlocked: false as const,
+          sandwichAutoDeducted: annualSandwichCharge.chargedDays > 0,
+          sandwichChargedDays: annualSandwichCharge.chargedDays,
           insufficientBalance: true as const,
           remainingAnnualDays: annual.remainingDays,
           plannerReasons: [] as string[],
@@ -2116,8 +2144,10 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
         });
       }
       if (sickSplit.annualDays > 0 && sickSplit.annualDateFrom && sickSplit.annualDateTo) {
-        // Sandwich still applies to the annual follow-on block.
-        if (tierCfg.sandwichBlockSubmit) {
+        // Sandwich still applies to the annual follow-on block (block or auto-deduct).
+        let followOnSandwichMeta: Record<string, unknown> = {};
+        let followOnSandwichDays = 0;
+        if (tierCfg.sandwichBlockSubmit || tierCfg.sandwichAutoDeduct) {
           const lookup = await loadWeeklyOffLookupForLeave(
             String(staff.id),
             sickSplit.annualDateFrom,
@@ -2129,7 +2159,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
             dateTo: sickSplit.annualDateTo,
             lookup,
           });
-          if (sandwich.isSandwich) {
+          if (sandwich.isSandwich && tierCfg.sandwichBlockSubmit) {
             return {
               id: null as string | null,
               days,
@@ -2148,6 +2178,18 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
               openingStep: null as string | null,
             };
           }
+          if (sandwich.isSandwich && tierCfg.sandwichAutoDeduct) {
+            const charge = sandwichAnnualCharge(sandwich);
+            followOnSandwichDays = charge.chargedDays;
+            followOnSandwichMeta = {
+              sandwich: true,
+              sandwich_auto_deduct: true,
+              sandwich_charged_days: charge.chargedDays,
+              sandwich_charged_dates: charge.chargedDates,
+              sandwich_prefix_dates: sandwich.prefixOffDates,
+              sandwich_suffix_dates: sandwich.suffixOffDates,
+            };
+          }
         }
         const annual = await remainingAnnualDaysForStaff(
           context,
@@ -2155,15 +2197,18 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           leaveYear,
           leavePolicy,
         );
-        if (!annual.eligible || sickSplit.annualDays > annual.remainingDays) {
+        const followOnAnnualDays = sickSplit.annualDays + followOnSandwichDays;
+        if (!annual.eligible || followOnAnnualDays > annual.remainingDays) {
           return {
             id: null as string | null,
-            days,
+            days: followOnAnnualDays,
             conflicts,
             requiresAck: false as const,
             blocked: true as const,
             plannerBlocked: false as const,
             sandwichBlocked: false as const,
+            sandwichAutoDeducted: followOnSandwichDays > 0,
+            sandwichChargedDays: followOnSandwichDays,
             insufficientBalance: true as const,
             remainingAnnualDays: annual.remainingDays,
             plannerReasons: [] as string[],
@@ -2176,7 +2221,7 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
           leaveType: "annual",
           dateFrom: sickSplit.annualDateFrom,
           dateTo: sickSplit.annualDateTo,
-          partDays: sickSplit.annualDays,
+          partDays: followOnAnnualDays,
           approvalProfile: "hr_then_gm",
           policyMeta: {
             sick_annual_split: true,
@@ -2184,19 +2229,35 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
             remaining_sick_before: sickSplit.remainingSickBefore,
             approval_profile: "hr_then_gm",
             requires_medical_docs: true,
+            calendar_days: sickSplit.annualDays,
+            ...followOnSandwichMeta,
           },
           reasonExtra:
-            "Annual follow-on after sick quota exhausted — medical docs attached; approval HR → GM.",
+            followOnSandwichDays > 0
+              ? `Annual follow-on after sick quota exhausted — medical docs attached; approval HR → GM. Unauthorized weekly-OFF sandwich: ${followOnSandwichDays} OFF day(s) auto-deducted from annual.`
+              : "Annual follow-on after sick quota exhausted — medical docs attached; approval HR → GM.",
         });
       }
     } else {
+      const annualPartDays =
+        data.leaveType === "annual" ? days + annualSandwichCharge.chargedDays : days;
       parts.push({
         leaveType: data.leaveType,
         dateFrom: data.dateFrom,
         dateTo: data.dateTo,
-        partDays: days,
+        partDays: annualPartDays,
         approvalProfile: "default",
-        policyMeta: {},
+        policyMeta:
+          data.leaveType === "annual" && annualSandwichCharge.chargedDays > 0
+            ? {
+                calendar_days: days,
+                ...annualSandwichMeta,
+              }
+            : annualSandwichMeta,
+        reasonExtra:
+          annualSandwichCharge.chargedDays > 0
+            ? `Unauthorized weekly-OFF sandwich: ${annualSandwichCharge.chargedDays} OFF day(s) auto-deducted from annual leave balance.`
+            : null,
       });
     }
 
@@ -2278,15 +2339,25 @@ export const submitLeaveRequest = createSafeAuthenticatedAction(
 
     const anyFinalized = created.some((c) => c.finalized);
     const syncedDays = created.reduce((n, c) => n + c.syncedDays, 0);
+    const totalChargedDays = parts.reduce((n, p) => n + p.partDays, 0);
+    const sandwichChargedDays = Math.max(
+      0,
+      Number(
+        (parts.find((p) => p.leaveType === "annual")?.policyMeta as { sandwich_charged_days?: number } | undefined)
+          ?.sandwich_charged_days ?? annualSandwichCharge.chargedDays,
+      ) || 0,
+    );
     return {
       id: primary.id,
       requestNumber: primary.requestNumber,
-      days,
+      days: totalChargedDays || days,
       conflicts,
       requiresAck: false as const,
       blocked: false as const,
       plannerBlocked: false as const,
       sandwichBlocked: false as const,
+      sandwichAutoDeducted: sandwichChargedDays > 0,
+      sandwichChargedDays,
       plannerReasons: [] as string[],
       plannerCodes: [] as string[],
       plannerOverride,

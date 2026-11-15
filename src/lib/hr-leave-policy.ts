@@ -8,7 +8,8 @@
  *   hr_policy leave section (`management_title_keywords`).
  * - DOJ for tenure = `staff.hire_date`.
  * - Leave year = calendar year (existing balances / accrual).
- * - Sandwich OFF+AL+OFF = block submit (safer than silent deduct). HR override later.
+ * - Sandwich OFF+AL+OFF = auto-deduct OFF days from annual (HR email policy).
+ *   Optional `sandwich_block_submit` still blocks instead of deducting.
  * - Unpublished roster: fall back to `staff.weekly_off_weekday`; if primary is Friday (5),
  *   also treat Saturday (6) as OFF (Fri–Sat pattern used in roster tooling).
  * - Sick quota exhausted → auto-split: sick up to remaining, excess as annual follow-on
@@ -180,13 +181,27 @@ export function annualTierDaysFromPolicy(leaveSection: Record<string, unknown>):
   managementDays: number;
   tenureYearsThreshold: number;
   titleKeywords: string[];
+  /** When true, OFF+AL+OFF is rejected on submit (overrides auto-deduct). */
   sandwichBlockSubmit: boolean;
+  /** When true (and not blocking), sandwich OFF days charge annual leave. PDF default. */
+  sandwichAutoDeduct: boolean;
 } {
   const keywordsRaw = leaveSection.management_title_keywords;
   const titleKeywords = Array.isArray(keywordsRaw)
     ? keywordsRaw.map((k) => String(k)).filter(Boolean)
     : [...DEFAULT_MANAGEMENT_TITLE_KEYWORDS];
-  const sandwichRaw = leaveSection.sandwich_block_submit;
+  const sandwichBlockRaw = leaveSection.sandwich_block_submit;
+  // PDF default: allow submit and deduct. Explicit true still blocks.
+  const sandwichBlockSubmit =
+    sandwichBlockRaw === true || sandwichBlockRaw === "true" ? true : false;
+  const sandwichDeductRaw = leaveSection.sandwich_auto_deduct;
+  // Default on when not blocking; explicit false disables deduct.
+  const sandwichAutoDeduct =
+    sandwichBlockSubmit
+      ? false
+      : sandwichDeductRaw === false || sandwichDeductRaw === "false"
+        ? false
+        : true;
   return {
     under5yDays: policyNumber(leaveSection.annual_days_under_5y, ANNUAL_TIER_UNDER_5Y_DAYS),
     fiveYearPlusDays: policyNumber(leaveSection.annual_days_5y_plus, ANNUAL_TIER_5Y_PLUS_DAYS),
@@ -196,8 +211,8 @@ export function annualTierDaysFromPolicy(leaveSection: Record<string, unknown>):
       ANNUAL_TENURE_YEARS_THRESHOLD,
     ),
     titleKeywords,
-    // Default true — block sandwich on submit (safer than silent deduct).
-    sandwichBlockSubmit: sandwichRaw === false || sandwichRaw === "false" ? false : true,
+    sandwichBlockSubmit,
+    sandwichAutoDeduct,
   };
 }
 
@@ -307,13 +322,13 @@ export type SandwichDetection = {
   hasSuffix: boolean;
   /** True when both prefix and suffix OFF touch the AL block (not allowed). */
   isSandwich: boolean;
-  /** OFF days that would be charged if deduct mode were enabled. */
+  /** OFF days charged to annual when sandwich auto-deduct is on. */
   chargeableOffDates: string[];
 };
 
 /**
  * Prefix OR suffix weekly OFF with annual leave is allowed.
- * Prefix AND suffix (OFF + AL + OFF) is a sandwich — not allowed.
+ * Prefix AND suffix (OFF + AL + OFF) is a sandwich — unauthorized; charge OFF days.
  */
 export function detectAnnualLeaveSandwich(input: {
   dateFrom: string;
@@ -332,6 +347,21 @@ export function detectAnnualLeaveSandwich(input: {
     hasSuffix,
     isSandwich,
     chargeableOffDates: isSandwich ? [...prefixOffDates, ...suffixOffDates] : [],
+  };
+}
+
+/**
+ * Extra annual days charged when OFF both before and after AL (unauthorized sandwich).
+ * Prefix-only or suffix-only → 0 (allowed; OFF stays weekly off).
+ */
+export function sandwichAnnualCharge(sandwich: SandwichDetection): {
+  chargedDays: number;
+  chargedDates: string[];
+} {
+  if (!sandwich.isSandwich) return { chargedDays: 0, chargedDates: [] };
+  return {
+    chargedDays: sandwich.chargeableOffDates.length,
+    chargedDates: [...sandwich.chargeableOffDates],
   };
 }
 

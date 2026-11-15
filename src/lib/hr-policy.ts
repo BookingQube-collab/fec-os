@@ -37,8 +37,13 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
     annual_days_5y_plus: 28,
     annual_days_management: 30,
     annual_tenure_years_threshold: 5,
-    /** Block OFF+AL+OFF sandwich on submit (safer than silent deduct). */
-    sandwich_block_submit: true,
+    /**
+     * OFF+AL+OFF sandwich (HR Leave Policy email):
+     * - block=false + auto_deduct=true (default) → charge OFF days to annual balance
+     * - block=true → reject submit instead of deducting
+     */
+    sandwich_block_submit: false,
+    sandwich_auto_deduct: true,
     management_title_keywords: [
       "manager",
       "director",

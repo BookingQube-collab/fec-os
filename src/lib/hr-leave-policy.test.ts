@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  annualTierDaysFromPolicy,
   completedYearsOfService,
   detectAnnualLeaveSandwich,
   isManagementStaff,
   isWeeklyOffDate,
   resolveAnnualLeaveTier,
+  sandwichAnnualCharge,
   sickAnnualFollowOnApprovalSteps,
   splitSickToAnnual,
   standingWeeklyOffWeekdays,
@@ -134,7 +136,7 @@ describe("sandwich weekly OFF detection", () => {
     expect(result.suffixOffDates).toEqual(["2026-11-06", "2026-11-07"]);
   });
 
-  it("blocks sandwich OFF+AL+OFF", () => {
+  it("detects sandwich OFF+AL+OFF and charges OFF days", () => {
     // Fri–Sat prefix, Sun–Thu AL, Fri–Sat suffix
     const result = detectAnnualLeaveSandwich({
       dateFrom: "2026-11-08", // Sun
@@ -150,6 +152,22 @@ describe("sandwich weekly OFF detection", () => {
       "2026-11-13",
       "2026-11-14",
     ]);
+    expect(sandwichAnnualCharge(result)).toEqual({
+      chargedDays: 4,
+      chargedDates: ["2026-11-06", "2026-11-07", "2026-11-13", "2026-11-14"],
+    });
+  });
+
+  it("defaults to auto-deduct (PDF sample), not block", () => {
+    const cfg = annualTierDaysFromPolicy({});
+    expect(cfg.sandwichBlockSubmit).toBe(false);
+    expect(cfg.sandwichAutoDeduct).toBe(true);
+  });
+
+  it("block submit overrides auto-deduct when enabled", () => {
+    const cfg = annualTierDaysFromPolicy({ sandwich_block_submit: true });
+    expect(cfg.sandwichBlockSubmit).toBe(true);
+    expect(cfg.sandwichAutoDeduct).toBe(false);
   });
 
   it("uses roster OFF over standing weekday when published", () => {

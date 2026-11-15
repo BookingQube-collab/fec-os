@@ -468,6 +468,15 @@ export default function EmployeeMePage() {
           }),
         );
       }
+      if ("sandwichAutoDeducted" in res && res.sandwichAutoDeducted) {
+        toast.message(
+          t("hr.leave.sandwichAutoDeduct", {
+            days: "sandwichChargedDays" in res ? (res.sandwichChargedDays ?? 0) : 0,
+            defaultValue:
+              "Unauthorized weekly-OFF sandwich: {{days}} OFF day(s) will be auto-deducted from your annual leave balance.",
+          }),
+        );
+      }
       if (res.requiresAck) {
         setLeaveConflicts(res.conflicts);
         toast.message(t("hr.leave.conflictWarn"));

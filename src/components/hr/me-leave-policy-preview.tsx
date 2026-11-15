@@ -76,8 +76,9 @@ export function MeLeavePolicyPreview({
 
   const sickSplit = data.sickSplit;
   const showSickSplit = Boolean(sickSplit?.requiresAnnualFollowOn);
+  const showSandwichDeduct = Boolean(data.sandwichAutoDeducted && data.sandwichChargedDays > 0);
 
-  if (!warnings.length && !showSickSplit) {
+  if (!warnings.length && !showSickSplit && !showSandwichDeduct) {
     if (leaveType === "annual" || leaveType === "sick") {
       return (
         <div
@@ -115,12 +116,21 @@ export function MeLeavePolicyPreview({
           {msg}
         </p>
       ))}
-      {data.sandwichBlocked ? (
+      {data.sandwichBlocked || showSandwichDeduct ? (
         <p className="text-muted-foreground">
           {t("hr.leave.sandwichPreview", {
             before: data.sandwichPrefixDates.join(", ") || "—",
             after: data.sandwichSuffixDates.join(", ") || "—",
             defaultValue: "OFF before: {{before}} · OFF after: {{after}}",
+          })}
+        </p>
+      ) : null}
+      {showSandwichDeduct ? (
+        <p className="font-medium">
+          {t("hr.leave.sandwichAutoDeduct", {
+            days: data.sandwichChargedDays,
+            defaultValue:
+              "Unauthorized weekly-OFF sandwich: {{days}} OFF day(s) will be auto-deducted from your annual leave balance.",
           })}
         </p>
       ) : null}
