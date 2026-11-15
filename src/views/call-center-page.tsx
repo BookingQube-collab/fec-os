@@ -8,6 +8,7 @@ import {
   MicOff,
   Phone,
   PhoneCall,
+  PhoneIncoming,
   Star,
   Trash2,
   Volume2,
@@ -34,9 +35,85 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { loadCallCenterTagCatalog } from "@/lib/call-center/call-center.functions";
-import type { CallCenterAgentStatusValue } from "@/lib/call-center/types";
+import type {
+  CallCenterAgentStatusValue,
+  CallCenterCall,
+  CallCenterCallStatus,
+} from "@/lib/call-center/types";
 import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
+
+/** Live inbound still waiting — show Connect directly (not Call back). */
+const LIVE_CONNECTABLE_STATUSES = new Set<CallCenterCallStatus>([
+  "ivr",
+  "queued",
+  "ringing",
+  "offered",
+]);
+
+const CALLBACK_STATUSES = new Set<CallCenterCallStatus>([
+  "ended",
+  "missed",
+  "declined",
+  "failed",
+  "voicemail",
+]);
+
+function recentCallRowClass(status: CallCenterCallStatus): string {
+  switch (status) {
+    case "ivr":
+      return "rounded-xl bg-sky-500/10 px-2 ring-1 ring-inset ring-sky-500/25";
+    case "queued":
+      return "rounded-xl bg-amber-500/10 px-2 ring-1 ring-inset ring-amber-500/25";
+    case "ringing":
+    case "offered":
+      return "rounded-xl bg-emerald-500/10 px-2 ring-1 ring-inset ring-emerald-500/25";
+    case "missed":
+    case "declined":
+      return "rounded-xl bg-rose-500/10 px-2 ring-1 ring-inset ring-rose-500/20";
+    default:
+      return "";
+  }
+}
+
+function recentStatusBadgeVariant(
+  status: CallCenterCallStatus,
+): "info" | "warning" | "success" | "destructive" | "muted" | "secondary" {
+  switch (status) {
+    case "ivr":
+      return "info";
+    case "queued":
+      return "warning";
+    case "ringing":
+    case "offered":
+    case "answered":
+      return "success";
+    case "missed":
+    case "declined":
+    case "failed":
+      return "destructive";
+    case "ended":
+    case "voicemail":
+      return "muted";
+    default:
+      return "secondary";
+  }
+}
+
+function recentStatusLabel(status: CallCenterCallStatus, t: (key: string) => string): string {
+  const key = `callCenter.callStatus.${status}`;
+  const labeled = t(key);
+  return labeled === key ? status : labeled;
+}
+
+function isLiveConnectable(call: CallCenterCall): boolean {
+  if (call.direction === "outbound") return false;
+  return LIVE_CONNECTABLE_STATUSES.has(call.status);
+}
+
+function isCallbackable(call: CallCenterCall): boolean {
+  return CALLBACK_STATUSES.has(call.status);
+}
 
 const AWAY_REASONS = ["On Break", "In Training", "Admin Work", "Meeting"] as const;
 /** Matches softphone `cc-*:v1` localStorage keys — "1" = expanded, "0" = collapsed. */
@@ -717,36 +794,78 @@ function CallCenterPage() {
                           {t("callCenter.noCallsHint")}
                         </li>
                       ) : (
-                        phone.recentCalls.slice(0, 12).map((call) => (
-                          <li key={call.id} className="flex items-start justify-between gap-2 py-2.5 text-sm">
-                            <div className="min-w-0">
-                              <p className="truncate font-medium">
-                                {call.direction === "outbound"
-                                  ? call.toE164 || "—"
-                                  : call.fromE164 || "—"}
-                              </p>
-                              <p className="text-[0.7rem] text-muted-foreground">
-                                {new Date(call.startedAt).toLocaleString()} · {call.status}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end gap-1">
-                              <Badge variant="secondary" className="text-[0.65rem]">
-                                {call.direction}
-                              </Badge>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-2 text-xs"
-                                disabled={phone.pending || Boolean(phone.activeCall)}
-                                onClick={() => phone.onCallback(call)}
-                              >
-                                <Phone className="me-1 h-3 w-3" aria-hidden />
-                                {t("callCenter.callback")}
-                              </Button>
-                            </div>
-                          </li>
-                        ))
+                        phone.recentCalls.slice(0, 12).map((call) => {
+                          const live = isLiveConnectable(call);
+                          const canCallback = isCallbackable(call);
+                          return (
+                            <li
+                              key={call.id}
+                              className={cn(
+                                "flex items-start justify-between gap-2 py-2.5 text-sm",
+                                recentCallRowClass(call.status),
+                              )}
+                            >
+                              <div className="min-w-0">
+                                <p
+                                  className={cn(
+                                    "truncate font-medium",
+                                    call.status === "ivr" && "text-sky-950 dark:text-sky-50",
+                                    (call.status === "queued" ||
+                                      call.status === "ringing" ||
+                                      call.status === "offered") &&
+                                      "text-foreground",
+                                    (call.status === "missed" || call.status === "declined") &&
+                                      "text-rose-800 dark:text-rose-100",
+                                  )}
+                                >
+                                  {call.direction === "outbound"
+                                    ? call.toE164 || "—"
+                                    : call.fromE164 || "—"}
+                                </p>
+                                <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[0.7rem] text-muted-foreground">
+                                  <span>{new Date(call.startedAt).toLocaleString()}</span>
+                                  <Badge
+                                    variant={recentStatusBadgeVariant(call.status)}
+                                    className="h-5 px-1.5 text-[0.65rem] font-semibold uppercase tracking-wide"
+                                  >
+                                    {recentStatusLabel(call.status, t)}
+                                  </Badge>
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                <Badge variant="secondary" className="text-[0.65rem]">
+                                  {call.direction}
+                                </Badge>
+                                {live ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="default"
+                                    className="h-8 px-2 text-xs"
+                                    disabled={phone.pending || Boolean(phone.activeCall)}
+                                    onClick={() => void phone.onConnectDirectly(call)}
+                                  >
+                                    <PhoneIncoming className="me-1 h-3 w-3" aria-hidden />
+                                    {t("callCenter.connectDirectly")}
+                                  </Button>
+                                ) : null}
+                                {canCallback ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 px-2 text-xs"
+                                    disabled={phone.pending || Boolean(phone.activeCall)}
+                                    onClick={() => phone.onCallback(call)}
+                                  >
+                                    <Phone className="me-1 h-3 w-3" aria-hidden />
+                                    {t("callCenter.callback")}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </li>
+                          );
+                        })
                       )}
                     </ul>
                   </CollapsibleContent>

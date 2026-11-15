@@ -108,6 +108,8 @@ type SoftphoneContextValue = {
   onTestRing: () => Promise<void>;
   onDial: (toE164?: string) => Promise<void>;
   onCallback: (call: CallCenterCall) => void;
+  /** Take a live inbound still on IVR / queued / ringing (same bridge as Accept). */
+  onConnectDirectly: (call: CallCenterCall) => Promise<void>;
   onAnswer: () => Promise<void>;
   onDecline: () => Promise<void>;
   onHangup: () => Promise<void>;
@@ -188,7 +190,15 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   const workspace = useQuery({
     queryKey: WORKSPACE_KEY,
     enabled: canUse,
-    refetchInterval: activeCall ? 3_000 : 8_000,
+    // Faster while callers are live on IVR / queue so Recent shows Connect promptly.
+    refetchInterval: (query) => {
+      if (activeCall) return 3_000;
+      const recent = query.state.data?.recentCalls ?? [];
+      const hasLiveWaiting = recent.some((c) =>
+        ["ivr", "queued", "ringing", "offered"].includes(c.status),
+      );
+      return hasLiveWaiting ? 2_500 : 8_000;
+    },
     queryFn: async () => {
       const result = await loadCallCenterAgentWorkspace({});
       if (!result.ok) throw new Error(result.error);
@@ -442,13 +452,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     void onDial(number);
   }
 
-  async function onAnswer() {
-    if (!incoming) return;
+  async function bridgeAnsweredCall(callId: string, opts?: { successKey?: string }) {
     stopSoftphoneRingtone();
     await unlockSoftphoneAudio();
     clearAcwTimer();
     setPending(true);
-    const result = await answerCallCenterCall({ callId: incoming.id });
+    const result = await answerCallCenterCall({ callId });
     setPending(false);
     if (!result.ok) {
       toast.error(result.error);
@@ -460,8 +469,24 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     setMicMuted(false);
     if (!result.data.media.token || !result.data.media.serverUrl.startsWith("wss://")) {
       toast.error(t("callCenter.mediaNotConfigured"));
+    } else if (opts?.successKey) {
+      toast.success(t(opts.successKey));
     }
     await refresh();
+  }
+
+  async function onConnectDirectly(call: CallCenterCall) {
+    if (activeCall || pending) return;
+    if (!["ivr", "queued", "ringing", "offered"].includes(call.status)) {
+      toast.error(t("callCenter.connectDirectUnavailable"));
+      return;
+    }
+    await bridgeAnsweredCall(call.id, { successKey: "callCenter.connectDirectSuccess" });
+  }
+
+  async function onAnswer() {
+    if (!incoming) return;
+    await bridgeAnsweredCall(incoming.id);
   }
 
   // Maqsam-style auto-answer when agent profile enables it.
@@ -792,6 +817,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     onTestRing,
     onDial,
     onCallback,
+    onConnectDirectly,
     onAnswer,
     onDecline,
     onHangup,

@@ -1217,6 +1217,9 @@ export async function updateCall(
  * Atomically claim a waiting call for an agent before bridging media.
  * Returns null when another agent already claimed it (simultaneous race).
  */
+/** Inbound legs an agent can still take (Accept / Connect directly), including IVR. */
+const CLAIMABLE_CALL_STATUSES = ["ringing", "offered", "queued", "ivr"] as const;
+
 export async function claimCallForAnswer(
   callId: string,
   agentUserId: string,
@@ -1225,16 +1228,17 @@ export async function claimCallForAnswer(
   const now = new Date().toISOString();
   const existing = await getCall(callId);
   if (!existing) return null;
-  if (!["ringing", "offered", "queued"].includes(existing.status)) return null;
+  if (!(CLAIMABLE_CALL_STATUSES as readonly string[]).includes(existing.status)) return null;
   if (existing.agentUserId && existing.agentUserId !== agentUserId) return null;
 
   const meta = {
     ...((existing.metadata as Record<string, unknown> | null) ?? {}),
     answerClaimedBy: agentUserId,
     answerClaimedAt: now,
+    ...(existing.status === "ivr" ? { connectedDirectFromIvr: true } : {}),
   };
 
-  // Prefer unclaimed rows (simultaneous). Filter agent in a second path for directed offers.
+  // Prefer unclaimed rows (simultaneous / IVR). Filter agent in a second path for directed offers.
   let result = await table<Record<string, unknown>>("call_center_calls")
     .update({
       agent_user_id: agentUserId,
@@ -1243,7 +1247,7 @@ export async function claimCallForAnswer(
       updated_at: now,
     })
     .eq("id", callId)
-    .in("status", ["ringing", "offered", "queued"])
+    .in("status", [...CLAIMABLE_CALL_STATUSES])
     .is("agent_user_id", null)
     .select("*")
     .maybeSingle();
@@ -1259,7 +1263,7 @@ export async function claimCallForAnswer(
     })
     .eq("id", callId)
     .eq("agent_user_id", agentUserId)
-    .in("status", ["ringing", "offered", "queued"])
+    .in("status", [...CLAIMABLE_CALL_STATUSES])
     .select("*")
     .maybeSingle();
   throwIfError(result.error);
