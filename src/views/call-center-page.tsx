@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import {
   Delete,
   Mic,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { loadCallCenterTagCatalog } from "@/lib/call-center/call-center.functions";
 import type { CallCenterAgentStatusValue } from "@/lib/call-center/types";
 import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
@@ -149,6 +151,16 @@ function CallCenterPage() {
   const phone = useCallCenterSoftphone();
   const [speedLabel, setSpeedLabel] = useState("");
   const [speedE164, setSpeedE164] = useState("+974");
+
+  const tagsCatalog = useQuery({
+    queryKey: ["call-center", "tags"],
+    enabled: phone.canUse,
+    queryFn: async () => {
+      const result = await loadCallCenterTagCatalog({});
+      if (!result.ok) throw new Error(result.error);
+      return result.data.tags.filter((tag) => tag.isActive);
+    },
+  });
 
   if (!phone.canUse) {
     return (
@@ -427,7 +439,7 @@ function CallCenterPage() {
                     phone.availableAgents.slice(0, 6).map((agent) => (
                       <li key={agent.userId} className="flex items-center gap-2 text-sm">
                         <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" aria-hidden />
-                        <span className="font-mono text-xs">{agent.userId.slice(0, 8)}…</span>
+                        <span className="truncate text-xs font-medium">{agent.displayName}</span>
                       </li>
                     ))
                   )}
@@ -688,6 +700,44 @@ function CallCenterPage() {
                 >
                   {t("callCenter.saveNotes")}
                 </Button>
+                <div className="mt-4 border-t border-border/60 pt-4">
+                  <p className="text-xs font-medium text-foreground">{t("callCenter.callTags")}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(tagsCatalog.data ?? []).map((tag) => {
+                      const on = phone.tagsDraft.includes(tag.name);
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          disabled={!phone.notesCallId || phone.pending}
+                          className={cn(
+                            "rounded-full border px-2.5 py-1 text-xs font-medium disabled:opacity-50",
+                            on
+                              ? "border-foreground/20 bg-foreground text-background"
+                              : "border-border bg-card text-muted-foreground",
+                          )}
+                          style={on ? undefined : { borderColor: tag.color }}
+                          onClick={() =>
+                            phone.setTagsDraft((prev) =>
+                              on ? prev.filter((x) => x !== tag.name) : [...prev, tag.name],
+                            )
+                          }
+                        >
+                          {tag.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-3"
+                    disabled={phone.pending || !phone.notesCallId}
+                    onClick={() => void phone.onSaveTags()}
+                  >
+                    {t("callCenter.saveTags")}
+                  </Button>
+                </div>
               </section>
             </aside>
           </div>

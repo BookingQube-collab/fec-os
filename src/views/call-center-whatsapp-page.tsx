@@ -476,9 +476,8 @@ function CallCenterWhatsappPage() {
                         <SelectItem value="none">{t("callCenter.whatsappUnassigned")}</SelectItem>
                         {(inbox.data?.agents ?? []).map((a) => (
                           <SelectItem key={a.userId} value={a.userId}>
-                            {a.displayNameOverride ||
-                              a.extension ||
-                              a.userId.slice(0, 8)}
+                            {a.displayName}
+                              {a.extension ? ` · Ext ${a.extension}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>

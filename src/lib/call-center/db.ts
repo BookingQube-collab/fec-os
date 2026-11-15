@@ -159,13 +159,16 @@ function mapIvrOption(row: Record<string, unknown>): CallCenterIvrOption {
 }
 
 function mapAgentStatus(row: Record<string, unknown>): CallCenterAgentStatus {
+  const userId = String(row.user_id);
+  const displayNameOverride = String(row.display_name_override ?? "");
   return {
-    userId: String(row.user_id),
+    userId,
     status: (row.status as CallCenterAgentStatusValue) || "offline",
     statusSince: String(row.status_since ?? new Date().toISOString()),
     lastCallAt: row.last_call_at ? String(row.last_call_at) : null,
     extension: String(row.extension ?? ""),
-    displayNameOverride: String(row.display_name_override ?? ""),
+    displayNameOverride,
+    displayName: displayNameOverride.trim() || userId.slice(0, 8),
     maxConcurrentCalls: Math.max(1, Number(row.max_concurrent_calls ?? 1) || 1),
     canWhisper: Boolean(row.can_whisper ?? false),
     canBarge: Boolean(row.can_barge ?? false),
@@ -174,6 +177,27 @@ function mapAgentStatus(row: Record<string, unknown>): CallCenterAgentStatus {
     autoAnswer: Boolean(row.auto_answer ?? false),
     awayReason: String(row.away_reason ?? ""),
   };
+}
+
+async function withResolvedAgentDisplayNames(
+  agents: CallCenterAgentStatus[],
+): Promise<CallCenterAgentStatus[]> {
+  if (agents.length === 0) return agents;
+  const names = await resolveProfileNames(agents.map((a) => a.userId));
+  return agents.map((agent) => ({
+    ...agent,
+    displayName:
+      agent.displayNameOverride.trim() ||
+      names.get(agent.userId) ||
+      agent.userId.slice(0, 8),
+  }));
+}
+
+async function withResolvedAgentDisplayName(
+  agent: CallCenterAgentStatus,
+): Promise<CallCenterAgentStatus> {
+  const [resolved] = await withResolvedAgentDisplayNames([agent]);
+  return resolved ?? agent;
 }
 
 function mapWhatsappConversation(row: Record<string, unknown>): CallCenterWhatsappConversation {
@@ -935,7 +959,7 @@ export async function getAgentStatus(userId: string): Promise<CallCenterAgentSta
     .eq("user_id", userId)
     .maybeSingle();
   throwIfError(result.error);
-  return result.data ? mapAgentStatus(result.data) : null;
+  return result.data ? withResolvedAgentDisplayName(mapAgentStatus(result.data)) : null;
 }
 
 export async function setAgentStatus(
@@ -981,7 +1005,7 @@ export async function setAgentStatus(
     .maybeSingle();
   throwIfError(result.error);
   if (!result.data) throw new Error("Agent status could not be saved.");
-  return mapAgentStatus(result.data);
+  return withResolvedAgentDisplayName(mapAgentStatus(result.data));
 }
 
 export async function updateCallCenterAgentProfile(input: {
@@ -1052,7 +1076,7 @@ export async function listAvailableAgents(userIds: string[]): Promise<CallCenter
     .in("user_id", userIds)
     .eq("status", "available")) as ListResult<Record<string, unknown>>;
   throwIfError(result.error);
-  return (result.data ?? []).map(mapAgentStatus);
+  return withResolvedAgentDisplayNames((result.data ?? []).map(mapAgentStatus));
 }
 
 export async function createCall(input: {
@@ -1342,7 +1366,7 @@ export async function listAgentStatuses(): Promise<CallCenterAgentStatus[]> {
     .select("*")
     .order("updated_at", { ascending: false })) as ListResult<Record<string, unknown>>;
   throwIfError(result.error);
-  return (result.data ?? []).map(mapAgentStatus);
+  return withResolvedAgentDisplayNames((result.data ?? []).map(mapAgentStatus));
 }
 
 export async function listActiveCalls(): Promise<CallCenterCall[]> {
@@ -2058,7 +2082,7 @@ export async function findAgentByExtension(extension: string): Promise<CallCente
     .eq("extension", ext)
     .maybeSingle();
   throwIfError(result.error);
-  return result.data ? mapAgentStatus(result.data) : null;
+  return result.data ? withResolvedAgentDisplayName(mapAgentStatus(result.data)) : null;
 }
 
 export async function getAgentPerformance(fromIso: string): Promise<CallCenterAgentPerformanceRow[]> {
@@ -2084,7 +2108,7 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
     const mapped = mapAgentStatus(row);
     byAgent.set(mapped.userId, {
       userId: mapped.userId,
-      displayName: mapped.displayNameOverride || mapped.userId.slice(0, 8),
+      displayName: mapped.displayName,
       extension: mapped.extension,
       status: mapped.status,
       callsHandled: 0,

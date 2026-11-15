@@ -766,6 +766,7 @@ export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
         lastCallAt: null,
         extension: "",
         displayNameOverride: "",
+        displayName: "Agent",
         maxConcurrentCalls: 1,
         canWhisper: false,
         canBarge: false,

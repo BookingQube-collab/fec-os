@@ -35,6 +35,7 @@ import {
   refreshCallCenterMedia,
   retrieveCallCenterParkedCall,
   saveCallCenterAgentNotes,
+  saveCallCenterCallTags,
   saveCallCenterSpeedDial,
   sendCallCenterDtmf,
   setCallCenterAgentStatus,
@@ -96,6 +97,9 @@ type SoftphoneContextValue = {
   notesDraft: string;
   setNotesDraft: (value: string) => void;
   notesCallId: string | null;
+  tagsDraft: string[];
+  setTagsDraft: (value: string[] | ((prev: string[]) => string[])) => void;
+  onSaveTags: () => Promise<void>;
   changeStatus: (
     status: CallCenterAgentStatusValue,
     extras?: { awayReason?: string; autoAnswer?: boolean },
@@ -174,6 +178,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   const [awayReasonDraft, setAwayReasonDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const [notesCallId, setNotesCallId] = useState<string | null>(null);
+  const [tagsDraft, setTagsDraft] = useState<string[]>([]);
   const [acwRemaining, setAcwRemaining] = useState<number | null>(null);
   const [lastEndedCallId, setLastEndedCallId] = useState<string | null>(null);
   const missedAlertedRef = useRef<Set<string>>(new Set());
@@ -276,6 +281,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     if (activeCall) {
       setNotesCallId(activeCall.id);
       setNotesDraft(activeCall.agentNotes || "");
+      setTagsDraft(activeCall.tags ?? []);
     }
   }, [activeCall?.id]);
 
@@ -344,7 +350,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       .map((a) => ({
         userId: a.userId,
         status: a.status,
-        label: `${a.userId.slice(0, 8)}…`,
+        label: a.displayName,
       }));
   }, [wallboard.data?.agents, workspace.data?.agents, user?.id]);
 
@@ -486,6 +492,9 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     if (notesDraft.trim() && notesCallId === activeCall.id) {
       await saveCallCenterAgentNotes({ callId: activeCall.id, notes: notesDraft }).catch(() => undefined);
     }
+    if (tagsDraft.length > 0 && notesCallId === activeCall.id) {
+      await saveCallCenterCallTags({ callId: activeCall.id, tags: tagsDraft }).catch(() => undefined);
+    }
     setPending(true);
     const result = await hangupCallCenterCall({ callId: activeCall.id });
     setPending(false);
@@ -602,6 +611,25 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       setActiveCall(result.data);
     }
     toast.success(t("callCenter.notesSaved"));
+    await refresh();
+  }
+
+  async function onSaveTags() {
+    if (!notesCallId) {
+      toast.error(t("callCenter.notesNoCall"));
+      return;
+    }
+    setPending(true);
+    const result = await saveCallCenterCallTags({ callId: notesCallId, tags: tagsDraft });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    if (activeCall?.id === notesCallId) {
+      setActiveCall(result.data);
+    }
+    toast.success(t("callCenter.tagsSaved"));
     await refresh();
   }
 
@@ -756,6 +784,9 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     notesDraft,
     setNotesDraft,
     notesCallId,
+    tagsDraft,
+    setTagsDraft,
+    onSaveTags,
     changeStatus,
     setAutoAnswer,
     onTestRing,

@@ -311,6 +311,8 @@ export type CallCenterAgentStatus = {
   lastCallAt: string | null;
   extension: string;
   displayNameOverride: string;
+  /** Resolved label: override → profiles.display_name → short user id. */
+  displayName: string;
   maxConcurrentCalls: number;
   canWhisper: boolean;
   canBarge: boolean;

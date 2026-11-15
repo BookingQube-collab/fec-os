@@ -255,10 +255,13 @@ function CallCenterLivePage() {
                           )}
                           aria-hidden
                         />
-                        <div>
-                          <p className="font-mono text-sm font-semibold tracking-tight">
-                            {agent.userId.slice(0, 8)}…
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold tracking-tight">
+                            {agent.displayName}
                           </p>
+                          {agent.extension ? (
+                            <p className="text-xs text-muted-foreground">Ext {agent.extension}</p>
+                          ) : null}
                           <p className="text-xs text-muted-foreground">
                             {t("callCenter.since", {
                               time: new Date(agent.statusSince).toLocaleTimeString(),
@@ -315,6 +318,9 @@ function CallCenterLivePage() {
               <ul className="grid gap-3 lg:grid-cols-2">
                 {activeCalls.map((call) => {
                   const queue = wallboard.data?.queues.find((q) => q.id === call.queueId);
+                  const agent = call.agentUserId
+                    ? agents.find((a) => a.userId === call.agentUserId)
+                    : undefined;
                   const inCall = call.status === "answered" || call.status === "held";
                   return (
                     <li
@@ -328,6 +334,7 @@ function CallCenterLivePage() {
                           </p>
                           <p className="text-xs text-muted-foreground">
                             → {call.toE164 || "—"} · {queue?.name ?? "—"} · {call.direction}
+                            {agent ? ` · ${agent.displayName}` : ""}
                             {call.whisperActive ? ` · ${t("callCenter.whisper")}` : ""}
                             {call.bargeActive ? ` · ${t("callCenter.barge")}` : ""}
                           </p>

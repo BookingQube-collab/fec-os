@@ -63,7 +63,7 @@ function CallCenterIvrPage() {
   const agents = useMemo(() => {
     const fromStatus = (bundle.data?.agents ?? []).map((a) => ({
       userId: a.userId,
-      label: `${a.userId.slice(0, 8)}… (${a.status})`,
+      label: `${a.displayName} (${a.status})`,
     }));
     if (fromStatus.length > 0) return fromStatus;
     const seen = new Set<string>();
@@ -71,7 +71,7 @@ function CallCenterIvrPage() {
     for (const m of bundle.data?.members ?? []) {
       if (seen.has(m.userId)) continue;
       seen.add(m.userId);
-      fromMembers.push({ userId: m.userId, label: `${m.userId.slice(0, 8)}…` });
+      fromMembers.push({ userId: m.userId, label: m.userId.slice(0, 8) });
     }
     return fromMembers;
   }, [bundle.data?.agents, bundle.data?.members]);
