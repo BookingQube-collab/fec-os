@@ -14824,6 +14824,26 @@
     "endAcw": "إنهاء اللفّة",
     "park": "تعليق",
     "saveDisposition": "حفظ التصنيف",
-    "dispositionSaved": "تم حفظ التصنيف."
+    "dispositionSaved": "تم حفظ التصنيف.",
+    "mediaSettings": "ترحيب / انتظار / تحويل نص إلى كلام",
+    "mediaSettingsHint": "ارفع أو الصق روابط صوت الترحيب/الانتظار، واختر صوت تحويل النص إلى كلام لـ Telnyx.",
+    "welcomeGreeting": "نص الترحيب",
+    "welcomeAudioUrl": "رابط صوت الترحيب",
+    "holdMusicUrl": "رابط موسيقى الانتظار",
+    "uploadAudio": "رفع",
+    "audioUploading": "جارٍ الرفع…",
+    "audioUploaded": "تم رفع الصوت — تم ملء الرابط العام. احفظ الإعدادات للتطبيق.",
+    "audioUploadFailed": "فشل رفع الصوت.",
+    "audioUploadHint": "MP3 أو WAV أو M4A حتى 8 ميغابايت. يُخزَّن علناً ليتمكن Telnyx من تشغيله.",
+    "ttsEnabled": "ترحيب تحويل النص إلى كلام",
+    "ttsHint": "عند التفعيل يُستخدم نص الترحيب إذا لم يُحدد رابط صوت ترحيب.",
+    "ttsVoice": "صوت تحويل النص إلى كلام للقائمة",
+    "ttsVoiceCustom": "معرّف صوت Telnyx مخصص…",
+    "ttsVoiceHint": "يُستخدم في speak/gather. الافتراضي Polly Joanna Neural (إنجليزي). النصوص العربية غالباً تستخدم Polly Hala Neural.",
+    "ttsPreview": "استماع",
+    "ttsPreviewing": "جارٍ التشغيل…",
+    "ttsPreviewHint": "يشغّل عينة قصيرة عبر Telnyx بالصوت المحدد ونص الترحيب (يتطلب مفتاح Telnyx).",
+    "ttsPreviewFailed": "تعذر معاينة هذا الصوت.",
+    "ttsGreetingText": "نص ترحيب تحويل النص إلى كلام"
   }
 }

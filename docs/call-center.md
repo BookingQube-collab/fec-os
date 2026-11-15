@@ -250,7 +250,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | AI Call Agent setup | `/call-center/ai` |
 | WhatsApp inbox + Meta webhook | `/call-center/whatsapp` + `/api/public/call-center/whatsapp` |
 | Blocklist | `/call-center/blacklist` — inbound reject / outbound block |
-| Welcome / hold / TTS (IVR speak voice) | Settings → Welcome / hold / TTS — pick Polly/Azure neural voice (not basic `female`) |
+| Welcome / hold / TTS (IVR speak voice) | Settings → Welcome / hold / TTS — upload MP3/WAV/M4A or paste public URLs; **Listen** previews the selected Polly/Azure voice via Telnyx TTS |
 | VIP / priority contacts | `/call-center/contacts` — VIP flag skips IVR when configured |
 | Skill-based queue offer | Queues → required skills; agents/members skills; routing prefers intersection |
 | Service level % | Queues → SL seconds; Analytics → Service level |

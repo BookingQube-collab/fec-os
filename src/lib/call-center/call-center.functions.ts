@@ -4,7 +4,9 @@ import { z } from "zod";
 
 import { generateCallCenterAiReply } from "@/lib/call-center/ai-reply";
 import { getCallProvider } from "@/lib/chat/call-provider";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createSafeAuthenticatedAction } from "@/lib/server/create-action";
+import { validateBase64Size } from "@/lib/server/upload-validation";
 
 import {
   assignWhatsappConversation,
@@ -111,12 +113,21 @@ import { sendOutboundEmail } from "@/lib/email/send";
 import { buildFecVenuesTemplate } from "./ivr-flow";
 import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
 import { checkCarrierSetup, resolveLiveKitServerCredentials } from "./livekit-sip";
+import {
+  CALL_CENTER_AUDIO_KINDS,
+  CALL_CENTER_MEDIA_BUCKET,
+  CALL_CENTER_MEDIA_MAX_BYTES,
+  callCenterMediaStoragePath,
+  normalizeCallCenterAudioMime,
+} from "./media-audio";
 import { toPublicSettings } from "./settings-public";
 import {
   looksLikeSipHostNotId,
   recoverMisplacedOutboundSipHost,
   sipHostMistakenForIdMessage,
 } from "./sip-ids";
+import { resolveTelnyxApiKey } from "./telnyx";
+import { synthesizeTelnyxTtsPreview } from "./tts-preview";
 import type { CallCenterQaCriterion, CallCenterReportSchedule } from "./types";
 import {
   CALL_CENTER_VENUE_QUEUE_IDS,
@@ -380,6 +391,70 @@ export const revealCallCenterSettingSecret = createSafeAuthenticatedAction(
     const row = await loadSettingsRow();
     const value = row?.[data.field]?.trim() ?? "";
     return { field: data.field, value };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+/** Upload welcome/hold audio to public Supabase storage; returns HTTPS URL for Telnyx. */
+export const uploadCallCenterMediaAudio = createSafeAuthenticatedAction(
+  z.object({
+    kind: z.enum(CALL_CENTER_AUDIO_KINDS),
+    filename: z.string().trim().min(1).max(200),
+    contentType: z.string().trim().min(1).max(120),
+    dataBase64: z.string().min(32).max(12 * 1024 * 1024),
+  }),
+  async (data) => {
+    const mime = normalizeCallCenterAudioMime(data.contentType, data.filename);
+    validateBase64Size(data.dataBase64, CALL_CENTER_MEDIA_MAX_BYTES);
+    const cleaned = data.dataBase64.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, "");
+    const bytes = Buffer.from(cleaned, "base64");
+    if (bytes.length < 64) throw new Error("Audio file is empty or too small.");
+    if (bytes.length > CALL_CENTER_MEDIA_MAX_BYTES) {
+      throw new Error("Audio must be 8 MB or smaller.");
+    }
+    const path = callCenterMediaStoragePath(data.kind, data.filename, mime);
+    const { error: upErr } = await supabaseAdmin.storage
+      .from(CALL_CENTER_MEDIA_BUCKET)
+      .upload(path, bytes, { contentType: mime, upsert: false });
+    if (upErr) {
+      const msg = upErr.message || "Storage upload failed";
+      if (/bucket|not found|does not exist/i.test(msg)) {
+        throw new Error(
+          "Call Center media storage is not ready. Apply migration 20261115200000_call_center_media_storage.sql (supabase db push).",
+        );
+      }
+      throw new Error(msg);
+    }
+    const { data: publicData } = supabaseAdmin.storage.from(CALL_CENTER_MEDIA_BUCKET).getPublicUrl(path);
+    const url = publicData.publicUrl?.trim() ?? "";
+    if (!url.startsWith("https://")) {
+      throw new Error("Uploaded audio did not produce a public HTTPS URL.");
+    }
+    return { url, path, kind: data.kind };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+/** Preview IVR TTS voice via Telnyx REST TTS (returns base64 audio for in-browser playback). */
+export const previewCallCenterTtsVoice = createSafeAuthenticatedAction(
+  z.object({
+    voice: z.string().trim().min(1).max(120),
+    text: z.string().max(2000).optional(),
+  }),
+  async (data) => {
+    const settings = await loadSettingsRow();
+    const apiKey = resolveTelnyxApiKey(settings);
+    if (!apiKey) {
+      throw new Error(
+        "Telnyx API key is not set. Add it in Call Center → Settings (or TELNYX_API_KEY) to preview voices.",
+      );
+    }
+    const voice = normalizeConfiguredTtsVoice(data.voice);
+    const sample =
+      data.text?.trim() ||
+      settings?.tts_greeting_text?.trim() ||
+      "Welcome. Thank you for calling. This is a sample of the selected voice.";
+    return synthesizeTelnyxTtsPreview({ apiKey, voice, text: sample });
   },
   { auth: ADMIN_AUTH },
 );
