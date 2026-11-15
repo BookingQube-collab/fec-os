@@ -1,3 +1,14 @@
+import {
+  buildE3AiSystemPrompt,
+  E3_CENTER_GREETING_AR,
+  E3_CENTER_GREETING_EN,
+  E3_CENTER_LABELS,
+  E3_LANG_GREETING_AR,
+  E3_LANG_GREETING_EN,
+  E3_SERVICE_GREETING_AR,
+  E3_SERVICE_GREETING_EN,
+  type E3CenterKey,
+} from "./e3-ivr-prompt";
 import type { CallCenterIvrAction, CallCenterIvrMenu, CallCenterIvrOption } from "./types";
 import { CALL_CENTER_VENUE_QUEUE_IDS } from "./types";
 
@@ -279,11 +290,22 @@ export type FecVenueQueueMap = {
   urbanArena: string;
   kidsDriving: string;
   birthday: string;
+  general: string;
+};
+
+type E3CenterBranch = {
+  key: E3CenterKey;
+  digit: string;
+  queueId: string;
 };
 
 /**
- * Bilingual Maqsam-style Main menu:
- * Start → Language (1 EN / 2 AR) → Venue menu → queues.
+ * E3 Smart IVR template:
+ * Start → Language (1 EN / 2 AR) → Center → Service menu → AI / queues.
+ *
+ * Center digits: 1 Inflata Park, 2 Kids Driving School, 3 Urban Arena, 0 General.
+ * Service digits: 1 bookings AI, 2 birthday queue, 3 group/school → birthday queue,
+ * 4–5 AI (prices / visit), 6 support queue, 0 human queue.
  */
 export function buildFecVenuesTemplate(
   queues: FecVenueQueueMap = {
@@ -291,79 +313,54 @@ export function buildFecVenuesTemplate(
     urbanArena: CALL_CENTER_VENUE_QUEUE_IDS.urbanArena,
     kidsDriving: CALL_CENTER_VENUE_QUEUE_IDS.kidsDriving,
     birthday: CALL_CENTER_VENUE_QUEUE_IDS.birthday,
+    general: CALL_CENTER_VENUE_QUEUE_IDS.general,
   },
 ): IvrFlowJson {
   const startId = "node-start";
   const langId = "node-menu-lang";
-  const venueEnId = "node-menu-venues-en";
-  const venueArId = "node-menu-venues-ar";
-  const aiId = "node-ai";
+  const centerEnId = "node-menu-centers-en";
+  const centerArId = "node-menu-centers-ar";
+  const birthdayEnId = "node-q-birthday-en";
+  const birthdayArId = "node-q-birthday-ar";
 
-  const venueDefs = [
-    {
-      digit: "1",
-      en: "InflataPark",
-      ar: "إنفلاتا بارك",
-      queueId: queues.inflatapark,
-      qEn: "node-q-inflatapark",
-      qAr: "node-q-inflatapark-ar",
-    },
-    {
-      digit: "2",
-      en: "Urban Arena",
-      ar: "أوربان أرينا",
-      queueId: queues.urbanArena,
-      qEn: "node-q-urban",
-      qAr: "node-q-urban-ar",
-    },
-    {
-      digit: "3",
-      en: "Kids Driving School",
-      ar: "مدرسة القيادة للأطفال",
-      queueId: queues.kidsDriving,
-      qEn: "node-q-kids",
-      qAr: "node-q-kids-ar",
-    },
-    {
-      digit: "4",
-      en: "Birthday enquiry",
-      ar: "استفسار أعياد الميلاد",
-      queueId: queues.birthday,
-      qEn: "node-q-birthday",
-      qAr: "node-q-birthday-ar",
-    },
+  const centers: E3CenterBranch[] = [
+    { key: "inflatapark", digit: "1", queueId: queues.inflatapark },
+    { key: "kidsDriving", digit: "2", queueId: queues.kidsDriving },
+    { key: "urbanArena", digit: "3", queueId: queues.urbanArena },
+    { key: "general", digit: "0", queueId: queues.general },
+  ];
+
+  const serviceDigits = [
+    { digit: "1", labelEn: "Bookings", labelAr: "الحجوزات" },
+    { digit: "2", labelEn: "Birthdays", labelAr: "أعياد الميلاد" },
+    { digit: "3", labelEn: "School / groups", labelAr: "المدارس والمجموعات" },
+    { digit: "4", labelEn: "Prices & payments", labelAr: "الأسعار والمدفوعات" },
+    { digit: "5", labelEn: "Visit information", labelAr: "معلومات الزيارة" },
+    { digit: "6", labelEn: "Complaints & support", labelAr: "الشكاوى والدعم" },
+    { digit: "0", labelEn: "Speak to agent", labelAr: "موظف خدمة العملاء" },
   ] as const;
-
-  const langGreetingEn =
-    "Thank you for calling FEC. For English, press 1. للعربية، اضغط 2.";
-  const langGreetingAr =
-    "شكراً لاتصالك بـ FEC. للإنجليزية اضغط 1. للعربية اضغط 2.";
-  const venueGreetingEn =
-    "Press 1 for InflataPark, 2 for Urban Arena, 3 for Kids Driving School, or 4 for Birthday enquiry.";
-  const venueGreetingAr =
-    "اضغط 1 لإنفلاتا بارك، 2 لأوربان أرينا، 3 لمدرسة القيادة للأطفال، أو 4 لاستفسار أعياد الميلاد.";
 
   const nodes: IvrFlowNode[] = [
     {
       id: startId,
       type: "start",
-      position: { x: 40, y: 220 },
+      position: { x: 20, y: 360 },
       data: {
         label: "Start / Greeting",
-        greetingText: langGreetingEn,
-        greetingEn: langGreetingEn,
-        greetingAr: langGreetingAr,
+        greetingText: E3_LANG_GREETING_EN,
+        greetingEn: E3_LANG_GREETING_EN,
+        greetingAr: E3_LANG_GREETING_AR,
       },
     },
     {
       id: langId,
       type: "menu",
-      position: { x: 320, y: 200 },
+      position: { x: 280, y: 340 },
       data: {
         label: "Language",
-        greetingText: langGreetingEn,
-        greetingEn: langGreetingEn,
-        greetingAr: langGreetingAr,
+        greetingText: E3_LANG_GREETING_EN,
+        greetingEn: E3_LANG_GREETING_EN,
+        greetingAr: E3_LANG_GREETING_AR,
         digits: [
           { digit: "1", label: "English" },
           { digit: "2", label: "العربية" },
@@ -373,96 +370,229 @@ export function buildFecVenuesTemplate(
       },
     },
     {
-      id: venueEnId,
+      id: centerEnId,
       type: "menu",
-      position: { x: 620, y: 40 },
+      position: { x: 560, y: 80 },
       data: {
-        label: "Venues (EN)",
-        greetingText: venueGreetingEn,
-        greetingEn: venueGreetingEn,
-        greetingAr: venueGreetingAr,
-        digits: venueDefs.map((v) => ({ digit: v.digit, label: v.en })),
+        label: "Centers (EN)",
+        greetingText: E3_CENTER_GREETING_EN,
+        greetingEn: E3_CENTER_GREETING_EN,
+        greetingAr: E3_CENTER_GREETING_AR,
+        digits: centers.map((c) => ({
+          digit: c.digit,
+          label: E3_CENTER_LABELS[c.key].shortEn,
+        })),
         timeoutSeconds: 12,
         maxRetries: 2,
       },
     },
     {
-      id: venueArId,
+      id: centerArId,
       type: "menu",
-      position: { x: 620, y: 380 },
+      position: { x: 560, y: 620 },
       data: {
-        label: "الأماكن (AR)",
-        greetingText: venueGreetingAr,
-        greetingEn: venueGreetingEn,
-        greetingAr: venueGreetingAr,
-        digits: venueDefs.map((v) => ({ digit: v.digit, label: v.ar })),
+        label: "المراكز (AR)",
+        greetingText: E3_CENTER_GREETING_AR,
+        greetingEn: E3_CENTER_GREETING_EN,
+        greetingAr: E3_CENTER_GREETING_AR,
+        digits: centers.map((c) => ({
+          digit: c.digit,
+          label: E3_CENTER_LABELS[c.key].shortAr,
+        })),
         timeoutSeconds: 12,
         maxRetries: 2,
       },
     },
     {
-      id: aiId,
-      type: "ai",
-      position: { x: 320, y: 420 },
-      data: {
-        label: "AI first responder",
-        aiEnabled: true,
-        aiLanguage: "auto",
-        aiSystemPrompt:
-          "You are FEC's bilingual phone assistant for InflataPark, Urban Arena, Kids Driving School, and birthday enquiries. Answer briefly, then hand off to the matching queue when the caller needs a human.",
-        aiHandoffQueueId: queues.inflatapark,
-        queueId: queues.inflatapark,
-      },
+      id: birthdayEnId,
+      type: "queue",
+      position: { x: 1480, y: 40 },
+      data: { label: "Birthday & Events (EN)", queueId: queues.birthday },
+    },
+    {
+      id: birthdayArId,
+      type: "queue",
+      position: { x: 1480, y: 700 },
+      data: { label: "أعياد الميلاد والفعاليات", queueId: queues.birthday },
     },
   ];
-
-  for (const v of venueDefs) {
-    nodes.push(
-      {
-        id: v.qEn,
-        type: "queue",
-        position: { x: 960, y: 20 + (Number(v.digit) - 1) * 100 },
-        data: { label: v.en, queueId: v.queueId },
-      },
-      {
-        id: v.qAr,
-        type: "queue",
-        position: { x: 960, y: 360 + (Number(v.digit) - 1) * 100 },
-        data: { label: v.ar, queueId: v.queueId },
-      },
-    );
-  }
 
   const edges: IvrFlowEdge[] = [
     { id: "e-start-lang", source: startId, target: langId, sourceHandle: "out", label: "next" },
-    { id: "e-lang-en", source: langId, target: venueEnId, sourceHandle: "1", label: "1" },
-    { id: "e-lang-ar", source: langId, target: venueArId, sourceHandle: "2", label: "2" },
+    { id: "e-lang-en", source: langId, target: centerEnId, sourceHandle: "1", label: "1" },
+    { id: "e-lang-ar", source: langId, target: centerArId, sourceHandle: "2", label: "2" },
   ];
 
-  for (const v of venueDefs) {
-    edges.push(
+  centers.forEach((center, index) => {
+    const yEn = 20 + index * 160;
+    const yAr = 560 + index * 160;
+    const svcEnId = `node-svc-${center.key}-en`;
+    const svcArId = `node-svc-${center.key}-ar`;
+    const aiEnId = `node-ai-${center.key}-en`;
+    const aiArId = `node-ai-${center.key}-ar`;
+    const queueEnId = `node-q-${center.key}-en`;
+    const queueArId = `node-q-${center.key}-ar`;
+    const labels = E3_CENTER_LABELS[center.key];
+
+    nodes.push(
       {
-        id: `e-en-${v.digit}`,
-        source: venueEnId,
-        target: v.qEn,
-        sourceHandle: v.digit,
-        label: v.digit,
+        id: svcEnId,
+        type: "menu",
+        position: { x: 860, y: yEn },
+        data: {
+          label: `Services · ${labels.shortEn}`,
+          greetingText: E3_SERVICE_GREETING_EN,
+          greetingEn: E3_SERVICE_GREETING_EN,
+          greetingAr: E3_SERVICE_GREETING_AR,
+          digits: serviceDigits.map((d) => ({ digit: d.digit, label: d.labelEn })),
+          timeoutSeconds: 15,
+          maxRetries: 2,
+          queueId: center.queueId,
+        },
       },
       {
-        id: `e-ar-${v.digit}`,
-        source: venueArId,
-        target: v.qAr,
-        sourceHandle: v.digit,
-        label: v.digit,
+        id: svcArId,
+        type: "menu",
+        position: { x: 860, y: yAr },
+        data: {
+          label: `الخدمات · ${labels.shortAr}`,
+          greetingText: E3_SERVICE_GREETING_AR,
+          greetingEn: E3_SERVICE_GREETING_EN,
+          greetingAr: E3_SERVICE_GREETING_AR,
+          digits: serviceDigits.map((d) => ({ digit: d.digit, label: d.labelAr })),
+          timeoutSeconds: 15,
+          maxRetries: 2,
+          queueId: center.queueId,
+        },
+      },
+      {
+        id: aiEnId,
+        type: "ai",
+        position: { x: 1180, y: yEn },
+        data: {
+          label: `AI · ${labels.shortEn}`,
+          aiEnabled: true,
+          aiLanguage: "en",
+          aiSystemPrompt: buildE3AiSystemPrompt(center.key),
+          aiHandoffQueueId: center.queueId,
+          queueId: center.queueId,
+        },
+      },
+      {
+        id: aiArId,
+        type: "ai",
+        position: { x: 1180, y: yAr },
+        data: {
+          label: `AI · ${labels.shortAr}`,
+          aiEnabled: true,
+          aiLanguage: "ar",
+          aiSystemPrompt: buildE3AiSystemPrompt(center.key),
+          aiHandoffQueueId: center.queueId,
+          queueId: center.queueId,
+        },
+      },
+      {
+        id: queueEnId,
+        type: "queue",
+        position: { x: 1480, y: yEn + 60 },
+        data: { label: `${labels.shortEn} agents`, queueId: center.queueId },
+      },
+      {
+        id: queueArId,
+        type: "queue",
+        position: { x: 1480, y: yAr + 60 },
+        data: { label: `وكلاء ${labels.shortAr}`, queueId: center.queueId },
       },
     );
-  }
+
+    edges.push(
+      {
+        id: `e-center-en-${center.digit}`,
+        source: centerEnId,
+        target: svcEnId,
+        sourceHandle: center.digit,
+        label: center.digit,
+      },
+      {
+        id: `e-center-ar-${center.digit}`,
+        source: centerArId,
+        target: svcArId,
+        sourceHandle: center.digit,
+        label: center.digit,
+      },
+      // 1 bookings, 4 prices, 5 visit info → AI
+      { id: `e-svc-en-${center.key}-1`, source: svcEnId, target: aiEnId, sourceHandle: "1", label: "1" },
+      { id: `e-svc-en-${center.key}-4`, source: svcEnId, target: aiEnId, sourceHandle: "4", label: "4" },
+      { id: `e-svc-en-${center.key}-5`, source: svcEnId, target: aiEnId, sourceHandle: "5", label: "5" },
+      { id: `e-svc-ar-${center.key}-1`, source: svcArId, target: aiArId, sourceHandle: "1", label: "1" },
+      { id: `e-svc-ar-${center.key}-4`, source: svcArId, target: aiArId, sourceHandle: "4", label: "4" },
+      { id: `e-svc-ar-${center.key}-5`, source: svcArId, target: aiArId, sourceHandle: "5", label: "5" },
+      // 2 birthday, 3 school/group → Birthday & Events queue
+      {
+        id: `e-svc-en-${center.key}-2`,
+        source: svcEnId,
+        target: birthdayEnId,
+        sourceHandle: "2",
+        label: "2",
+      },
+      {
+        id: `e-svc-en-${center.key}-3`,
+        source: svcEnId,
+        target: birthdayEnId,
+        sourceHandle: "3",
+        label: "3",
+      },
+      {
+        id: `e-svc-ar-${center.key}-2`,
+        source: svcArId,
+        target: birthdayArId,
+        sourceHandle: "2",
+        label: "2",
+      },
+      {
+        id: `e-svc-ar-${center.key}-3`,
+        source: svcArId,
+        target: birthdayArId,
+        sourceHandle: "3",
+        label: "3",
+      },
+      // 6 complaints, 0 human → center queue
+      {
+        id: `e-svc-en-${center.key}-6`,
+        source: svcEnId,
+        target: queueEnId,
+        sourceHandle: "6",
+        label: "6",
+      },
+      {
+        id: `e-svc-en-${center.key}-0`,
+        source: svcEnId,
+        target: queueEnId,
+        sourceHandle: "0",
+        label: "0",
+      },
+      {
+        id: `e-svc-ar-${center.key}-6`,
+        source: svcArId,
+        target: queueArId,
+        sourceHandle: "6",
+        label: "6",
+      },
+      {
+        id: `e-svc-ar-${center.key}-0`,
+        source: svcArId,
+        target: queueArId,
+        sourceHandle: "0",
+        label: "0",
+      },
+    );
+  });
 
   return {
     version: IVR_FLOW_VERSION,
     nodes,
     edges,
-    viewport: { x: 0, y: 0, zoom: 0.75 },
+    viewport: { x: 0, y: 0, zoom: 0.55 },
   };
 }
 
@@ -834,7 +964,7 @@ function pushPathStep(
   });
 }
 
-/** Simulate digit path for the Test preview toolbar (e.g. `12` = English → Urban Arena). */
+/** Simulate digit path for the Test preview toolbar (e.g. `110` = English → Inflata → agent). */
 export function simulateDigitPath(
   flow: IvrFlowJson,
   digits: string[],
@@ -964,7 +1094,7 @@ export function simulateDigitPath(
         ? `Waiting at “${node.data.label}” — type the next digit. ${
             validDigits.length ? `Options: ${formatValidDigits(validDigits)}.` : ""
           }`.trim()
-        : `Waiting at “${node.data.label}” — type the full path, one digit per menu (e.g. 14). ${
+        : `Waiting at “${node.data.label}” — type the full path, one digit per menu (e.g. 111). ${
             validDigits.length ? `First menu: ${formatValidDigits(validDigits)}.` : ""
           }`.trim(),
       language,

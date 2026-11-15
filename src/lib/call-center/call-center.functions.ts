@@ -633,6 +633,11 @@ const VENUE_QUEUE_DEFS = [
     name: "Birthday enquiry",
     sortOrder: 13,
   },
+  {
+    id: CALL_CENTER_VENUE_QUEUE_IDS.general,
+    name: "E3 General Support",
+    sortOrder: 14,
+  },
 ] as const;
 
 /** Ensure venue queues exist and replace the menu canvas with the bilingual FEC template. */
@@ -669,18 +674,19 @@ export const applyCallCenterFecVenuesIvrTemplate = createSafeAuthenticatedAction
       urbanArena: resolved[CALL_CENTER_VENUE_QUEUE_IDS.urbanArena]!,
       kidsDriving: resolved[CALL_CENTER_VENUE_QUEUE_IDS.kidsDriving]!,
       birthday: resolved[CALL_CENTER_VENUE_QUEUE_IDS.birthday]!,
+      general: resolved[CALL_CENTER_VENUE_QUEUE_IDS.general]!,
     });
 
     const greeting =
       flow.nodes.find((n) => n.type === "start")?.data.greetingEn ||
       flow.nodes.find((n) => n.type === "start")?.data.greetingText ||
-      "Thank you for calling FEC.";
+      "Thank you for calling E3, Events and Entertainment Enterprises.";
 
     return saveIvrFlow({
       menuId: data.menuId,
-      name: "Main menu",
+      name: "E3 Main menu",
       greetingText: greeting,
-      fallbackQueueId: resolved[CALL_CENTER_VENUE_QUEUE_IDS.inflatapark] ?? null,
+      fallbackQueueId: resolved[CALL_CENTER_VENUE_QUEUE_IDS.general] ?? resolved[CALL_CENTER_VENUE_QUEUE_IDS.inflatapark] ?? null,
       isActive: true,
       timeoutSeconds: 10,
       maxRetries: 2,

@@ -726,7 +726,7 @@ function CanvasInner({
               disabled={applyingTemplate || saving}
               onClick={() => void onApplyVenuesTemplate()}
             >
-              {applyingTemplate ? "Applying…" : "Apply FEC venues template"}
+              {applyingTemplate ? "Applying…" : "Apply E3 IVR template"}
             </Button>
           ) : null}
           <Button type="button" size="sm" variant="outline" onClick={() => zoomIn()}>

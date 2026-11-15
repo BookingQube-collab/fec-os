@@ -127,10 +127,11 @@ To make an existing FEC login a call-center agent instead, a CEO can grant the r
 Open `/call-center/ivr` (admin edit; agents can view).
 
 1. Pick or create a menu (seed **Main menu** migrates into the canvas on first open).
-2. Click **Apply FEC venues template** once to load the bilingual Maqsam-style flow (creates venue queues if missing):
+2. Click **Apply E3 IVR template** once to load the bilingual E3 Smart IVR (creates venue queues if missing):
    - Start → **Language** (1 English / 2 Arabic)
-   - Venue menu: 1 InflataPark · 2 Urban Arena · 3 Kids Driving School · 4 Birthday enquiry → matching queues
-   - Optional **AI Agent** node (first responder stub) is included on the canvas for wiring
+   - **Center**: 1 Inflata Park · 2 Kids Driving School · 3 Urban Arena · 0 General E3 support
+   - **Service menu**: 1 bookings AI · 2 birthday queue · 3 school/group → birthday queue · 4–5 prices/visit AI · 6 support queue · 0 human queue
+   - Per-center **AI Agent** nodes use the E3 bilingual system prompt (bookings, parties, groups, prices, hours, complaints, handoff rules)
 3. Drag steps from the left palette: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, **AI Agent**, Hangup, Business hours, Voicemail, Event route.
 4. Connect handles: Start/Play use `out`; Menu digits (1,2,…) each have a source handle; Hours has `open` / `closed`.
 5. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`).
@@ -145,22 +146,23 @@ Venue queues migration:
 #   supabase/migrations/20261112230000_call_center_ivr_venues.sql
 ```
 
-Adds InflataPark / Urban Arena / Kids Driving School / Birthday enquiry queues and allows IVR option action `ai`.
+Adds InflataPark / Urban Arena / Kids Driving School / Birthday enquiry queues and allows IVR option action `ai`. Applying the E3 template also ensures **E3 General Support** exists.
 
-### Test the bilingual venue IVR (no Telnyx)
+### Test the bilingual E3 IVR (no Telnyx)
 
-1. Open `/call-center/ivr`, select **Main menu**, click **Apply FEC venues template**, then **Save flow** if you edited further.
-2. In the Test field enter the **full digit path, one digit per menu, in order** (the first digit answers the Language menu, the second answers the venue menu) and click **Test** (or press Enter). A single digit such as `4` only tests the Language menu, which accepts just `1` or `2`, so Test reports the invalid digit and lists the valid ones. A path that ends on a menu reports "Waiting at …" with the options.
-   - `11` → English → InflataPark queue
-   - `12` → English → Urban Arena
-   - `13` → English → Kids Driving School
-   - `14` → English → Birthday enquiry
-   - `21` → Arabic → إنفلاتا بارك
-   - `22` → Arabic → أوربان أرينا
-   - `23` / `24` → Arabic venues 3 / 4
+1. Open `/call-center/ivr`, select **Main menu**, click **Apply E3 IVR template**, then **Save flow** if you edited further.
+2. In the Test field enter the **full digit path, one digit per menu, in order** (Language → Center → Service) and click **Test** (or press Enter). A single digit such as `4` only tests the Language menu, which accepts just `1` or `2`. A path that ends on a menu reports "Waiting at …" with the options.
+   - `111` → English → Inflata Park → Bookings AI
+   - `112` → English → Inflata Park → Birthday & Events queue
+   - `110` → English → Inflata Park → human agents
+   - `121` → English → Kids Driving School → Bookings AI
+   - `131` → English → Urban Arena → Bookings AI
+   - `101` → English → General E3 → Bookings AI
+   - `211` → Arabic → Inflata → Bookings AI
+   - `210` → Arabic → Inflata → agents
 3. Click **Listen** to hear the greetings for that path (browser TTS). Select a Start / Menu / Play node and use inspector **Listen** for EN or AR alone.
 4. To exercise agent ringing without PSTN: open `/call-center`, set status **Available**, click **Test ring** (see Local test without Telnyx below).
-5. AI path: connect or reach the **AI Agent** node; Test shows `ai_answered`. Real voice AI still needs LiveKit Agents + Telnyx SIP (configure flags on `/call-center/ai`).
+5. AI path: Test shows `ai_answered` on service digits `1` / `4` / `5`. Real voice AI still needs LiveKit Agents + Telnyx SIP (configure flags on `/call-center/ai`).
 
 Parity migration:
 
@@ -221,7 +223,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | Capability | Where / how to verify |
 |------------|------------------------|
 | Visual IVR canvas | `/call-center/ivr` — drag nodes, connect digits, Save; reload restores positions |
-| FEC bilingual venues template | **Apply FEC venues template** — Language → venues → queues; Test digits `12` etc. |
+| E3 bilingual Smart IVR template | **Apply E3 IVR template** — Language → center → service → AI/queues; Test digits `111` etc. |
 | Voice preview (Listen) | Inspector + Test path use browser `speechSynthesis` (EN/AR) |
 | AI Agent IVR node | Palette + CDR `ai_answered`; Admin gateway replies via `/api/public/call-center/ai-turn` |
 | Nested / hours / voicemail IVR nodes | Canvas + inbound DTMF walker in `routing.ts` |

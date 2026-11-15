@@ -8,12 +8,14 @@ export const CALL_CENTER_SETTINGS_ID = "00000000-0000-4000-8000-0000000000cc";
 export const CALL_CENTER_DEFAULT_QUEUE_ID = "00000000-0000-4000-8000-0000000000c0";
 export const CALL_CENTER_DEFAULT_IVR_MENU_ID = "00000000-0000-4000-8000-0000000000c1";
 
-/** Venue queues used by the FEC bilingual IVR template. */
+/** Venue / skill queues used by the E3 bilingual IVR template. */
 export const CALL_CENTER_VENUE_QUEUE_IDS = {
   inflatapark: "00000000-0000-4000-8000-0000000000d1",
   urbanArena: "00000000-0000-4000-8000-0000000000d2",
   kidsDriving: "00000000-0000-4000-8000-0000000000d3",
   birthday: "00000000-0000-4000-8000-0000000000d4",
+  /** General E3 customer support (center menu digit 0). */
+  general: "00000000-0000-4000-8000-0000000000d5",
 } as const;
 
 export const CALL_CENTER_AGENT_STATUSES = ["available", "busy", "away", "acw", "offline"] as const;
