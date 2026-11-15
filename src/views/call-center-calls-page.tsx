@@ -43,6 +43,26 @@ function startOfTodayIso() {
   return d.toISOString();
 }
 
+/** True when the CDR has a fetchable media URL (not a placeholder egress stub). */
+function hasPlayableRecording(call: CallCenterCall) {
+  const url = call.recordingUrl?.trim() ?? "";
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (
+      host === "recordings.example" ||
+      host.endsWith(".recordings.example") ||
+      host === "example.com" ||
+      host === "localhost"
+    ) {
+      return false;
+    }
+    return url.startsWith("https://") || url.startsWith("http://");
+  } catch {
+    return false;
+  }
+}
+
 function CallCenterCallsPage() {
   const { t } = useTranslation();
   const { roles } = useAuth();
@@ -215,15 +235,28 @@ function CallCenterCallsPage() {
 
   async function onGenerateStub(callId: string) {
     setPending(true);
-    const result = await generateCallCenterTranscriptStub({ callId });
-    setPending(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await generateCallCenterTranscriptStub({ callId });
+      if (!result.ok) {
+        toast.error(result.error || t("callCenter.transcriptGenerateFailed"));
+        return;
+      }
+      setDraftTranscript(result.data.transcriptText);
+      const message =
+        "transcriptMessage" in result.data && typeof result.data.transcriptMessage === "string"
+          ? result.data.transcriptMessage
+          : t("callCenter.transcriptGenerated");
+      if (result.data.transcriptStatus === "stub") {
+        toast.message(message);
+      } else {
+        toast.success(message);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["call-center", "cdr"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("callCenter.transcriptGenerateFailed"));
+    } finally {
+      setPending(false);
     }
-    setDraftTranscript(result.data.transcriptText);
-    toast.success(t("callCenter.transcriptGenerated"));
-    await queryClient.invalidateQueries({ queryKey: ["call-center", "cdr"] });
   }
 
   async function onSaveTranscript(callId: string) {
@@ -418,15 +451,15 @@ function CallCenterCallsPage() {
                 </div>
                 {expandedId === call.id ? (
                   <div className="mt-3 grid gap-3 rounded-xl border border-border/60 p-3 lg:grid-cols-2">
-                    {(call.recordingUrl || call.recordingEnabled) && (
+                    {(hasPlayableRecording(call) || call.recordingEnabled) && (
                       <div className="space-y-2 lg:col-span-2">
                         <p className="text-xs font-medium text-foreground">
                           {t("callCenter.playRecording")}
-                          {call.recordingEnabled && !call.recordingUrl
+                          {call.recordingEnabled && !hasPlayableRecording(call)
                             ? " (flagged — URL pending egress)"
                             : ""}
                         </p>
-                        {call.recordingUrl ? (
+                        {hasPlayableRecording(call) ? (
                           <audio controls className="w-full max-w-xl" src={call.recordingUrl}>
                             <track kind="captions" />
                           </audio>
@@ -505,11 +538,24 @@ function CallCenterCallsPage() {
                       <p className="text-xs font-medium text-foreground">
                         {t("callCenter.transcript")} · {call.transcriptStatus}
                       </p>
+                      {!hasPlayableRecording(call) && !call.recordingEnabled ? (
+                        <p className="rounded-lg border border-border/60 bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+                          {call.direction === "internal_test"
+                            ? t("callCenter.transcriptNoRecordingTest")
+                            : t("callCenter.transcriptNoRecording")}
+                        </p>
+                      ) : null}
+                      {!hasPlayableRecording(call) && call.recordingEnabled ? (
+                        <p className="rounded-lg border border-border/60 bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+                          {t("callCenter.transcriptRecordingPending")}
+                        </p>
+                      ) : null}
                       <Textarea
                         value={draftTranscript}
                         onChange={(e) => setDraftTranscript(e.target.value)}
                         rows={6}
                         className="font-mono text-xs"
+                        placeholder={t("callCenter.transcriptPlaceholder")}
                       />
                       <div className="flex flex-wrap gap-2">
                         <Button

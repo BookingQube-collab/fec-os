@@ -919,13 +919,24 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   }
 
   const now = new Date().toISOString();
-  const call = await updateCall(callId, {
+  let call = await updateCall(callId, {
     status: "answered",
     agentUserId,
     livekitRoom,
     answeredAt: now,
   });
   await setAgentStatus(agentUserId, "busy", { lastCallAt: now });
+
+  // Capture softphone / bridged audio when LiveKit is available (includes internal_test).
+  if (livekitRoom && !call.recordingEnabled) {
+    try {
+      const { startCallRecordingEgress } = await import("./recording-egress");
+      const egress = await startCallRecordingEgress(call);
+      call = egress.call;
+    } catch {
+      // Answering must not fail if egress is unavailable.
+    }
+  }
 
   const media = await issueAgentMediaToken({
     roomName: livekitRoom,
@@ -1028,7 +1039,7 @@ export async function hangupCall(callId: string, agentUserId: string): Promise<C
     );
   }
   // Remote hangup / carrier events may already have closed the CDR; keep their timestamps.
-  const call = alreadyEnded
+  let call = alreadyEnded
     ? existing
     : await updateCall(callId, {
         status: "ended",
@@ -1043,6 +1054,27 @@ export async function hangupCall(callId: string, agentUserId: string): Promise<C
   if (!alreadyEnded && (existing.provider === "telnyx" || existing.provider === "livekit_sip")) {
     const { endCarrierLeg } = await import("./carrier");
     await endCarrierLeg(existing);
+  }
+  // Internal test rings never get STT unless something writes a transcript — leave a clear summary.
+  if (
+    !alreadyEnded &&
+    call.transcriptStatus === "none" &&
+    call.answeredAt &&
+    (call.direction === "internal_test" || call.provider === "test")
+  ) {
+    try {
+      const { buildCdrSummaryTranscript, formatAiHistoryTranscript } = await import(
+        "./transcribe-call"
+      );
+      const fromAi = formatAiHistoryTranscript(call);
+      call = await saveCallTranscript({
+        callId: call.id,
+        text: fromAi || buildCdrSummaryTranscript(call),
+        status: fromAi ? "final" : "stub",
+      });
+    } catch {
+      // Hangup must still succeed.
+    }
   }
   if (!alreadyEnded) {
     void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>

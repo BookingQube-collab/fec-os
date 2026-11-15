@@ -112,7 +112,7 @@ import {
 import { sendOutboundEmail } from "@/lib/email/send";
 import { buildFecVenuesTemplate } from "./ivr-flow";
 import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
-import { checkCarrierSetup, resolveLiveKitServerCredentials } from "./livekit-sip";
+import { checkCarrierSetup } from "./livekit-sip";
 import {
   CALL_CENTER_AUDIO_KINDS,
   CALL_CENTER_MEDIA_BUCKET,
@@ -1063,23 +1063,18 @@ export const generateCallCenterTranscriptStub = createSafeAuthenticatedAction(
   async (data) => {
     const call = await getCall(data.callId);
     if (!call) throw new Error("Call not found.");
-    const stub = [
-      `[Stub transcript — ${new Date().toISOString()}]`,
-      `Direction: ${call.direction}`,
-      `From: ${call.fromE164 || "—"}`,
-      `To: ${call.toE164 || "—"}`,
-      `Status: ${call.status}`,
-      call.transferType
-        ? `Transfer: ${call.transferType} → ${call.transferTarget}`
-        : "Transfer: none",
-      "",
-      "No STT provider configured. Replace via saveCallCenterTranscript or wire LiveKit egress / speech service.",
-    ].join("\n");
-    return saveCallTranscript({
+    const { generateCallTranscriptContent } = await import("./transcribe-call");
+    const generated = await generateCallTranscriptContent(call);
+    const saved = await saveCallTranscript({
       callId: data.callId,
-      text: stub,
-      status: "stub",
+      text: generated.text,
+      status: generated.status,
     });
+    return {
+      ...saved,
+      transcriptSource: generated.source,
+      transcriptMessage: generated.message,
+    };
   },
   { auth: AGENT_AUTH },
 );
@@ -1412,15 +1407,29 @@ export const setCallCenterRecording = createSafeAuthenticatedAction(
   async (data) => {
     const existing = await getCall(data.callId);
     if (!existing) throw new Error("Call not found.");
+    if (data.enabled) {
+      if (data.recordingUrl != null) {
+        return updateCall(data.callId, {
+          recordingEnabled: true,
+          recordingUrl: data.recordingUrl,
+          metadata: {
+            ...existing.metadata,
+            recordingRequested: true,
+            recordingNote: "Recording enabled with provided URL.",
+          },
+        });
+      }
+      const { startCallRecordingEgress } = await import("./recording-egress");
+      const result = await startCallRecordingEgress(existing);
+      return result.call;
+    }
     return updateCall(data.callId, {
-      recordingEnabled: data.enabled,
-      ...(data.recordingUrl != null ? { recordingUrl: data.recordingUrl } : {}),
+      recordingEnabled: false,
       metadata: {
         ...existing.metadata,
-        recordingRequested: data.enabled,
-        recordingNote: data.enabled
-          ? "Recording flagged — LiveKit egress URL fills when media capture is wired."
-          : "Recording disabled",
+        recordingRequested: false,
+        recordingNote: "Recording disabled",
+        egressStarted: false,
       },
     });
   },
@@ -2335,38 +2344,9 @@ export const startCallCenterRecordingEgress = createSafeAuthenticatedAction(
   async (data) => {
     const call = await getCall(data.callId);
     if (!call) throw new Error("Call not found.");
-    const provider = await getCallProvider();
-    let recordingUrl =
-      call.recordingUrl || `https://recordings.example/fec/cc/${call.id}.mp4`;
-    if (provider.name === "livekit" && call.livekitRoom) {
-      try {
-        const credentials = await resolveLiveKitServerCredentials();
-        if (credentials) {
-          const { EgressClient, EncodedFileOutput, EncodedFileType } = await import(
-            "livekit-server-sdk"
-          );
-          const host = credentials.serverUrl.replace(/^wss:\/\//, "https://");
-          const egress = new EgressClient(host, credentials.apiKey, credentials.apiSecret);
-          await egress.startRoomCompositeEgress(call.livekitRoom, {
-            file: new EncodedFileOutput({
-              fileType: EncodedFileType.MP4,
-              filepath: `call-center/${call.id}.mp4`,
-            }),
-          });
-          recordingUrl = `${host}/recordings/call-center/${call.id}.mp4`;
-        }
-      } catch {
-        // Best-effort — placeholder URL remains.
-      }
-    }
-    return updateCall(data.callId, {
-      recordingEnabled: true,
-      recordingUrl,
-      metadata: {
-        ...call.metadata,
-        egressRequestedAt: new Date().toISOString(),
-      },
-    });
+    const { startCallRecordingEgress } = await import("./recording-egress");
+    const result = await startCallRecordingEgress(call);
+    return result.call;
   },
   { auth: AGENT_AUTH },
 );

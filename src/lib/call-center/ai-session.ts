@@ -189,6 +189,11 @@ export async function processCallCenterAiTurn(input: {
     { role: "assistant" as const, content: generated.text },
   ].slice(-24);
 
+  const transcriptLines = nextHistory.map((item) => {
+    const label = item.role === "user" ? "Caller" : "Agent";
+    return `${label}: ${item.content}`;
+  });
+
   const patched = await updateCall(call.id, {
     metadata: {
       ...meta,
@@ -198,6 +203,9 @@ export async function processCallCenterAiTurn(input: {
       aiLastModel: generated.model,
       aiLanguage: generated.language,
     },
+    transcriptText: transcriptLines.join("\n\n"),
+    transcriptStatus: "partial",
+    transcriptUpdatedAt: new Date().toISOString(),
   });
 
   if (generated.handoffRequested && settings?.ai_handoff_enabled !== false) {
