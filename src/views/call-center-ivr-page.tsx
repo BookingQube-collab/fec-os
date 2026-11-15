@@ -154,7 +154,7 @@ function CallCenterIvrPage() {
         toast.error(result.error);
         return;
       }
-      toast.success("FEC venues IVR template applied (EN/AR → venues → queues).");
+      toast.success("E3 IVR template applied (language → center → service → AI/queues).");
       await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
     } finally {
       setApplyingTemplate(false);
