@@ -1,6 +1,11 @@
 import "server-only";
 
-import { RoomServiceClient, SipClient, WebhookReceiver } from "livekit-server-sdk";
+import {
+  AgentDispatchClient,
+  RoomServiceClient,
+  SipClient,
+  WebhookReceiver,
+} from "livekit-server-sdk";
 
 import {
   loadLiveKitSettingsRow,
@@ -11,12 +16,18 @@ import {
 
 import { CarrierNotConfiguredError } from "./carrier-errors";
 import { normalizeSipUriHost } from "./db";
+import {
+  looksLikeSipHostNotId,
+  sipHostMistakenForIdMessage,
+} from "./sip-ids";
 import type { CallCenterSettingsRow } from "./types";
 
 /**
  * LiveKit SIP glue.
  *
- * - Inbound (Telnyx Call Control): Telnyx `transfer`s the caller to
+ * - Inbound (Telnyx SIP Trunking → LiveKit): Telnyx originates to the LiveKit SIP host /
+ *   inbound trunk; a dispatch rule places the caller in a room; FEC routes IVR/queue.
+ * - Inbound (Telnyx Call Control bridge): Telnyx `transfer`s the caller to
  *   `sip:<room user>@<LiveKit SIP host>`. A LiveKit **callee** dispatch rule turns that
  *   into the `cc-…` room agents already joined.
  * - Outbound: `SipClient.createSipParticipant` dials the PSTN number through a LiveKit
@@ -199,6 +210,30 @@ export async function deleteLiveKitRoom(roomName: string): Promise<void> {
   }
 }
 
+/**
+ * Explicitly dispatch a LiveKit Agent into the call room (IVR / AI first answer).
+ * Requires a registered agent with `agentName` matching settings.
+ */
+export async function dispatchLiveKitAgent(input: {
+  roomName: string;
+  agentName: string;
+  metadata?: string;
+}): Promise<{ ok: true; dispatchId: string } | { ok: false; reason: string }> {
+  const name = input.agentName.trim();
+  if (!name) return { ok: false, reason: "Agent name empty" };
+  if (!input.roomName.trim()) return { ok: false, reason: "Room name empty" };
+  try {
+    const c = await requireCredentials();
+    const client = new AgentDispatchClient(liveKitHttpUrl(c.serverUrl), c.apiKey, c.apiSecret);
+    const dispatch = await client.createDispatch(input.roomName, name, {
+      metadata: input.metadata,
+    });
+    return { ok: true, dispatchId: dispatch.id || "" };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : "Agent dispatch failed" };
+  }
+}
+
 export type LiveKitWebhookVerdict =
   | { ok: true; event: Awaited<ReturnType<WebhookReceiver["receive"]>> }
   | { ok: false; reason: string };
@@ -251,9 +286,79 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
 
   if (!credentials) return checks;
 
+  const inboundMode = settings?.inbound_mode === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk";
+  checks.push({
+    key: "inbound_mode",
+    ok: true,
+    detail:
+      inboundMode === "telnyx_sip_trunk"
+        ? "Inbound mode: Telnyx SIP Trunking → LiveKit (recommended). Set DTMF to RFC 2833 on Telnyx."
+        : "Inbound mode: Telnyx Call Control IVR → LiveKit bridge on agent answer.",
+  });
+  checks.push({
+    key: "dtmf_mode",
+    ok: (settings?.telnyx_dtmf_mode ?? "rfc2833") === "rfc2833",
+    detail:
+      (settings?.telnyx_dtmf_mode ?? "rfc2833") === "rfc2833"
+        ? "DTMF mode rfc2833 (RTP telephone-event) — recommended for IVR."
+        : `DTMF mode is "${settings?.telnyx_dtmf_mode}". Prefer rfc2833 on the Telnyx SIP connection.`,
+  });
+  const qatarDid = settings?.qatar_did_e164?.trim() ?? "";
+  checks.push({
+    key: "qatar_did",
+    ok: Boolean(qatarDid) && qatarDid.startsWith("+974"),
+    detail: qatarDid
+      ? qatarDid.startsWith("+974")
+        ? `Qatar DID ${qatarDid} recorded.`
+        : `DID ${qatarDid} does not look like +974…`
+      : "Qatar DID not set (optional reminder). Map the number under Numbers after purchase/port.",
+  });
+
+  const inboundTrunkId = settings?.livekit_sip_inbound_trunk_id?.trim() ?? "";
+  if (!inboundTrunkId) {
+    checks.push({
+      key: "inbound_trunk",
+      ok: inboundMode !== "telnyx_sip_trunk",
+      detail:
+        inboundMode === "telnyx_sip_trunk"
+          ? "Inbound trunk id not set (required for Telnyx SIP → LiveKit)."
+          : "Inbound trunk id not set (optional when using Call Control bridge).",
+    });
+  } else if (looksLikeSipHostNotId(inboundTrunkId)) {
+    checks.push({
+      key: "inbound_trunk",
+      ok: false,
+      detail: sipHostMistakenForIdMessage("inbound_trunk"),
+    });
+  } else {
+    try {
+      const trunks = await (await sipClient()).listSipInboundTrunk({ trunkIds: [inboundTrunkId] });
+      const found = trunks.find((t) => t?.sipTrunkId === inboundTrunkId);
+      checks.push({
+        key: "inbound_trunk",
+        ok: Boolean(found),
+        detail: found
+          ? `Inbound trunk "${found.name || inboundTrunkId}" ready for Telnyx origination.`
+          : `Inbound trunk "${truncateId(inboundTrunkId)}" not found on ${hostOf(credentials.serverUrl)}.`,
+      });
+    } catch (e) {
+      checks.push({
+        key: "inbound_trunk",
+        ok: false,
+        detail: e instanceof Error ? e.message : "Could not list inbound trunks.",
+      });
+    }
+  }
+
   const trunkId = settings?.livekit_sip_trunk_id?.trim() ?? "";
   if (!trunkId) {
-    checks.push({ key: "outbound_trunk", ok: false, detail: "Outbound trunk id not set." });
+    checks.push({ key: "outbound_trunk", ok: false, detail: "Outbound trunk id not set (needed for dial-out)." });
+  } else if (looksLikeSipHostNotId(trunkId)) {
+    checks.push({
+      key: "outbound_trunk",
+      ok: false,
+      detail: sipHostMistakenForIdMessage("outbound_trunk"),
+    });
   } else {
     try {
       const trunks = await (await sipClient()).listSipOutboundTrunk({ trunkIds: [trunkId] });
@@ -283,21 +388,34 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
 
   const ruleId = settings?.livekit_sip_dispatch_rule_id?.trim() ?? "";
   if (!ruleId) {
-    checks.push({ key: "dispatch_rule", ok: false, detail: "Dispatch rule id not set." });
+    checks.push({
+      key: "dispatch_rule",
+      ok: false,
+      detail: "Dispatch rule id not set. Paste SDR_… from LiveKit Cloud → Telephony → Dispatch rules.",
+    });
+  } else if (looksLikeSipHostNotId(ruleId)) {
+    checks.push({
+      key: "dispatch_rule",
+      ok: false,
+      detail: sipHostMistakenForIdMessage("dispatch_rule"),
+    });
   } else {
     try {
       const rules = await (await sipClient()).listSipDispatchRule({ dispatchRuleIds: [ruleId] });
       const found = rules.find((r) => r?.sipDispatchRuleId === ruleId);
       const inner = found?.rule?.rule as { case?: string; value?: { roomPrefix?: string } } | undefined;
       const isCallee = inner?.case === "dispatchRuleCallee";
+      const isIndividual = inner?.case === "dispatchRuleIndividual";
       checks.push({
         key: "dispatch_rule",
-        ok: Boolean(found) && isCallee,
+        ok: Boolean(found) && (isCallee || isIndividual),
         detail: !found
-          ? "Dispatch rule id not found."
+          ? `Dispatch rule "${truncateId(ruleId)}" not found. Paste the id (SDR_…) from LiveKit Cloud → Telephony → Dispatch rules.`
           : isCallee
-            ? `Callee rule, room prefix "${inner?.value?.roomPrefix ?? ""}" (must match FEC room prefix "${CALL_CENTER_ROOM_PREFIX}").`
-            : "Rule must be a callee rule so Telnyx bridges land in the agent's cc-… room.",
+            ? `Callee rule, room prefix "${inner?.value?.roomPrefix ?? ""}" (must match FEC room prefix "${CALL_CENTER_ROOM_PREFIX}" for Call Control bridge).`
+            : isIndividual
+              ? "Individual dispatch rule — suitable for Telnyx SIP Trunk → LiveKit inbound rooms."
+              : "Use a callee (cc-) or individual dispatch rule for FEC rooms.",
       });
     } catch (e) {
       checks.push({

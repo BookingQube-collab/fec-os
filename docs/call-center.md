@@ -2,15 +2,26 @@
 
 Maqsam-like multi-module contact center: Qatar DID → IVR → queue → agent web softphone → CDR, plus live wallboard, analytics, campaigns, and settings.
 
-Architecture:
+Architecture (Telnyx-recommended path — **SIP Trunking + Qatar DID → LiveKit**):
 
 ```
-Caller → Telnyx DID → Telnyx Call Control webhook (FEC answers, IVR / queue / hold music)
-       → agent answers in softphone → Telnyx transfers caller to LiveKit SIP → agent's LiveKit room → CDR
+Caller → Qatar +974 DID → Telnyx Elastic SIP Trunking (DTMF = RFC 2833)
+       → LiveKit SIP inbound trunk + dispatch rule → LiveKit room
+       → FEC IVR / queue (webhook + optional LiveKit Agent for prompts)
+       → Agent answers in FEC softphone (same room) → CDR
 Agent  → Dialer outbound → CDR + LiveKit room → LiveKit SIP outbound trunk → Telnyx → PSTN
 ```
 
+Alternate path (**Telnyx Call Control** — set Inbound path in Settings):
+
+```
+Caller → Telnyx DID → Call Control webhook (FEC answers, IVR / queue / hold music)
+       → agent answers → Telnyx transfers caller to LiveKit SIP → agent's LiveKit room → CDR
+```
+
 Without Telnyx credentials, agents can still use **Test ring** and **Outbound dial** (simulated CDR + optional LiveKit room) on `/call-center`. When any carrier setting is saved but outbound is incomplete, dialing a real number returns a clear error instead of a fake call.
+
+**Qatar DID:** purchase or port a +974 national number in the Telnyx portal (KYC required). Rates start around $150/month for Qatar numbers — confirm in the portal. Porting needs NumberOps eligibility. Links: [Qatar DID requirements](https://support.telnyx.com/en/articles/8520014-qatar-did-requirements), [SIP pricing](https://telnyx.com/pricing/elastic-sip), [DTMF / RFC 2833](https://support.telnyx.com/en/articles/1130710-what-is-dtmf-and-how-to-configure-it-on-telnyx).
 
 ## Feature map (Maqsam → FEC)
 
@@ -34,16 +45,18 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | Path | Purpose |
 |------|---------|
 | `/call-center` | Agent console: 3-zone dialer (status bar, keypad / in-call, queues + speed dial + notes) |
-| `/call-center/live` | Agents + active calls wallboard |
-| `/call-center/calls` | CDR filters (date, queue, direction) |
+| `/call-center/live` | Agents + active calls wallboard + remote status (admin) |
+| `/call-center/calls` | CDR filters (date, queue, direction, phone/notes/tags) |
 | `/call-center/numbers` | DIDs CRUD + queue / IVR / event mapping |
 | `/call-center/ivr` | Visual IVR flow canvas (Maqsam-like) |
 | `/call-center/voicemail` | Voicemail inbox (after-hours + IVR) |
 | `/call-center/queues` | Queues + members CRUD |
 | `/call-center/campaigns` | Outbound campaigns + contacts + dial |
 | `/call-center/analytics` | Today metrics (volume, answer rate, AHT, agents) |
+| `/call-center/quality` | QA templates and call scorecards |
+| `/call-center/reports` | Scheduled reports, keyword alerts, transcript search |
 | `/call-center/agents` | Agent performance, names, extension + Edit profile |
-| `/call-center/contacts` | Shared phonebook / click-to-call |
+| `/call-center/contacts` | Shared phonebook / click-to-call / VIP priority |
 | `/call-center/blacklist` | Blocked numbers |
 | `/call-center/settings` | SIP/Telnyx/LiveKit, welcome/hold/TTS stubs, hours, holidays, webhooks |
 | `/call-center/ai` | AI Call Agent setup (prompts EN/AR, model, handoff, test) |
@@ -229,23 +242,35 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | Call park / retrieve | Dialer **Park**; retrieve from park orbit strip |
 | CDR CSV export | `/call-center/calls` → Export CSV |
 | Agent performance + extensions | `/call-center/agents` — set ext, dial colleagues by extension |
-| Agent editor (name, queues, skills, whisper/barge) | `/call-center/agents` → Edit |
+| Agent editor (name, queues, skills, whisper/barge, auto-answer) | `/call-center/agents` → Edit |
 | AI Call Agent setup | `/call-center/ai` |
 | WhatsApp inbox + Meta webhook | `/call-center/whatsapp` + `/api/public/call-center/whatsapp` |
 | Blocklist | `/call-center/blacklist` — inbound reject / outbound block |
 | Welcome / hold / TTS settings stubs | Settings → Welcome / hold / TTS fields |
+| VIP / priority contacts | `/call-center/contacts` — VIP flag skips IVR when configured |
+| Skill-based queue offer | Queues → required skills; agents/members skills; routing prefers intersection |
+| Service level % | Queues → SL seconds; Analytics → Service level |
+| Outbound webhooks | Settings → Outbound webhook URL (+ webhook endpoints table) |
+| Auto-answer | Dialer toggle + agent profile; softphone answers offered calls |
+| Away reasons | Dialer away chip → On Break / Training / Admin Work |
+| Outbound caller-ID picker | Dialer → Caller ID (DIDs + default outbound ID) |
+| Remote agent status | `/call-center/live` supervisor select (admin L95+) |
+| CDR phone / notes / tags filter | `/call-center/calls` → Phone / notes |
+| IVR audio clip URL | IVR inspector → Audio clip URL (Call Control `gather_using_audio`) |
+| Arabic Call Center strings | `ar.json` → `callCenter` (core UI + new Maqsam keys) |
+| QA scorecards + templates | `/call-center/quality` |
+| Scheduled report emails + keyword search | `/call-center/reports` |
+| WhatsApp template library | `/call-center/whatsapp` → Templates |
+| Campaign pacing / AMD / auto-start | `/call-center/campaigns` → New campaign fields |
+| Multi-party conference (agent invite) | Dialer **Conference** → `startCallCenterConference` |
+| People click-to-call deep link | People directory → **Call** → `/call-center?dial=` |
 
-### Later (not full Maqsam clone)
+### Later (vendor-deep / not full Maqsam clone)
 
-- LiveKit egress auto-upload of recordings / voicemail audio (URLs are stored; play when set)
-- Provider-side play of welcome audio / hold music / TTS (settings stored only)
-- True multi-party conference (beyond warm-transfer consult intent)
-- Click-to-call from People / event staff directory (Call Center phonebook is live)
-- Skill-based routing engine (skills are stored; matching not yet scored)
-- Full power dialer pacing / AMD
-- WhatsApp template library / multi-chat pacing beyond first inbox slice
-- Keyword search across recordings, mobile app, concurrent multi-chat
-- Warm park transfer notifications to other agents beyond orbit strip
+- LiveKit egress file storage destination (S3/R2) so recording URLs are permanent CDN links (egress start is wired)
+- Full provider-side hold music / TTS for SIP-only trunks without Call Control
+- Voice cloning / dialect-tuned Maqsam AI (FEC uses configured LLM + LiveKit agent)
+- Meta WhatsApp template approval sync (local template library + send is wired)
 
 ## Agent console UX
 
@@ -303,34 +328,44 @@ curl -X POST "http://localhost:3000/api/public/call-center/telnyx?demo=1" \
   -d "{\"from\":\"+97455550000\",\"to\":\"+97440000000\"}"
 ```
 
-## Real PSTN: Telnyx Call Control + LiveKit SIP
+## Real PSTN: Telnyx SIP Trunking + LiveKit SIP (recommended)
 
-**Why Call Control (not TeXML):** the webhook already keys on `call_control_id`, and IVR digits, queue offers and "bridge only when an agent answers" are decisions made by FEC code (`routing.ts`) per call. Call Control gives JSON events + REST commands for exactly that; TeXML would require returning static XML per event. **Why bridge on agent answer:** the caller hears the greeting / IVR / hold music on the Telnyx leg, and only becomes a SIP participant in the agent's `cc-…` LiveKit room when an agent accepts — no idle SIP legs, no one-sided silence.
+Telnyx guidance for this stage: self-service **Elastic SIP Trunking** + Qatar DID, originate inbound to your **LiveKit SIP endpoint**, DTMF **RFC 2833**. IVR, queues, and browser agents live in FEC / LiveKit.
 
-Code map: `src/lib/call-center/telnyx.ts` (REST client + signature check), `carrier.ts` (event orchestration, bridge, outbound dial, CDR sync), `livekit-sip.ts` (SIP client, URI builder, diagnostics), `routing.ts` (`answerCall` bridges, `placeOutboundCall` dials).
+Code map: `carrier.ts` (event orchestration, bridge, outbound dial, CDR sync), `livekit-sip.ts` (SIP client, URI builder, agent dispatch, diagnostics), `routing.ts` (`answerCall` atomic claim + bridge, queue timeouts, `placeOutboundCall`), `telnyx.ts` (Call Control REST when using alternate mode).
+
+Migration for SIP/Qatar settings fields:
+
+```bash
+# supabase/migrations/20261115140000_call_center_sip_trunk_qatar.sql
+supabase db push
+```
 
 ### 1. LiveKit SIP
 
 Use your LiveKit project (Cloud or self-hosted SIP). Settings → SIP URI = your **LiveKit SIP host** (e.g. `abc123.sip.livekit.cloud`, host only).
 
-- **Inbound trunk** (Telnyx → LiveKit): allow Telnyx signalling IPs (or leave open + restrict by auth), no number restriction needed for bridged calls.
-- **Dispatch rule — type `callee`** with `roomPrefix: "cc-"`. FEC's rooms are `cc-<24 hex>`, and the bridge dials `sip:<24 hex>@<sip host>`, so the rule lands the caller in the room agents already joined. Save the rule id in Settings → *LiveKit SIP dispatch rule id* (FEC reads its prefix from LiveKit). After your first test call, confirm in the LiveKit dashboard that the room name is exactly the CDR's `livekit_room`; if your LiveKit version inserts a separator, adjust the rule prefix.
-- **Outbound trunk** (LiveKit → Telnyx): address `sip.telnyx.com`, transport TCP/TLS per Telnyx, credentials = a Telnyx **Credential Connection** username/password, numbers = your Telnyx DIDs. Save its id in Settings → *LiveKit SIP outbound trunk id*. Example (LiveKit CLI — flags vary by `lk` version; the JSON form in LiveKit's SIP docs is equivalent):
+- **Inbound trunk** (Telnyx → LiveKit): allow Telnyx signalling IPs / auth as required. Save id in Settings → *LiveKit SIP inbound trunk id*.
+- **Dispatch rule:**  
+  - SIP-trunk inbound: an **individual** (or DID-based) rule that creates a room per call — FEC stores the LiveKit room on the CDR.  
+  - Call Control bridge: **callee** rule with `roomPrefix: "cc-"` so Telnyx `transfer` lands in the agent's room.
+- **Outbound trunk** (LiveKit → Telnyx): address `sip.telnyx.com`, transport TCP/TLS per Telnyx, credentials = a Telnyx **Credential Connection** username/password, numbers = your Telnyx DIDs. Save its id in Settings → *LiveKit SIP outbound trunk id*. Example:
 
   ```bash
   lk sip outbound create --name telnyx-out --address sip.telnyx.com --numbers +974XXXXXXXX --auth-user <telnyx user> --auth-pass <telnyx pass>
-  lk sip dispatch create --name fec-callee --callee --room-prefix cc-   # use the rule id it prints
+  lk sip dispatch create --name fec-callee --callee --room-prefix cc-   # Call Control bridge
   ```
-- **LiveKit webhook** (Project → Settings → Webhooks): `https://<host>/api/public/call-center/livekit-sip`. Signed with your API key/secret; FEC verifies it. Events used: `participant_joined`, `participant_left`, `room_finished` (keeps CDR in sync when the caller / callee hangs up).
+- **LiveKit webhook** (Project → Settings → Webhooks): `https://<host>/api/public/call-center/livekit-sip`. Signed with your API key/secret; FEC verifies it. Events used: `participant_joined`, `participant_left`, `room_finished`. Optional IVR digits from an Agent: `POST` `{ "digit": "1", "callId": "<uuid>" }` with the shared secret.
 - LiveKit server credentials: Admin → Chat calls, or `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
+- **IVR prompts on SIP-trunk path:** set *AI LiveKit agent name* (Settings → AI) to a registered LiveKit Agent that plays TTS and forwards SipDTMF to FEC; without an agent, digits can still be applied via the digit webhook once the caller presses keys (audio prompts need the agent or Call Control mode).
 
-### 2. Telnyx
+### 2. Telnyx (SIP Trunking)
 
-1. Create a **Call Control Application**; set its webhook URL to `https://<host>/api/public/call-center/telnyx?secret=<CALL_CENTER_WEBHOOK_SECRET>` (or rely on signature verification: set `TELNYX_PUBLIC_KEY`).
-2. Assign your DID(s) to that application; put the application's id in Settings → *Telnyx connection id* (events from other connections are ignored).
-3. Create an API key (v2) → Settings → *Telnyx API key* (or `TELNYX_API_KEY`).
-4. Telnyx → LiveKit leg: in Telnyx outbound voice profile / call control app allow the destination SIP host. Telnyx `transfer` dials `sip:<id>@<LiveKit SIP host>`.
-5. Outbound PSTN uses the Credential Connection from step "Outbound trunk" above; no Telnyx API call is needed for outbound.
+1. Create **Elastic SIP Trunking**; set **DTMF = RFC 2833**.
+2. Origination: route your Qatar DID to the LiveKit SIP host / URI from Settings.
+3. Complete Qatar KYC; buy or port `+974…`; record it in Settings → Qatar DID and map it under `/call-center/numbers`.
+4. Create a Credential Connection for **outbound** (used by the LiveKit outbound trunk).
+5. Optional alternate: **Call Control Application** webhook → `/api/public/call-center/telnyx` — switch Settings → Inbound path to Call Control when you want Telnyx-side TTS/gather/hold before the LiveKit bridge.
 
 ### 3. FEC settings (CEO/COO → `/call-center/settings`)
 
@@ -366,10 +401,10 @@ Then: enable **Call Center**, map each DID on `/call-center/numbers` to a queue 
 
 ### Known gaps (next phases)
 
-- No queue-timeout worker: a caller waits on hold music until an agent answers or they hang up (`max_wait_seconds` is not enforced); a direct-offer decline hangs up the caller instead of re-offering.
-- Voicemail: after-hours / IVR voicemail speaks the prompt and creates the voicemail row, but does not record the caller's message yet.
-- PSTN transfers (SIP REFER / Telnyx transfer from the softphone), DTMF from the softphone to the far end, and recording egress are not wired (`transferPendingSip` is still only a flag).
-- Whisper/barge on SIP legs needs LiveKit TrackPermissions; AI first-answer only bridges the caller into the room for a LiveKit Agents worker (no worker included).
+- Queue `max_wait_seconds` is enforced on softphone poll / workspace load (missed + hangup carrier leg); a dedicated cron is still optional for quieter periods.
+- Voicemail: after-hours / IVR voicemail speaks the prompt (Call Control) and creates the voicemail row, but does not record the caller's message yet.
+- PSTN transfers (SIP REFER / Telnyx transfer from the softphone) and recording egress are not fully wired (`transferPendingSip` is still only a flag). Softphone DTMF now uses LiveKit `publishDtmf` (RFC 2833 toward SIP).
+- Whisper/barge on SIP legs needs LiveKit TrackPermissions; SIP-trunk IVR prompts need a LiveKit Agents worker (dispatch is wired when agent name is set; worker not shipped in-repo).
 - Outbound "answered" is only known after the dial resolves; CDR is created already `answered` (with a `dialing` state in metadata) for UI compatibility.
-- Power dialer pacing / AMD, Telnyx number provisioning, and Telnyx → LiveKit failure recovery (caller stays on hold if the SIP leg fails after the transfer is accepted) remain manual.
+- Power dialer pacing / AMD, Telnyx number provisioning in-app, and Telnyx → LiveKit failure recovery after transfer remain manual.
 - Transcripts: pluggable `transcript_text` / Generate stub on `/call-center/calls`; wire STT later.

@@ -33,6 +33,8 @@ export type IvrNodeData = {
   greetingAr?: string;
   messageEn?: string;
   messageAr?: string;
+  /** Optional clip URL for play/start/menu prompts (Call Control playback when set). */
+  audioUrl?: string;
   digits?: IvrMenuDigit[];
   queueId?: string | null;
   agentUserId?: string | null;
@@ -126,6 +128,7 @@ export function parseIvrFlowJson(raw: unknown): IvrFlowJson {
         greetingAr: dataRaw.greetingAr != null ? String(dataRaw.greetingAr) : undefined,
         messageEn: dataRaw.messageEn != null ? String(dataRaw.messageEn) : undefined,
         messageAr: dataRaw.messageAr != null ? String(dataRaw.messageAr) : undefined,
+        audioUrl: dataRaw.audioUrl != null ? String(dataRaw.audioUrl) : undefined,
         digits: digitsRaw
           ?.filter((d): d is Record<string, unknown> => Boolean(d) && typeof d === "object")
           .map((d) => ({

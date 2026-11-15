@@ -10,6 +10,7 @@ import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -34,6 +35,11 @@ function CallCenterCampaignsPage() {
   const canEdit = canUserDo(roleNames, "admin.view");
   const [name, setName] = useState("");
   const [script, setScript] = useState("");
+  const [maxAttempts, setMaxAttempts] = useState("3");
+  const [dialIntervalSeconds, setDialIntervalSeconds] = useState("5");
+  const [amdEnabled, setAmdEnabled] = useState(false);
+  const [autoStart, setAutoStart] = useState(false);
+  const [playRecordingUrl, setPlayRecordingUrl] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [contactE164, setContactE164] = useState("+974");
   const [contactName, setContactName] = useState("");
@@ -86,6 +92,45 @@ function CallCenterCampaignsPage() {
                   <Label>{t("callCenter.script")}</Label>
                   <Textarea value={script} onChange={(e) => setScript(e.target.value)} rows={3} />
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>{t("callCenter.campaignMaxAttempts")}</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={maxAttempts}
+                      onChange={(e) => setMaxAttempts(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>{t("callCenter.campaignDialInterval")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={dialIntervalSeconds}
+                      onChange={(e) => setDialIntervalSeconds(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t("callCenter.campaignPlayRecordingUrl")}</Label>
+                  <Input
+                    value={playRecordingUrl}
+                    onChange={(e) => setPlayRecordingUrl(e.target.value)}
+                    placeholder="https://…"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Switch id="campaign-amd" checked={amdEnabled} onCheckedChange={setAmdEnabled} />
+                    <Label htmlFor="campaign-amd">{t("callCenter.campaignAmd")}</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch id="campaign-autostart" checked={autoStart} onCheckedChange={setAutoStart} />
+                    <Label htmlFor="campaign-autostart">{t("callCenter.campaignAutoStart")}</Label>
+                  </div>
+                </div>
                 <Button
                   type="button"
                   onClick={async () => {
@@ -95,6 +140,11 @@ function CallCenterCampaignsPage() {
                       callerIdE164: bundle.data?.settings.outboundCallerIdE164 ?? "",
                       scriptText: script,
                       isActive: true,
+                      maxAttempts: Number(maxAttempts) || 3,
+                      dialIntervalSeconds: Number(dialIntervalSeconds) || 0,
+                      amdEnabled,
+                      autoStart,
+                      playRecordingUrl,
                     });
                     if (!result.ok) toast.error(result.error);
                     else {

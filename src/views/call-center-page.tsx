@@ -20,10 +20,21 @@ import { useCallCenterSoftphone } from "@/components/call-center/softphone-provi
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { CallCenterAgentStatusValue } from "@/lib/call-center/types";
 import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
+
+const AWAY_REASONS = ["On Break", "In Training", "Admin Work", "Meeting"] as const;
 
 const STATUSES: CallCenterAgentStatusValue[] = ["available", "busy", "away", "acw", "offline"];
 const DIAL_KEYS = [
@@ -203,6 +214,34 @@ function CallCenterPage() {
                   {t(statusLabelKey(status))}
                 </button>
               ))}
+            </div>
+            {phone.workspaceStatus === "away" ? (
+              <Select
+                value={phone.awayReason || AWAY_REASONS[0]}
+                onValueChange={(v) => void phone.changeStatus("away", { awayReason: v })}
+              >
+                <SelectTrigger className="h-9 w-[9.5rem]">
+                  <SelectValue placeholder={t("callCenter.awayReason")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {AWAY_REASONS.map((reason) => (
+                    <SelectItem key={reason} value={reason}>
+                      {reason}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            <div className="flex items-center gap-2 rounded-full border border-border/60 px-3 py-1.5">
+              <Switch
+                checked={phone.autoAnswer}
+                disabled={phone.pending}
+                onCheckedChange={(v) => void phone.setAutoAnswer(v)}
+                id="cc-auto-answer"
+              />
+              <Label htmlFor="cc-auto-answer" className="text-xs font-medium">
+                {t("callCenter.autoAnswer")}
+              </Label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -488,6 +527,7 @@ function CallCenterPage() {
                   onHoldToggle={() => void phone.onHoldToggle()}
                   onDtmf={(digit) => void phone.onDtmf(digit)}
                   onTransfer={(type, target) => void phone.onTransfer(type, target)}
+                  onConference={() => void phone.onConference()}
                 />
               ) : (
                 <section className="rounded-[1.75rem] border border-border/50 bg-card p-5 shadow-elevated-xs sm:p-7">
@@ -510,6 +550,28 @@ function CallCenterPage() {
                     inputMode="tel"
                     aria-label={t("callCenter.outboundDial")}
                   />
+                  {phone.callerIdOptions.length > 0 ? (
+                    <div className="mx-auto mt-3 flex max-w-[19rem] flex-col gap-1.5">
+                      <Label className="text-center text-xs text-muted-foreground">
+                        {t("callCenter.callerIdPicker")}
+                      </Label>
+                      <Select
+                        value={phone.outboundCallerId || phone.callerIdOptions[0]}
+                        onValueChange={phone.setOutboundCallerId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {phone.callerIdOptions.map((id) => (
+                            <SelectItem key={id} value={id}>
+                              {id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                   <div className="mx-auto mt-4 grid max-w-[19rem] grid-cols-3 gap-3">
                     {DIAL_KEYS.map((key) => (
                       <button

@@ -29,6 +29,7 @@ import {
   saveCallCenterSettings,
   saveCallCenterWebhookEndpoint,
 } from "@/lib/call-center/call-center.functions";
+import { looksLikeSipHostNotId } from "@/lib/call-center/sip-ids";
 import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
@@ -59,17 +60,6 @@ function CallCenterSettingsPage() {
     null,
   );
 
-  async function runCarrierCheck() {
-    setCheckingCarrier(true);
-    const result = await checkCallCenterCarrier({});
-    setCheckingCarrier(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    setCarrierChecks(result.data.checks);
-  }
-
   const [enabled, setEnabled] = useState(false);
   const [ivrEnabled, setIvrEnabled] = useState(true);
   const [businessHoursEnabled, setBusinessHoursEnabled] = useState(false);
@@ -81,7 +71,13 @@ function CallCenterSettingsPage() {
   const [telnyxApiKey, setTelnyxApiKey] = useState("");
   const [telnyxWebhookSecret, setTelnyxWebhookSecret] = useState("");
   const [livekitSipTrunkId, setLivekitSipTrunkId] = useState("");
+  const [livekitSipInboundTrunkId, setLivekitSipInboundTrunkId] = useState("");
   const [livekitSipDispatchRuleId, setLivekitSipDispatchRuleId] = useState("");
+  const [inboundMode, setInboundMode] = useState<"telnyx_sip_trunk" | "telnyx_call_control">(
+    "telnyx_sip_trunk",
+  );
+  const [telnyxDtmfMode, setTelnyxDtmfMode] = useState<"rfc2833" | "inband" | "sip_info">("rfc2833");
+  const [qatarDidE164, setQatarDidE164] = useState("");
   const [webhookSharedSecret, setWebhookSharedSecret] = useState("");
   const [webhookOutboundUrl, setWebhookOutboundUrl] = useState("");
   const [notes, setNotes] = useState("");
@@ -133,7 +129,11 @@ function CallCenterSettingsPage() {
     setTelnyxSipUri(s.telnyxSipUri);
     setTelnyxConnectionId(s.telnyxConnectionId);
     setLivekitSipTrunkId(s.livekitSipTrunkId);
+    setLivekitSipInboundTrunkId(s.livekitSipInboundTrunkId);
     setLivekitSipDispatchRuleId(s.livekitSipDispatchRuleId);
+    setInboundMode(s.inboundMode);
+    setTelnyxDtmfMode(s.telnyxDtmfMode);
+    setQatarDidE164(s.qatarDidE164);
     setWebhookOutboundUrl(s.webhookOutboundUrl);
     setNotes(s.notes);
     const json = s.businessHoursJson as Record<
@@ -158,6 +158,22 @@ function CallCenterSettingsPage() {
     setHydrated(true);
   }, [bundle.data, hydrated]);
 
+  async function runCarrierCheck() {
+    // Check reads last-saved settings — warn if the form still has a SIP host in the trunk id field.
+    if (looksLikeSipHostNotId(livekitSipTrunkId)) {
+      toast.error(t("callCenter.carrierTrunkLooksLikeHost"));
+      return;
+    }
+    setCheckingCarrier(true);
+    const result = await checkCallCenterCarrier({});
+    setCheckingCarrier(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setCarrierChecks(result.data.checks);
+  }
+
   async function save() {
     setSaving(true);
     const result = await saveCallCenterSettings({
@@ -172,7 +188,11 @@ function CallCenterSettingsPage() {
       telnyxApiKey,
       telnyxWebhookSecret,
       livekitSipTrunkId,
+      livekitSipInboundTrunkId,
       livekitSipDispatchRuleId,
+      inboundMode,
+      telnyxDtmfMode,
+      qatarDidE164,
       webhookSharedSecret,
       notes,
       outboundCallerIdE164: outboundCallerId,
@@ -471,6 +491,86 @@ function CallCenterSettingsPage() {
             <div className="sm:col-span-2">
               <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.sipSettings")}</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.sipSettingsHint")}</p>
+              <ol className="mt-3 list-decimal space-y-1 ps-4 text-xs text-muted-foreground">
+                <li>{t("callCenter.qatarSetupStep1")}</li>
+                <li>{t("callCenter.qatarSetupStep2")}</li>
+                <li>{t("callCenter.qatarSetupStep3")}</li>
+                <li>{t("callCenter.qatarSetupStep4")}</li>
+              </ol>
+              <p className="mt-2 text-xs text-muted-foreground">
+                <a
+                  className="underline underline-offset-2"
+                  href="https://support.telnyx.com/en/articles/8520014-qatar-did-requirements"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("callCenter.qatarKycLink")}
+                </a>
+                {" · "}
+                <a
+                  className="underline underline-offset-2"
+                  href="https://support.telnyx.com/en/articles/1130710-what-is-dtmf-and-how-to-configure-it-on-telnyx"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("callCenter.dtmfRfc2833Link")}
+                </a>
+                {" · "}
+                <a
+                  className="underline underline-offset-2"
+                  href="https://telnyx.com/pricing/elastic-sip"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("callCenter.sipPricingLink")}
+                </a>
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.inboundMode")}</Label>
+              <Select
+                value={inboundMode}
+                onValueChange={(v) =>
+                  setInboundMode(v as "telnyx_sip_trunk" | "telnyx_call_control")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="telnyx_sip_trunk">{t("callCenter.inboundModeSipTrunk")}</SelectItem>
+                  <SelectItem value="telnyx_call_control">
+                    {t("callCenter.inboundModeCallControl")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t("callCenter.inboundModeHint")}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.telnyxDtmfMode")}</Label>
+              <Select
+                value={telnyxDtmfMode}
+                onValueChange={(v) => setTelnyxDtmfMode(v as "rfc2833" | "inband" | "sip_info")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="rfc2833">RFC 2833 (recommended)</SelectItem>
+                  <SelectItem value="inband">Inband</SelectItem>
+                  <SelectItem value="sip_info">SIP INFO</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.qatarDidE164")}</Label>
+              <Input
+                value={qatarDidE164}
+                onChange={(e) => setQatarDidE164(e.target.value)}
+                placeholder="+974XXXXXXXX"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">{t("callCenter.qatarDidHint")}</p>
             </div>
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.telnyxSipUri")}</Label>
@@ -489,6 +589,7 @@ function CallCenterSettingsPage() {
                 value={telnyxConnectionId}
                 onChange={(e) => setTelnyxConnectionId(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">{t("callCenter.telnyxConnectionHint")}</p>
             </div>
             <CallCenterSecretField
               id="cc-telnyx-api-key"
@@ -518,20 +619,37 @@ function CallCenterSettingsPage() {
               revealField="telnyx_webhook_secret"
             />
             <div className="space-y-1.5">
+              <Label>{t("callCenter.livekitSipInboundTrunkId")}</Label>
+              <Input
+                value={livekitSipInboundTrunkId}
+                placeholder="ST_xxxxxxxxxxxx"
+                onChange={(e) => setLivekitSipInboundTrunkId(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">{t("callCenter.livekitSipInboundTrunkIdHint")}</p>
+            </div>
+            <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.livekitSipTrunkId")}</Label>
               <Input
                 value={livekitSipTrunkId}
                 placeholder="ST_xxxxxxxxxxxx"
                 onChange={(e) => setLivekitSipTrunkId(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
               />
               <p className="text-xs text-muted-foreground">{t("callCenterAdmin.livekitSipTrunkIdHint")}</p>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label>{t("callCenterAdmin.livekitSipDispatchRuleId")}</Label>
               <Input
                 value={livekitSipDispatchRuleId}
+                placeholder="SDR_xxxxxxxxxxxx"
                 onChange={(e) => setLivekitSipDispatchRuleId(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
               />
+              <p className="text-xs text-muted-foreground">{t("callCenter.dispatchRuleHint")}</p>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Button

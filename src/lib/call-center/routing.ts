@@ -6,6 +6,7 @@ import { getCallProvider } from "@/lib/chat/call-provider";
 
 import { isWithinBusinessHours } from "./business-hours";
 import {
+  claimCallForAnswer,
   createCall,
   createVoicemail,
   findDidByE164,
@@ -16,6 +17,7 @@ import {
   listIvrOptions,
   listQueueMembers,
   listQueues,
+  listWaitingCallsForTimeout,
   loadSettingsRow,
   normalizeE164,
   setAgentStatus,
@@ -59,12 +61,27 @@ function pickAgents(
   return [sorted[0]!.userId];
 }
 
+function agentHasRequiredSkills(
+  required: string[],
+  memberSkills: string[],
+  agentSkills: string[],
+): boolean {
+  if (required.length === 0) return true;
+  const have = new Set(
+    [...memberSkills, ...agentSkills].map((s) => s.trim().toLowerCase()).filter(Boolean),
+  );
+  return required.every((s) => have.has(s.trim().toLowerCase()));
+}
+
 async function resolveQueueAgents(queue: CallCenterQueue): Promise<string[]> {
   const members = (await listQueueMembers(queue.id)).filter((m) => m.isActive);
   if (members.length === 0) return [];
-  const available = await listAvailableAgents(members.map((m) => m.userId));
+  const available = (await listAvailableAgents(members.map((m) => m.userId))).filter(
+    (a) => a.isActive !== false,
+  );
   const availableIds = new Set(available.map((a) => a.userId));
-  const candidates = members
+  const required = (queue.requiredSkills ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const mapped = members
     .filter((m) => availableIds.has(m.userId))
     .map((m) => {
       const status = available.find((a) => a.userId === m.userId);
@@ -72,9 +89,12 @@ async function resolveQueueAgents(queue: CallCenterQueue): Promise<string[]> {
         userId: m.userId,
         priority: m.priority,
         lastCallAt: status?.lastCallAt ?? null,
+        skilled: agentHasRequiredSkills(required, m.skills, status?.skills ?? []),
       };
     });
-  return pickAgents(queue.strategy, candidates);
+  const skilled = mapped.filter((c) => c.skilled);
+  const pool = skilled.length > 0 ? skilled : mapped;
+  return pickAgents(queue.strategy, pool);
 }
 
 async function offerToQueue(params: {
@@ -271,8 +291,20 @@ export async function routeInboundCall(input: {
     // action === queue → fall through to normal queue offer below
   }
 
+  // VIP / priority contacts skip IVR and go straight to queue (Maqsam-style).
+  let vipContact: Awaited<ReturnType<typeof import("./db").findPriorityContactByE164>> = null;
+  if (fromE164 && input.provider !== "test") {
+    try {
+      const { findPriorityContactByE164 } = await import("./db");
+      vipContact = await findPriorityContactByE164(fromE164);
+    } catch {
+      vipContact = null;
+    }
+  }
+
   const useIvr =
     !input.skipIvr &&
+    !vipContact &&
     Boolean(settings?.ivr_enabled) &&
     Boolean(did?.ivrMenuId) &&
     !forceQueue &&
@@ -290,6 +322,10 @@ export async function routeInboundCall(input: {
         entry?.data.greetingText ||
         menu.greetingText ||
         "IVR menu active.";
+      const audioUrl =
+        start?.data.audioUrl?.trim() ||
+        entry?.data.audioUrl?.trim() ||
+        "";
       const call = await createCall({
         direction: "inbound",
         status: "ivr",
@@ -309,6 +345,7 @@ export async function routeInboundCall(input: {
         metadata: {
           ivrNodeId: entry?.id ?? start?.id ?? null,
           ivrGreeting: greeting,
+          ...(audioUrl ? { ivrAudioUrl: audioUrl } : {}),
         },
       });
       return {
@@ -350,6 +387,14 @@ export async function routeInboundCall(input: {
     livekitRoom: "",
     provider: input.provider,
     providerCallId: input.providerCallId,
+    metadata: vipContact
+      ? {
+          vip: true,
+          vipContactId: vipContact.id,
+          vipContactName: vipContact.displayName,
+          ivrSkipped: "priority_contact",
+        }
+      : undefined,
   });
   const withRoom = await updateCall(call.id, { livekitRoom: roomNameForCall(call.id) });
   return offerToQueue({
@@ -663,13 +708,18 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
   if (option.action === "menu" && option.nextMenuId) {
     const nextMenu = menus.find((m) => m.id === option.nextMenuId && m.isActive);
     if (!nextMenu) throw new Error("Nested IVR menu not found.");
+    const nextEntry = findEntryInteractiveNode(nextMenu.flowJson);
+    const nextStart = findStartNode(nextMenu.flowJson);
+    const nextAudio =
+      nextStart?.data.audioUrl?.trim() || nextEntry?.data.audioUrl?.trim() || "";
     const updated = await updateCall(call.id, {
       ivrDigit: digit,
       ivrMenuId: nextMenu.id,
       metadata: {
         ...meta,
-        ivrNodeId: findEntryInteractiveNode(nextMenu.flowJson)?.id ?? null,
+        ivrNodeId: nextEntry?.id ?? null,
         ivrGreeting: nextMenu.greetingText,
+        ivrAudioUrl: nextAudio || null,
       },
     });
     return {
@@ -795,11 +845,32 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
 
   const livekitRoom = existing.livekitRoom || roomNameForCall(callId);
 
-  // Real PSTN caller waiting on Telnyx: connect them to this room over LiveKit SIP before
-  // marking the call answered. Throws (call stays offered) when the caller can't be connected.
-  if (existing.provider === "telnyx" && existing.direction === "inbound" && existing.providerCallId) {
-    const { bridgeCallerToLiveKit } = await import("./carrier");
-    await bridgeCallerToLiveKit(existing, livekitRoom);
+  // Atomic claim prevents two agents from bridging the same simultaneous offer.
+  const claimed = await claimCallForAnswer(callId, agentUserId, livekitRoom);
+  if (!claimed) {
+    throw new Error("Call was answered by another agent.");
+  }
+
+  // Real PSTN caller waiting on Telnyx Call Control: transfer into the LiveKit room.
+  // LiveKit SIP Trunk callers are already in the room — agent just joins.
+  if (claimed.provider === "telnyx" && claimed.direction === "inbound" && claimed.providerCallId) {
+    try {
+      const { bridgeCallerToLiveKit } = await import("./carrier");
+      await bridgeCallerToLiveKit(claimed, livekitRoom);
+    } catch (e) {
+      await updateCall(callId, {
+        status: existing.status,
+        agentUserId: existing.agentUserId,
+        livekitRoom: existing.livekitRoom || livekitRoom,
+        metadata: {
+          ...((claimed.metadata as Record<string, unknown> | null) ?? {}),
+          answerClaimedBy: null,
+          answerClaimedAt: null,
+          bridgeError: e instanceof Error ? e.message : "bridge failed",
+        },
+      });
+      throw e;
+    }
   }
 
   const now = new Date().toISOString();
@@ -816,7 +887,53 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
     userId: agentUserId,
     displayName: "Agent",
   });
+  void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
+    emitCallCenterOutboundWebhook({ event: "call.answered", call }),
+  );
   return { call, media };
+}
+
+/**
+ * Enforce queue max_wait_seconds: abandon waiting/IVR legs past the limit.
+ * Safe to call from softphone poll / workspace load (idempotent).
+ */
+export async function enforceQueueWaitTimeouts(): Promise<{ timedOut: number }> {
+  const [queues, waiting] = await Promise.all([listQueues(), listWaitingCallsForTimeout()]);
+  const byId = new Map(queues.map((q) => [q.id, q]));
+  let timedOut = 0;
+  const nowMs = Date.now();
+
+  for (const call of waiting) {
+    const queue = call.queueId ? byId.get(call.queueId) : null;
+    const maxWait = queue?.maxWaitSeconds ?? 0;
+    if (maxWait <= 0) continue;
+    const anchor = call.offeredAt || call.startedAt;
+    const ageSec = Math.floor((nowMs - new Date(anchor).getTime()) / 1000);
+    if (ageSec < maxWait) continue;
+
+    const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+    if (meta.queueTimedOut) continue;
+
+    const now = new Date().toISOString();
+    await updateCall(call.id, {
+      status: "missed",
+      hangupReason: `Queue timeout after ${maxWait}s`,
+      endedAt: now,
+      metadata: { ...meta, queueTimedOut: true, queueWaitSeconds: ageSec },
+    });
+    timedOut += 1;
+
+    if (call.provider === "telnyx" || call.provider === "livekit_sip") {
+      try {
+        const { endCarrierLeg } = await import("./carrier");
+        await endCarrierLeg(call);
+      } catch {
+        // best effort
+      }
+    }
+  }
+
+  return { timedOut };
 }
 
 export async function declineCall(callId: string, agentUserId: string): Promise<CallCenterCall> {
@@ -881,6 +998,11 @@ export async function hangupCall(callId: string, agentUserId: string): Promise<C
   if (!alreadyEnded && (existing.provider === "telnyx" || existing.provider === "livekit_sip")) {
     const { endCarrierLeg } = await import("./carrier");
     await endCarrierLeg(existing);
+  }
+  if (!alreadyEnded) {
+    void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
+      emitCallCenterOutboundWebhook({ event: "call.ended", call }),
+    );
   }
   return call;
 }
@@ -1157,13 +1279,17 @@ export async function parkCall(
     throw new Error("Call is not active.");
   }
   const parkSlot = (slot?.trim() || String(Math.floor(100 + Math.random() * 800))).slice(0, 8);
-  return updateCall(callId, {
+  const call = await updateCall(callId, {
     status: "held",
     parkedSlot: parkSlot,
     parkedAt: new Date().toISOString(),
     parkedBy: agentUserId,
     metadata: { ...existing.metadata, parked: true, holdBestEffort: true },
   });
+  void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
+    emitCallCenterOutboundWebhook({ event: "call.parked", call }),
+  );
+  return call;
 }
 
 export async function retrieveParkedCall(

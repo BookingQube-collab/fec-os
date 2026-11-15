@@ -1,4 +1,8 @@
+import type { CallCenterInboundMode, TelnyxDtmfMode } from "./dtmf-codes";
 import type { IvrFlowJson } from "./ivr-flow";
+
+export type { CallCenterInboundMode, TelnyxDtmfMode } from "./dtmf-codes";
+export { CALL_CENTER_INBOUND_MODES, TELNYX_DTMF_MODES } from "./dtmf-codes";
 
 export const CALL_CENTER_SETTINGS_ID = "00000000-0000-4000-8000-0000000000cc";
 export const CALL_CENTER_DEFAULT_QUEUE_ID = "00000000-0000-4000-8000-0000000000c0";
@@ -84,8 +88,17 @@ export type CallCenterSettingsRow = {
   telnyx_connection_id: string;
   telnyx_api_key: string;
   telnyx_webhook_secret: string;
+  /** LiveKit outbound SIP trunk id (ST_…) for agent dial-out. */
   livekit_sip_trunk_id: string;
+  /** LiveKit inbound SIP trunk id (ST_…) for Telnyx SIP origination. */
+  livekit_sip_inbound_trunk_id: string;
   livekit_sip_dispatch_rule_id: string;
+  /** telnyx_sip_trunk (recommended) | telnyx_call_control */
+  inbound_mode: CallCenterInboundMode;
+  /** Telnyx DTMF; rfc2833 recommended for IVR. */
+  telnyx_dtmf_mode: TelnyxDtmfMode;
+  /** Primary Qatar +974 DID reminder (E.164). */
+  qatar_did_e164: string;
   webhook_shared_secret: string;
   notes: string;
   ai_first_answer_enabled: boolean;
@@ -146,7 +159,11 @@ export type CallCenterSettingsPublic = {
   telnyxWebhookSecretLast4: string;
   telnyxWebhookSecretSet: boolean;
   livekitSipTrunkId: string;
+  livekitSipInboundTrunkId: string;
   livekitSipDispatchRuleId: string;
+  inboundMode: CallCenterInboundMode;
+  telnyxDtmfMode: TelnyxDtmfMode;
+  qatarDidE164: string;
   webhookSecretLast4: string;
   webhookSecretSet: boolean;
   notes: string;
@@ -226,6 +243,10 @@ export type CallCenterQueue = {
   eventId: string | null;
   wrapUpSeconds: number;
   maxWaitSeconds: number;
+  /** Skills required to be offered first (intersect with agent/member skills). */
+  requiredSkills: string[];
+  /** Target answer time for service-level % (seconds). */
+  serviceLevelSeconds: number;
   isActive: boolean;
   sortOrder: number;
 };
@@ -288,6 +309,8 @@ export type CallCenterAgentStatus = {
   canBarge: boolean;
   isActive: boolean;
   skills: string[];
+  autoAnswer: boolean;
+  awayReason: string;
 };
 
 export type CallCenterCall = {
@@ -330,6 +353,8 @@ export type CallCenterCall = {
   parkedSlot: string;
   parkedAt: string | null;
   parkedBy: string | null;
+  conferenceActive: boolean;
+  keywordHits: string[];
 };
 
 export type CallCenterPhoneContact = {
@@ -341,6 +366,8 @@ export type CallCenterPhoneContact = {
   notes: string;
   tags: string[];
   isFavorite: boolean;
+  /** VIP — skip IVR / preferred routing when calling in. */
+  isPriority: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -379,6 +406,8 @@ export type CallCenterAgentPerformanceRow = {
   isActive: boolean;
   skills: string[];
   queueIds: string[];
+  autoAnswer: boolean;
+  awayReason: string;
 };
 
 export type CallCenterWhatsappConversation = {
@@ -443,8 +472,76 @@ export type CallCenterCampaign = {
   scheduledStart: string | null;
   scheduledEnd: string | null;
   isActive: boolean;
+  maxAttempts: number;
+  dialIntervalSeconds: number;
+  amdEnabled: boolean;
+  playRecordingUrl: string;
+  autoStart: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CallCenterQaCriterion = {
+  id: string;
+  label: string;
+  maxScore: number;
+  aiScored: boolean;
+};
+
+export type CallCenterQaTemplate = {
+  id: string;
+  name: string;
+  criteria: CallCenterQaCriterion[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterQaEvaluation = {
+  id: string;
+  callId: string;
+  templateId: string | null;
+  agentUserId: string | null;
+  evaluatorUserId: string | null;
+  scores: Record<string, number>;
+  totalScore: number;
+  notes: string;
+  aiFlags: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterReportSchedule = {
+  id: string;
+  name: string;
+  frequency: "hourly" | "daily" | "weekly" | "monthly" | "once";
+  emails: string[];
+  includeWhatsapp: boolean;
+  includeAgents: boolean;
+  isActive: boolean;
+  lastSentAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterWhatsappTemplate = {
+  id: string;
+  name: string;
+  language: string;
+  body: string;
+  category: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterKeywordAlert = {
+  id: string;
+  keyword: string;
+  notifyEmails: string[];
+  isActive: boolean;
+  createdAt: string;
 };
 
 export type CallCenterCampaignContact = {
@@ -471,10 +568,14 @@ export type CallCenterAnalyticsSummary = {
   callsToday: number;
   answeredToday: number;
   missedToday: number;
+  inboundToday: number;
+  outboundToday: number;
   answerRate: number;
   avgHandleSeconds: number;
   avgSpeedAnswerSeconds: number;
   abandonRate: number;
+  /** % of offered calls answered within queue service_level_seconds. */
+  serviceLevelPercent: number;
   agentsAvailable: number;
   agentsBusy: number;
   agentsAway: number;
@@ -482,6 +583,8 @@ export type CallCenterAnalyticsSummary = {
   agentsInCall: number;
   activeCalls: number;
   voicemailsPending: number;
+  whatsappOpen: number;
+  whatsappMessagesToday: number;
 };
 
 export type CallCenterWallboard = {

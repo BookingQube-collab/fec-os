@@ -25,8 +25,12 @@ import {
   assignCallCenterWhatsappConversation,
   loadCallCenterConfigBundle,
   loadCallCenterWhatsappInbox,
+  loadCallCenterWhatsappTemplates,
+  removeCallCenterWhatsappTemplate,
   replyCallCenterWhatsappMessage,
   saveCallCenterSettings,
+  saveCallCenterWhatsappTemplate,
+  sendCallCenterWhatsappTemplate,
 } from "@/lib/call-center/call-center.functions";
 import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
@@ -97,6 +101,10 @@ function CallCenterWhatsappPage() {
   const [wabaId, setWabaId] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [verifyToken, setVerifyToken] = useState("");
+  const [tplName, setTplName] = useState("");
+  const [tplLanguage, setTplLanguage] = useState("en");
+  const [tplBody, setTplBody] = useState("");
+  const [tplSendingId, setTplSendingId] = useState<string | null>(null);
 
   const inbox = useQuery({
     queryKey: ["call-center", "whatsapp-inbox", selectedId],
@@ -114,6 +122,16 @@ function CallCenterWhatsappPage() {
     enabled: canUse && canEdit,
     queryFn: async () => {
       const result = await loadCallCenterConfigBundle({});
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
+  });
+
+  const templates = useQuery({
+    queryKey: ["call-center", "whatsapp-templates"],
+    enabled: canUse,
+    queryFn: async () => {
+      const result = await loadCallCenterWhatsappTemplates({});
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
@@ -220,6 +238,105 @@ function CallCenterWhatsappPage() {
           POST /api/public/call-center/whatsapp
         </span>
       </div>
+
+      <section className="mb-4 rounded-2xl border border-border/50 bg-card p-4">
+        <h2 className="text-sm font-semibold">{t("callCenter.whatsappTemplates")}</h2>
+        {canEdit ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>{t("callCenterAdmin.label")}</Label>
+              <Input value={tplName} onChange={(e) => setTplName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.whatsappTemplateLanguage", "Language")}</Label>
+              <Input value={tplLanguage} onChange={(e) => setTplLanguage(e.target.value)} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
+              <Label>{t("callCenter.whatsappTemplateBody", "Body")}</Label>
+              <Textarea rows={2} value={tplBody} onChange={(e) => setTplBody(e.target.value)} />
+            </div>
+            <Button
+              type="button"
+              disabled={!tplName.trim()}
+              onClick={() => {
+                void (async () => {
+                  const result = await saveCallCenterWhatsappTemplate({
+                    name: tplName.trim(),
+                    language: tplLanguage.trim() || "en",
+                    body: tplBody,
+                    isActive: true,
+                  });
+                  if (!result.ok) toast.error(result.error);
+                  else {
+                    toast.success(t("callCenter.whatsappTemplateSaved"));
+                    setTplName("");
+                    setTplBody("");
+                    await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-templates"] });
+                  }
+                })();
+              }}
+            >
+              {t("callCenter.qaSaveTemplate")}
+            </Button>
+          </div>
+        ) : null}
+        <ul className="mt-4 divide-y divide-border/50 rounded-xl border border-border/40">
+          {(templates.data ?? []).map((tpl) => (
+            <li key={tpl.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+              <span className="font-medium">{tpl.name}</span>
+              <span className="text-xs text-muted-foreground">{tpl.language}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{tpl.body}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!selectedId || tplSendingId === tpl.id}
+                onClick={() => {
+                  if (!selectedId) return;
+                  void (async () => {
+                    setTplSendingId(tpl.id);
+                    try {
+                      const result = await sendCallCenterWhatsappTemplate({
+                        conversationId: selectedId,
+                        templateId: tpl.id,
+                      });
+                      if (!result.ok) throw new Error(result.error);
+                      if (!result.data.sent) toast.error(result.data.error || t("callCenter.whatsappSendFailed"));
+                      else toast.success(t("callCenter.whatsappTemplateSent"));
+                      await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-inbox"] });
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : t("callCenter.loadError"));
+                    } finally {
+                      setTplSendingId(null);
+                    }
+                  })();
+                }}
+              >
+                {t("callCenter.whatsappSendTemplate")}
+              </Button>
+              {canEdit ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    void (async () => {
+                      const result = await removeCallCenterWhatsappTemplate({ id: tpl.id });
+                      if (!result.ok) toast.error(result.error);
+                      else {
+                        toast.success(t("callCenter.whatsappTemplateRemoved"));
+                        await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-templates"] });
+                      }
+                    })();
+                  }}
+                >
+                  ×
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {canEdit ? (
         <section className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card p-4">

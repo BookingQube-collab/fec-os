@@ -10,6 +10,7 @@ import { useCallCenterSoftphoneOptional } from "@/components/call-center/softpho
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import {
   loadCallCenterContacts,
@@ -31,6 +32,7 @@ function CallCenterContactsPage() {
   const [name, setName] = useState("");
   const [e164, setE164] = useState("+974");
   const [company, setCompany] = useState("");
+  const [isPriority, setIsPriority] = useState(false);
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -70,11 +72,13 @@ function CallCenterContactsPage() {
         e164,
         company,
         isFavorite: false,
+        isPriority,
       });
       if (!result.ok) throw new Error(result.error);
       setName("");
       setE164("+974");
       setCompany("");
+      setIsPriority(false);
       toast.success(t("callCenter.contactSaved"));
       await queryClient.invalidateQueries({ queryKey: ["call-center", "contacts"] });
     } catch (error) {
@@ -101,6 +105,13 @@ function CallCenterContactsPage() {
             <div>
               <Label>{t("callCenter.contactCompany")}</Label>
               <Input value={company} onChange={(e) => setCompany(e.target.value)} className="mt-1" />
+            </div>
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">{t("callCenter.vipContact")}</p>
+                <p className="text-xs text-muted-foreground">{t("callCenter.vipContactHint")}</p>
+              </div>
+              <Switch checked={isPriority} onCheckedChange={setIsPriority} />
             </div>
             <Button type="button" disabled={pending || !name.trim() || e164.length < 4} onClick={() => void onSave()}>
               {t("callCenter.saveContact")}
@@ -129,6 +140,11 @@ function CallCenterContactsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 font-medium">
                       {contact.isFavorite ? <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden /> : null}
+                      {contact.isPriority ? (
+                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                          VIP
+                        </span>
+                      ) : null}
                       {contact.displayName}
                     </p>
                     <p className="text-sm text-muted-foreground">

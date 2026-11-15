@@ -71,6 +71,8 @@ type EditState = {
   skills: string;
   queueIds: string[];
   status: CallCenterAgentStatusValue;
+  autoAnswer: boolean;
+  awayReason: string;
 };
 
 function CallCenterAgentsPage() {
@@ -119,6 +121,8 @@ function CallCenterAgentsPage() {
       skills: row.skills.join(", "),
       queueIds: [...row.queueIds],
       status: row.status,
+      autoAnswer: row.autoAnswer,
+      awayReason: row.awayReason || "",
     });
   }
 
@@ -141,6 +145,8 @@ function CallCenterAgentsPage() {
         skills,
         queueIds: edit.queueIds,
         status: edit.status,
+        autoAnswer: edit.autoAnswer,
+        awayReason: edit.awayReason,
       });
       if (!result.ok) throw new Error(result.error);
       toast.success(t("callCenter.agentSaved"));
@@ -514,6 +520,30 @@ function CallCenterAgentsPage() {
                   placeholder="sales, arabic, vip"
                 />
               </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>{t("callCenter.autoAnswer")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("callCenter.autoAnswerHint")}</p>
+                </div>
+                <Switch
+                  checked={edit.autoAnswer}
+                  onCheckedChange={(v) =>
+                    setEdit((prev) => (prev ? { ...prev, autoAnswer: v } : prev))
+                  }
+                />
+              </div>
+              {edit.status === "away" ? (
+                <div className="space-y-1.5">
+                  <Label>{t("callCenter.awayReason")}</Label>
+                  <Input
+                    value={edit.awayReason}
+                    onChange={(e) =>
+                      setEdit((prev) => (prev ? { ...prev, awayReason: e.target.value } : prev))
+                    }
+                    placeholder="On Break / In Training"
+                  />
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label>{t("callCenter.defaultQueues")}</Label>
                 <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-border/50 p-2">

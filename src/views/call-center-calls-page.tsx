@@ -57,12 +57,14 @@ function CallCenterCallsPage() {
   const [toDate, setToDate] = useState("");
   const [queueId, setQueueId] = useState("");
   const [direction, setDirection] = useState<string>("");
+  const [phoneQuery, setPhoneQuery] = useState("");
   const [applied, setApplied] = useState({
     fromDate: startOfTodayIso(),
     toDate: "",
     queueId: "",
     direction: "" as string,
     status: "" as string,
+    phoneQuery: "",
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftTranscript, setDraftTranscript] = useState("");
@@ -118,15 +120,24 @@ function CallCenterCallsPage() {
   });
 
   const filtered = useMemo(() => {
-    const rows = cdr.data ?? [];
+    let rows = cdr.data ?? [];
     if (chip === "missed") {
-      return rows.filter((c) => ["missed", "declined", "failed"].includes(c.status));
+      rows = rows.filter((c) => ["missed", "declined", "failed"].includes(c.status));
+    } else if (chip === "outbound") {
+      rows = rows.filter((c) => c.direction === "outbound");
     }
-    if (chip === "outbound") {
-      return rows.filter((c) => c.direction === "outbound");
+    const q = applied.phoneQuery.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(
+        (c) =>
+          c.fromE164.toLowerCase().includes(q) ||
+          c.toE164.toLowerCase().includes(q) ||
+          (c.agentNotes || "").toLowerCase().includes(q) ||
+          c.tags.some((tag) => tag.toLowerCase().includes(q)),
+      );
     }
     return rows;
-  }, [cdr.data, chip]);
+  }, [cdr.data, chip, applied.phoneQuery]);
 
   function applyChip(next: Chip) {
     setChip(next);
@@ -320,6 +331,15 @@ function CallCenterCallsPage() {
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-1.5">
+          <Label>{t("callCenter.filterPhone")}</Label>
+          <Input
+            value={phoneQuery}
+            onChange={(e) => setPhoneQuery(e.target.value)}
+            placeholder="+974… / notes / tags"
+            className="w-[12rem]"
+          />
+        </div>
         <Button
           type="button"
           onClick={() => {
@@ -330,6 +350,7 @@ function CallCenterCallsPage() {
               queueId,
               direction,
               status: "",
+              phoneQuery,
             });
           }}
         >

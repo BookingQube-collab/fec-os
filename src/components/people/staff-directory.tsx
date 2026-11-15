@@ -10,6 +10,7 @@ import {
   Download,
 
   MoreHorizontal,
+  Phone,
   Plus,
   Upload,
 } from "lucide-react";
@@ -1450,7 +1451,19 @@ export function StaffDirectory({
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">{t("people.staff.contact")}</dt>
-                  <dd>{quickView.phone ?? "—"}</dd>
+                  <dd className="flex items-center gap-2">
+                    <span>{quickView.phone ?? "—"}</span>
+                    {quickView.phone?.trim() ? (
+                      <Button asChild size="sm" variant="secondary" className="h-7 gap-1 px-2">
+                        <Link
+                          href={`/call-center?dial=${encodeURIComponent(quickView.phone.trim())}`}
+                        >
+                          <Phone className="h-3.5 w-3.5" aria-hidden />
+                          {t("callCenter.peopleCall", "Call")}
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">{t("people.staff.joiningDate", "Joining date")}</dt>

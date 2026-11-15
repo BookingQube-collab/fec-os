@@ -248,6 +248,18 @@ function Inspector({
               placeholder="النص بالعربية…"
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>Audio clip URL</Label>
+            <Input
+              disabled={!canEdit}
+              value={data.audioUrl ?? ""}
+              onChange={(e) => patch({ audioUrl: e.target.value.trim() })}
+              placeholder="https://…/prompt.mp3"
+            />
+            <p className="text-[0.7rem] text-muted-foreground">
+              Optional. When set, Call Control prefers this clip over TTS text.
+            </p>
+          </div>
         </div>
       )}
 
@@ -282,6 +294,15 @@ function Inspector({
               value={data.messageAr ?? ""}
               onChange={(e) => patch({ messageAr: e.target.value })}
               placeholder="النص بالعربية…"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Audio clip URL</Label>
+            <Input
+              disabled={!canEdit}
+              value={data.audioUrl ?? ""}
+              onChange={(e) => patch({ audioUrl: e.target.value.trim() })}
+              placeholder="https://…/prompt.mp3"
             />
           </div>
         </div>

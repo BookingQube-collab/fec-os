@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { handleLiveKitSipEvent } from "@/lib/call-center/carrier";
 import { verifyLiveKitWebhook } from "@/lib/call-center/livekit-sip";
-import { routeInboundCall } from "@/lib/call-center/routing";
+import { applyIvrDigit, routeInboundCall } from "@/lib/call-center/routing";
 import {
   assertCallCenterWebhook,
   extractInboundLegs,
@@ -14,9 +14,11 @@ import {
  *
  * 1. LiveKit server webhook (project Settings → Webhooks): signed JWT in `Authorization`.
  *    Events used: participant_joined / participant_left (SIP) and room_finished keep the CDR
- *    in sync, and calls that arrive straight on a LiveKit SIP trunk (no Telnyx Call Control)
- *    are routed to agents in the room LiveKit created.
- * 2. Manual / demo: { from, to, callId } with the shared secret (or ?demo=1) creates a CDR +
+ *    in sync, and calls that arrive straight on a LiveKit SIP trunk (Telnyx SIP Trunking)
+ *    are routed (IVR / queue) into FEC.
+ * 2. IVR digit ingest (shared secret): { digit, callId } — for LiveKit Agents or tools that
+ *    forward RFC 2833 SipDTMF into FEC routing.
+ * 3. Manual / demo: { from, to, callId } with the shared secret (or ?demo=1) creates a CDR +
  *    agent offer, as before.
  */
 export async function POST(request: Request) {
@@ -53,10 +55,25 @@ export async function POST(request: Request) {
   const authError = await assertCallCenterWebhook(request);
   if (authError) return authError;
 
+  if (typeof root.digit === "string" && typeof root.callId === "string") {
+    try {
+      const result = await applyIvrDigit(root.callId, root.digit);
+      return NextResponse.json({ ok: true, ...result });
+    } catch (e) {
+      return NextResponse.json(
+        { ok: false, error: e instanceof Error ? e.message : "IVR failed" },
+        { status: 400 },
+      );
+    }
+  }
+
   const legs = extractInboundLegs(body);
   if (!legs.to && !legs.from) {
     return NextResponse.json(
-      { ok: false, error: "Expected a LiveKit webhook or from/to on the SIP inbound payload" },
+      {
+        ok: false,
+        error: "Expected a LiveKit webhook, {digit,callId}, or from/to on the SIP inbound payload",
+      },
       { status: 400 },
     );
   }

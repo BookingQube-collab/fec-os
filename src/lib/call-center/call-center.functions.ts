@@ -48,6 +48,22 @@ import {
   listWebhookEndpoints,
   listWhatsappConversations,
   listWhatsappMessages,
+  listQaTemplates,
+  upsertQaTemplate,
+  deleteQaTemplate,
+  listQaEvaluations,
+  upsertQaEvaluation,
+  listReportSchedules,
+  upsertReportSchedule,
+  deleteReportSchedule,
+  markReportScheduleSent,
+  listWhatsappTemplates,
+  upsertWhatsappTemplate,
+  deleteWhatsappTemplate,
+  listKeywordAlerts,
+  upsertKeywordAlert,
+  deleteKeywordAlert,
+  searchCallsByKeyword,
   loadSettingsRow,
   resolveWhatsappAccessToken,
   resolveWhatsappPhoneNumberId,
@@ -91,9 +107,15 @@ import {
   saveCallTranscript,
   startSupervisorMonitor,
 } from "./routing";
+import { sendOutboundEmail } from "@/lib/email/send";
 import { buildFecVenuesTemplate } from "./ivr-flow";
-import { checkCarrierSetup } from "./livekit-sip";
+import { checkCarrierSetup, resolveLiveKitServerCredentials } from "./livekit-sip";
 import { toPublicSettings } from "./settings-public";
+import {
+  looksLikeSipHostNotId,
+  sipHostMistakenForIdMessage,
+} from "./sip-ids";
+import type { CallCenterQaCriterion, CallCenterReportSchedule } from "./types";
 import {
   CALL_CENTER_VENUE_QUEUE_IDS,
   type CallCenterAgentStatusValue,
@@ -160,7 +182,11 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     telnyxApiKey: z.string().max(500),
     telnyxWebhookSecret: z.string().max(500),
     livekitSipTrunkId: z.string().trim().max(200),
+    livekitSipInboundTrunkId: z.string().trim().max(200).optional(),
     livekitSipDispatchRuleId: z.string().trim().max(200),
+    inboundMode: z.enum(["telnyx_sip_trunk", "telnyx_call_control"]).optional(),
+    telnyxDtmfMode: z.enum(["rfc2833", "inband", "sip_info"]).optional(),
+    qatarDidE164: z.string().trim().max(20).optional(),
     webhookSharedSecret: z.string().max(500),
     notes: z.string().max(2000),
     aiFirstAnswerEnabled: z.boolean().optional(),
@@ -198,6 +224,16 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
+    if (looksLikeSipHostNotId(data.livekitSipTrunkId)) {
+      throw new Error(sipHostMistakenForIdMessage("outbound_trunk"));
+    }
+    const inboundTrunkIncoming = data.livekitSipInboundTrunkId?.trim() ?? "";
+    if (inboundTrunkIncoming && looksLikeSipHostNotId(inboundTrunkIncoming)) {
+      throw new Error(sipHostMistakenForIdMessage("inbound_trunk"));
+    }
+    if (looksLikeSipHostNotId(data.livekitSipDispatchRuleId)) {
+      throw new Error(sipHostMistakenForIdMessage("dispatch_rule"));
+    }
     const saved = await saveSettingsRow(
       {
         enabled: data.enabled,
@@ -213,8 +249,13 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           existing?.telnyx_webhook_secret ?? "",
           data.telnyxWebhookSecret,
         ),
-        livekit_sip_trunk_id: data.livekitSipTrunkId,
-        livekit_sip_dispatch_rule_id: data.livekitSipDispatchRuleId,
+        livekit_sip_trunk_id: data.livekitSipTrunkId.trim(),
+        livekit_sip_inbound_trunk_id:
+          data.livekitSipInboundTrunkId?.trim() ?? existing?.livekit_sip_inbound_trunk_id ?? "",
+        livekit_sip_dispatch_rule_id: data.livekitSipDispatchRuleId.trim(),
+        inbound_mode: data.inboundMode ?? existing?.inbound_mode ?? "telnyx_sip_trunk",
+        telnyx_dtmf_mode: data.telnyxDtmfMode ?? existing?.telnyx_dtmf_mode ?? "rfc2833",
+        qatar_did_e164: data.qatarDidE164 ?? existing?.qatar_did_e164 ?? "",
         webhook_shared_secret: keepSecret(
           existing?.webhook_shared_secret ?? "",
           data.webhookSharedSecret,
@@ -234,7 +275,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           existing?.ai_welcome_ar ??
           "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
         ai_provider: (data.aiProvider ?? existing?.ai_provider ?? "openai") as CallCenterAiProvider,
-        ai_model: data.aiModel ?? existing?.ai_model ?? "gpt-4o-mini",
+        ai_model: data.aiModel ?? existing?.ai_model ?? "gemini-flash-latest",
         ai_api_key: keepSecret(existing?.ai_api_key ?? "", data.aiApiKey ?? ""),
         ai_base_url: data.aiBaseUrl ?? existing?.ai_base_url ?? "",
         ai_languages: data.aiLanguages ?? existing?.ai_languages ?? ["en", "ar"],
@@ -318,6 +359,8 @@ export const saveCallCenterQueue = createSafeAuthenticatedAction(
     eventId: optionalUuid.optional(),
     wrapUpSeconds: z.number().int().min(0).max(600),
     maxWaitSeconds: z.number().int().min(0).max(3600),
+    requiredSkills: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+    serviceLevelSeconds: z.number().int().min(1).max(600).optional(),
     isActive: z.boolean(),
     sortOrder: z.number().int().min(0).max(9999),
   }),
@@ -329,6 +372,8 @@ export const saveCallCenterQueue = createSafeAuthenticatedAction(
       eventId: data.eventId ?? null,
       wrapUpSeconds: data.wrapUpSeconds,
       maxWaitSeconds: data.maxWaitSeconds,
+      requiredSkills: data.requiredSkills ?? [],
+      serviceLevelSeconds: data.serviceLevelSeconds ?? 20,
       isActive: data.isActive,
       sortOrder: data.sortOrder,
     }),
@@ -648,6 +693,8 @@ export const applyCallCenterFecVenuesIvrTemplate = createSafeAuthenticatedAction
 export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
   z.object({}),
   async (_data, context) => {
+    const { enforceQueueWaitTimeouts } = await import("./routing");
+    await enforceQueueWaitTimeouts().catch(() => undefined);
     const [status, ringing, recent, settings, provider, dids, queues, members, agents] =
       await Promise.all([
         getAgentStatus(context.userId),
@@ -686,6 +733,8 @@ export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
         canBarge: false,
         isActive: true,
         skills: [],
+        autoAnswer: false,
+        awayReason: "",
       },
       ringing,
       recentCalls: recent,
@@ -705,14 +754,33 @@ export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
 export const setCallCenterAgentStatus = createSafeAuthenticatedAction(
   z.object({
     status: z.enum(["available", "busy", "away", "acw", "offline"]),
+    awayReason: z.string().trim().max(80).optional(),
+    autoAnswer: z.boolean().optional(),
+    /** Supervisor remote control — only honored for admin roles. */
+    targetUserId: z.string().uuid().optional(),
   }),
-  async (data, context) => setAgentStatus(context.userId, data.status),
+  async (data, context) => {
+    const targetId = data.targetUserId ?? context.userId;
+    if (targetId !== context.userId) {
+      const { requireCapability, requireRoleLevel } = await import("@/lib/server/authorize");
+      await requireCapability(context, "admin.view");
+      await requireRoleLevel(context, 95);
+    }
+    return setAgentStatus(targetId, data.status, {
+      awayReason: data.status === "away" ? data.awayReason ?? "" : "",
+      autoAnswer: data.autoAnswer,
+    });
+  },
   { auth: AGENT_AUTH },
 );
 
 export const pollCallCenterIncoming = createSafeAuthenticatedAction(
   z.object({}),
-  async (_data, context) => listRingingCallsForAgent(context.userId),
+  async (_data, context) => {
+    const { enforceQueueWaitTimeouts } = await import("./routing");
+    await enforceQueueWaitTimeouts().catch(() => undefined);
+    return listRingingCallsForAgent(context.userId);
+  },
   { auth: AGENT_AUTH },
 );
 
@@ -774,12 +842,21 @@ export const sendCallCenterDtmf = createSafeAuthenticatedAction(
     if (call.agentUserId !== context.userId) {
       throw new Error("Call belongs to another agent.");
     }
-    // Best-effort DTMF log while LiveKit SIP DTMF publish is wired later.
+    // Softphone publishes DTMF to the LiveKit room (RFC 2833 toward SIP). Server logs only.
+    const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+    const digits = Array.isArray(meta.agentDtmfLog) ? (meta.agentDtmfLog as string[]) : [];
+    const updated = await updateCall(data.callId, {
+      metadata: {
+        ...meta,
+        agentDtmfLog: [...digits, data.digit].slice(-32),
+        agentDtmfAt: new Date().toISOString(),
+      },
+    });
     return {
-      call,
+      call: updated,
       offeredUserIds: [],
       phase: "queue" as const,
-      message: `DTMF ${data.digit} recorded.`,
+      message: `DTMF ${data.digit} sent (LiveKit publishDtmf + CDR log).`,
     };
   },
   { auth: AGENT_AUTH },
@@ -1048,6 +1125,11 @@ export const saveCallCenterCampaign = createSafeAuthenticatedAction(
     scheduledStart: z.string().nullable().optional(),
     scheduledEnd: z.string().nullable().optional(),
     isActive: z.boolean(),
+    maxAttempts: z.number().int().min(1).max(20).optional(),
+    dialIntervalSeconds: z.number().int().min(0).max(3600).optional(),
+    amdEnabled: z.boolean().optional(),
+    playRecordingUrl: z.string().trim().max(2000).optional(),
+    autoStart: z.boolean().optional(),
   }),
   async (data) =>
     upsertCampaign({
@@ -1061,6 +1143,11 @@ export const saveCallCenterCampaign = createSafeAuthenticatedAction(
       scheduledStart: data.scheduledStart ?? null,
       scheduledEnd: data.scheduledEnd ?? null,
       isActive: data.isActive,
+      maxAttempts: data.maxAttempts,
+      dialIntervalSeconds: data.dialIntervalSeconds,
+      amdEnabled: data.amdEnabled,
+      playRecordingUrl: data.playRecordingUrl,
+      autoStart: data.autoStart,
     }),
   { auth: ADMIN_AUTH },
 );
@@ -1240,9 +1327,31 @@ export const markCallCenterVoicemailListened = createSafeAuthenticatedAction(
 export const dialNextCampaignContact = createSafeAuthenticatedAction(
   z.object({ campaignId: z.string().uuid() }),
   async (data, context) => {
-    const contacts = await listCampaignContacts(data.campaignId);
-    const next = contacts.find((c) => c.status === "pending");
+    const [campaigns, contacts] = await Promise.all([
+      listCampaigns(),
+      listCampaignContacts(data.campaignId),
+    ]);
+    const campaign = campaigns.find((c) => c.id === data.campaignId);
+    if (!campaign) throw new Error("Campaign not found.");
+    const maxAttempts = campaign.maxAttempts || 3;
+    const next = contacts.find(
+      (c) => c.status === "pending" || (c.status === "no_answer" && c.attemptCount < maxAttempts),
+    );
     if (!next) throw new Error("No pending contacts left in this campaign.");
+    if (next.attemptCount >= maxAttempts) {
+      await upsertCampaignContact({
+        id: next.id,
+        campaignId: data.campaignId,
+        e164: next.e164,
+        displayName: next.displayName,
+        status: "skipped",
+        notes: next.notes,
+        attemptCount: next.attemptCount,
+      });
+      throw new Error("Contact reached max dial attempts.");
+    }
+    const attemptCount = next.attemptCount + 1;
+    const now = new Date().toISOString();
     await upsertCampaignContact({
       id: next.id,
       campaignId: data.campaignId,
@@ -1250,6 +1359,8 @@ export const dialNextCampaignContact = createSafeAuthenticatedAction(
       displayName: next.displayName,
       status: "dialing",
       notes: next.notes,
+      attemptCount,
+      lastAttemptAt: now,
     });
     const placed = await placeOutboundCall({
       agentUserId: context.userId,
@@ -1263,6 +1374,8 @@ export const dialNextCampaignContact = createSafeAuthenticatedAction(
       displayName: next.displayName,
       status: "completed",
       notes: next.notes,
+      attemptCount,
+      lastAttemptAt: now,
     });
     return { contact: next, call: placed.call, media: placed.media };
   },
@@ -1299,6 +1412,7 @@ export const saveCallCenterContact = createSafeAuthenticatedAction(
     notes: z.string().max(2000).optional(),
     tags: z.array(z.string().max(40)).max(20).optional(),
     isFavorite: z.boolean().optional(),
+    isPriority: z.boolean().optional(),
   }),
   async (data, context) =>
     upsertPhoneContact({
@@ -1310,6 +1424,7 @@ export const saveCallCenterContact = createSafeAuthenticatedAction(
       notes: data.notes,
       tags: data.tags,
       isFavorite: data.isFavorite,
+      isPriority: data.isPriority,
       createdBy: context.userId,
     }),
   { auth: AGENT_AUTH },
@@ -1448,6 +1563,8 @@ export const saveCallCenterAgentProfile = createSafeAuthenticatedAction(
     skills: z.array(z.string().trim().min(1).max(40)).max(20),
     queueIds: z.array(z.string().uuid()).max(40),
     status: z.enum(["available", "busy", "away", "acw", "offline"]).optional(),
+    autoAnswer: z.boolean().optional(),
+    awayReason: z.string().trim().max(80).optional(),
   }),
   async (data) =>
     updateCallCenterAgentProfile({
@@ -1461,6 +1578,8 @@ export const saveCallCenterAgentProfile = createSafeAuthenticatedAction(
       skills: data.skills,
       queueIds: data.queueIds,
       status: data.status as CallCenterAgentStatusValue | undefined,
+      autoAnswer: data.autoAnswer,
+      awayReason: data.awayReason,
     }),
   { auth: ADMIN_AUTH },
 );
@@ -1676,6 +1795,472 @@ export const exportCallCenterCdrCsv = createSafeAuthenticatedAction(
       ),
     ];
     return { csv: lines.join("\n"), count: calls.length };
+  },
+  { auth: AGENT_AUTH },
+);
+
+function parseQaCriteriaLabels(criteriaLabels: string): CallCenterQaCriterion[] {
+  const labels = criteriaLabels
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return labels.map((label) => ({
+    id: crypto.randomUUID(),
+    label,
+    maxScore: 5,
+    aiScored: false,
+  }));
+}
+
+function computeReportNextRun(
+  frequency: CallCenterReportSchedule["frequency"],
+  from = new Date(),
+): string | null {
+  if (frequency === "once") return null;
+  const next = new Date(from);
+  if (frequency === "hourly") next.setHours(next.getHours() + 1);
+  else if (frequency === "daily") next.setDate(next.getDate() + 1);
+  else if (frequency === "weekly") next.setDate(next.getDate() + 7);
+  else if (frequency === "monthly") next.setMonth(next.getMonth() + 1);
+  return next.toISOString();
+}
+
+function buildReportEmailHtml(
+  scheduleName: string,
+  summary: Awaited<ReturnType<typeof getAnalyticsSummary>>,
+  agents?: Awaited<ReturnType<typeof getAgentPerformance>>,
+  includeWhatsapp?: boolean,
+): string {
+  const rows = [
+    ["Calls today", String(summary.callsToday)],
+    ["Answer rate", `${summary.answerRate}%`],
+    ["Avg handle (s)", String(summary.avgHandleSeconds)],
+    ["Service level", `${summary.serviceLevelPercent}%`],
+    ["Active calls", String(summary.activeCalls)],
+    ["Agents available", String(summary.agentsAvailable)],
+  ];
+  if (includeWhatsapp) {
+    rows.push(["WhatsApp open", String(summary.whatsappOpen)]);
+    rows.push(["WhatsApp msgs today", String(summary.whatsappMessagesToday)]);
+  }
+  const metricRows = rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:6px 12px;border:1px solid #e5e7eb">${label}</td><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>${value}</strong></td></tr>`,
+    )
+    .join("");
+  let agentBlock = "";
+  if (agents?.length) {
+    const agentRows = agents
+      .slice(0, 40)
+      .map(
+        (a) =>
+          `<tr><td style="padding:4px 8px;border:1px solid #e5e7eb;font-family:monospace;font-size:12px">${a.userId.slice(0, 8)}…</td><td style="padding:4px 8px;border:1px solid #e5e7eb">${a.callsHandled}</td><td style="padding:4px 8px;border:1px solid #e5e7eb">${a.answered}</td><td style="padding:4px 8px;border:1px solid #e5e7eb">${a.missed}</td></tr>`,
+      )
+      .join("");
+    agentBlock = `<h3 style="margin-top:24px">Agents (today)</h3><table style="border-collapse:collapse;width:100%;max-width:560px"><thead><tr><th align="left">Agent</th><th>Handled</th><th>Answered</th><th>Missed</th></tr></thead><tbody>${agentRows}</tbody></table>`;
+  }
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;color:#111827"><h2>FEC Call Center — ${scheduleName}</h2><p>Generated ${new Date().toLocaleString()}</p><table style="border-collapse:collapse;max-width:420px">${metricRows}</table>${agentBlock}</body></html>`;
+}
+
+export const loadCallCenterQualityBundle = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => {
+    const [templates, evaluations] = await Promise.all([listQaTemplates(), listQaEvaluations(80)]);
+    return { templates, evaluations };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterQaTemplate = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().trim().min(1).max(120),
+    criteriaLabels: z.string().max(4000),
+    isActive: z.boolean(),
+  }),
+  async (data) =>
+    upsertQaTemplate({
+      id: data.id,
+      name: data.name,
+      criteria: parseQaCriteriaLabels(data.criteriaLabels),
+      isActive: data.isActive,
+    }),
+  { auth: ADMIN_AUTH },
+);
+
+export const removeCallCenterQaTemplate = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data) => {
+    await deleteQaTemplate(data.id);
+    return { ok: true as const };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const saveCallCenterQaEvaluation = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    callId: z.string().uuid(),
+    templateId: optionalUuid,
+    scores: z.record(z.string(), z.number().min(0).max(100)),
+    notes: z.string().max(4000).optional(),
+  }),
+  async (data, context) => {
+    const call = await getCall(data.callId);
+    if (!call) throw new Error("Call not found.");
+    const totalScore = Object.values(data.scores).reduce((sum, n) => sum + n, 0);
+    return upsertQaEvaluation({
+      id: data.id,
+      callId: data.callId,
+      templateId: data.templateId ?? null,
+      agentUserId: call.agentUserId,
+      evaluatorUserId: context.userId,
+      scores: data.scores,
+      totalScore,
+      notes: data.notes ?? "",
+    });
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterReportSchedules = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => {
+    const [schedules, keywordAlerts] = await Promise.all([
+      listReportSchedules(),
+      listKeywordAlerts(),
+    ]);
+    return { schedules, keywordAlerts };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const saveCallCenterReportSchedule = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().trim().min(1).max(120),
+    frequency: z.enum(["hourly", "daily", "weekly", "monthly", "once"]),
+    emails: z.string().max(2000),
+    includeWhatsapp: z.boolean(),
+    includeAgents: z.boolean(),
+    isActive: z.boolean(),
+  }),
+  async (data) => {
+    const emails = data.emails
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (!emails.length) throw new Error("At least one email is required.");
+    return upsertReportSchedule({
+      id: data.id,
+      name: data.name,
+      frequency: data.frequency,
+      emails,
+      includeWhatsapp: data.includeWhatsapp,
+      includeAgents: data.includeAgents,
+      isActive: data.isActive,
+      nextRunAt: computeReportNextRun(data.frequency),
+    });
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const removeCallCenterReportSchedule = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data) => {
+    await deleteReportSchedule(data.id);
+    return { ok: true as const };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const runCallCenterReportNow = createSafeAuthenticatedAction(
+  z.object({ scheduleId: z.string().uuid() }),
+  async (data) => {
+    const schedules = await listReportSchedules();
+    const schedule = schedules.find((s) => s.id === data.scheduleId);
+    if (!schedule) throw new Error("Schedule not found.");
+    const summary = await getAnalyticsSummary();
+    const agents = schedule.includeAgents
+      ? await getAgentPerformance(new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
+      : undefined;
+    const html = buildReportEmailHtml(
+      schedule.name,
+      summary,
+      agents,
+      schedule.includeWhatsapp,
+    );
+    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const results: { email: string; sent: boolean; reason?: string }[] = [];
+    for (const email of schedule.emails) {
+      const result = await sendOutboundEmail({
+        to: email,
+        subject: `FEC Call Center report — ${schedule.name}`,
+        html,
+        text,
+        template: "call_center_report",
+        channel: "call_center",
+      });
+      results.push({ email, sent: result.sent, reason: result.reason });
+    }
+    const nextRunAt = computeReportNextRun(schedule.frequency);
+    await markReportScheduleSent(schedule.id, nextRunAt);
+    return { results, nextRunAt };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const loadCallCenterWhatsappTemplates = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => listWhatsappTemplates(),
+  { auth: AGENT_AUTH },
+);
+
+export const saveCallCenterWhatsappTemplate = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().trim().min(1).max(120),
+    language: z.string().trim().max(12),
+    body: z.string().max(4000),
+    category: z.string().trim().max(40).optional(),
+    isActive: z.boolean(),
+  }),
+  async (data) =>
+    upsertWhatsappTemplate({
+      id: data.id,
+      name: data.name,
+      language: data.language || "en",
+      body: data.body,
+      category: data.category ?? "utility",
+      isActive: data.isActive,
+    }),
+  { auth: ADMIN_AUTH },
+);
+
+export const removeCallCenterWhatsappTemplate = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data) => {
+    await deleteWhatsappTemplate(data.id);
+    return { ok: true as const };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const sendCallCenterWhatsappTemplate = createSafeAuthenticatedAction(
+  z.object({
+    conversationId: z.string().uuid(),
+    templateId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const [settings, conversation, templates] = await Promise.all([
+      loadSettingsRow(),
+      getWhatsappConversation(data.conversationId),
+      listWhatsappTemplates(),
+    ]);
+    if (!conversation) throw new Error("Conversation not found.");
+    const template = templates.find((t) => t.id === data.templateId);
+    if (!template) throw new Error("Template not found.");
+
+    const token = resolveWhatsappAccessToken(settings);
+    const phoneNumberId = resolveWhatsappPhoneNumberId(settings);
+    const to = conversation.customerE164.replace(/\D/g, "") || conversation.waId;
+    const bodyPreview = template.body;
+
+    if (!token || !phoneNumberId) {
+      const saved = await insertWhatsappOutboundMessage({
+        conversationId: data.conversationId,
+        body: bodyPreview,
+        waMessageId: "",
+        status: "failed",
+        errorText: "WhatsApp is not configured.",
+        sentBy: context.userId,
+      });
+      return { message: saved, sent: false, error: saved.errorText };
+    }
+
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to,
+            type: "template",
+            template: {
+              name: template.name,
+              language: { code: template.language || "en" },
+            },
+          }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as {
+        messages?: Array<{ id?: string }>;
+        error?: { message?: string };
+      };
+      if (!res.ok) {
+        const errText = payload.error?.message || `Meta API error (${res.status})`;
+        const saved = await insertWhatsappOutboundMessage({
+          conversationId: data.conversationId,
+          body: bodyPreview,
+          waMessageId: "",
+          status: "failed",
+          errorText: errText,
+          sentBy: context.userId,
+        });
+        return { message: saved, sent: false, error: errText };
+      }
+      const waMessageId = payload.messages?.[0]?.id ?? "";
+      const saved = await insertWhatsappOutboundMessage({
+        conversationId: data.conversationId,
+        body: bodyPreview,
+        waMessageId,
+        status: "sent",
+        sentBy: context.userId,
+      });
+      return { message: saved, sent: true as const };
+    } catch (error) {
+      const errText = error instanceof Error ? error.message : "Send failed";
+      const saved = await insertWhatsappOutboundMessage({
+        conversationId: data.conversationId,
+        body: bodyPreview,
+        waMessageId: "",
+        status: "failed",
+        errorText: errText,
+        sentBy: context.userId,
+      });
+      return { message: saved, sent: false, error: errText };
+    }
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterKeywordAlerts = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => listKeywordAlerts(),
+  { auth: ADMIN_AUTH },
+);
+
+export const saveCallCenterKeywordAlert = createSafeAuthenticatedAction(
+  z.object({
+    id: z.string().uuid().optional(),
+    keyword: z.string().trim().min(1).max(120),
+    notifyEmails: z.string().max(2000),
+    isActive: z.boolean(),
+  }),
+  async (data) => {
+    const notifyEmails = data.notifyEmails
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
+    return upsertKeywordAlert({
+      id: data.id,
+      keyword: data.keyword,
+      notifyEmails,
+      isActive: data.isActive,
+    });
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const removeCallCenterKeywordAlert = createSafeAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data) => {
+    await deleteKeywordAlert(data.id);
+    return { ok: true as const };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+export const searchCallCenterKeywords = createSafeAuthenticatedAction(
+  z.object({
+    keyword: z.string().trim().min(1).max(120),
+    limit: z.number().int().min(1).max(100).optional(),
+  }),
+  async (data) => ({
+    calls: await searchCallsByKeyword(data.keyword, data.limit ?? 40),
+  }),
+  { auth: AGENT_AUTH },
+);
+
+export const startCallCenterConference = createSafeAuthenticatedAction(
+  z.object({
+    callId: z.string().uuid(),
+    targetUserId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const call = await getCall(data.callId);
+    if (!call) throw new Error("Call not found.");
+    if (call.agentUserId !== context.userId) {
+      throw new Error("Only the assigned agent can start a conference.");
+    }
+    if (!["answered", "held"].includes(call.status)) {
+      throw new Error("Call is not active.");
+    }
+  const room = call.livekitRoom || `cc-${call.id}`;
+    const agents = await listAgentStatuses();
+    const target = agents.find((a) => a.userId === data.targetUserId);
+    const displayName = target?.displayNameOverride?.trim() || "Agent";
+    const invite = await issueAgentMediaToken({
+      roomName: room,
+      userId: data.targetUserId,
+      displayName,
+    });
+    const updated = await updateCall(call.id, {
+      conferenceActive: true,
+      metadata: {
+        ...call.metadata,
+        conferenceWith: data.targetUserId,
+        conferenceStartedBy: context.userId,
+      },
+    });
+    return { call: updated, invite };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const startCallCenterRecordingEgress = createSafeAuthenticatedAction(
+  z.object({ callId: z.string().uuid() }),
+  async (data) => {
+    const call = await getCall(data.callId);
+    if (!call) throw new Error("Call not found.");
+    const provider = await getCallProvider();
+    let recordingUrl =
+      call.recordingUrl || `https://recordings.example/fec/cc/${call.id}.mp4`;
+    if (provider.name === "livekit" && call.livekitRoom) {
+      try {
+        const credentials = await resolveLiveKitServerCredentials();
+        if (credentials) {
+          const { EgressClient, EncodedFileOutput, EncodedFileType } = await import(
+            "livekit-server-sdk"
+          );
+          const host = credentials.serverUrl.replace(/^wss:\/\//, "https://");
+          const egress = new EgressClient(host, credentials.apiKey, credentials.apiSecret);
+          await egress.startRoomCompositeEgress(call.livekitRoom, {
+            file: new EncodedFileOutput({
+              fileType: EncodedFileType.MP4,
+              filepath: `call-center/${call.id}.mp4`,
+            }),
+          });
+          recordingUrl = `${host}/recordings/call-center/${call.id}.mp4`;
+        }
+      } catch {
+        // Best-effort — placeholder URL remains.
+      }
+    }
+    return updateCall(data.callId, {
+      recordingEnabled: true,
+      recordingUrl,
+      metadata: {
+        ...call.metadata,
+        egressRequestedAt: new Date().toISOString(),
+      },
+    });
   },
   { auth: AGENT_AUTH },
 );

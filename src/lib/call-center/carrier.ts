@@ -16,19 +16,54 @@ import {
   CALL_CENTER_ROOM_PREFIX,
   deleteLiveKitRoom,
   dialOutboundSip,
+  dispatchLiveKitAgent,
 } from "./livekit-sip";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
 import { createTelnyxClient, resolveTelnyxApiKey, type TelnyxClient, type TelnyxEvent } from "./telnyx";
 import type { CallCenterCall, CallCenterSettingsRow, InboundRouteResult } from "./types";
 
 /**
- * Carrier orchestration: Telnyx Call Control events → FEC routing (routing.ts) → LiveKit room.
+ * Carrier orchestration: Telnyx + LiveKit SIP → FEC routing (routing.ts) → agent softphone.
  *
- * Inbound  : call.initiated → route + answer → greeting / IVR gather / hold music →
- *            (agent answers in softphone) → Telnyx `transfer` to LiveKit SIP → caller joins the cc-… room.
+ * Mode A (recommended / Telnyx SIP Trunking):
+ *   Caller → Telnyx SIP origination → LiveKit inbound trunk → dispatch rule → room →
+ *   FEC IVR/queue (DTMF via LiveKit SipDTMF + webhook digit API; optional LiveKit Agent for prompts).
+ *
+ * Mode B (Telnyx Call Control):
+ *   call.initiated → route + answer → greeting / IVR gather / hold music →
+ *   (agent answers) → Telnyx `transfer` to LiveKit SIP → caller joins the cc-… room.
+ *
  * Outbound : softphone → placeOutboundCall → LiveKit createSipParticipant (outbound trunk → Telnyx).
  * CDR sync : Telnyx call.hangup + LiveKit participant_left / room_finished webhooks.
  */
+
+async function maybeDispatchIvrAgent(
+  call: CallCenterCall,
+  settings: CallCenterSettingsRow | null,
+  actions: string[],
+): Promise<void> {
+  if (call.status !== "ivr" || !call.livekitRoom) return;
+  const agentName = settings?.ai_livekit_agent_name?.trim() ?? "";
+  if (!agentName) {
+    actions.push("ivr_waiting_dtmf_no_agent");
+    return;
+  }
+  const dispatched = await dispatchLiveKitAgent({
+    roomName: call.livekitRoom,
+    agentName,
+    metadata: JSON.stringify({
+      fecCallId: call.id,
+      purpose: "ivr",
+      greeting: (call.metadata as Record<string, unknown> | null)?.ivrGreeting ?? "",
+    }),
+  });
+  if (dispatched.ok) {
+    actions.push(`ivr_agent_dispatched:${dispatched.dispatchId || agentName}`);
+    await patchMeta(call.id, { ivrAgentDispatched: true, ivrAgentName: agentName });
+  } else {
+    actions.push(`ivr_agent_dispatch_failed:${dispatched.reason}`);
+  }
+}
 
 const FINAL_STATUSES = new Set(["ended", "missed", "declined", "failed", "voicemail"]);
 const WAITING_STATUSES = new Set(["ringing", "queued", "offered"]);
@@ -101,15 +136,22 @@ export async function finalizeCarrierHangup(
       talkSeconds,
     });
     await releaseAgent(call, now);
+    void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
+      emitCallCenterOutboundWebhook({ event: "call.ended", call: ended }),
+    );
     return ended;
   }
 
   // ringing / queued / ivr / offered: caller abandoned before an agent picked up.
-  return updateCall(call.id, {
+  const missed = await updateCall(call.id, {
     status: "missed",
     hangupReason: reason ? `Caller hung up: ${reason}` : "Caller hung up before answer",
     endedAt: now,
   });
+  void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
+    emitCallCenterOutboundWebhook({ event: "call.missed", call: missed }),
+  );
+  return missed;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -145,7 +187,14 @@ function voiceOf(ctx: Ctx): string {
   return ctx.settings?.tts_voice ?? "";
 }
 
-async function gather(ctx: Ctx, text: string) {
+async function gather(ctx: Ctx, text: string, audioUrl?: string) {
+  const audio = audioUrl?.trim() ?? "";
+  if (audio) {
+    const ok = await exec(ctx, "gather_audio", (c) =>
+      c.gatherUsingAudio(ctx.ccid, audio, { step: "ivr" }),
+    );
+    if (ok) return;
+  }
   await exec(ctx, "gather", (c) =>
     c.gatherUsingSpeak(ctx.ccid, clip(text) || DEFAULT_IVR_PROMPT, { step: "ivr" }, voiceOf(ctx)),
   );
@@ -196,7 +245,8 @@ async function applyRouteResult(ctx: Ctx, result: InboundRouteResult) {
 
   if (result.phase === "ivr") {
     const greeting = typeof meta.ivrGreeting === "string" && meta.ivrGreeting ? meta.ivrGreeting : result.message;
-    await gather(ctx, greeting);
+    const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
+    await gather(ctx, greeting, audio);
     return;
   }
 
@@ -309,7 +359,8 @@ export async function handleTelnyxEvent(
         await speakThenHangup(ctx, endedPrompt(call));
       } else if (call.status === "ivr") {
         const greeting = typeof meta.ivrGreeting === "string" ? meta.ivrGreeting : "";
-        await gather(ctx, greeting);
+        const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
+        await gather(ctx, greeting, audio);
       } else if (WAITING_STATUSES.has(call.status)) {
         await startQueueWait(ctx);
       } else if (call.status === "answered" && !call.agentUserId && call.livekitRoom) {
@@ -350,8 +401,10 @@ export async function handleTelnyxEvent(
           return done(true, "IVR timeout → fallback queue", call.id);
         }
         const updated = (await patchMeta(call.id, { ivrRetries: retries })) ?? call;
-        const greeting = typeof metaOf(updated).ivrGreeting === "string" ? String(metaOf(updated).ivrGreeting) : "";
-        await gather(ctx, greeting);
+        const nextMeta = metaOf(updated);
+        const greeting = typeof nextMeta.ivrGreeting === "string" ? String(nextMeta.ivrGreeting) : "";
+        const audio = typeof nextMeta.ivrAudioUrl === "string" ? String(nextMeta.ivrAudioUrl) : "";
+        await gather(ctx, greeting, audio);
         return done(true, "IVR retry", call.id);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "IVR failed";
@@ -578,8 +631,11 @@ export async function handleLiveKitSipEvent(event: LiveKitEventLike): Promise<Ca
       return done(true, "linked to CDR", linked.id);
     }
 
-    // Native inbound (trunk dispatches straight into LiveKit, no Telnyx Call Control).
-    if (room.startsWith(CALL_CENTER_ROOM_PREFIX)) return done(false, "unknown cc room");
+    // Native Telnyx SIP Trunk → LiveKit inbound (no Call Control leg yet).
+    // Skip only when this is already an FEC cc- room with no CDR (bridge race / orphan).
+    if (room.startsWith(CALL_CENTER_ROOM_PREFIX) && !attrs["sip.trunkPhoneNumber"] && !attrs["sip.phoneNumber"]) {
+      return done(false, "unknown cc room");
+    }
     if (attrs["fec.direction"] === "outbound") return done(false, "outbound leg");
     const sipCallId = attrs["sip.callID"] || participant.sid || "";
     if (sipCallId && (await findCallByProviderCallId(sipCallId))) return done(true, "duplicate");
@@ -587,19 +643,32 @@ export async function handleLiveKitSipEvent(event: LiveKitEventLike): Promise<Ca
     const to = attrs["sip.trunkPhoneNumber"] || "";
     if (!from && !to) return done(false, "no SIP numbers on participant");
 
+    const settings = await loadSettingsRow();
+    // Call Control mode still uses Telnyx for IVR; SIP-trunk arrivals on LiveKit get full IVR routing.
+    const skipIvr = settings?.inbound_mode === "telnyx_call_control";
     const result = await routeInboundCall({
       fromE164: from || "+00000000000",
       toE164: to,
       provider: "livekit_sip",
       providerCallId: sipCallId,
-      skipIvr: true, // no prompt playback on this path; IVR needs Telnyx Call Control
+      skipIvr,
     });
     if (result.phase === "ended") {
       await deleteLiveKitRoom(room);
       return done(true, result.message, result.call.id);
     }
-    await updateCall(result.call.id, { livekitRoom: room });
-    return done(true, result.message, result.call.id);
+    const updated =
+      (await updateCall(result.call.id, {
+        livekitRoom: room.startsWith(CALL_CENTER_ROOM_PREFIX) ? room : result.call.livekitRoom || room,
+        metadata: {
+          ...((result.call.metadata as Record<string, unknown> | null) ?? {}),
+          livekitSipInbound: true,
+          telnyxDtmfMode: settings?.telnyx_dtmf_mode ?? "rfc2833",
+        },
+      })) ?? result.call;
+    actions.push(skipIvr ? "routed_skip_ivr_call_control_mode" : `routed_${result.phase}`);
+    if (!skipIvr) await maybeDispatchIvrAgent(updated, settings, actions);
+    return done(true, result.message, updated.id);
   }
 
   if (event.event === "participant_left") {

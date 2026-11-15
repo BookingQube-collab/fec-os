@@ -37,6 +37,8 @@ function CallCenterQueuesPage() {
   const canEdit = canUserDo(roleNames, "admin.view");
   const [queueName, setQueueName] = useState("Support");
   const [strategy, setStrategy] = useState<CallCenterQueueStrategy>("simultaneous");
+  const [requiredSkills, setRequiredSkills] = useState("");
+  const [serviceLevelSeconds, setServiceLevelSeconds] = useState("20");
   const [memberQueueId, setMemberQueueId] = useState("");
   const [memberUserId, setMemberUserId] = useState(user?.id ?? "");
   const [memberSkills, setMemberSkills] = useState("");
@@ -95,6 +97,26 @@ function CallCenterQueuesPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.queueRequiredSkills")}</Label>
+                <Input
+                  value={requiredSkills}
+                  onChange={(e) => setRequiredSkills(e.target.value)}
+                  placeholder="arabic,sales"
+                  className="w-[12rem]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.queueServiceLevel")}</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={serviceLevelSeconds}
+                  onChange={(e) => setServiceLevelSeconds(e.target.value)}
+                  className="w-[7rem]"
+                />
+              </div>
               <Button
                 type="button"
                 onClick={async () => {
@@ -103,12 +125,18 @@ function CallCenterQueuesPage() {
                     strategy,
                     wrapUpSeconds: 30,
                     maxWaitSeconds: 120,
+                    requiredSkills: requiredSkills
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                    serviceLevelSeconds: Number(serviceLevelSeconds) || 20,
                     isActive: true,
                     sortOrder: (bundle.data?.queues.length ?? 0) + 1,
                   });
                   if (!result.ok) toast.error(result.error);
                   else {
                     toast.success(t("callCenterAdmin.queueSaved"));
+                    setRequiredSkills("");
                     await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
                   }
                 }}

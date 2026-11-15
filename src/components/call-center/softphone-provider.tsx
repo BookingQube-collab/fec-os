@@ -40,6 +40,7 @@ import {
   setCallCenterAgentStatus,
   testCallCenterRing,
   transferCallCenterCall,
+  startCallCenterConference,
 } from "@/lib/call-center/call-center.functions";
 import {
   stopSoftphoneRingtone,
@@ -65,6 +66,11 @@ type SoftphoneContextValue = {
   workspaceLoading: boolean;
   workspaceError: boolean;
   workspaceStatus: CallCenterAgentStatusValue;
+  autoAnswer: boolean;
+  awayReason: string;
+  outboundCallerId: string;
+  setOutboundCallerId: (value: string) => void;
+  callerIdOptions: string[];
   sipConfigured: boolean;
   callCenterEnabled: boolean;
   livekitReady: boolean;
@@ -90,7 +96,11 @@ type SoftphoneContextValue = {
   notesDraft: string;
   setNotesDraft: (value: string) => void;
   notesCallId: string | null;
-  changeStatus: (status: CallCenterAgentStatusValue) => Promise<void>;
+  changeStatus: (
+    status: CallCenterAgentStatusValue,
+    extras?: { awayReason?: string; autoAnswer?: boolean },
+  ) => Promise<void>;
+  setAutoAnswer: (enabled: boolean) => Promise<void>;
   onTestRing: () => Promise<void>;
   onDial: (toE164?: string) => Promise<void>;
   onCallback: (call: CallCenterCall) => void;
@@ -106,6 +116,7 @@ type SoftphoneContextValue = {
   onSaveNotes: () => Promise<void>;
   onSaveDisposition: (code: string, notes?: string) => Promise<void>;
   onToggleRecording: () => Promise<void>;
+  onConference: (targetUserId?: string) => Promise<void>;
   onAddSpeedDial: (label: string, e164: string) => Promise<void>;
   onDeleteSpeedDial: (id: string) => Promise<void>;
   endAcwEarly: () => Promise<void>;
@@ -159,6 +170,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     }
   });
   const [dialDigits, setDialDigits] = useState("+974");
+  const [outboundCallerId, setOutboundCallerId] = useState("");
+  const [awayReasonDraft, setAwayReasonDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const [notesCallId, setNotesCallId] = useState<string | null>(null);
   const [acwRemaining, setAcwRemaining] = useState<number | null>(null);
@@ -213,6 +226,23 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
 
   const incoming = ringingQuery.data?.[0] ?? workspace.data?.ringing[0] ?? null;
   wrapUpRef.current = workspace.data?.wrapUpSeconds ?? 30;
+  const autoAnswerEnabled = Boolean(workspace.data?.status.autoAnswer);
+  const defaultCallerId = workspace.data?.settings.outboundCallerIdE164?.trim() || "";
+  const callerIdOptions = useMemo(() => {
+    const dids = (workspace.data?.dids ?? []).map((d) => d.e164).filter(Boolean);
+    const opts = [defaultCallerId, ...dids].filter(Boolean);
+    return [...new Set(opts)];
+  }, [workspace.data?.dids, defaultCallerId]);
+
+  useEffect(() => {
+    if (!outboundCallerId && defaultCallerId) setOutboundCallerId(defaultCallerId);
+    else if (!outboundCallerId && callerIdOptions[0]) setOutboundCallerId(callerIdOptions[0]);
+  }, [defaultCallerId, callerIdOptions, outboundCallerId]);
+
+  useEffect(() => {
+    const reason = workspace.data?.status.awayReason ?? "";
+    if (reason) setAwayReasonDraft(reason);
+  }, [workspace.data?.status.awayReason]);
 
   useEffect(() => {
     const uid = user?.id;
@@ -322,11 +352,18 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     await queryClient.invalidateQueries({ queryKey: ["call-center"] });
   }, [queryClient]);
 
-  async function changeStatus(status: CallCenterAgentStatusValue) {
+  async function changeStatus(
+    status: CallCenterAgentStatusValue,
+    extras?: { awayReason?: string; autoAnswer?: boolean },
+  ) {
     await unlockSoftphoneAudio();
     if (status !== "acw") clearAcwTimer();
     setPending(true);
-    const result = await setCallCenterAgentStatus({ status });
+    const result = await setCallCenterAgentStatus({
+      status,
+      awayReason: extras?.awayReason ?? (status === "away" ? awayReasonDraft : undefined),
+      autoAnswer: extras?.autoAnswer,
+    });
     setPending(false);
     if (!result.ok) {
       toast.error(result.error);
@@ -334,6 +371,11 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     }
     await queryClient.invalidateQueries({ queryKey: WORKSPACE_KEY });
     toast.success(t("callCenter.statusUpdated"));
+  }
+
+  async function setAutoAnswer(enabled: boolean) {
+    const status = workspace.data?.status.status ?? "available";
+    await changeStatus(status, { autoAnswer: enabled });
   }
 
   async function endAcwEarly() {
@@ -366,7 +408,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     setPending(true);
     const result = await placeCallCenterOutbound({
       toE164: target,
-      fromE164: workspace.data?.settings.outboundCallerIdE164 || undefined,
+      fromE164: outboundCallerId || workspace.data?.settings.outboundCallerIdE164 || undefined,
     });
     setPending(false);
     if (!result.ok) {
@@ -415,6 +457,15 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     }
     await refresh();
   }
+
+  // Maqsam-style auto-answer when agent profile enables it.
+  const autoAnsweredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoAnswerEnabled || !incoming || activeCall || pending) return;
+    if (autoAnsweredRef.current === incoming.id) return;
+    autoAnsweredRef.current = incoming.id;
+    void onAnswer();
+  }, [autoAnswerEnabled, incoming?.id, activeCall, pending]);
 
   async function onDecline() {
     if (!incoming) return;
@@ -589,6 +640,27 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     toast.success(enabled ? t("callCenter.recordingOn") : t("callCenter.recordingOff"));
   }
 
+  async function onConference(targetUserId?: string) {
+    if (!activeCall) return;
+    const target = targetUserId || transferTargets[0]?.userId;
+    if (!target) {
+      toast.message(t("callCenter.conferencePickAgent"));
+      return;
+    }
+    setPending(true);
+    const result = await startCallCenterConference({
+      callId: activeCall.id,
+      targetUserId: target,
+    });
+    setPending(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setActiveCall(result.data.call);
+    toast.success(t("callCenter.conferenceStarted"));
+  }
+
   async function onAddSpeedDial(label: string, e164: string) {
     setPending(true);
     const result = await saveCallCenterSpeedDial({ label, e164 });
@@ -612,6 +684,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     toast.success(t("callCenter.speedDialDeleted"));
     await queryClient.invalidateQueries({ queryKey: WORKSPACE_KEY });
   }
+
+  useEffect(() => {
+    if (!canUse || pathname !== "/call-center") return;
+    const dial = new URLSearchParams(window.location.search).get("dial");
+    if (dial?.trim()) setDialDigits(dial.trim());
+  }, [canUse, pathname]);
 
   useEffect(() => {
     if (!canUse) return;
@@ -648,6 +726,11 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     workspaceLoading: workspace.isLoading,
     workspaceError: workspace.isError,
     workspaceStatus: workspace.data?.status.status ?? "offline",
+    autoAnswer: autoAnswerEnabled,
+    awayReason: workspace.data?.status.awayReason ?? awayReasonDraft,
+    outboundCallerId: outboundCallerId || defaultCallerId,
+    setOutboundCallerId,
+    callerIdOptions,
     sipConfigured: Boolean(workspace.data?.settings.sipConfigured),
     callCenterEnabled: Boolean(workspace.data?.settings.enabled),
     livekitReady: Boolean(workspace.data?.settings.livekitReady),
@@ -674,6 +757,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     setNotesDraft,
     notesCallId,
     changeStatus,
+    setAutoAnswer,
     onTestRing,
     onDial,
     onCallback,
@@ -689,6 +773,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     onSaveNotes,
     onSaveDisposition,
     onToggleRecording,
+    onConference,
     onAddSpeedDial,
     onDeleteSpeedDial,
     endAcwEarly,
@@ -735,6 +820,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
             onHoldToggle={() => void onHoldToggle()}
             onDtmf={(digit) => void onDtmf(digit)}
             onTransfer={(type, target) => void onTransfer(type, target)}
+            onConference={() => void onConference()}
           />
         </div>
       ) : null}

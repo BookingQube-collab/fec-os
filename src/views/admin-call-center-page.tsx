@@ -337,8 +337,12 @@ function AdminCallCenterPage() {
                   <Input
                     id="cc-dispatch"
                     value={livekitSipDispatchRuleId}
+                    placeholder="SDR_xxxxxxxxxxxx"
                     onChange={(e) => setLivekitSipDispatchRuleId(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
                   />
+                  <p className="text-xs text-muted-foreground">{t("callCenter.dispatchRuleHint")}</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cc-notes">{t("callCenterAdmin.notes")}</Label>

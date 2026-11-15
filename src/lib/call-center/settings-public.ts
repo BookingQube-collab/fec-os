@@ -16,7 +16,8 @@ export function isSipConfigured(settings: CallCenterSettingsRow | null): boolean
   return (
     settings.telnyx_sip_uri.trim().length > 0 ||
     settings.telnyx_api_key.trim().length > 0 ||
-    settings.livekit_sip_trunk_id.trim().length > 0
+    settings.livekit_sip_trunk_id.trim().length > 0 ||
+    settings.livekit_sip_inbound_trunk_id.trim().length > 0
   );
 }
 
@@ -56,7 +57,14 @@ export function toPublicSettings(
     telnyxWebhookSecretLast4: secretLast4(row?.telnyx_webhook_secret ?? ""),
     telnyxWebhookSecretSet: (row?.telnyx_webhook_secret?.trim() ?? "").length > 0,
     livekitSipTrunkId: row?.livekit_sip_trunk_id?.trim() ?? "",
+    livekitSipInboundTrunkId: row?.livekit_sip_inbound_trunk_id?.trim() ?? "",
     livekitSipDispatchRuleId: row?.livekit_sip_dispatch_rule_id?.trim() ?? "",
+    inboundMode: row?.inbound_mode === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk",
+    telnyxDtmfMode:
+      row?.telnyx_dtmf_mode === "inband" || row?.telnyx_dtmf_mode === "sip_info"
+        ? row.telnyx_dtmf_mode
+        : "rfc2833",
+    qatarDidE164: row?.qatar_did_e164?.trim() ?? "",
     webhookSecretLast4: secretLast4(row?.webhook_shared_secret ?? ""),
     webhookSecretSet: (row?.webhook_shared_secret?.trim() ?? "").length > 0,
     notes: row?.notes ?? "",

@@ -213,6 +213,15 @@ export function createTelnyxClient(apiKey: string) {
         valid_digits: "0123456789*#",
         client_state: encodeClientState(clientState),
       }),
+    gatherUsingAudio: (id: string, audioUrl: string, clientState: Record<string, unknown>) =>
+      action(id, "gather_using_audio", {
+        audio_url: audioUrl,
+        minimum_digits: 1,
+        maximum_digits: 1,
+        timeout_millis: 8000,
+        valid_digits: "0123456789*#",
+        client_state: encodeClientState(clientState),
+      }),
     playbackStart: (
       id: string,
       audioUrl: string,

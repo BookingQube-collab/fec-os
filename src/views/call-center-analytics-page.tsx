@@ -60,6 +60,14 @@ function CallCenterAnalyticsPage() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard label={t("callCenter.metricCallsToday")} value={String(data?.callsToday ?? 0)} />
           <MetricCard
+            label={t("callCenter.metricInbound")}
+            value={String(data?.inboundToday ?? 0)}
+          />
+          <MetricCard
+            label={t("callCenter.metricOutbound")}
+            value={String(data?.outboundToday ?? 0)}
+          />
+          <MetricCard
             label={t("callCenter.metricAnswerRate")}
             value={`${data?.answerRate ?? 0}%`}
             hint={t("callCenter.metricAnswered", { count: data?.answeredToday ?? 0 })}
@@ -67,6 +75,11 @@ function CallCenterAnalyticsPage() {
           <MetricCard
             label={t("callCenter.metricAvgHandle")}
             value={`${data?.avgHandleSeconds ?? 0}s`}
+          />
+          <MetricCard
+            label={t("callCenter.metricServiceLevel")}
+            value={`${data?.serviceLevelPercent ?? 0}%`}
+            hint={t("callCenter.metricServiceLevelHint")}
           />
           <MetricCard
             label={t("callCenter.metricAgentsAvailable")}
@@ -93,6 +106,14 @@ function CallCenterAnalyticsPage() {
           />
           <MetricCard label={t("callCenter.metricAway")} value={String(data?.agentsAway ?? 0)} />
           <MetricCard label={t("callCenter.metricOffline")} value={String(data?.agentsOffline ?? 0)} />
+          <MetricCard
+            label={t("callCenter.metricWhatsappOpen")}
+            value={String(data?.whatsappOpen ?? 0)}
+          />
+          <MetricCard
+            label={t("callCenter.metricWhatsappToday")}
+            value={String(data?.whatsappMessagesToday ?? 0)}
+          />
         </div>
       )}
     </CallCenterShell>

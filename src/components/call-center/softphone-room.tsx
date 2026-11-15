@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { dtmfDigitToCode } from "@/lib/call-center/dtmf-codes";
 import {
   ensureRemoteAudioPlays,
   stopSoftphoneRingtone,
@@ -57,6 +58,7 @@ export function CallCenterSoftphoneRoom({
   onHoldToggle,
   onDtmf,
   onTransfer,
+  onConference,
 }: {
   token: string;
   serverUrl: string;
@@ -71,6 +73,7 @@ export function CallCenterSoftphoneRoom({
   onHoldToggle: () => void;
   onDtmf: (digit: string) => void;
   onTransfer?: (type: "cold" | "warm", target: string) => void;
+  onConference?: () => void;
 }) {
   const { t } = useTranslation();
   const audioRef = useRef<HTMLDivElement>(null);
@@ -178,6 +181,18 @@ export function CallCenterSoftphoneRoom({
     onMicMutedChange?.(!next);
   }
 
+  async function handleDtmf(digit: string) {
+    const room = roomRef.current;
+    if (room?.state === ConnectionState.Connected) {
+      try {
+        await room.localParticipant.publishDtmf(dtmfDigitToCode(digit), digit);
+      } catch {
+        toast.error(t("callCenter.dtmfSendFailed"));
+      }
+    }
+    onDtmf(digit);
+  }
+
   const connected = connection === ConnectionState.Connected;
   const mediaReady = isLiveKitAccessToken(token) && serverUrl.startsWith("wss://");
 
@@ -263,7 +278,7 @@ export function CallCenterSoftphoneRoom({
           type="button"
           variant="outline"
           className="min-h-12 gap-2 rounded-xl px-3"
-          onClick={() => toast.message(t("callCenter.conferenceSoon"))}
+          onClick={() => (onConference ? onConference() : toast.message(t("callCenter.conferenceSoon")))}
         >
           <Users className="h-4 w-4" aria-hidden />
           <span className="hidden sm:inline">{t("callCenter.conference")}</span>
@@ -296,7 +311,7 @@ export function CallCenterSoftphoneRoom({
               type="button"
               variant="secondary"
               className="min-h-14 rounded-2xl text-xl font-semibold"
-              onClick={() => onDtmf(digit)}
+              onClick={() => void handleDtmf(digit)}
             >
               {digit}
             </Button>

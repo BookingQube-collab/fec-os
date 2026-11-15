@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ear, Phone, Radio, Users } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -10,15 +10,35 @@ import { toast } from "sonner";
 import { SupervisorMonitorRoom } from "@/components/call-center/supervisor-monitor-room";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import {
   joinCallCenterMonitor,
   loadCallCenterWallboard,
+  setCallCenterAgentStatus,
 } from "@/lib/call-center/call-center.functions";
-import type { CallCenterMediaSession, CallCenterSupervisorMode } from "@/lib/call-center/types";
+import type {
+  CallCenterAgentStatusValue,
+  CallCenterMediaSession,
+  CallCenterSupervisorMode,
+} from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
+
+const REMOTE_STATUSES: CallCenterAgentStatusValue[] = [
+  "available",
+  "busy",
+  "away",
+  "acw",
+  "offline",
+];
 
 function statusTone(status: string) {
   if (status === "available") return "success" as const;
@@ -58,9 +78,12 @@ function MetricCell({
 function CallCenterLivePage() {
   const { t } = useTranslation();
   const { roles } = useAuth();
+  const queryClient = useQueryClient();
   const roleNames = roles.map((r) => r.role);
+  const maxLevel = roles.reduce((acc, role) => Math.max(acc, role.role_level), 0);
   const canUse = canUserDo(roleNames, "call_center.view");
   const canSupervise = canUserDo(roleNames, "admin.view");
+  const canRemoteStatus = canSupervise && maxLevel >= 95;
   const [monitor, setMonitor] = useState<{
     callId: string;
     mode: CallCenterSupervisorMode;
@@ -68,6 +91,7 @@ function CallCenterLivePage() {
     agentUserId: string | null;
   } | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [statusPendingId, setStatusPendingId] = useState<string | null>(null);
 
   const wallboard = useQuery({
     queryKey: ["call-center", "wallboard"],
@@ -98,6 +122,18 @@ function CallCenterLivePage() {
       media: result.data.media,
       agentUserId,
     });
+  }
+
+  async function setRemoteStatus(userId: string, status: CallCenterAgentStatusValue) {
+    setStatusPendingId(userId);
+    const result = await setCallCenterAgentStatus({ status, targetUserId: userId });
+    setStatusPendingId(null);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(t("callCenter.statusUpdated"));
+    await queryClient.invalidateQueries({ queryKey: ["call-center", "wallboard"] });
   }
 
   if (!canUse) {
@@ -234,6 +270,28 @@ function CallCenterLivePage() {
                         {t(`callCenter.status.${agent.status}`)}
                       </Badge>
                     </div>
+                    {canRemoteStatus ? (
+                      <div className="mt-3">
+                        <Select
+                          value={agent.status}
+                          disabled={statusPendingId === agent.userId}
+                          onValueChange={(v) =>
+                            void setRemoteStatus(agent.userId, v as CallCenterAgentStatusValue)
+                          }
+                        >
+                          <SelectTrigger className="h-9 w-full">
+                            <SelectValue placeholder={t("callCenter.remoteStatus")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {REMOTE_STATUSES.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {t(`callCenter.status.${s}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

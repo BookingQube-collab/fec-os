@@ -39,6 +39,12 @@ import {
   type CallCenterAiProvider,
   type CallCenterWhatsappConversation,
   type CallCenterWhatsappMessage,
+  type CallCenterQaTemplate,
+  type CallCenterQaCriterion,
+  type CallCenterQaEvaluation,
+  type CallCenterReportSchedule,
+  type CallCenterWhatsappTemplate,
+  type CallCenterKeywordAlert,
 } from "./types";
 
 type DbError = { message: string } | null;
@@ -92,6 +98,8 @@ function mapQueue(row: Record<string, unknown>): CallCenterQueue {
     eventId: row.event_id ? String(row.event_id) : null,
     wrapUpSeconds: Number(row.wrap_up_seconds ?? 30),
     maxWaitSeconds: Number(row.max_wait_seconds ?? 120),
+    requiredSkills: Array.isArray(row.required_skills) ? row.required_skills.map(String) : [],
+    serviceLevelSeconds: Math.max(1, Number(row.service_level_seconds ?? 20) || 20),
     isActive: Boolean(row.is_active),
     sortOrder: Number(row.sort_order ?? 0),
   };
@@ -163,6 +171,8 @@ function mapAgentStatus(row: Record<string, unknown>): CallCenterAgentStatus {
     canBarge: Boolean(row.can_barge ?? false),
     isActive: row.is_active !== false,
     skills: Array.isArray(row.skills) ? row.skills.map(String) : [],
+    autoAnswer: Boolean(row.auto_answer ?? false),
+    awayReason: String(row.away_reason ?? ""),
   };
 }
 
@@ -262,6 +272,8 @@ export function mapCall(row: Record<string, unknown>): CallCenterCall {
     parkedSlot: String(row.parked_slot ?? ""),
     parkedAt: row.parked_at ? String(row.parked_at) : null,
     parkedBy: row.parked_by ? String(row.parked_by) : null,
+    conferenceActive: Boolean(row.conference_active ?? false),
+    keywordHits: Array.isArray(row.keyword_hits) ? row.keyword_hits.map(String) : [],
   };
 }
 
@@ -315,6 +327,11 @@ function mapCampaign(row: Record<string, unknown>): CallCenterCampaign {
     scheduledStart: row.scheduled_start ? String(row.scheduled_start) : null,
     scheduledEnd: row.scheduled_end ? String(row.scheduled_end) : null,
     isActive: Boolean(row.is_active ?? true),
+    maxAttempts: Math.max(1, Number(row.max_attempts ?? 3) || 3),
+    dialIntervalSeconds: Math.max(0, Number(row.dial_interval_seconds ?? 5) || 5),
+    amdEnabled: Boolean(row.amd_enabled ?? false),
+    playRecordingUrl: String(row.play_recording_url ?? ""),
+    autoStart: Boolean(row.auto_start ?? false),
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
   };
@@ -345,7 +362,16 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+
+function normalizeInboundMode(value: unknown): CallCenterSettingsRow["inbound_mode"] {
+  return value === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk";
+}
+
+function normalizeDtmfMode(value: unknown): CallCenterSettingsRow["telnyx_dtmf_mode"] {
+  if (value === "inband" || value === "sip_info" || value === "rfc2833") return value;
+  return "rfc2833";
+}
 
 function normalizeAiProvider(value: unknown): CallCenterAiProvider {
   if (value === "openai_compatible" || value === "livekit_agents" || value === "openai") {
@@ -354,14 +380,7 @@ function normalizeAiProvider(value: unknown): CallCenterAiProvider {
   return "openai";
 }
 
-export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
-  const result = await table<Record<string, unknown>>("call_center_settings")
-    .select(SETTINGS_COLUMNS)
-    .eq("id", CALL_CENTER_SETTINGS_ID)
-    .maybeSingle();
-  throwIfError(result.error);
-  if (!result.data) return null;
-  const row = result.data;
+function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
   return {
     enabled: Boolean(row.enabled),
     ivr_enabled: Boolean(row.ivr_enabled),
@@ -377,7 +396,11 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     telnyx_api_key: String(row.telnyx_api_key ?? ""),
     telnyx_webhook_secret: String(row.telnyx_webhook_secret ?? ""),
     livekit_sip_trunk_id: String(row.livekit_sip_trunk_id ?? ""),
+    livekit_sip_inbound_trunk_id: String(row.livekit_sip_inbound_trunk_id ?? ""),
     livekit_sip_dispatch_rule_id: String(row.livekit_sip_dispatch_rule_id ?? ""),
+    inbound_mode: normalizeInboundMode(row.inbound_mode),
+    telnyx_dtmf_mode: normalizeDtmfMode(row.telnyx_dtmf_mode),
+    qatar_did_e164: String(row.qatar_did_e164 ?? ""),
     webhook_shared_secret: String(row.webhook_shared_secret ?? ""),
     notes: String(row.notes ?? ""),
     ai_first_answer_enabled: Boolean(row.ai_first_answer_enabled),
@@ -430,6 +453,27 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   };
 }
 
+export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
+  let result = await table<Record<string, unknown>>("call_center_settings")
+    .select(SETTINGS_COLUMNS)
+    .eq("id", CALL_CENTER_SETTINGS_ID)
+    .maybeSingle();
+
+  // Before migration 20261115140000, new SIP/Qatar columns may be missing — fall back.
+  if (result.error && /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did/i.test(result.error.message)) {
+    const legacy =
+      "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+    result = await table<Record<string, unknown>>("call_center_settings")
+      .select(legacy)
+      .eq("id", CALL_CENTER_SETTINGS_ID)
+      .maybeSingle();
+  }
+
+  throwIfError(result.error);
+  if (!result.data) return null;
+  return mapSettingsRow(result.data);
+}
+
 export async function saveSettingsRow(
   row: CallCenterSettingsRow,
   updatedBy: string,
@@ -449,7 +493,11 @@ export async function saveSettingsRow(
         telnyx_api_key: row.telnyx_api_key,
         telnyx_webhook_secret: row.telnyx_webhook_secret,
         livekit_sip_trunk_id: row.livekit_sip_trunk_id,
+        livekit_sip_inbound_trunk_id: row.livekit_sip_inbound_trunk_id,
         livekit_sip_dispatch_rule_id: row.livekit_sip_dispatch_rule_id,
+        inbound_mode: row.inbound_mode,
+        telnyx_dtmf_mode: row.telnyx_dtmf_mode,
+        qatar_did_e164: row.qatar_did_e164,
         webhook_shared_secret: row.webhook_shared_secret,
         notes: row.notes,
         ai_first_answer_enabled: row.ai_first_answer_enabled,
@@ -490,6 +538,11 @@ export async function saveSettingsRow(
     )
     .select(SETTINGS_COLUMNS)
     .maybeSingle();
+  if (result.error && /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did/i.test(result.error.message)) {
+    throw new Error(
+      "Call Center SIP/Qatar settings columns are missing. Apply migration 20261115140000_call_center_sip_trunk_qatar.sql (supabase db push), then save again.",
+    );
+  }
   throwIfError(result.error);
   if (!result.data) throw new Error("Call Center settings could not be saved.");
   return (await loadSettingsRow())!;
@@ -510,6 +563,8 @@ export async function upsertQueue(input: {
   eventId: string | null;
   wrapUpSeconds: number;
   maxWaitSeconds: number;
+  requiredSkills?: string[];
+  serviceLevelSeconds?: number;
   isActive: boolean;
   sortOrder: number;
 }): Promise<CallCenterQueue> {
@@ -519,6 +574,8 @@ export async function upsertQueue(input: {
     event_id: input.eventId,
     wrap_up_seconds: input.wrapUpSeconds,
     max_wait_seconds: input.maxWaitSeconds,
+    required_skills: (input.requiredSkills ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean),
+    service_level_seconds: Math.max(1, input.serviceLevelSeconds ?? 20),
     is_active: input.isActive,
     sort_order: input.sortOrder,
     updated_at: new Date().toISOString(),
@@ -888,6 +945,8 @@ export async function setAgentStatus(
     canBarge?: boolean;
     isActive?: boolean;
     skills?: string[];
+    autoAnswer?: boolean;
+    awayReason?: string;
   },
 ): Promise<CallCenterAgentStatus> {
   const now = new Date().toISOString();
@@ -902,6 +961,8 @@ export async function setAgentStatus(
   if (extras?.displayNameOverride !== undefined) {
     payload.display_name_override = extras.displayNameOverride.trim();
   }
+  if (extras?.autoAnswer !== undefined) payload.auto_answer = extras.autoAnswer;
+  if (extras?.awayReason !== undefined) payload.away_reason = extras.awayReason.trim().slice(0, 80);
   if (extras?.maxConcurrentCalls !== undefined) {
     payload.max_concurrent_calls = extras.maxConcurrentCalls;
   }
@@ -929,6 +990,8 @@ export async function updateCallCenterAgentProfile(input: {
   skills: string[];
   queueIds: string[];
   status?: CallCenterAgentStatusValue;
+  autoAnswer?: boolean;
+  awayReason?: string;
 }): Promise<CallCenterAgentStatus> {
   const existing = await getAgentStatus(input.userId);
   const saved = await setAgentStatus(input.userId, input.status ?? existing?.status ?? "offline", {
@@ -940,6 +1003,8 @@ export async function updateCallCenterAgentProfile(input: {
     canBarge: input.canBarge,
     isActive: input.isActive,
     skills: input.skills,
+    autoAnswer: input.autoAnswer ?? existing?.autoAnswer ?? false,
+    awayReason: input.awayReason ?? existing?.awayReason ?? "",
   });
 
   const members = await listQueueMembers();
@@ -1068,6 +1133,8 @@ export async function updateCall(
     parkedSlot: string;
     parkedAt: string | null;
     parkedBy: string | null;
+    conferenceActive: boolean;
+    keywordHits: string[];
   }>,
 ): Promise<CallCenterCall> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -1104,6 +1171,8 @@ export async function updateCall(
   if (patch.parkedSlot !== undefined) payload.parked_slot = patch.parkedSlot;
   if (patch.parkedAt !== undefined) payload.parked_at = patch.parkedAt;
   if (patch.parkedBy !== undefined) payload.parked_by = patch.parkedBy;
+  if (patch.conferenceActive !== undefined) payload.conference_active = patch.conferenceActive;
+  if (patch.keywordHits !== undefined) payload.keyword_hits = patch.keywordHits;
 
   const result = await table<Record<string, unknown>>("call_center_calls")
     .update(payload)
@@ -1113,6 +1182,70 @@ export async function updateCall(
   throwIfError(result.error);
   if (!result.data) throw new Error("Call could not be updated.");
   return mapCall(result.data);
+}
+
+/**
+ * Atomically claim a waiting call for an agent before bridging media.
+ * Returns null when another agent already claimed it (simultaneous race).
+ */
+export async function claimCallForAnswer(
+  callId: string,
+  agentUserId: string,
+  livekitRoom: string,
+): Promise<CallCenterCall | null> {
+  const now = new Date().toISOString();
+  const existing = await getCall(callId);
+  if (!existing) return null;
+  if (!["ringing", "offered", "queued"].includes(existing.status)) return null;
+  if (existing.agentUserId && existing.agentUserId !== agentUserId) return null;
+
+  const meta = {
+    ...((existing.metadata as Record<string, unknown> | null) ?? {}),
+    answerClaimedBy: agentUserId,
+    answerClaimedAt: now,
+  };
+
+  // Prefer unclaimed rows (simultaneous). Filter agent in a second path for directed offers.
+  let result = await table<Record<string, unknown>>("call_center_calls")
+    .update({
+      agent_user_id: agentUserId,
+      livekit_room: livekitRoom,
+      metadata: meta,
+      updated_at: now,
+    })
+    .eq("id", callId)
+    .in("status", ["ringing", "offered", "queued"])
+    .is("agent_user_id", null)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (result.data) return mapCall(result.data);
+
+  result = await table<Record<string, unknown>>("call_center_calls")
+    .update({
+      agent_user_id: agentUserId,
+      livekit_room: livekitRoom,
+      metadata: meta,
+      updated_at: now,
+    })
+    .eq("id", callId)
+    .eq("agent_user_id", agentUserId)
+    .in("status", ["ringing", "offered", "queued"])
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  return result.data ? mapCall(result.data) : null;
+}
+
+/** Waiting inbound legs that may exceed queue max_wait_seconds. */
+export async function listWaitingCallsForTimeout(limit = 50): Promise<CallCenterCall[]> {
+  const result = (await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .in("status", ["ringing", "queued", "offered", "ivr"])
+    .order("started_at", { ascending: true })
+    .limit(limit)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapCall);
 }
 
 export async function getCall(id: string): Promise<CallCenterCall | null> {
@@ -1237,10 +1370,12 @@ export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary>
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const fromIso = startOfDay.toISOString();
-  const [todayCalls, agents, active] = await Promise.all([
+  const [todayCalls, agents, active, queues, vmPending] = await Promise.all([
     listCallsFiltered({ fromDate: fromIso, limit: 500 }),
     listAgentStatuses(),
     listActiveCalls(),
+    listQueues(),
+    listVoicemails({ status: "pending", limit: 50 }),
   ]);
   const answeredToday = todayCalls.filter(
     (c) => c.answeredAt || c.status === "answered" || c.status === "ended",
@@ -1251,6 +1386,8 @@ export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary>
   const abandonedToday = todayCalls.filter((c) =>
     ["missed", "declined", "voicemail"].includes(c.status),
   ).length;
+  const inboundToday = todayCalls.filter((c) => c.direction === "inbound").length;
+  const outboundToday = todayCalls.filter((c) => c.direction === "outbound").length;
   const handled = todayCalls.filter((c) => c.answeredAt && c.endedAt);
   let avgHandleSeconds = 0;
   if (handled.length > 0) {
@@ -1272,16 +1409,49 @@ export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary>
     }, 0);
     avgSpeedAnswerSeconds = Math.round(total / offered.length);
   }
-  const vmPending = await listVoicemails({ status: "pending", limit: 50 });
+  const queueSl = new Map(queues.map((q) => [q.id, q.serviceLevelSeconds]));
+  const slCandidates = todayCalls.filter((c) => c.offeredAt && c.answeredAt);
+  let serviceLevelPercent = 0;
+  if (slCandidates.length > 0) {
+    const within = slCandidates.filter((c) => {
+      const target = (c.queueId && queueSl.get(c.queueId)) || 20;
+      const sec = Math.round(
+        (new Date(c.answeredAt!).getTime() - new Date(c.offeredAt!).getTime()) / 1000,
+      );
+      return sec <= target;
+    }).length;
+    serviceLevelPercent = Math.round((within / slCandidates.length) * 100);
+  }
+
+  let whatsappOpen = 0;
+  let whatsappMessagesToday = 0;
+  try {
+    const waOpen = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
+      .select("id")
+      .eq("status", "open")
+      .limit(200);
+    whatsappOpen = (waOpen.data ?? []).length;
+    const waMsgs = await table<Record<string, unknown>>("call_center_whatsapp_messages")
+      .select("id")
+      .gte("created_at", fromIso)
+      .limit(500);
+    whatsappMessagesToday = (waMsgs.data ?? []).length;
+  } catch {
+    // tables may be empty / unavailable
+  }
+
   return {
     callsToday: todayCalls.length,
     answeredToday,
     missedToday,
+    inboundToday,
+    outboundToday,
     answerRate: todayCalls.length === 0 ? 0 : Math.round((answeredToday / todayCalls.length) * 100),
     avgHandleSeconds,
     avgSpeedAnswerSeconds,
     abandonRate:
       todayCalls.length === 0 ? 0 : Math.round((abandonedToday / todayCalls.length) * 100),
+    serviceLevelPercent,
     agentsAvailable: agents.filter((a) => a.status === "available").length,
     agentsBusy: agents.filter((a) => a.status === "busy").length,
     agentsAway: agents.filter((a) => a.status === "away" || a.status === "acw").length,
@@ -1289,6 +1459,8 @@ export async function getAnalyticsSummary(): Promise<CallCenterAnalyticsSummary>
     agentsInCall: agents.filter((a) => a.status === "busy").length,
     activeCalls: active.length,
     voicemailsPending: vmPending.length,
+    whatsappOpen,
+    whatsappMessagesToday,
   };
 }
 
@@ -1408,23 +1580,33 @@ export async function upsertCampaign(input: {
   name: string;
   status: CallCenterCampaignStatus;
   callerIdE164: string;
-  queueId: string | null;
-  eventId: string | null;
+  queueId?: string | null;
+  eventId?: string | null;
   scriptText: string;
-  scheduledStart: string | null;
-  scheduledEnd: string | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
   isActive: boolean;
+  maxAttempts?: number;
+  dialIntervalSeconds?: number;
+  amdEnabled?: boolean;
+  playRecordingUrl?: string;
+  autoStart?: boolean;
 }): Promise<CallCenterCampaign> {
   const payload: Record<string, unknown> = {
     name: input.name,
     status: input.status,
     caller_id_e164: normalizeE164(input.callerIdE164) || input.callerIdE164,
-    queue_id: input.queueId,
-    event_id: input.eventId,
+    queue_id: input.queueId ?? null,
+    event_id: input.eventId ?? null,
     script_text: input.scriptText,
-    scheduled_start: input.scheduledStart,
-    scheduled_end: input.scheduledEnd,
+    scheduled_start: input.scheduledStart ?? null,
+    scheduled_end: input.scheduledEnd ?? null,
     is_active: input.isActive,
+    max_attempts: Math.max(1, input.maxAttempts ?? 3),
+    dial_interval_seconds: Math.max(0, input.dialIntervalSeconds ?? 5),
+    amd_enabled: Boolean(input.amdEnabled),
+    play_recording_url: input.playRecordingUrl ?? "",
+    auto_start: Boolean(input.autoStart),
     updated_at: new Date().toISOString(),
   };
   if (input.id) {
@@ -1467,6 +1649,8 @@ export async function upsertCampaignContact(input: {
   displayName: string;
   status?: CallCenterContactStatus;
   notes?: string;
+  attemptCount?: number;
+  lastAttemptAt?: string | null;
 }): Promise<CallCenterCampaignContact> {
   const payload: Record<string, unknown> = {
     campaign_id: input.campaignId,
@@ -1476,6 +1660,8 @@ export async function upsertCampaignContact(input: {
     notes: input.notes ?? "",
     updated_at: new Date().toISOString(),
   };
+  if (input.attemptCount !== undefined) payload.attempt_count = input.attemptCount;
+  if (input.lastAttemptAt !== undefined) payload.last_attempt_at = input.lastAttemptAt;
   if (input.id) {
     const result = await table<Record<string, unknown>>("call_center_campaign_contacts")
       .update(payload)
@@ -1647,6 +1833,7 @@ function mapPhoneContact(row: Record<string, unknown>): CallCenterPhoneContact {
     notes: String(row.notes ?? ""),
     tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
     isFavorite: Boolean(row.is_favorite ?? false),
+    isPriority: Boolean(row.is_priority ?? false),
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
   };
@@ -1683,6 +1870,19 @@ export async function listPhoneContacts(limit = 200): Promise<CallCenterPhoneCon
     .sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || a.displayName.localeCompare(b.displayName));
 }
 
+export async function findPriorityContactByE164(e164: string): Promise<CallCenterPhoneContact | null> {
+  const normalized = normalizeE164(e164);
+  if (!normalized) return null;
+  const result = await table<Record<string, unknown>>("call_center_contacts")
+    .select("*")
+    .eq("e164", normalized)
+    .eq("is_priority", true)
+    .limit(1)
+    .maybeSingle();
+  if (result.error) return null;
+  return result.data ? mapPhoneContact(result.data) : null;
+}
+
 export async function upsertPhoneContact(input: {
   id?: string;
   displayName: string;
@@ -1692,6 +1892,7 @@ export async function upsertPhoneContact(input: {
   notes?: string;
   tags?: string[];
   isFavorite?: boolean;
+  isPriority?: boolean;
   createdBy?: string | null;
 }): Promise<CallCenterPhoneContact> {
   const now = new Date().toISOString();
@@ -1703,6 +1904,7 @@ export async function upsertPhoneContact(input: {
     notes: (input.notes ?? "").trim().slice(0, 2000),
     tags: input.tags ?? [],
     is_favorite: Boolean(input.isFavorite),
+    is_priority: Boolean(input.isPriority),
     updated_at: now,
   };
   if (input.id) {
@@ -1893,6 +2095,8 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
       isActive: mapped.isActive,
       skills: mapped.skills,
       queueIds: queueIdsByUser.get(mapped.userId) ?? [],
+      autoAnswer: mapped.autoAnswer,
+      awayReason: mapped.awayReason,
     });
   }
 
@@ -1919,6 +2123,8 @@ export async function getAgentPerformance(fromIso: string): Promise<CallCenterAg
         isActive: true,
         skills: [],
         queueIds: queueIdsByUser.get(call.agentUserId) ?? [],
+        autoAnswer: false,
+        awayReason: "",
       };
       byAgent.set(call.agentUserId, entry);
     }
@@ -2124,4 +2330,354 @@ export function resolveWhatsappPhoneNumberId(settings: CallCenterSettingsRow | n
     process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
     ""
   );
+}
+
+function mapQaTemplate(row: Record<string, unknown>): CallCenterQaTemplate {
+  const raw = Array.isArray(row.criteria_json) ? row.criteria_json : [];
+  const criteria: CallCenterQaCriterion[] = raw
+    .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === "object")
+    .map((c) => ({
+      id: String(c.id ?? crypto.randomUUID()),
+      label: String(c.label ?? ""),
+      maxScore: Math.max(1, Number(c.maxScore ?? 5) || 5),
+      aiScored: Boolean(c.aiScored),
+    }));
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    criteria,
+    isActive: Boolean(row.is_active ?? true),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapQaEvaluation(row: Record<string, unknown>): CallCenterQaEvaluation {
+  return {
+    id: String(row.id),
+    callId: String(row.call_id),
+    templateId: row.template_id ? String(row.template_id) : null,
+    agentUserId: row.agent_user_id ? String(row.agent_user_id) : null,
+    evaluatorUserId: row.evaluator_user_id ? String(row.evaluator_user_id) : null,
+    scores:
+      row.scores_json && typeof row.scores_json === "object"
+        ? (row.scores_json as Record<string, number>)
+        : {},
+    totalScore: Number(row.total_score ?? 0),
+    notes: String(row.notes ?? ""),
+    aiFlags:
+      row.ai_flags_json && typeof row.ai_flags_json === "object"
+        ? (row.ai_flags_json as Record<string, unknown>)
+        : {},
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapReportSchedule(row: Record<string, unknown>): CallCenterReportSchedule {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    frequency: (row.frequency as CallCenterReportSchedule["frequency"]) || "daily",
+    emails: Array.isArray(row.emails) ? row.emails.map(String) : [],
+    includeWhatsapp: Boolean(row.include_whatsapp ?? true),
+    includeAgents: Boolean(row.include_agents ?? true),
+    isActive: Boolean(row.is_active ?? true),
+    lastSentAt: row.last_sent_at ? String(row.last_sent_at) : null,
+    nextRunAt: row.next_run_at ? String(row.next_run_at) : null,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapWhatsappTemplate(row: Record<string, unknown>): CallCenterWhatsappTemplate {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    language: String(row.language ?? "en"),
+    body: String(row.body ?? ""),
+    category: String(row.category ?? "utility"),
+    isActive: Boolean(row.is_active ?? true),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function mapKeywordAlert(row: Record<string, unknown>): CallCenterKeywordAlert {
+  return {
+    id: String(row.id),
+    keyword: String(row.keyword ?? ""),
+    notifyEmails: Array.isArray(row.notify_emails) ? row.notify_emails.map(String) : [],
+    isActive: Boolean(row.is_active ?? true),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+export async function listQaTemplates(): Promise<CallCenterQaTemplate[]> {
+  const result = (await table<Record<string, unknown>>("call_center_qa_templates")
+    .select("*")
+    .order("updated_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapQaTemplate);
+}
+
+export async function upsertQaTemplate(input: {
+  id?: string;
+  name: string;
+  criteria: CallCenterQaCriterion[];
+  isActive: boolean;
+}): Promise<CallCenterQaTemplate> {
+  const payload = {
+    name: input.name.trim(),
+    criteria_json: input.criteria,
+    is_active: input.isActive,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_qa_templates")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("QA template could not be saved.");
+    return mapQaTemplate(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_qa_templates")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("QA template could not be saved.");
+  return mapQaTemplate(result.data);
+}
+
+export async function deleteQaTemplate(id: string): Promise<void> {
+  throwIfError((await table("call_center_qa_templates").delete().eq("id", id)).error);
+}
+
+export async function listQaEvaluations(limit = 100): Promise<CallCenterQaEvaluation[]> {
+  const result = (await table<Record<string, unknown>>("call_center_qa_evaluations")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapQaEvaluation);
+}
+
+export async function upsertQaEvaluation(input: {
+  id?: string;
+  callId: string;
+  templateId: string | null;
+  agentUserId: string | null;
+  evaluatorUserId: string | null;
+  scores: Record<string, number>;
+  totalScore: number;
+  notes: string;
+  aiFlags?: Record<string, unknown>;
+}): Promise<CallCenterQaEvaluation> {
+  const payload = {
+    call_id: input.callId,
+    template_id: input.templateId,
+    agent_user_id: input.agentUserId,
+    evaluator_user_id: input.evaluatorUserId,
+    scores_json: input.scores,
+    total_score: input.totalScore,
+    notes: input.notes,
+    ai_flags_json: input.aiFlags ?? {},
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_qa_evaluations")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("QA evaluation could not be saved.");
+    return mapQaEvaluation(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_qa_evaluations")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("QA evaluation could not be saved.");
+  return mapQaEvaluation(result.data);
+}
+
+export async function listReportSchedules(): Promise<CallCenterReportSchedule[]> {
+  const result = (await table<Record<string, unknown>>("call_center_report_schedules")
+    .select("*")
+    .order("updated_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapReportSchedule);
+}
+
+export async function upsertReportSchedule(input: {
+  id?: string;
+  name: string;
+  frequency: CallCenterReportSchedule["frequency"];
+  emails: string[];
+  includeWhatsapp: boolean;
+  includeAgents: boolean;
+  isActive: boolean;
+  nextRunAt?: string | null;
+}): Promise<CallCenterReportSchedule> {
+  const payload = {
+    name: input.name.trim(),
+    frequency: input.frequency,
+    emails: input.emails,
+    include_whatsapp: input.includeWhatsapp,
+    include_agents: input.includeAgents,
+    is_active: input.isActive,
+    next_run_at: input.nextRunAt ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_report_schedules")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Report schedule could not be saved.");
+    return mapReportSchedule(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_report_schedules")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Report schedule could not be saved.");
+  return mapReportSchedule(result.data);
+}
+
+export async function deleteReportSchedule(id: string): Promise<void> {
+  throwIfError((await table("call_center_report_schedules").delete().eq("id", id)).error);
+}
+
+export async function markReportScheduleSent(id: string, nextRunAt: string | null): Promise<void> {
+  throwIfError(
+    (
+      await table("call_center_report_schedules")
+        .update({
+          last_sent_at: new Date().toISOString(),
+          next_run_at: nextRunAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+    ).error,
+  );
+}
+
+export async function listWhatsappTemplates(): Promise<CallCenterWhatsappTemplate[]> {
+  const result = (await table<Record<string, unknown>>("call_center_whatsapp_templates")
+    .select("*")
+    .order("name", { ascending: true })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapWhatsappTemplate);
+}
+
+export async function upsertWhatsappTemplate(input: {
+  id?: string;
+  name: string;
+  language: string;
+  body: string;
+  category: string;
+  isActive: boolean;
+}): Promise<CallCenterWhatsappTemplate> {
+  const payload = {
+    name: input.name.trim(),
+    language: input.language.trim() || "en",
+    body: input.body,
+    category: input.category.trim() || "utility",
+    is_active: input.isActive,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_whatsapp_templates")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("WhatsApp template could not be saved.");
+    return mapWhatsappTemplate(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_whatsapp_templates")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("WhatsApp template could not be saved.");
+  return mapWhatsappTemplate(result.data);
+}
+
+export async function deleteWhatsappTemplate(id: string): Promise<void> {
+  throwIfError((await table("call_center_whatsapp_templates").delete().eq("id", id)).error);
+}
+
+export async function listKeywordAlerts(): Promise<CallCenterKeywordAlert[]> {
+  const result = (await table<Record<string, unknown>>("call_center_keyword_alerts")
+    .select("*")
+    .order("created_at", { ascending: false })) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? []).map(mapKeywordAlert);
+}
+
+export async function upsertKeywordAlert(input: {
+  id?: string;
+  keyword: string;
+  notifyEmails: string[];
+  isActive: boolean;
+}): Promise<CallCenterKeywordAlert> {
+  const payload = {
+    keyword: input.keyword.trim().toLowerCase(),
+    notify_emails: input.notifyEmails,
+    is_active: input.isActive,
+  };
+  if (input.id) {
+    const result = await table<Record<string, unknown>>("call_center_keyword_alerts")
+      .update(payload)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Keyword alert could not be saved.");
+    return mapKeywordAlert(result.data);
+  }
+  const result = await table<Record<string, unknown>>("call_center_keyword_alerts")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Keyword alert could not be saved.");
+  return mapKeywordAlert(result.data);
+}
+
+export async function deleteKeywordAlert(id: string): Promise<void> {
+  throwIfError((await table("call_center_keyword_alerts").delete().eq("id", id)).error);
+}
+
+export async function searchCallsByKeyword(keyword: string, limit = 80): Promise<CallCenterCall[]> {
+  const q = keyword.trim().toLowerCase();
+  if (!q) return [];
+  const result = (await table<Record<string, unknown>>("call_center_calls")
+    .select("*")
+    .order("started_at", { ascending: false })
+    .limit(400)) as ListResult<Record<string, unknown>>;
+  throwIfError(result.error);
+  return (result.data ?? [])
+    .map(mapCall)
+    .filter(
+      (c) =>
+        c.transcriptText.toLowerCase().includes(q) ||
+        c.agentNotes.toLowerCase().includes(q) ||
+        c.tags.some((t) => t.toLowerCase().includes(q)) ||
+        c.keywordHits.some((t) => t.toLowerCase().includes(q)) ||
+        c.fromE164.includes(q) ||
+        c.toE164.includes(q),
+    )
+    .slice(0, limit);
 }
