@@ -86,7 +86,11 @@ export type TelnyxEvent = {
 };
 
 function str(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+  if (typeof value === "string") return value.trim();
+  // Telnyx occasionally JSON-encodes a single DTMF digit as a number (0).
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return "";
 }
 
 export function encodeClientState(state: Record<string, unknown>): string {
@@ -129,8 +133,14 @@ export function parseTelnyxEvent(body: unknown): TelnyxEvent | null {
   };
 }
 
+/** True when the prompt is predominantly Arabic script (not merely bilingual with a few Arabic words). */
 export function isArabicText(text: string): boolean {
-  return /[\u0600-\u06FF]/.test(text);
+  const arabic = (text.match(/[\u0600-\u06FF]/g) ?? []).join("").length;
+  if (arabic === 0) return false;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).join("").length;
+  // Mixed Language IVR prompts (EN + short AR lines) must stay en-US so Telnyx
+  // gather_using_speak keeps DTMF barge-in reliable. Only switch when Arabic dominates.
+  return arabic >= 12 && arabic >= latin;
 }
 
 const PROVIDER_VOICE_RE = /^(Polly|Azure|Google|Telnyx|AWS)\./i;

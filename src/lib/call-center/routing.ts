@@ -31,6 +31,7 @@ import {
   followDefaultEdge,
   followDigitEdge,
   followHandleEdge,
+  recoverDigitZeroAgentNode,
   type IvrFlowJson,
   type IvrFlowNode,
 } from "./ivr-flow";
@@ -116,6 +117,12 @@ export async function offerCallToQueue(params: {
     agentUserId,
     livekitRoom,
     offeredAt: now,
+    metadata: {
+      ...((params.call.metadata as Record<string, unknown> | null) ?? {}),
+      offeredUserIds,
+      offeredQueueId: params.queue.id,
+      offeredAtMeta: now,
+    },
   });
 
   return {
@@ -701,12 +708,17 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
     if (!current) {
       return { call, offeredUserIds: [], phase: "ivr", message: "IVR node missing." };
     }
-    const next = followDigitEdge(flow, current.id, digit);
+    const next =
+      followDigitEdge(flow, current.id, digit) ??
+      (digit === "0" ? recoverDigitZeroAgentNode(flow, current) : null);
     if (!next) {
       // Only an explicit self-edge means "repeat". Digit 0 is a normal route
       // (Language → Connect with agent); do not treat bare "0" as repeat.
       const self = flow.edges.find(
-        (e) => e.source === current.id && e.sourceHandle === digit && e.target === current.id,
+        (e) =>
+          e.source === current.id &&
+          String(e.sourceHandle ?? "") === digit &&
+          e.target === current.id,
       );
       if (self) {
         return { call, offeredUserIds: [], phase: "ivr", message: "Repeat menu." };

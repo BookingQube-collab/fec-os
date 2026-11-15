@@ -6,7 +6,12 @@ import {
   E3_LANG_GREETING_EN,
   E3_SERVICE_GREETING_EN,
 } from "./e3-ivr-prompt";
-import { buildFecVenuesTemplate, simulateDigitPath } from "./ivr-flow";
+import {
+  buildFecVenuesTemplate,
+  followDigitEdge,
+  recoverDigitZeroAgentNode,
+  simulateDigitPath,
+} from "./ivr-flow";
 import { CALL_CENTER_VENUE_QUEUE_IDS } from "./types";
 
 describe("E3 IVR spoken prompts", () => {
@@ -85,6 +90,19 @@ describe("buildFecVenuesTemplate E3 path", () => {
       (e) => e.source === "node-menu-lang" && e.sourceHandle === "0" && e.target === "node-agent-lang",
     );
     expect(edge?.id).toBe("e-lang-agent");
+  });
+
+  it("recovers Language digit 0 when the canvas edge was deleted", () => {
+    const broken = {
+      ...flow,
+      edges: flow.edges.filter((e) => !(e.source === "node-menu-lang" && e.sourceHandle === "0")),
+    };
+    const lang = broken.nodes.find((n) => n.id === "node-menu-lang");
+    expect(lang).toBeTruthy();
+    expect(followDigitEdge(broken, "node-menu-lang", "0")).toBeNull();
+    const recovered = recoverDigitZeroAgentNode(broken, lang!);
+    expect(recovered?.id).toBe("node-agent-lang");
+    expect(recovered?.data.queueId).toBe(CALL_CENTER_VENUE_QUEUE_IDS.general);
   });
 
   it("routes Arabic Inflata bookings to AI", () => {

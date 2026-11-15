@@ -776,11 +776,44 @@ export function followDigitEdge(
   sourceId: string,
   digit: string,
 ): IvrFlowNode | null {
-  const edge = flow.edges.find(
-    (e) => e.source === sourceId && (e.sourceHandle === digit || e.label === digit),
-  );
+  const want = String(digit ?? "").trim();
+  if (!want) return null;
+  const edge = flow.edges.find((e) => {
+    if (e.source !== sourceId) return false;
+    const handle = e.sourceHandle != null ? String(e.sourceHandle) : "";
+    const label = e.label != null ? String(e.label) : "";
+    return handle === want || label === want;
+  });
   if (!edge) return null;
   return flow.nodes.find((n) => n.id === edge.target) ?? null;
+}
+
+/**
+ * When Language (or any menu advertising "connect with agent" on 0) is missing a
+ * wired edge, still recover an agent/queue terminal so press-0 cannot soft-loop.
+ */
+export function recoverDigitZeroAgentNode(
+  flow: IvrFlowJson,
+  current: IvrFlowNode,
+): IvrFlowNode | null {
+  const digitDef = (current.data.digits ?? []).find((d) => String(d.digit) === "0");
+  const label = `${digitDef?.label ?? ""} ${current.data.label ?? ""}`.toLowerCase();
+  const wantsAgent =
+    current.id === "node-menu-lang" ||
+    /lang/i.test(current.data.label ?? "") ||
+    /agent|موظف|connect|speak to|human|operator/.test(label);
+  if (!wantsAgent && !digitDef) return null;
+
+  const byId = flow.nodes.find((n) => n.id === "node-agent-lang");
+  if (byId?.type === "agent") return byId;
+
+  const anyAgent = flow.nodes.find((n) => n.type === "agent");
+  if (anyAgent) return anyAgent;
+
+  const generalQueue =
+    flow.nodes.find((n) => n.type === "queue" && /general/i.test(n.data.label ?? "")) ??
+    flow.nodes.find((n) => n.type === "queue" && Boolean(n.data.queueId));
+  return generalQueue ?? null;
 }
 
 export function followHandleEdge(

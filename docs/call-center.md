@@ -134,10 +134,10 @@ Open `/call-center/ivr` (admin edit; agents can view).
    - Per-center **AI Agent** nodes use the E3 bilingual system prompt (bookings, parties, groups, prices, hours, complaints, handoff rules)
 3. Drag steps from the left palette: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, **AI Agent**, Hangup, Business hours, Voicemail, Event route.
 4. Connect handles: Start/Play use `out`; Menu digits (0–9,*,#) each have a source handle; Hours has `open` / `closed`. For Language **0**, draw (or re-Apply) the edge to **Connect with agent**.
-5. Agents who should take press-0 / general support must **join E3 General Support** on Dialer → Queues (or run `scripts/apply-e3-ivr-lang-agent.ts`, which also joins the preferred ops agent). Available alone is not enough — no queue membership means inbound stays **queued**.
-6. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`).
+5. Agents who should take press-0 / general support must **join E3 General Support** on Dialer → Queues (or run `scripts/apply-e3-ivr-lang-agent.ts`, which also joins the preferred ops agent). Available alone is not enough — no queue membership means inbound stays **queued**. With Auto-answer **OFF**, press-0 should show the softphone **Accept / Decline** overlay (not just Recent → IVR/missed).
+6. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`). Call Control speak/gather uses **en-US** for mixed EN+AR Language prompts so DTMF barge-in (including digit **0**) stays reliable; Arabic-majority prompts still use `arb`.
 7. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** + **Listen** (simulate digit path and hear the spoken script without a live call).
-8. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options.
+8. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options. Missing Language→agent edge for **0** is recovered to the Connect with agent node at runtime so the menu cannot soft-loop forever.
 
 Assign the menu on `/call-center/numbers` (DID → IVR menu) and keep **IVR enabled** in Settings.
 

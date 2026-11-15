@@ -489,7 +489,24 @@ export async function handleTelnyxEvent(
       const digit = ev.digits.slice(0, 1);
       try {
         if (digit) {
+          await patchMeta(call.id, { lastIvrDigitAttempt: digit, lastIvrDigitAt: new Date().toISOString() });
           const result = await applyIvrDigit(call.id, digit);
+          const softLoop =
+            result.phase === "ivr" &&
+            (result.message === "Repeat menu." || result.message === "Invalid digit.");
+          if (softLoop) {
+            // Do not re-prompt forever: count invalid/repeat like an empty gather.
+            const menus = await listIvrMenus();
+            const menu = menus.find((m) => m.id === call.ivrMenuId);
+            const retries = Number(meta.ivrRetries ?? 0) + 1;
+            const maxRetries = Math.max(1, menu?.maxRetries ?? 3);
+            if (retries > maxRetries) {
+              const fallback = await routeCallToFallbackQueue(call.id);
+              await applyRouteResult(ctx, fallback);
+              return done(true, `IVR ${result.message} → fallback queue`, call.id);
+            }
+            await patchMeta(call.id, { ivrRetries: retries });
+          }
           await applyRouteResult(ctx, result);
           return done(true, result.message, call.id);
         }
