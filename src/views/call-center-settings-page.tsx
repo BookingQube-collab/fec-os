@@ -29,12 +29,17 @@ import {
   saveCallCenterSettings,
   saveCallCenterWebhookEndpoint,
 } from "@/lib/call-center/call-center.functions";
+import {
+  DEFAULT_TTS_VOICE,
+  TTS_VOICE_PRESETS,
+} from "@/lib/call-center/ivr-tts-voice";
 import { recoverMisplacedOutboundSipHost } from "@/lib/call-center/sip-ids";
 import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+const TTS_PRESET_IDS = new Set(TTS_VOICE_PRESETS.map((p) => p.id));
 
 function CallCenterSettingsPage() {
   const { t } = useTranslation();
@@ -108,7 +113,7 @@ function CallCenterSettingsPage() {
   const [welcomeAudioUrl, setWelcomeAudioUrl] = useState("");
   const [holdMusicUrl, setHoldMusicUrl] = useState("");
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [ttsVoice, setTtsVoice] = useState("en-US-Neural2-A");
+  const [ttsVoice, setTtsVoice] = useState(DEFAULT_TTS_VOICE);
   const [ttsGreetingText, setTtsGreetingText] = useState("");
 
   function applyPublicSettings(s: CallCenterSettingsPublic) {
@@ -379,7 +384,37 @@ function CallCenterSettingsPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenter.ttsVoice")}</Label>
-                <Input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} />
+                <Select
+                  value={TTS_PRESET_IDS.has(ttsVoice) ? ttsVoice : "__custom__"}
+                  onValueChange={(v) => {
+                    if (v === "__custom__") {
+                      setTtsVoice((prev) => (TTS_PRESET_IDS.has(prev) ? "" : prev));
+                      return;
+                    }
+                    setTtsVoice(v);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={DEFAULT_TTS_VOICE} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TTS_VOICE_PRESETS.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__custom__">{t("callCenter.ttsVoiceCustom")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {!TTS_PRESET_IDS.has(ttsVoice) ? (
+                  <Input
+                    value={ttsVoice}
+                    onChange={(e) => setTtsVoice(e.target.value)}
+                    placeholder="Polly.Joanna-Neural"
+                    className="mt-2"
+                  />
+                ) : null}
+                <p className="text-xs text-muted-foreground">{t("callCenter.ttsVoiceHint")}</p>
               </div>
               <div className="space-y-1.5">
                 <Label>{t("callCenter.ttsGreetingText")}</Label>

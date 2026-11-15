@@ -3,7 +3,10 @@ import "server-only";
 import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
 
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
+import { pickSpeakVoice } from "./ivr-tts-voice";
 import type { CallCenterSettingsRow } from "./types";
+
+export { isArabicText, pickSpeakVoice } from "./ivr-tts-voice";
 
 /**
  * Telnyx Call Control (v2) helpers.
@@ -131,26 +134,6 @@ export function parseTelnyxEvent(body: unknown): TelnyxEvent | null {
     hangupSource: str(payload.hangup_source),
     raw: payload,
   };
-}
-
-/** True when the prompt is predominantly Arabic script (not merely bilingual with a few Arabic words). */
-export function isArabicText(text: string): boolean {
-  const arabic = (text.match(/[\u0600-\u06FF]/g) ?? []).join("").length;
-  if (arabic === 0) return false;
-  const latin = (text.match(/[A-Za-z]/g) ?? []).join("").length;
-  // Mixed Language IVR prompts (EN + short AR lines) must stay en-US so Telnyx
-  // gather_using_speak keeps DTMF barge-in reliable. Only switch when Arabic dominates.
-  return arabic >= 12 && arabic >= latin;
-}
-
-const PROVIDER_VOICE_RE = /^(Polly|Azure|Google|Telnyx|AWS)\./i;
-
-/** Pick Telnyx voice/language. Plain `female` works for en-US and arb; provider-prefixed voices pass through. */
-export function pickSpeakVoice(text: string, configuredVoice?: string): { voice: string; language: string } {
-  const language = isArabicText(text) ? "arb" : "en-US";
-  const configured = configuredVoice?.trim() ?? "";
-  if (configured && PROVIDER_VOICE_RE.test(configured)) return { voice: configured, language };
-  return { voice: "female", language };
 }
 
 function describeError(body: unknown, fallback: string): string {

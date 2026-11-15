@@ -87,10 +87,13 @@ describe("client state + voice", () => {
 
   it("picks Arabic vs English voices", () => {
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
-      voice: "female",
+      voice: "Polly.Hala-Neural",
       language: "arb",
     });
-    expect(pickSpeakVoice("Hello")).toEqual({ voice: "female", language: "en-US" });
+    expect(pickSpeakVoice("Hello")).toEqual({
+      voice: "Polly.Joanna-Neural",
+      language: "en-US",
+    });
     // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
     expect(
       pickSpeakVoice(
@@ -98,7 +101,15 @@ describe("client state + voice", () => {
       ).language,
     ).toBe("en-US");
     expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
-    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("female");
+    // Legacy Google-style id → professional Polly default (not basic female).
+    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
+    // EN Polly on Arabic-majority text → Arabic neural voice (Polly ignores language).
+    expect(
+      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
+    ).toBe("Polly.Hala-Neural");
+    expect(
+      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
+    ).toBe("Polly.Hala-Neural");
   });
 
   it("coerces numeric DTMF digits from Telnyx payloads", () => {

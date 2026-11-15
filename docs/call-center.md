@@ -135,7 +135,7 @@ Open `/call-center/ivr` (admin edit; agents can view).
 3. Drag steps from the left palette: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, **AI Agent**, Hangup, Business hours, Voicemail, Event route.
 4. Connect handles: Start/Play use `out`; Menu digits (0–9,*,#) each have a source handle; Hours has `open` / `closed`. For Language **0**, draw (or re-Apply) the edge to **Connect with agent**.
 5. Agents who should take press-0 / general support must **join E3 General Support** on Dialer → Queues (or run `scripts/apply-e3-ivr-lang-agent.ts`, which also joins the preferred ops agent). Available alone is not enough — no queue membership means inbound stays **queued**. With Auto-answer **OFF**, press-0 should show the softphone **Accept / Decline** overlay (not just Recent → IVR/missed).
-6. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`). Call Control speak/gather uses **en-US** for mixed EN+AR Language prompts so DTMF barge-in (including digit **0**) stays reliable; Arabic-majority prompts still use `arb`.
+6. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`). Call Control speak/gather uses **en-US** for mixed EN+AR Language prompts so DTMF barge-in (including digit **0**) stays reliable; Arabic-majority prompts still use `arb`. Live Telnyx voice comes from **Settings → Welcome / hold / TTS → IVR TTS voice** (default `Polly.Joanna-Neural`; Arabic-majority prompts auto-switch to `Polly.Hala-Neural`).
 7. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** + **Listen** (simulate digit path and hear the spoken script without a live call).
 8. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options. Missing Language→agent edge for **0** is recovered to the Connect with agent node at runtime so the menu cannot soft-loop forever.
 
@@ -250,7 +250,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | AI Call Agent setup | `/call-center/ai` |
 | WhatsApp inbox + Meta webhook | `/call-center/whatsapp` + `/api/public/call-center/whatsapp` |
 | Blocklist | `/call-center/blacklist` — inbound reject / outbound block |
-| Welcome / hold / TTS settings stubs | Settings → Welcome / hold / TTS fields |
+| Welcome / hold / TTS (IVR speak voice) | Settings → Welcome / hold / TTS — pick Polly/Azure neural voice (not basic `female`) |
 | VIP / priority contacts | `/call-center/contacts` — VIP flag skips IVR when configured |
 | Skill-based queue offer | Queues → required skills; agents/members skills; routing prefers intersection |
 | Service level % | Queues → SL seconds; Analytics → Service level |
@@ -388,7 +388,7 @@ Then: enable **Call Center**, map each DID on `/call-center/numbers` to a queue 
 
 ### What happens on a call
 
-**Inbound:** `call.initiated` → CDR + routing (blocklist, hours, IVR/queue) → FEC answers (or rejects blocked / unconfigured). IVR: greeting via Telnyx TTS (Arabic text auto-selects `arb`) + one-digit gather → `applyIvrDigit`; timeouts retry up to the menu's retries, then go to the fallback queue. Queue: welcome (audio URL, or TTS if enabled) then looping hold music. Agent clicks **Answer** → Telnyx `transfer` to LiveKit SIP → caller lands in the agent's room (if the caller already hung up, the answer fails with "no longer on the line" and nothing is marked answered). `call.hangup` / LiveKit `participant_left` end the CDR (`ended` after answer, `missed` before). Agent hangup / decline hangs up the Telnyx leg. In a simultaneous queue, one agent declining only hides the call for that agent.
+**Inbound:** `call.initiated` → CDR + routing (blocklist, hours, IVR/queue) → FEC answers (or rejects blocked / unconfigured). IVR: greeting via Telnyx TTS (`Polly.Joanna-Neural` by default; Arabic-majority text → `Polly.Hala-Neural` + `arb`) + one-digit gather → `applyIvrDigit`; timeouts retry up to the menu's retries, then go to the fallback queue. Change voice under Settings → IVR TTS voice (`Polly.*-Neural`, `Azure.*`, or basic `female`/`male`). Queue: welcome (audio URL, or TTS if enabled) then looping hold music. Agent clicks **Answer** → Telnyx `transfer` to LiveKit SIP → caller lands in the agent's room (if the caller already hung up, the answer fails with "no longer on the line" and nothing is marked answered). `call.hangup` / LiveKit `participant_left` end the CDR (`ended` after answer, `missed` before). Agent hangup / decline hangs up the Telnyx leg. In a simultaneous queue, one agent declining only hides the call for that agent.
 
 **Outbound:** dial pad → `placeOutboundCall` creates the CDR, the agent joins the room (hears a dial tone), and a background task calls LiveKit `createSipParticipant` (waits up to ~60s for answer). On answer, `answered_at` is reset to the real pickup time; on busy / no answer / rejection the CDR becomes `failed` with the carrier reason and the softphone shows it. On Vercel make sure the function `maxDuration` is at least 60s.
 

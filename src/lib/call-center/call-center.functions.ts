@@ -109,6 +109,7 @@ import {
 } from "./routing";
 import { sendOutboundEmail } from "@/lib/email/send";
 import { buildFecVenuesTemplate } from "./ivr-flow";
+import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
 import { checkCarrierSetup, resolveLiveKitServerCredentials } from "./livekit-sip";
 import { toPublicSettings } from "./settings-public";
 import {
@@ -349,7 +350,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         welcome_audio_url: data.welcomeAudioUrl ?? existing?.welcome_audio_url ?? "",
         hold_music_url: data.holdMusicUrl ?? existing?.hold_music_url ?? "",
         tts_enabled: data.ttsEnabled ?? existing?.tts_enabled ?? false,
-        tts_voice: data.ttsVoice ?? existing?.tts_voice ?? "en-US-Neural2-A",
+        tts_voice: normalizeConfiguredTtsVoice(data.ttsVoice ?? existing?.tts_voice ?? ""),
         tts_greeting_text:
           data.ttsGreetingText ??
           existing?.tts_greeting_text ??

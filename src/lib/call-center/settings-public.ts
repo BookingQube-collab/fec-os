@@ -1,4 +1,5 @@
 import { normalizeSipUriHost } from "./db";
+import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
 import type {
   CallCenterAiProvider,
   CallCenterSettingsPublic,
@@ -126,7 +127,7 @@ export function toPublicSettings(
     welcomeAudioUrl: row?.welcome_audio_url?.trim() ?? "",
     holdMusicUrl: row?.hold_music_url?.trim() ?? "",
     ttsEnabled: Boolean(row?.tts_enabled),
-    ttsVoice: row?.tts_voice?.trim() || "en-US-Neural2-A",
+    ttsVoice: normalizeConfiguredTtsVoice(row?.tts_voice),
     ttsGreetingText:
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",
