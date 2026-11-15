@@ -703,11 +703,12 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
     }
     const next = followDigitEdge(flow, current.id, digit);
     if (!next) {
-      // repeat self-edge or invalid
+      // Only an explicit self-edge means "repeat". Digit 0 is a normal route
+      // (Language → Connect with agent); do not treat bare "0" as repeat.
       const self = flow.edges.find(
         (e) => e.source === current.id && e.sourceHandle === digit && e.target === current.id,
       );
-      if (self || digit === "0") {
+      if (self) {
         return { call, offeredUserIds: [], phase: "ivr", message: "Repeat menu." };
       }
       return { call, offeredUserIds: [], phase: "ivr", message: "Invalid digit." };

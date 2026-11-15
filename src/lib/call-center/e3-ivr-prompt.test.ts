@@ -81,6 +81,10 @@ describe("buildFecVenuesTemplate E3 path", () => {
     const agent = flow.nodes.find((n) => n.id === "node-agent-lang");
     expect(agent?.type).toBe("agent");
     expect(agent?.data.queueId).toBe(CALL_CENTER_VENUE_QUEUE_IDS.general);
+    const edge = flow.edges.find(
+      (e) => e.source === "node-menu-lang" && e.sourceHandle === "0" && e.target === "node-agent-lang",
+    );
+    expect(edge?.id).toBe("e-lang-agent");
   });
 
   it("routes Arabic Inflata bookings to AI", () => {

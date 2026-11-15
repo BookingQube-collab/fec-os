@@ -128,15 +128,16 @@ Open `/call-center/ivr` (admin edit; agents can view).
 
 1. Pick or create a menu (seed **Main menu** migrates into the canvas on first open).
 2. Click **Apply E3 IVR template** once to load the bilingual E3 Smart IVR (creates venue queues if missing):
-   - Start → **Language** (1 English / 2 Arabic / **0 Connect with agent** → E3 General Support queue)
+   - Start → **Language** (1 English / 2 Arabic / **0 Connect with agent** → E3 General Support queue). The digit **0** handle must have an edge to the Connect with agent node (Apply template draws it; a floating agent node alone will not ring).
    - **Center**: 1 Inflata Park · 2 Kids Driving School · 3 Urban Arena · 0 General E3 support
    - **Service menu**: 1 bookings AI · 2 birthday queue · 3 school/group → birthday queue · 4–5 prices/visit AI · 6 support queue · 0 human queue
    - Per-center **AI Agent** nodes use the E3 bilingual system prompt (bookings, parties, groups, prices, hours, complaints, handoff rules)
 3. Drag steps from the left palette: Start/Greeting, Menu (DTMF), Play message, Route to Queue, Route to Agent, **AI Agent**, Hangup, Business hours, Voicemail, Event route.
-4. Connect handles: Start/Play use `out`; Menu digits (1,2,…) each have a source handle; Hours has `open` / `closed`.
-5. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`).
-6. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** + **Listen** (simulate digit path and hear the spoken script without a live call).
-7. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options.
+4. Connect handles: Start/Play use `out`; Menu digits (0–9,*,#) each have a source handle; Hours has `open` / `closed`. For Language **0**, draw (or re-Apply) the edge to **Connect with agent**.
+5. Agents who should take press-0 / general support must **join E3 General Support** on Dialer → Queues (or run `scripts/apply-e3-ivr-lang-agent.ts`, which also joins the preferred ops agent). Available alone is not enough — no queue membership means inbound stays **queued**.
+6. Click a node → inspector edits bilingual greetings (EN + AR), digits, queue, agent, AI prompt / handoff, etc. Use **Listen** to preview TTS via the browser (`speechSynthesis`).
+7. Toolbar: **Save flow**, zoom, fit, auto-layout, **Test** + **Listen** (simulate digit path and hear the spoken script without a live call).
+8. Save writes `flow_json` and replaces digit rows on `call_center_ivr_options`. Inbound DTMF walks the graph when present (nested menus via menu→menu edges); otherwise falls back to flattened options.
 
 Assign the menu on `/call-center/numbers` (DID → IVR menu) and keep **IVR enabled** in Settings.
 
