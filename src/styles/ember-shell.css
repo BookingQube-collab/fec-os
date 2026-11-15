@@ -1,20 +1,22 @@
-/* Team Chat Ember shell — scoped slate chrome (Vercel / Supabase only). */
+/* Team Chat Ember shell — FEC light theme (Ember layout, FEC tokens). */
 .ember-shell {
-  --ember-bg: #1a1d24;
-  --ember-rail: #12151a;
-  --ember-sidebar: #1e222a;
-  --ember-panel: #232833;
-  --ember-border: rgba(255, 255, 255, 0.08);
-  --ember-text: #e8eaef;
-  --ember-muted: #9aa3b2;
-  --ember-accent: #f97316;
-  --ember-active: rgba(249, 115, 22, 0.16);
-  --ember-hover: rgba(255, 255, 255, 0.05);
-  --ember-unread: #ef4444;
+  --ember-bg: var(--card);
+  --ember-rail: var(--surface-2);
+  --ember-sidebar: color-mix(in oklab, var(--surface-2) 35%, var(--card));
+  --ember-panel: var(--card);
+  --ember-panel-soft: var(--background);
+  --ember-border: var(--border);
+  --ember-text: var(--foreground);
+  --ember-muted: var(--muted-foreground);
+  --ember-accent: var(--electric);
+  --ember-active: color-mix(in oklab, var(--electric) 14%, transparent);
+  --ember-hover: color-mix(in oklab, var(--electric) 7%, transparent);
+  --ember-unread: var(--danger);
   color: var(--ember-text);
   background: var(--ember-bg);
-  border: 1px solid var(--ember-border);
-  border-radius: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--ember-border) 80%, transparent);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-xs);
   overflow: hidden;
 }
 
@@ -24,7 +26,11 @@
 }
 
 .ember-shell__rail {
-  background: var(--ember-rail);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ember-rail) 92%, white) 0%,
+    var(--ember-rail) 100%
+  );
   border-inline-end: 1px solid var(--ember-border);
 }
 
@@ -33,9 +39,12 @@
   place-items: center;
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 0.65rem;
+  border-radius: 0.75rem;
   color: var(--ember-muted);
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .ember-shell__rail-btn:hover {
@@ -46,6 +55,7 @@
 .ember-shell__rail-btn.is-active {
   background: var(--ember-active);
   color: var(--ember-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ember-accent) 22%, transparent);
 }
 
 .ember-shell__sidebar {
@@ -53,11 +63,48 @@
   border-inline-end: 1px solid var(--ember-border);
 }
 
+.ember-shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-bottom: 1px solid var(--ember-border);
+  padding: 0.85rem 0.85rem 0.75rem;
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+}
+
+.ember-shell__brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.7rem;
+  background: color-mix(in oklab, var(--ember-accent) 14%, white);
+  color: var(--ember-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ember-accent) 18%, transparent);
+  flex-shrink: 0;
+}
+
+.ember-shell__brand-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ember-text);
+  line-height: 1.2;
+}
+
+.ember-shell__brand-tag {
+  margin: 0.15rem 0 0;
+  font-size: 0.7rem;
+  color: var(--ember-muted);
+  line-height: 1.3;
+}
+
 .ember-shell__section-label {
   color: var(--ember-muted);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
@@ -66,12 +113,15 @@
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  border-radius: 0.5rem;
-  padding: 0.4rem 0.55rem;
+  border-radius: 0.65rem;
+  padding: 0.45rem 0.55rem;
   color: var(--ember-muted);
   text-align: start;
   font-size: 0.875rem;
   line-height: 1.25rem;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .ember-shell__row:hover {
@@ -83,17 +133,80 @@
   background: var(--ember-active);
   color: var(--ember-text);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ember-accent) 16%, transparent);
+}
+
+.ember-shell__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--ember-unread);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.15rem;
 }
 
 .ember-shell__main,
 .ember-shell__thread {
-  background: var(--ember-panel);
+  background: var(--ember-panel-soft);
 }
 
 .ember-shell__thread {
   border-inline-start: 1px solid var(--ember-border);
+  background: var(--ember-panel);
 }
 
+.ember-shell__empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  background:
+    radial-gradient(
+      42rem 22rem at 50% 18%,
+      color-mix(in oklab, var(--ember-accent) 10%, transparent),
+      transparent 70%
+    ),
+    var(--ember-panel-soft);
+}
+
+.ember-shell__empty-icon {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 1rem;
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--ember-accent) 12%, white);
+  color: var(--ember-accent);
+  box-shadow:
+    var(--shadow-xs),
+    inset 0 0 0 1px color-mix(in oklab, var(--ember-accent) 16%, transparent);
+}
+
+.ember-shell__empty-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--ember-text);
+}
+
+.ember-shell__empty-body {
+  margin: 0.5rem 0 0;
+  max-width: 22rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--ember-muted);
+}
+
+/* Shared chat chrome inside the shell should inherit FEC light surfaces. */
 .ember-shell .bg-card,
 .ember-shell .bg-background,
 .ember-shell .bg-muted {
@@ -112,12 +225,21 @@
   color: var(--ember-text);
 }
 
+.ember-shell header.border-b,
+.ember-shell [class*="border-b"].border-border {
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+}
+
 .ember-bot-card {
   margin-top: 0.35rem;
-  border: 1px solid var(--ember-border, rgba(255, 255, 255, 0.08));
-  border-inline-start: 3px solid var(--ember-accent, #f97316);
-  border-radius: 0.65rem;
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--ember-border, var(--border));
+  border-inline-start: 3px solid var(--ember-accent, var(--electric));
+  border-radius: 0.75rem;
+  background: color-mix(
+    in oklab,
+    var(--ember-accent, var(--electric)) 8%,
+    var(--ember-panel, var(--card))
+  );
   padding: 0.75rem 0.85rem;
 }
 
@@ -140,7 +262,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ember-muted, #9aa3b2);
+  color: var(--ember-muted, var(--muted-foreground));
 }
 
 .ember-bot-card__field-value {
@@ -151,5 +273,5 @@
 .ember-bot-card__footer {
   margin: 0.55rem 0 0;
   font-size: 0.75rem;
-  color: var(--ember-muted, #9aa3b2);
+  color: var(--ember-muted, var(--muted-foreground));
 }

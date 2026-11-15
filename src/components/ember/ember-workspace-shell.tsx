@@ -226,9 +226,14 @@ export function EmberWorkspaceShell({
       {showChat ? (
         <>
           <aside className="ember-shell__sidebar flex min-h-0 w-full min-w-0 flex-col lg:w-[16.5rem] lg:max-w-[16.5rem] lg:shrink-0">
-            <div className="border-b border-[color:var(--ember-border)] px-3 py-3">
-              <p className="truncate text-sm font-semibold">{t("ember.shell.workspaceName")}</p>
-              <p className="truncate text-xs text-[color:var(--ember-muted)]">{t("ember.shell.workspaceTagline")}</p>
+            <div className="ember-shell__brand">
+              <span className="ember-shell__brand-mark" aria-hidden>
+                <MessageCircle className="h-4 w-4" strokeWidth={2} />
+              </span>
+              <div className="min-w-0">
+                <p className="ember-shell__brand-title truncate">{t("ember.shell.workspaceName")}</p>
+                <p className="ember-shell__brand-tag truncate">{t("ember.shell.workspaceTagline")}</p>
+              </div>
             </div>
             <div className="flex items-center gap-1 px-2 py-2">
               {canCreate ? (
@@ -236,7 +241,7 @@ export function EmberWorkspaceShell({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-8 flex-1 justify-start gap-1.5 text-[color:var(--ember-muted)] hover:text-[color:var(--ember-text)]"
+                  className="h-8 flex-1 justify-start gap-1.5 text-[color:var(--ember-muted)] hover:bg-[color:var(--ember-hover)] hover:text-[color:var(--ember-text)]"
                   onClick={() => setCreateOpen(true)}
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -248,7 +253,7 @@ export function EmberWorkspaceShell({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-8 flex-1 justify-start gap-1.5 text-[color:var(--ember-muted)] hover:text-[color:var(--ember-text)]"
+                  className="h-8 flex-1 justify-start gap-1.5 text-[color:var(--ember-muted)] hover:bg-[color:var(--ember-hover)] hover:text-[color:var(--ember-text)]"
                   onClick={() => setComposeOpen(true)}
                 >
                   <MessageCircle className="h-3.5 w-3.5" />
@@ -323,10 +328,12 @@ export function EmberWorkspaceShell({
                 collapseThreadReplies
               />
             ) : (
-              <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-                <MessageCircle className="mb-4 h-10 w-10 text-[color:var(--ember-muted)]" strokeWidth={1.5} />
-                <h2 className="text-lg font-semibold">{t("ember.shell.emptyHeading")}</h2>
-                <p className="mt-2 max-w-sm text-sm text-[color:var(--ember-muted)]">{t("ember.shell.emptyBody")}</p>
+              <div className="ember-shell__empty">
+                <span className="ember-shell__empty-icon" aria-hidden>
+                  <MessageCircle className="h-5 w-5" strokeWidth={1.75} />
+                </span>
+                <h2 className="ember-shell__empty-title">{t("ember.shell.emptyHeading")}</h2>
+                <p className="ember-shell__empty-body">{t("ember.shell.emptyBody")}</p>
               </div>
             )}
           </section>
@@ -445,11 +452,7 @@ function RailLink({
   return (
     <Link href={href} className={cn("ember-shell__rail-btn relative", active && "is-active")} aria-label={label} title={label}>
       <Icon className="h-4 w-4" strokeWidth={1.75} />
-      {badge ? (
-        <span className="absolute -end-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-[color:var(--ember-unread)] px-1 text-[10px] font-bold text-white">
-          {badge}
-        </span>
-      ) : null}
+      {badge ? <span className="ember-shell__badge absolute -end-0.5 -top-0.5">{badge}</span> : null}
     </Link>
   );
 }
@@ -510,11 +513,7 @@ function Section({
               >
                 {channel ? <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" /> : <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />}
                 <span className="min-w-0 flex-1 truncate">{name.replace(/^#/, "")}</span>
-                {unread ? (
-                  <span className="rounded-full bg-[color:var(--ember-unread)] px-1.5 text-[10px] font-bold text-white">
-                    {unread}
-                  </span>
-                ) : null}
+                {unread ? <span className="ember-shell__badge">{unread}</span> : null}
               </button>
             </li>
           );

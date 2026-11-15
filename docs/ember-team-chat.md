@@ -11,7 +11,7 @@ Team Chat (`/ember`) runs **only on FEC Vercel + Supabase**. No Cloudflare Worke
 - Main: conversation timeline (thread replies collapsed)
 - Right: thread panel when **Reply in thread** is used
 
-Scoped slate chrome lives in `src/styles/ember-shell.css` (`.ember-shell`). Communication Hub (`/chat`) is unchanged.
+Light FEC chrome (Ember three-pane layout) lives in `src/styles/ember-shell.css` (`.ember-shell`). Communication Hub (`/chat`) is unchanged.
 
 ## Implemented (native)
 
