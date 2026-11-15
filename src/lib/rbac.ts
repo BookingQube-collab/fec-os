@@ -28,7 +28,8 @@ export type AppRole =
   | "cashier_host"
   | "auditor"
   | "hr"
-  | "customer_service";
+  | "customer_service"
+  | "call_center_agent";
 
 export interface RoleAssignment {
   role: AppRole;
@@ -50,6 +51,8 @@ export const ROLE_LEVELS: Record<AppRole, number> = {
   auditor: 40,
   hr: 55,
   customer_service: 45,
+  /** Call-center-only login: Call Center product, no employee / ops modules. */
+  call_center_agent: 25,
 };
 
 /**
@@ -377,15 +380,18 @@ export const CAPABILITIES = {
   "ember.manage": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
 
   // Call Center softphone + queues (Telnyx / LiveKit SIP BYO).
-  // view: agents who can open /call-center. Admin config uses admin.view.
-  // tech_supervisor included so site leads can wallboard / dial when needed.
+  // view: anyone who can open /call-center (dialer, live wallboard, calls, queues, analytics).
+  // Admin config edits stay on admin.view + role level >= 95 (CEO/COO).
+  // Supervisor roles (duty_manager, tech_supervisor, branch_gm) have view + agent so they can
+  // dial and monitor. Whisper/barge remain per-agent flags set by CEO/COO.
+  // call_center_agent is the call-center-only seat: no dashboard.view, hr.employee_app, etc.
   "call_center.view": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
-    "tech_supervisor", "hr", "customer_service",
+    "tech_supervisor", "hr", "customer_service", "call_center_agent",
   ],
   "call_center.agent": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
-    "tech_supervisor", "hr", "customer_service",
+    "tech_supervisor", "hr", "customer_service", "call_center_agent",
   ],
 
   // Training engine. Platform domain, not an HR submodule.
@@ -552,8 +558,17 @@ export function canBulkDeleteMonthlyRoster(
   });
 }
 
+/**
+ * True when every assigned role is call_center_agent. Such logins land on /call-center and
+ * only see the Call Center module. Any other role in the mix restores that role's normal shell.
+ */
+export function isCallCenterOnlyAudience(roles: readonly AppRole[]): boolean {
+  return roles.length > 0 && roles.every((r) => r === "call_center_agent");
+}
+
 /** Where a freshly signed-in user should land based on their highest role. */
 export function defaultHomeForRoles(roles: AppRole[]): string {
+  if (isCallCenterOnlyAudience(roles)) return "/call-center";
   if (roles.includes("ceo") || roles.includes("coo") || roles.includes("cfo")) return "/";
   if (roles.includes("regional_ops")) return "/";
   if (roles.includes("branch_gm") || roles.includes("duty_manager")) return "/";

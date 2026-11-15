@@ -3114,7 +3114,8 @@
     "cashier_host": "أمين صندوق / مضيف",
     "auditor": "مدقق",
     "hr": "مدير الموارد البشرية",
-    "customer_service": "خدمة العملاء"
+    "customer_service": "خدمة العملاء",
+    "call_center_agent": "موظف مركز الاتصال"
   },
   "adminRoles": {
     "kicker": "الإدارة",

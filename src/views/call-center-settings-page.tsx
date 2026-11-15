@@ -521,8 +521,10 @@ function CallCenterSettingsPage() {
               <Label>{t("callCenterAdmin.livekitSipTrunkId")}</Label>
               <Input
                 value={livekitSipTrunkId}
+                placeholder="ST_xxxxxxxxxxxx"
                 onChange={(e) => setLivekitSipTrunkId(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">{t("callCenterAdmin.livekitSipTrunkIdHint")}</p>
             </div>
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.livekitSipDispatchRuleId")}</Label>

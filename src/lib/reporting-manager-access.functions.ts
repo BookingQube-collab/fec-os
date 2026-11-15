@@ -17,7 +17,8 @@ export type { DirectReportAccess, TeamCoverageLocation };
 /** Whether this login has at least one active direct report, and who they are. */
 export const getMyDirectReports = createAuthenticatedActionNoInput(
   async (context): Promise<DirectReportAccess> => loadDirectReportStaffIds(context.userId),
-  { auth: { anyCapability: ["hr.employee_app", "dashboard.view"] } },
+  // call_center.agent: call-center-only logins still mount the shell, which asks this.
+  { auth: { anyCapability: ["hr.employee_app", "dashboard.view", "call_center.agent"] } },
 );
 
 export type AttendanceListingSites = {

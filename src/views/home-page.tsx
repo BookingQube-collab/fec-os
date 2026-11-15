@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
@@ -51,6 +52,7 @@ import type { DashboardPeriod } from "@/lib/dashboard.functions";
 import {
   dashboardViewForRoles,
   canViewRevenue,
+  isCallCenterOnlyAudience,
   isEmployeeHomeAudience,
   type AppRole,
 } from "@/lib/rbac";
@@ -697,7 +699,13 @@ function tierLabel(t: (key: string) => string, tier: string) {
 export default function HomePage() {
   const { t } = useTranslation();
   const { roles } = useAuth();
+  const router = useRouter();
   const roleList = roles.map((r) => r.role as AppRole);
+  const callCenterOnly = isCallCenterOnlyAudience(roleList);
+  useEffect(() => {
+    if (callCenterOnly) router.replace("/call-center");
+  }, [callCenterOnly, router]);
+  if (callCenterOnly) return null;
   if (roleList.length === 0) {
     return (
       <div className="mx-auto max-w-lg rounded-[var(--radius-xl)] border border-dashed border-border bg-card p-8 text-center">

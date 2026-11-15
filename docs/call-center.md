@@ -88,6 +88,27 @@ IVR flow canvas migration:
 
 Adds `flow_json` on `call_center_ivr_menus` (nodes / edges / viewport) and extends `call_center_ivr_options` with `next_menu_id`, `agent_user_id`, `target_node_id`, plus actions `menu` / `agent`. Saving the canvas syncs flattened digit options so inbound routing still works.
 
+## Who can use Call Center (roles)
+
+| Role | Access |
+|------|--------|
+| `call_center_agent` | **Call-center-only seat.** `call_center.view` + `call_center.agent`. Signs in and lands on `/call-center`; the sidebar / mobile menu show only the Call Center module (no dashboard, People, HR, admin). Level 25. |
+| Supervisors: `duty_manager`, `tech_supervisor`, `branch_gm` | `call_center.view` + `call_center.agent`: softphone, queues, live wallboard, calls, contacts, analytics. Whisper / barge stay per-agent flags (`/call-center/agents` → Edit). No config edits. |
+| `hr`, `customer_service` | Same view + agent access (existing). |
+| `ceo`, `coo`, `cfo`, `regional_ops` | View + agent. **Edits** (numbers, IVR, queues, settings, agent profiles) need `admin.view` and role level ≥ 95, i.e. CEO / COO. |
+
+Staff who hold a supervisor *job title* (e.g. Site Supervisor) but sign in with the `cashier_host` role do not get Call Center from the title. Give them a supervisor login role if they need it.
+
+### Add a call-center-only agent
+
+1. Apply the migration `supabase/migrations/20261113100000_call_center_agent_role.sql` (adds the `call_center_agent` enum value).
+2. As CEO or COO open `/call-center/agents` and click **Add agent**. Enter name, sign-in email, a temporary password (8+ characters), and optionally an employee code and extension, then **Create agent**.
+   - This calls `provisionUser` with role `call_center_agent` and creates the agent's Call Center profile (active, offline).
+3. Click **Edit** on the new row: set extension, default queues, skills, and (optional) whisper / barge. Agents only get queue offers once they are queue members.
+4. Give the agent the email + temporary password. After sign-in they land on `/call-center`, set status **Available**, and take calls.
+
+To make an existing FEC login a call-center agent instead, a CEO can grant the role in **Admin → Roles** (role dropdown includes `call_center_agent`). If that login also keeps another role, it keeps that role's normal navigation (call-center-only mode applies only when `call_center_agent` is the sole role).
+
 ## IVR Builder (visual canvas)
 
 Open `/call-center/ivr` (admin edit; agents can view).
@@ -294,7 +315,7 @@ Use your LiveKit project (Cloud or self-hosted SIP). Settings → SIP URI = your
 
 - **Inbound trunk** (Telnyx → LiveKit): allow Telnyx signalling IPs (or leave open + restrict by auth), no number restriction needed for bridged calls.
 - **Dispatch rule — type `callee`** with `roomPrefix: "cc-"`. FEC's rooms are `cc-<24 hex>`, and the bridge dials `sip:<24 hex>@<sip host>`, so the rule lands the caller in the room agents already joined. Save the rule id in Settings → *LiveKit SIP dispatch rule id* (FEC reads its prefix from LiveKit). After your first test call, confirm in the LiveKit dashboard that the room name is exactly the CDR's `livekit_room`; if your LiveKit version inserts a separator, adjust the rule prefix.
-- **Outbound trunk** (LiveKit → Telnyx): address `sip.telnyx.com`, transport TCP/TLS per Telnyx, credentials = a Telnyx **Credential Connection** username/password, numbers = your Telnyx DIDs. Save its id in Settings → *LiveKit SIP trunk id*. Example (LiveKit CLI — flags vary by `lk` version; the JSON form in LiveKit's SIP docs is equivalent):
+- **Outbound trunk** (LiveKit → Telnyx): address `sip.telnyx.com`, transport TCP/TLS per Telnyx, credentials = a Telnyx **Credential Connection** username/password, numbers = your Telnyx DIDs. Save its id in Settings → *LiveKit SIP outbound trunk id*. Example (LiveKit CLI — flags vary by `lk` version; the JSON form in LiveKit's SIP docs is equivalent):
 
   ```bash
   lk sip outbound create --name telnyx-out --address sip.telnyx.com --numbers +974XXXXXXXX --auth-user <telnyx user> --auth-pass <telnyx pass>
@@ -319,7 +340,7 @@ Use your LiveKit project (Cloud or self-hosted SIP). Settings → SIP URI = your
 | Telnyx connection id | Call Control Application id (optional but recommended) |
 | Telnyx API key | Telnyx v2 key |
 | Webhook shared secret / Telnyx webhook secret | Shared secret, or paste the Telnyx **public key** to verify signatures |
-| LiveKit SIP trunk id | **Outbound** trunk id |
+| LiveKit SIP outbound trunk id | **Outbound** trunk id (`ST_…`, LiveKit Cloud → Telephony → SIP trunks → Outbound). Error "requested sip trunk does not exist" = wrong/inbound/deleted id or a different LiveKit project than the API key; fix it and press **Check carrier setup** |
 | LiveKit SIP dispatch rule id | Callee dispatch rule id |
 | Outbound caller ID | A Telnyx-owned E.164 number |
 | Welcome / hold music / TTS | Used while callers wait in a queue (audio URLs must be public MP3/WAV) |

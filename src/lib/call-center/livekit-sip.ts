@@ -110,6 +110,40 @@ export type OutboundSipResult = {
   sipCallId: string;
 };
 
+function truncateId(id: string): string {
+  const v = id.trim();
+  return v.length <= 14 ? v : `${v.slice(0, 8)}…${v.slice(-4)}`;
+}
+
+function hostOf(serverUrl: string): string {
+  try {
+    return new URL(liveKitHttpUrl(serverUrl)).host;
+  } catch {
+    return serverUrl;
+  }
+}
+
+/** Build a user-verifiable "trunk not found" message: saved id, LiveKit host, and trunks that DO exist there. */
+async function describeMissingTrunk(trunkId: string): Promise<string> {
+  let host = "unknown host";
+  let existing = "";
+  try {
+    const c = await requireCredentials();
+    host = hostOf(c.serverUrl);
+    const trunks = await (await sipClient()).listSipOutboundTrunk();
+    const ids = trunks.map((t) => truncateId(t.sipTrunkId)).filter(Boolean);
+    existing = ids.length
+      ? ` Outbound trunks in that project: ${ids.slice(0, 5).join(", ")}.`
+      : " That project has no outbound trunks.";
+  } catch {
+    // diagnostics are best-effort
+  }
+  return (
+    `LiveKit outbound SIP trunk "${truncateId(trunkId)}" not found on ${host} (the project your API key belongs to).` +
+    `${existing} Paste the OUTBOUND trunk id (ST_…) from that same project in Call Center → Settings, then press Check carrier setup.`
+  );
+}
+
 /**
  * Dial a PSTN number into `roomName` via the configured LiveKit outbound trunk.
  * Resolves once the callee answers (throws when busy / rejected / timeout).
@@ -129,17 +163,26 @@ export async function dialOutboundSip(input: {
   }
   const identity = `sip-out-${input.callId.replace(/-/g, "").slice(0, 12)}`;
   const from = input.fromE164.startsWith("+") ? input.fromE164 : "";
-  const info = await (await sipClient()).createSipParticipant(trunkId, input.toE164, input.roomName, {
-    participantIdentity: identity,
-    participantName: input.toE164,
-    fromNumber: from || undefined,
-    playDialtone: true,
-    waitUntilAnswered: true,
-    ringingTimeout: 45,
-    timeout: 60,
-    headers: { "X-FEC-Call-Id": input.callId },
-    participantAttributes: { "fec.callId": input.callId, "fec.direction": "outbound" },
-  });
+  let info;
+  try {
+    info = await (await sipClient()).createSipParticipant(trunkId, input.toE164, input.roomName, {
+      participantIdentity: identity,
+      participantName: input.toE164,
+      fromNumber: from || undefined,
+      playDialtone: true,
+      waitUntilAnswered: true,
+      ringingTimeout: 45,
+      timeout: 60,
+      headers: { "X-FEC-Call-Id": input.callId },
+      participantAttributes: { "fec.callId": input.callId, "fec.direction": "outbound" },
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "";
+    if (/trunk (does not exist|not found)|does not exist/i.test(message)) {
+      throw new Error(await describeMissingTrunk(trunkId));
+    }
+    throw e;
+  }
   return {
     participantIdentity: info.participantIdentity || identity,
     sipCallId: info.sipCallId || "",
@@ -215,11 +258,20 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
     try {
       const trunks = await (await sipClient()).listSipOutboundTrunk({ trunkIds: [trunkId] });
       const found = trunks.find((t) => t?.sipTrunkId === trunkId);
-      checks.push({
-        key: "outbound_trunk",
-        ok: Boolean(found),
-        detail: found ? `Outbound trunk "${found.name || trunkId}" → ${found.address}` : "Trunk id not found as an outbound trunk.",
-      });
+      let detail = found
+        ? `Outbound trunk "${found.name || trunkId}" → ${found.address}`
+        : `Outbound trunk "${truncateId(trunkId)}" not found on ${hostOf(credentials.serverUrl)}. Paste the OUTBOUND trunk id (ST_…), not the inbound trunk or dispatch rule id.`;
+      if (!found) {
+        try {
+          const inbound = await (await sipClient()).listSipInboundTrunk({ trunkIds: [trunkId] });
+          if (inbound.some((t) => t?.sipTrunkId === trunkId)) {
+            detail = "This is an INBOUND trunk id. Outbound dialing needs the OUTBOUND trunk id.";
+          }
+        } catch {
+          // keep generic message
+        }
+      }
+      checks.push({ key: "outbound_trunk", ok: Boolean(found), detail });
     } catch (e) {
       checks.push({
         key: "outbound_trunk",

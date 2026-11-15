@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
+import { provisionUser } from "@/lib/admin.functions";
 import {
   loadCallCenterAgentPerformance,
   saveCallCenterAgentExtension,
@@ -42,6 +43,22 @@ import type {
 } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
+
+type AddAgentState = {
+  displayName: string;
+  email: string;
+  password: string;
+  employeeCode: string;
+  extension: string;
+};
+
+const EMPTY_ADD_AGENT: AddAgentState = {
+  displayName: "",
+  email: "",
+  password: "",
+  employeeCode: "",
+  extension: "",
+};
 
 type EditState = {
   userId: string;
@@ -65,10 +82,13 @@ function CallCenterAgentsPage() {
   const maxLevel = roles.reduce((acc, role) => Math.max(acc, role.role_level), 0);
   const canUse = canUserDo(roleNames, "call_center.view");
   const canEdit = canUserDo(roleNames, "admin.view") && maxLevel >= 95;
+  const canProvision = canEdit && canUserDo(roleNames, "admin.provision_users");
   const [extension, setExtension] = useState("");
   const [pending, setPending] = useState(false);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [addAgent, setAddAgent] = useState<AddAgentState | null>(null);
+  const [savingAdd, setSavingAdd] = useState(false);
 
   const perf = useQuery({
     queryKey: ["call-center", "agent-performance"],
@@ -131,6 +151,48 @@ function CallCenterAgentsPage() {
       toast.error(error instanceof Error ? error.message : t("callCenter.loadError"));
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  async function submitAddAgent() {
+    if (!addAgent) return;
+    const displayName = addAgent.displayName.trim();
+    const email = addAgent.email.trim();
+    if (!displayName || !email || addAgent.password.length < 8) {
+      toast.error(t("callCenter.addAgentPasswordHint"));
+      return;
+    }
+    setSavingAdd(true);
+    try {
+      const created = await provisionUser({
+        email,
+        password: addAgent.password,
+        display_name: displayName,
+        employee_code: addAgent.employeeCode.trim() || undefined,
+        role: "call_center_agent",
+        location_ids: [],
+      });
+      const result = await saveCallCenterAgentProfile({
+        userId: created.user_id,
+        extension: addAgent.extension,
+        displayNameOverride: displayName,
+        maxConcurrentCalls: 1,
+        canWhisper: false,
+        canBarge: false,
+        isActive: true,
+        skills: [],
+        queueIds: [],
+        status: "offline",
+      });
+      if (!result.ok) throw new Error(result.error);
+      toast.success(t("callCenter.addAgentDone"));
+      setAddAgent(null);
+      await queryClient.invalidateQueries({ queryKey: ["call-center", "agent-performance"] });
+      await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("callCenter.loadError"));
+    } finally {
+      setSavingAdd(false);
     }
   }
 
@@ -218,6 +280,17 @@ function CallCenterAgentsPage() {
         </div>
       </section>
 
+      {canProvision ? (
+        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card/70 p-4">
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {t("callCenter.addAgentExistingNote")}
+          </p>
+          <Button type="button" onClick={() => setAddAgent({ ...EMPTY_ADD_AGENT })}>
+            {t("callCenter.addAgent")}
+          </Button>
+        </section>
+      ) : null}
+
       {perf.isLoading ? (
         <div className="flex justify-center py-12">
           <FecLoader density="page" />
@@ -280,6 +353,84 @@ function CallCenterAgentsPage() {
           </table>
         </div>
       )}
+
+      <Dialog open={Boolean(addAgent)} onOpenChange={(open) => !open && setAddAgent(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("callCenter.addAgentTitle")}</DialogTitle>
+            <DialogDescription>{t("callCenter.addAgentHint")}</DialogDescription>
+          </DialogHeader>
+          {addAgent ? (
+            <div className="space-y-4 py-1">
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.addAgentName")}</Label>
+                <Input
+                  value={addAgent.displayName}
+                  onChange={(e) =>
+                    setAddAgent((prev) => (prev ? { ...prev, displayName: e.target.value } : prev))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.addAgentEmail")}</Label>
+                <Input
+                  type="email"
+                  autoComplete="off"
+                  value={addAgent.email}
+                  onChange={(e) =>
+                    setAddAgent((prev) => (prev ? { ...prev, email: e.target.value } : prev))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.addAgentPassword")}</Label>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={addAgent.password}
+                  onChange={(e) =>
+                    setAddAgent((prev) => (prev ? { ...prev, password: e.target.value } : prev))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">{t("callCenter.addAgentPasswordHint")}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>{t("callCenter.addAgentEmployeeCode")}</Label>
+                  <Input
+                    value={addAgent.employeeCode}
+                    onChange={(e) =>
+                      setAddAgent((prev) => (prev ? { ...prev, employeeCode: e.target.value } : prev))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t("callCenter.addAgentExtension")}</Label>
+                  <Input
+                    className="font-mono"
+                    value={addAgent.extension}
+                    onChange={(e) =>
+                      setAddAgent((prev) =>
+                        prev
+                          ? { ...prev, extension: e.target.value.replace(/\D/g, "").slice(0, 6) }
+                          : prev,
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setAddAgent(null)}>
+              {t("common.cancel", { defaultValue: "Cancel" })}
+            </Button>
+            <Button type="button" disabled={savingAdd} onClick={() => void submitAddAgent()}>
+              {savingAdd ? t("callCenter.addAgentSaving") : t("callCenter.addAgentSubmit")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(edit)} onOpenChange={(open) => !open && setEdit(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">

@@ -19,6 +19,7 @@ import {
   reportingManagerRailItems,
   usesEmployeeFlatRail,
 } from "@/lib/nav-config";
+import { canUserDo, defaultHomeForRoles, isCallCenterOnlyAudience } from "@/lib/rbac";
 
 const ADMIN_HREFS = [
   "/admin",
@@ -51,6 +52,33 @@ describe("call center sidebar visibility", () => {
   it("keeps Call Center on the employee flat rail for customer service", () => {
     const rail = getEmployeeFlatRail(["customer_service"]);
     expect(rail.some((item) => item.href === "/call-center")).toBe(true);
+  });
+
+  it("gives every supervisor role Call Center view, agent use, and the rail icon", () => {
+    for (const role of ["duty_manager", "tech_supervisor", "branch_gm"] as const) {
+      expect(canUserDo([role], "call_center.view")).toBe(true);
+      expect(canUserDo([role], "call_center.agent")).toBe(true);
+      expect(getPrimaryRailNav([role]).some((item) => item.href === "/call-center")).toBe(true);
+      // Config edits stay CEO/COO.
+      expect(canUserDo([role], "admin.view")).toBe(false);
+    }
+  });
+
+  it("limits call_center_agent to the Call Center module", () => {
+    const roles = ["call_center_agent"] as const;
+    expect(isCallCenterOnlyAudience([...roles])).toBe(true);
+    expect(defaultHomeForRoles([...roles])).toBe("/call-center");
+    expect(getPrimaryRailNav([...roles]).map((item) => item.departmentId)).toEqual(["call_center"]);
+    expect(getVisibleDepartments([...roles]).map((dept) => dept.id)).toEqual(["call_center"]);
+    expect(getEmployeeFlatRail([...roles])).toEqual([]);
+    expect(canUserDo([...roles], "admin.view")).toBe(false);
+    expect(canUserDo([...roles], "dashboard.view")).toBe(false);
+    expect(canUserDo([...roles], "hr.employee_app")).toBe(false);
+  });
+
+  it("restores the normal shell when call_center_agent is mixed with another role", () => {
+    expect(isCallCenterOnlyAudience(["call_center_agent", "hr"])).toBe(false);
+    expect(defaultHomeForRoles(["call_center_agent", "hr"])).toBe("/");
   });
 });
 

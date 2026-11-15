@@ -25957,6 +25957,7 @@ export type Database = {
         | "auditor"
         | "hr"
         | "customer_service"
+        | "call_center_agent"
       asset_criticality: "low" | "medium" | "high" | "critical"
       attraction_status: "operational" | "degraded" | "down" | "closed"
       audit_type:
@@ -26226,6 +26227,7 @@ export const Constants = {
         "auditor",
         "hr",
         "customer_service",
+        "call_center_agent",
       ],
       asset_criticality: ["low", "medium", "high", "critical"],
       attraction_status: ["operational", "degraded", "down", "closed"],

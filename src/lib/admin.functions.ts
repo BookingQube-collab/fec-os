@@ -49,6 +49,7 @@ const RoleEnum = z.enum([
   "auditor",
   "hr",
   "customer_service",
+  "call_center_agent",
 ]);
 
 async function requireExec(supabase: SupabaseClient, minLevel = 95) {
