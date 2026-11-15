@@ -821,7 +821,7 @@ export function MyMissedPunchRequests() {
                   <header className="hd-approval__top">
                     <div className="min-w-0">
                       <h4 id={`mine-punch-${row.id}-title`} className="hd-approval__name">
-                        {formatWorkDateDdMmYyyy(row.workDate) || row.workDate || "—"}
+                        {row.workDate ? formatWorkDateDdMmYyyy(row.workDate) : "—"}
                       </h4>
                       {numberLabel ? <p className="hd-approval__code">{numberLabel}</p> : null}
                     </div>
