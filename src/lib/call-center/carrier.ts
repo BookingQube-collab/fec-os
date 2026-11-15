@@ -19,6 +19,7 @@ import {
   deleteLiveKitRoom,
   dialOutboundSip,
   dispatchLiveKitAgent,
+  ensureLiveKitRoom,
   waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
@@ -603,6 +604,13 @@ export async function bridgeCallerToLiveKit(
     // nothing was playing
   }
 
+  // Pre-create the room so SIP dispatch has a destination while the agent softphone connects.
+  try {
+    await ensureLiveKitRoom(roomName);
+  } catch {
+    // Transfer can still create the room via the callee dispatch rule.
+  }
+
   const from =
     settings?.outbound_caller_id_e164?.trim() ||
     (call.toE164?.startsWith("+") ? call.toE164 : "") ||
@@ -620,26 +628,29 @@ export async function bridgeCallerToLiveKit(
     }
     throw new Error(`Could not connect the caller: ${e instanceof Error ? e.message : "carrier error"}`);
   }
-  await patchMeta(call.id, { bridgedAt: new Date().toISOString(), bridgeSipUri: uri });
+  await patchMeta(call.id, {
+    bridgedAt: new Date().toISOString(),
+    bridgeSipUri: uri,
+    bridgeError: null,
+  });
 
-  // Telnyx transfer returning 200 only means the INVITE was started. Dead air happens when
-  // LiveKit rejects it (e.g. inbound trunk numbers locked to the DID instead of wildcard).
-  const sipIdentity = await waitForSipParticipantInRoom(roomName, 12_000);
-  if (!sipIdentity) {
+  // Telnyx 200 only means the INVITE started. Wait briefly for diagnostics — but do NOT
+  // hang up or fail Answer if SIP is slow to appear. Hard-failing here left agents stuck on
+  // the Incoming modal (toast: trunk wildcard) while killing calls that were still bridging.
+  const sipIdentity = await waitForSipParticipantInRoom(roomName, 6_000);
+  if (sipIdentity) {
     await patchMeta(call.id, {
-      bridgeError:
-        "LiveKit did not accept the SIP bridge. For Call Control, inbound trunk numbers must be empty (wildcard) so sip:<room>@host matches.",
+      sipParticipantIdentity: sipIdentity,
+      bridgeVerifiedAt: new Date().toISOString(),
+      bridgePendingSip: false,
     });
-    try {
-      await telnyx.hangup(call.providerCallId);
-    } catch {
-      // already dropped / transfer failed mid-flight
-    }
-    throw new Error(
-      "Caller could not join the softphone room. Check LiveKit inbound trunk: Call Control bridge needs empty numbers (wildcard), not only the DID.",
-    );
+  } else {
+    await patchMeta(call.id, {
+      bridgePendingSip: true,
+      bridgeVerifyNote:
+        "SIP participant not listed yet after transfer; softphone will wait for caller audio.",
+    });
   }
-  await patchMeta(call.id, { sipParticipantIdentity: sipIdentity, bridgeVerifiedAt: new Date().toISOString() });
 }
 
 /** Tear down the carrier side of a call (agent hangup / decline). Best effort. */

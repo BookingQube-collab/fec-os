@@ -185,27 +185,34 @@ export function createTelnyxClient(apiKey: string) {
       text: string,
       clientState: Record<string, unknown>,
       configuredVoice?: string,
-    ) =>
-      action(id, "speak", {
+    ) => {
+      const picked = pickSpeakVoice(text, configuredVoice);
+      return action(id, "speak", {
         payload: text,
-        ...pickSpeakVoice(text, configuredVoice),
+        ...picked,
+        // Premium unlocks Polly/Azure; basic only allows male/female.
+        service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
         client_state: encodeClientState(clientState),
-      }),
+      });
+    },
     gatherUsingSpeak: (
       id: string,
       text: string,
       clientState: Record<string, unknown>,
       configuredVoice?: string,
-    ) =>
-      action(id, "gather_using_speak", {
+    ) => {
+      const picked = pickSpeakVoice(text, configuredVoice);
+      return action(id, "gather_using_speak", {
         payload: text,
-        ...pickSpeakVoice(text, configuredVoice),
+        ...picked,
+        service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
         minimum_digits: 1,
         maximum_digits: 1,
         timeout_millis: 8000,
         valid_digits: "0123456789*#",
         client_state: encodeClientState(clientState),
-      }),
+      });
+    },
     gatherUsingAudio: (id: string, audioUrl: string, clientState: Record<string, unknown>) =>
       action(id, "gather_using_audio", {
         audio_url: audioUrl,

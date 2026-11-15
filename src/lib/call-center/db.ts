@@ -475,7 +475,7 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     welcome_audio_url: String(row.welcome_audio_url ?? ""),
     hold_music_url: String(row.hold_music_url ?? ""),
     tts_enabled: Boolean(row.tts_enabled ?? false),
-    tts_voice: String(row.tts_voice ?? "Polly.Joanna-Neural"),
+    tts_voice: String(row.tts_voice ?? "Polly.Joanna"),
     tts_greeting_text: String(
       row.tts_greeting_text ?? "Welcome. Press a digit from the menu or stay on the line.",
     ),

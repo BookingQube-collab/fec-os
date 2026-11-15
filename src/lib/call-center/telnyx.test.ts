@@ -87,11 +87,11 @@ describe("client state + voice", () => {
 
   it("picks Arabic vs English voices", () => {
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
-      voice: "Polly.Hala-Neural",
+      voice: "Polly.Hala",
       language: "arb",
     });
     expect(pickSpeakVoice("Hello")).toEqual({
-      voice: "Polly.Joanna-Neural",
+      voice: "Polly.Joanna",
       language: "en-US",
     });
     // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
@@ -100,16 +100,17 @@ describe("client state + voice", () => {
         "Thank you for calling E3. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0.",
       ).language,
     ).toBe("en-US");
-    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
-    // Legacy Google-style id → professional Polly default (not basic female).
-    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
-    // EN Polly on Arabic-majority text → Arabic neural voice (Polly ignores language).
+    // Neural → standard for clearer PSTN IVR.
+    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna");
+    // Legacy Google-style id → clear Polly default (not basic female).
+    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna");
+    // EN Polly on Arabic-majority text → Arabic Polly (Polly ignores language).
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
-    ).toBe("Polly.Hala-Neural");
+    ).toBe("Polly.Hala");
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
-    ).toBe("Polly.Hala-Neural");
+    ).toBe("Polly.Hala");
   });
 
   it("coerces numeric DTMF digits from Telnyx payloads", () => {

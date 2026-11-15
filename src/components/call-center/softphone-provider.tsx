@@ -457,22 +457,29 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     await unlockSoftphoneAudio();
     clearAcwTimer();
     setPending(true);
-    const result = await answerCallCenterCall({ callId });
-    setPending(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await answerCallCenterCall({ callId });
+      if (!result.ok) {
+        toast.error(result.error || t("callCenter.answerFailed"));
+        await refresh();
+        return;
+      }
+      setActiveCall(result.data.call);
+      setMedia(result.data.media);
+      setHeld(false);
+      setMicMuted(false);
+      if (!result.data.media.token || !result.data.media.serverUrl.startsWith("wss://")) {
+        toast.error(t("callCenter.mediaNotConfigured"));
+      } else if (opts?.successKey) {
+        toast.success(t(opts.successKey));
+      }
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("callCenter.answerFailed"));
+      await refresh();
+    } finally {
+      setPending(false);
     }
-    setActiveCall(result.data.call);
-    setMedia(result.data.media);
-    setHeld(false);
-    setMicMuted(false);
-    if (!result.data.media.token || !result.data.media.serverUrl.startsWith("wss://")) {
-      toast.error(t("callCenter.mediaNotConfigured"));
-    } else if (opts?.successKey) {
-      toast.success(t(opts.successKey));
-    }
-    await refresh();
   }
 
   async function onConnectDirectly(call: CallCenterCall) {

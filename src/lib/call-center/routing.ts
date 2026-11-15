@@ -903,12 +903,14 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
       const { bridgeCallerToLiveKit } = await import("./carrier");
       await bridgeCallerToLiveKit(claimed, livekitRoom);
     } catch (e) {
+      // Merge onto latest metadata so bridgeSipUri / bridgedAt from a partial attempt survive.
+      const latest = (await getCall(callId)) ?? claimed;
       await updateCall(callId, {
         status: existing.status,
         agentUserId: existing.agentUserId,
         livekitRoom: existing.livekitRoom || livekitRoom,
         metadata: {
-          ...((claimed.metadata as Record<string, unknown> | null) ?? {}),
+          ...((latest.metadata as Record<string, unknown> | null) ?? {}),
           answerClaimedBy: null,
           answerClaimedAt: null,
           bridgeError: e instanceof Error ? e.message : "bridge failed",

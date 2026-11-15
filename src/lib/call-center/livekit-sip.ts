@@ -76,10 +76,25 @@ function looksLikeSipParticipant(p: {
   kind?: number | string;
   attributes?: Record<string, string>;
 }): boolean {
-  if (Number(p.kind) === 3) return true;
-  const id = p.identity ?? "";
-  if (id.startsWith("sip_") || id.startsWith("sip-")) return true;
+  const kind = p.kind;
+  // ParticipantInfo.Kind.SIP = 3; SDK may also surface the string name.
+  if (Number(kind) === 3 || String(kind).toUpperCase() === "SIP") return true;
+  const id = (p.identity ?? "").trim();
+  if (/^sip[_+.-]/i.test(id) || /^\+?\d{7,}$/.test(id)) return true;
   return Object.keys(p.attributes ?? {}).some((k) => k.startsWith("sip."));
+}
+
+/** Ensure the agent/SIP room exists before Telnyx transfers into it (idempotent). */
+export async function ensureLiveKitRoom(roomName: string): Promise<void> {
+  const name = roomName.trim();
+  if (!name) return;
+  const rooms = await roomClient();
+  await rooms.createRoom({
+    name,
+    // Keep empty room briefly so SIP INVITE can land while the agent softphone connects.
+    emptyTimeout: 300,
+    departureTimeout: 20,
+  });
 }
 
 /**
@@ -97,6 +112,9 @@ export async function waitForSipParticipantInRoom(
       const participants = await rooms.listParticipants(roomName);
       const sip = participants.find((p) => looksLikeSipParticipant(p));
       if (sip?.identity) return sip.identity;
+      // Any remote identity is enough once the room is ours (agent joins as local JWT later).
+      const any = participants.find((p) => (p.identity ?? "").trim().length > 0);
+      if (any?.identity) return any.identity;
     } catch {
       // Room may not exist yet while SIP INVITE is in flight.
     }
