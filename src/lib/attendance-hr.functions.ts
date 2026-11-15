@@ -168,7 +168,10 @@ import {
   upcomingPeriod,
 } from "@/lib/attendance-hr/availability";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
-import { ME_CORRECTION_HREF } from "@/lib/attendance-hr/missed-punch-approval";
+import {
+  ME_CORRECTION_HREF,
+  MISSED_PUNCH_OUTCOME_NOTICE_SOURCE,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import {
   applyAcceptedCorrectionTimes,
@@ -2770,7 +2773,7 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
           body: `Your missed punch request${when} needs a change. Update it and send it again.${noteSuffix}`,
           severity: "warning",
           actionUrl: ME_CORRECTION_HREF,
-          sourceType: "attendance_corrections",
+          sourceType: MISSED_PUNCH_OUTCOME_NOTICE_SOURCE,
           sourceId: data.id,
         });
       }

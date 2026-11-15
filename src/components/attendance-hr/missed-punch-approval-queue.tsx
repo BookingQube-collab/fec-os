@@ -616,6 +616,14 @@ export function MissedPunchApprovalQueue({
   );
 }
 
+function workDateInRange(workDate: string | null | undefined, dateFrom: string, dateTo: string): boolean {
+  const day = (workDate ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return !dateFrom && !dateTo;
+  if (dateFrom && day < dateFrom) return false;
+  if (dateTo && day > dateTo) return false;
+  return true;
+}
+
 export function MyMissedPunchRequests() {
   const { t } = useTranslation();
   const stepLabel = useStepLabel();
@@ -624,6 +632,8 @@ export function MyMissedPunchRequests() {
   const [punchInTime, setPunchInTime] = useState("");
   const [punchOutTime, setPunchOutTime] = useState("");
   const [reason, setReason] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [printPayload, setPrintPayload] = useState<
     MissedPunchPrintPayload | MissedPunchPrintPayload[] | null
   >(null);
@@ -658,24 +668,55 @@ export function MyMissedPunchRequests() {
       row.status === "change_required",
   );
   // Surface change-required first so the requester sees the action item immediately.
-  const orderedRows = rows.toSorted((a, b) => {
-    const rank = (status: string) =>
-      status === "change_required" ? 0 : status === "pending" ? 1 : status === "rejected" ? 2 : 3;
-    return rank(a.status) - rank(b.status);
-  });
-  const cards = groupOpenLegacyPunchPairs(orderedRows).slice(0, 8);
-  if (!cards.length) return null;
+  const orderedRows = useMemo(
+    () =>
+      rows.toSorted((a, b) => {
+        const rank = (status: string) =>
+          status === "change_required" ? 0 : status === "pending" ? 1 : status === "rejected" ? 2 : 3;
+        const byStatus = rank(a.status) - rank(b.status);
+        if (byStatus !== 0) return byStatus;
+        return String(b.workDate ?? "").localeCompare(String(a.workDate ?? ""));
+      }),
+    [rows],
+  );
+  const allCards = useMemo(() => groupOpenLegacyPunchPairs(orderedRows), [orderedRows]);
+  const filteredCards = useMemo(
+    () =>
+      allCards.filter((card) => workDateInRange(card.primary.workDate, dateFrom, dateTo)),
+    [allCards, dateFrom, dateTo],
+  );
+  const cards = filteredCards;
+  const changeRequiredCount = cards.filter((card) => card.primary.status === "change_required").length;
+
+  if (!allCards.length && !q.isPending) return null;
+
   return (
-    <div className="mt-4 space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {t("hr.me.yourPunchRequests")}
-        </p>
+    <div className="mt-4 space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("hr.me.yourPunchRequests")}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {t("hr.me.yourPunchRequestsShowing", {
+              shown: cards.length,
+              total: allCards.length,
+              defaultValue: "Showing {{shown}} of {{total}}",
+            })}
+            {changeRequiredCount > 0
+              ? ` · ${t("hr.me.yourPunchRequestsNeedChange", {
+                  count: changeRequiredCount,
+                  defaultValue: "{{count}} need a change",
+                })}`
+              : ""}
+          </p>
+        </div>
         <Button
           type="button"
           size="sm"
           variant="outline"
           className="min-h-9"
+          disabled={!cards.length}
           onClick={() => {
             setPrintPayload(
               cards.map((card) => {
@@ -702,166 +743,256 @@ export function MyMissedPunchRequests() {
           {t("hr.missedPunch.print.printAll", { defaultValue: "Print all" })}
         </Button>
       </div>
-      {cards.map((card) => {
-        const row = card.primary;
-        const clocks = correctionCardClocks(card.punchType, row.punchAt, {
-          punchInAt: card.punchInAt,
-          punchOutAt: card.punchOutAt,
-          previousPunchIn: row.previousPunchIn,
-          previousPunchOut: row.previousPunchOut,
-        });
-        const editable = isEditableMissedPunchStatus(row.status) && !card.paired;
-        const editing = editingId === row.id;
-        const displayType = card.punchType ?? row.punchType;
-        const typeLabel = displayType ? punchTypeLabel({ ...row, punchType: displayType }, t) : null;
-        const numberLabel = card.requestNumbers.length
-          ? card.requestNumbers.join(" · ")
-          : row.requestNumber;
-        return (
-          <div key={card.reviewIds.join("-")} className="space-y-2 rounded-xl border border-border/60 px-3 py-2 text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0">
-                {row.workDate ?? "—"}
-                {typeLabel ? ` · ${typeLabel}` : ""}
-                {numberLabel ? (
-                  <span className="ms-1 font-mono text-[11px] text-muted-foreground">{numberLabel}</span>
-                ) : null}
-                <span className="mt-0.5 block text-muted-foreground">
-                  {t("hr.me.punchIn")} {clockText(clocks.punchIn)} · {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
-                </span>
-              </span>
-              <div className="flex shrink-0 flex-col items-end gap-1">
-                {row.status === "rejected" ? (
-                  <span className="font-semibold text-destructive">Reject</span>
-                ) : row.status === "change_required" ? (
-                  <span className="font-semibold text-amber-700 dark:text-amber-300">
-                    {t("hr.me.changeRequired", { defaultValue: "Change required" })}
-                  </span>
-                ) : (
-                  <Badge variant={row.status === "approved" ? "success" : "warning"}>
-                    {row.status === "pending"
-                      ? t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })
-                      : t("hr.me.punchApproved")}
-                  </Badge>
-                )}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="min-h-9"
-                  onClick={() => {
-                    setPrintPayload(
-                      toMissedPunchPrintPayload(
-                        {
-                          ...row,
-                          punchType: displayType,
-                          punchInAt: card.punchInAt,
-                          punchOutAt: card.punchOutAt,
-                          requestNumber: numberLabel,
-                        },
-                        t,
-                      ),
-                    );
-                    setPrintOpen(true);
-                  }}
+
+      <div className="hd-mine-filter grid min-w-0 grid-cols-1 gap-2 overflow-x-clip sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="min-w-0">
+          <Label className="text-xs" htmlFor="mine-punch-from">
+            {t("hr.me.yourPunchRequestsFrom", { defaultValue: "From" })}
+          </Label>
+          <Input
+            id="mine-punch-from"
+            className="mt-1 min-h-11"
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div className="min-w-0">
+          <Label className="text-xs" htmlFor="mine-punch-to">
+            {t("hr.me.yourPunchRequestsTo", { defaultValue: "To" })}
+          </Label>
+          <Input
+            id="mine-punch-to"
+            className="mt-1 min-h-11"
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        <div className="flex items-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="min-h-11"
+            disabled={!dateFrom && !dateTo}
+            onClick={() => {
+              setDateFrom("");
+              setDateTo("");
+            }}
+          >
+            {t("hr.me.yourPunchRequestsClearDates", { defaultValue: "Clear dates" })}
+          </Button>
+        </div>
+      </div>
+
+      {!cards.length ? (
+        <p className="rounded-xl border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
+          {t("hr.me.yourPunchRequestsEmptyRange", {
+            defaultValue: "No punch requests in this date range.",
+          })}
+        </p>
+      ) : (
+        <ul className="hd-approval-list">
+          {cards.map((card) => {
+            const row = card.primary;
+            const clocks = correctionCardClocks(card.punchType, row.punchAt, {
+              punchInAt: card.punchInAt,
+              punchOutAt: card.punchOutAt,
+              previousPunchIn: row.previousPunchIn,
+              previousPunchOut: row.previousPunchOut,
+            });
+            const editable = isEditableMissedPunchStatus(row.status) && !card.paired;
+            const editing = editingId === row.id;
+            const displayType = card.punchType ?? row.punchType;
+            const typeLabel = displayType ? punchTypeLabel({ ...row, punchType: displayType }, t) : null;
+            const numberLabel = card.requestNumbers.length
+              ? card.requestNumbers.join(" · ")
+              : row.requestNumber;
+            const needsChange = row.status === "change_required";
+            return (
+              <li key={card.reviewIds.join("-")}>
+                <article
+                  className={needsChange ? "hd-approval hd-approval--change" : "hd-approval"}
+                  aria-labelledby={`mine-punch-${row.id}-title`}
                 >
-                  {t("hr.missedPunch.print.preview")}
-                </Button>
-                {editable && !editing ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="min-h-9"
-                    onClick={() => {
-                      setEditingId(row.id);
-                      setPunchInTime(punchTimeInputValue(card.punchInAt ?? (row.punchType === "in" ? row.punchAt : null)));
-                      setPunchOutTime(
-                        punchTimeInputValue(card.punchOutAt ?? (row.punchType === "out" ? row.punchAt : null)),
-                      );
-                      setReason(row.reason ?? "");
-                    }}
-                  >
-                    {row.status === "change_required"
-                      ? t("hr.me.updateAndSendAgain", { defaultValue: "Update and send again" })
-                      : t("common.edit")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            {row.status === "change_required" && row.reviewNote ? (
-              <p className="rounded-lg border border-amber-300/60 bg-amber-50/80 px-2.5 py-2 text-xs text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-100">
-                <span className="font-semibold">
-                  {t("hr.me.changeRequiredNoteLabel", { defaultValue: "What to fix:" })}{" "}
-                </span>
-                {row.reviewNote}
-              </p>
-            ) : null}
-            {editing ? (
-              <div className="space-y-2 border-t border-border/50 pt-2">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <Label className="text-xs">{t("hr.me.punchIn")}</Label>
-                    <Input
-                      className="mt-1 min-h-11"
-                      type="time"
-                      value={punchInTime}
-                      onChange={(e) => setPunchInTime(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">{t("hr.me.punchOut")}</Label>
-                    <Input
-                      className="mt-1 min-h-11"
-                      type="time"
-                      value={punchOutTime}
-                      onChange={(e) => setPunchOutTime(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">{t("hr.me.punchReason")}</Label>
-                  <Input
-                    className="mt-1 min-h-11"
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    className="min-h-11"
-                    disabled={(!punchInTime && !punchOutTime) || saveEdit.isPending}
-                    onClick={() =>
-                      saveEdit.mutate({
-                        correctionId: row.id,
-                        punchInTime: punchInTime || null,
-                        punchOutTime: punchOutTime || null,
-                        reason: reason.trim() || undefined,
-                      })
-                    }
-                  >
-                    {row.status === "change_required" ? t("hr.me.sendToSupervisor") : t("hr.me.savePunchEdit")}
-                  </Button>
-                  <Button
-                    type="button"
-                    className="min-h-11"
-                    variant="secondary"
-                    onClick={() => {
-                      setEditingId(null);
-                      setPunchInTime("");
-                      setPunchOutTime("");
-                      setReason("");
-                    }}
-                  >
-                    {t("common.cancel")}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+                  <header className="hd-approval__top">
+                    <div className="min-w-0">
+                      <h4 id={`mine-punch-${row.id}-title`} className="hd-approval__name">
+                        {formatWorkDateDdMmYyyy(row.workDate) || row.workDate || "—"}
+                      </h4>
+                      {numberLabel ? <p className="hd-approval__code">{numberLabel}</p> : null}
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                      {typeLabel ? (
+                        <span className={punchTypeKindClass(displayType)}>{typeLabel}</span>
+                      ) : null}
+                      {row.status === "rejected" ? (
+                        <p className="hd-approval__status hd-approval__status--no">
+                          {t("hr.me.punchRejected")}
+                        </p>
+                      ) : needsChange ? (
+                        <p className="hd-approval__status hd-approval__status--change">
+                          {t("hr.me.changeRequired")}
+                        </p>
+                      ) : row.status === "approved" ? (
+                        <p className="hd-approval__status hd-approval__status--ok">
+                          {t("hr.me.punchApproved")}
+                        </p>
+                      ) : (
+                        <p className="hd-approval__waiting">
+                          {t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })}
+                        </p>
+                      )}
+                    </div>
+                  </header>
+
+                  <dl className="hd-approval__facts">
+                    <div className="hd-approval__fact hd-approval__fact--in">
+                      <dt>{t("hr.me.punchIn")}</dt>
+                      <dd>{clockText(clocks.punchIn)}</dd>
+                    </div>
+                    <div className="hd-approval__fact hd-approval__fact--out">
+                      <dt>{t("hr.me.punchOut")}</dt>
+                      <dd>{clockText(clocks.punchOut)}</dd>
+                    </div>
+                    <div className="hd-approval__fact">
+                      <dt>{t("hr.me.approvalReason")}</dt>
+                      <dd>{row.reason?.trim() || "—"}</dd>
+                    </div>
+                  </dl>
+
+                  {needsChange ? (
+                    <div className="hd-approval__block hd-approval__fix-note">
+                      <p className="hd-approval__label">{t("hr.me.changeRequiredNoteLabel")}</p>
+                      <p className="hd-approval__reason">
+                        {row.reviewNote?.trim() ||
+                          t("hr.me.changeRequiredNoteMissing", {
+                            defaultValue: "Your supervisor asked for a change. Update the times and send again.",
+                          })}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {editing ? (
+                    <div className="space-y-2 border-t border-border/50 pt-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <Label className="text-xs">{t("hr.me.punchIn")}</Label>
+                          <Input
+                            className="mt-1 min-h-11"
+                            type="time"
+                            value={punchInTime}
+                            onChange={(e) => setPunchInTime(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">{t("hr.me.punchOut")}</Label>
+                          <Input
+                            className="mt-1 min-h-11"
+                            type="time"
+                            value={punchOutTime}
+                            onChange={(e) => setPunchOutTime(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs">{t("hr.me.punchReason")}</Label>
+                        <Input
+                          className="mt-1 min-h-11"
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                        />
+                      </div>
+                      <div className="hd-approval__actions">
+                        <Button
+                          type="button"
+                          className="min-h-11"
+                          disabled={(!punchInTime && !punchOutTime) || saveEdit.isPending}
+                          onClick={() =>
+                            saveEdit.mutate({
+                              correctionId: row.id,
+                              punchInTime: punchInTime || null,
+                              punchOutTime: punchOutTime || null,
+                              reason: reason.trim() || undefined,
+                            })
+                          }
+                        >
+                          {needsChange ? t("hr.me.sendToSupervisor") : t("hr.me.savePunchEdit")}
+                        </Button>
+                        <Button
+                          type="button"
+                          className="min-h-11"
+                          variant="secondary"
+                          onClick={() => {
+                            setEditingId(null);
+                            setPunchInTime("");
+                            setPunchOutTime("");
+                            setReason("");
+                          }}
+                        >
+                          {t("common.cancel")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
+                      {editable ? (
+                        <Button
+                          type="button"
+                          className="min-h-11"
+                          variant={needsChange ? "default" : "outline"}
+                          onClick={() => {
+                            setEditingId(row.id);
+                            setPunchInTime(
+                              punchTimeInputValue(
+                                card.punchInAt ?? (row.punchType === "in" ? row.punchAt : null),
+                              ),
+                            );
+                            setPunchOutTime(
+                              punchTimeInputValue(
+                                card.punchOutAt ?? (row.punchType === "out" ? row.punchAt : null),
+                              ),
+                            );
+                            setReason(row.reason ?? "");
+                          }}
+                        >
+                          {needsChange ? t("hr.me.updateAndSendAgain") : t("common.edit")}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="min-h-11"
+                        onClick={() => {
+                          setPrintPayload(
+                            toMissedPunchPrintPayload(
+                              {
+                                ...row,
+                                punchType: displayType,
+                                punchInAt: card.punchInAt,
+                                punchOutAt: card.punchOutAt,
+                                requestNumber: numberLabel,
+                              },
+                              t,
+                            ),
+                          );
+                          setPrintOpen(true);
+                        }}
+                      >
+                        {t("hr.missedPunch.print.preview")}
+                      </Button>
+                    </div>
+                  )}
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       <MissedPunchPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
     </div>
   );

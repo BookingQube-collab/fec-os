@@ -1,4 +1,4 @@
-{
+﻿{
   "app": {
     "name": "FEC-OS",
     "tagline": "Family Entertainment Center — Operations Command Center"
@@ -13094,6 +13094,13 @@
       "punchRejected": "Rejected",
       "punchApproved": "Approved",
       "yourPunchRequests": "Your punch requests",
+      "yourPunchRequestsFrom": "From",
+      "yourPunchRequestsTo": "To",
+      "yourPunchRequestsClearDates": "Clear dates",
+      "yourPunchRequestsShowing": "Showing {{shown}} of {{total}}",
+      "yourPunchRequestsNeedChange": "{{count}} need a change",
+      "yourPunchRequestsEmptyRange": "No punch requests in this date range.",
+      "changeRequiredNoteMissing": "Your supervisor asked for a change. Update the times and send again.",
       "punchEditSaved": "Punch correction updated.",
       "savedNoSupervisor": "Request saved. No site supervisor login is linked for this location yet.",
       "sentToSupervisor": "Missed punch request sent to your site supervisor",

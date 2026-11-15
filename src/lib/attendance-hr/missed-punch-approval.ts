@@ -30,7 +30,7 @@ export type { OpsApprovalLane };
 export const NOTIFICATIONS_INBOX_HREF = "/notifications";
 /** My Day Correction → Approve (toast / inbox click for approvers). */
 export const ME_PUNCH_APPROVALS_HREF = "/hr/me#me-punch-approvals";
-/** My Day Correction tab (also opens Approve when that job is available). */
+/** My Day Correction → Request (requester outcomes: change required / reject / approved). */
 export const ME_CORRECTION_HREF = "/hr/me#me-correction";
 /**
  * Retired Time & Attendance Corrections desk.
@@ -38,18 +38,23 @@ export const ME_CORRECTION_HREF = "/hr/me#me-correction";
  */
 export const PEOPLE_CORRECTIONS_HREF = "/people/attendance/corrections";
 
+/**
+ * Persisted notifies for the person who submitted (change required / rejected / approved).
+ * Distinct from seat-holder `attendance_corrections` so inbox rewrite never sends them to Approve.
+ */
+export const MISSED_PUNCH_OUTCOME_NOTICE_SOURCE = "attendance_corrections_outcome";
+
+/** Only truly retired / generic targets — never rewrite `#me-correction` requester outcomes. */
 const STALE_APPROVER_PUNCH_INBOX_HREFS = new Set([
   NOTIFICATIONS_INBOX_HREF,
-  ME_CORRECTION_HREF,
   PEOPLE_CORRECTIONS_HREF,
-  "#me-correction",
   "#me-punch-approvals",
 ]);
 
 /**
- * Everyone opens My Day Approve for punch-correction inbox actions.
- * Rewrites older persisted notifies that still point at All notifications, the Correction
- * tab hash, or the retired People corrections desk.
+ * Resolve inbox click targets for punch-correction notifies.
+ * Approver seat notifies use {@link ME_PUNCH_APPROVALS_HREF}; requester outcomes keep
+ * {@link ME_CORRECTION_HREF}. Rewrites only All-notifications and the retired People desk.
  */
 export function punchApprovalInboxActionUrl(input: {
   roles: readonly string[];
@@ -57,8 +62,13 @@ export function punchApprovalInboxActionUrl(input: {
   sourceType?: string | null;
 }): string {
   void input.roles;
-  void input.sourceType;
   const stored = input.storedUrl?.trim() || null;
+  if (stored === ME_CORRECTION_HREF || stored === "#me-correction") {
+    return ME_CORRECTION_HREF;
+  }
+  if (input.sourceType === MISSED_PUNCH_OUTCOME_NOTICE_SOURCE) {
+    return stored && !STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored) ? stored : ME_CORRECTION_HREF;
+  }
   if (!stored || STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored)) {
     return ME_PUNCH_APPROVALS_HREF;
   }

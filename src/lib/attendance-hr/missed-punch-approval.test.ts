@@ -121,23 +121,16 @@ function row(partial?: Partial<CorrectionApprovalView>): CorrectionApprovalView 
 }
 
 describe("punchApprovalInboxActionUrl", () => {
-  it("sends every role to My Day Approve", () => {
+  it("sends every role to My Day Approve when no stored URL", () => {
     expect(punchApprovalInboxActionUrl({ roles: ["regional_ops"] })).toBe(ME_PUNCH_APPROVALS_HREF);
     expect(punchApprovalInboxActionUrl({ roles: ["ceo"] })).toBe(ME_PUNCH_APPROVALS_HREF);
   });
 
-  it("rewrites All-notifications / Correction-tab / People-desk notifies to My Day Approve", () => {
+  it("rewrites All-notifications and People-desk notifies to My Day Approve", () => {
     expect(
       punchApprovalInboxActionUrl({
         roles: ["regional_ops"],
         storedUrl: NOTIFICATIONS_INBOX_HREF,
-        sourceType: "attendance_corrections",
-      }),
-    ).toBe(ME_PUNCH_APPROVALS_HREF);
-    expect(
-      punchApprovalInboxActionUrl({
-        roles: ["regional_ops"],
-        storedUrl: ME_CORRECTION_HREF,
         sourceType: "attendance_corrections",
       }),
     ).toBe(ME_PUNCH_APPROVALS_HREF);
@@ -155,6 +148,30 @@ describe("punchApprovalInboxActionUrl", () => {
         sourceType: "attendance_corrections",
       }),
     ).toBe(ME_PUNCH_APPROVALS_HREF);
+  });
+
+  it("keeps Request-tab href for requester change-required / outcome notifies", () => {
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["cashier_host"],
+        storedUrl: ME_CORRECTION_HREF,
+        sourceType: "attendance_corrections_outcome",
+      }),
+    ).toBe(ME_CORRECTION_HREF);
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["regional_ops"],
+        storedUrl: ME_CORRECTION_HREF,
+        sourceType: "attendance_corrections",
+      }),
+    ).toBe(ME_CORRECTION_HREF);
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["cashier_host"],
+        storedUrl: "#me-correction",
+        sourceType: "attendance_corrections_outcome",
+      }),
+    ).toBe(ME_CORRECTION_HREF);
   });
 
   it("rewrites legacy People-desk outcome hrefs and keeps other My Day targets", () => {

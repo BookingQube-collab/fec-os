@@ -35,6 +35,7 @@ import {
   missedPunchSubmitterAutoCompletesManagerSeat,
   ME_CORRECTION_HREF,
   ME_PUNCH_APPROVALS_HREF,
+  MISSED_PUNCH_OUTCOME_NOTICE_SOURCE,
   nearestSiteSupervisorUserId,
   siteApproverLocationMap,
   missedPunchCopiesExecutives,
@@ -1167,6 +1168,8 @@ const APPROVER_NOTICE_SOURCE = "attendance_corrections";
  * so dismissing executive copies never wipes the seat-holder's actionable notify.
  */
 const EXECUTIVE_NOTICE_SOURCE = "attendance_corrections_executive";
+/** Requester outcomes (change required / rejected / approved). */
+const OUTCOME_NOTICE_SOURCE = MISSED_PUNCH_OUTCOME_NOTICE_SOURCE;
 
 async function loadCeoUserIds(): Promise<string[]> {
   const { data, error } = await supabaseAdmin.from("user_roles").select("user_id").eq("role", "ceo");
@@ -1179,7 +1182,7 @@ async function loadCeoUserIds(): Promise<string[]> {
 
 async function dismissMissedPunchNotices(
   correctionId: string,
-  sources: readonly string[] = [APPROVER_NOTICE_SOURCE, EXECUTIVE_NOTICE_SOURCE],
+  sources: readonly string[] = [APPROVER_NOTICE_SOURCE, EXECUTIVE_NOTICE_SOURCE, OUTCOME_NOTICE_SOURCE],
 ) {
   const now = new Date().toISOString();
   for (const sourceType of sources) {
@@ -1224,6 +1227,32 @@ async function notifyApprovers(args: {
     });
   } catch (error) {
     console.warn("[missed-punch] notify failed", error instanceof Error ? error.message : error);
+  }
+}
+
+/** Notify the submitter that their request was approved, rejected, or sent back for changes. */
+async function notifyRequesterOutcome(args: {
+  userId: string;
+  locationId: string;
+  title: string;
+  body: string;
+  sourceId: string;
+  severity?: "info" | "warning" | "critical";
+}) {
+  try {
+    await notifyUsers({
+      userIds: [args.userId],
+      locationId: args.locationId,
+      category: "people",
+      title: args.title,
+      body: args.body,
+      severity: args.severity ?? "warning",
+      actionUrl: ME_CORRECTION_HREF,
+      sourceType: OUTCOME_NOTICE_SOURCE,
+      sourceId: args.sourceId,
+    });
+  } catch (error) {
+    console.warn("[missed-punch] requester outcome notify failed", error instanceof Error ? error.message : error);
   }
 }
 
@@ -2134,15 +2163,15 @@ async function reviewOneMissedPunchChain(args: {
     await dismissExecutiveMissedPunchNotices(row.id);
     const when = row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : "";
     const noteSuffix = note ? ` Reason: ${note}` : "";
-    await notifyApprovers({
-      userIds: [String(row.requested_by)],
+    await notifyRequesterOutcome({
+      userId: String(row.requested_by),
       locationId: String(row.location_id),
       title: sendingBack ? "Missed punch change required" : "Missed punch request rejected",
       body: sendingBack
         ? `Your missed punch request${when} needs a change. Update it and send it again.${noteSuffix}`
         : `Your missed punch request${when} was rejected.${noteSuffix}`,
       sourceId: row.id,
-      actionUrl: ME_CORRECTION_HREF,
+      severity: sendingBack ? "warning" : "critical",
     });
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
   }
@@ -2186,13 +2215,13 @@ async function reviewOneMissedPunchChain(args: {
     if (String(row.kind) !== "add_punch") await args.applyFinal(row);
     else if (!shouldWritePunch) await writeCorrectionPunch(row);
     await dismissExecutiveMissedPunchNotices(row.id);
-    await notifyApprovers({
-      userIds: [String(row.requested_by)],
+    await notifyRequesterOutcome({
+      userId: String(row.requested_by),
       locationId: String(row.location_id),
       title: "Missed punch request approved",
       body: `Your missed punch request${row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : ""} was approved.`,
       sourceId: row.id,
-      actionUrl: ME_CORRECTION_HREF,
+      severity: "info",
     });
     const { data: person } = row.staff_id
       ? await supabaseAdmin.from("staff").select("full_name").eq("id", row.staff_id).maybeSingle()
@@ -2399,6 +2428,8 @@ export async function resubmitMissedPunchRequest(args: {
   });
 
   if (wasChangeRequired) {
+    // Clear the "change required" inbox item before re-notifying the next approver seat.
+    await dismissMissedPunchNotices(args.correctionId, [OUTCOME_NOTICE_SOURCE]);
     const waitingOnResubmit = correctionWaitingStep(route);
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from("attendance_corrections")
