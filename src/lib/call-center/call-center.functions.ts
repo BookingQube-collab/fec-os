@@ -113,6 +113,7 @@ import { checkCarrierSetup, resolveLiveKitServerCredentials } from "./livekit-si
 import { toPublicSettings } from "./settings-public";
 import {
   looksLikeSipHostNotId,
+  recoverMisplacedOutboundSipHost,
   sipHostMistakenForIdMessage,
 } from "./sip-ids";
 import type { CallCenterQaCriterion, CallCenterReportSchedule } from "./types";
@@ -162,10 +163,36 @@ export const loadCallCenterAdminBundle = createSafeAuthenticatedAction(
   { auth: ADMIN_AUTH },
 );
 
-/** Read-only Telnyx / LiveKit SIP readiness check (trunk + dispatch rule lookups). */
+/** Telnyx / LiveKit SIP readiness check (trunk + dispatch rule lookups). */
 export const checkCallCenterCarrier = createSafeAuthenticatedAction(
   z.object({}),
-  async () => ({ checks: await checkCarrierSetup(await loadSettingsRow()) }),
+  async (_data, context) => {
+    let settings = await loadSettingsRow();
+    let sipHostRecovered = false;
+    if (settings) {
+      const fixed = recoverMisplacedOutboundSipHost({
+        outboundTrunkId: settings.livekit_sip_trunk_id ?? "",
+        sipUri: settings.telnyx_sip_uri ?? "",
+      });
+      if (fixed.recovered) {
+        sipHostRecovered = true;
+        settings = await saveSettingsRow(
+          {
+            ...settings,
+            livekit_sip_trunk_id: fixed.outboundTrunkId,
+            telnyx_sip_uri: normalizeSipUriHost(fixed.sipUri),
+          },
+          context.userId,
+        );
+      }
+    }
+    const provider = await getCallProvider();
+    return {
+      checks: await checkCarrierSetup(settings),
+      sipHostRecovered,
+      settings: toPublicSettings(settings, provider.name === "livekit"),
+    };
+  },
   { auth: ADMIN_AUTH },
 );
 
@@ -224,7 +251,12 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
-    if (looksLikeSipHostNotId(data.livekitSipTrunkId)) {
+    // Pasted LiveKit SIP host into outbound trunk id → move into SIP URI; never accept host as ST_…
+    const recoveredOutbound = recoverMisplacedOutboundSipHost({
+      outboundTrunkId: data.livekitSipTrunkId,
+      sipUri: data.telnyxSipUri,
+    });
+    if (looksLikeSipHostNotId(recoveredOutbound.outboundTrunkId)) {
       throw new Error(sipHostMistakenForIdMessage("outbound_trunk"));
     }
     const inboundTrunkIncoming = data.livekitSipInboundTrunkId?.trim() ?? "";
@@ -242,14 +274,14 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         business_hours_json: data.businessHoursJson ?? existing?.business_hours_json ?? {},
         timezone: data.timezone || "Asia/Qatar",
         default_queue_id: data.defaultQueueId ?? existing?.default_queue_id ?? null,
-        telnyx_sip_uri: normalizeSipUriHost(data.telnyxSipUri),
+        telnyx_sip_uri: normalizeSipUriHost(recoveredOutbound.sipUri),
         telnyx_connection_id: data.telnyxConnectionId,
         telnyx_api_key: keepSecret(existing?.telnyx_api_key ?? "", data.telnyxApiKey),
         telnyx_webhook_secret: keepSecret(
           existing?.telnyx_webhook_secret ?? "",
           data.telnyxWebhookSecret,
         ),
-        livekit_sip_trunk_id: data.livekitSipTrunkId.trim(),
+        livekit_sip_trunk_id: recoveredOutbound.outboundTrunkId.trim(),
         livekit_sip_inbound_trunk_id:
           data.livekitSipInboundTrunkId?.trim() ?? existing?.livekit_sip_inbound_trunk_id ?? "",
         livekit_sip_dispatch_rule_id: data.livekitSipDispatchRuleId.trim(),

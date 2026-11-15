@@ -1120,6 +1120,19 @@ export function simulateDigitPath(
   };
 }
 
+/** Approximate rendered height so auto-layout does not stack tall menu nodes on top of each other. */
+function estimateIvrNodeHeight(node: IvrFlowNode): number {
+  if (node.type === "menu") {
+    const digitCount = node.data.digits?.length ?? 2;
+    // Canvas shows at most 4 digit rows + a "+N more" line when collapsed.
+    const visibleRows = Math.min(digitCount, 4);
+    const overflowLine = digitCount > 4 ? 22 : 0;
+    return 86 + visibleRows * 32 + overflowLine;
+  }
+  if (node.type === "hours") return 118;
+  return 96;
+}
+
 export function autoLayoutFlow(flow: IvrFlowJson): IvrFlowJson {
   const start = findStartNode(flow);
   if (!start) return flow;
@@ -1141,15 +1154,25 @@ export function autoLayoutFlow(flow: IvrFlowJson): IvrFlowJson {
     list.push(id);
     byLevel.set(level, list);
   }
+
+  const COL_WIDTH = 340;
+  const ROW_GAP = 40;
+  const nodeById = new Map(flow.nodes.map((n) => [n.id, n]));
+  const positions = new Map<string, { x: number; y: number }>();
+
+  for (const [level, ids] of [...byLevel.entries()].sort((a, b) => a[0] - b[0])) {
+    let y = 48;
+    for (const id of ids) {
+      positions.set(id, { x: 64 + level * COL_WIDTH, y });
+      const node = nodeById.get(id);
+      y += (node ? estimateIvrNodeHeight(node) : 96) + ROW_GAP;
+    }
+  }
+
   const nodes = flow.nodes.map((n) => {
-    const level = levels.get(n.id);
-    if (level == null) return n;
-    const siblings = byLevel.get(level) ?? [n.id];
-    const index = siblings.indexOf(n.id);
-    return {
-      ...n,
-      position: { x: 80 + level * 280, y: 60 + index * 130 },
-    };
+    const position = positions.get(n.id);
+    if (!position) return n;
+    return { ...n, position };
   });
   return { ...flow, nodes };
 }

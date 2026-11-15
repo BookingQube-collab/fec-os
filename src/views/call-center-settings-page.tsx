@@ -29,7 +29,7 @@ import {
   saveCallCenterSettings,
   saveCallCenterWebhookEndpoint,
 } from "@/lib/call-center/call-center.functions";
-import { looksLikeSipHostNotId } from "@/lib/call-center/sip-ids";
+import { recoverMisplacedOutboundSipHost } from "@/lib/call-center/sip-ids";
 import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
@@ -126,9 +126,13 @@ function CallCenterSettingsPage() {
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
-    setTelnyxSipUri(s.telnyxSipUri);
+    const recovered = recoverMisplacedOutboundSipHost({
+      outboundTrunkId: s.livekitSipTrunkId,
+      sipUri: s.telnyxSipUri,
+    });
+    setTelnyxSipUri(recovered.sipUri);
     setTelnyxConnectionId(s.telnyxConnectionId);
-    setLivekitSipTrunkId(s.livekitSipTrunkId);
+    setLivekitSipTrunkId(recovered.outboundTrunkId);
     setLivekitSipInboundTrunkId(s.livekitSipInboundTrunkId);
     setLivekitSipDispatchRuleId(s.livekitSipDispatchRuleId);
     setInboundMode(s.inboundMode);
@@ -150,18 +154,39 @@ function CallCenterSettingsPage() {
       };
     }
     setHours(next);
+    return recovered;
+  }
+
+  /** Move a pasted SIP host out of outbound trunk id into Telnyx / SIP URI when appropriate. */
+  function recoverOutboundTrunkHostFromForm(options?: { toastOnRecover?: boolean }) {
+    const recovered = recoverMisplacedOutboundSipHost({
+      outboundTrunkId: livekitSipTrunkId,
+      sipUri: telnyxSipUri,
+    });
+    if (recovered.recovered) {
+      setLivekitSipTrunkId(recovered.outboundTrunkId);
+      setTelnyxSipUri(recovered.sipUri);
+      if (options?.toastOnRecover !== false) {
+        toast.message(t("callCenter.carrierTrunkHostMoved"));
+      }
+    }
+    return recovered;
   }
 
   useEffect(() => {
     if (!bundle.data || hydrated) return;
-    applyPublicSettings(bundle.data.settings);
+    const recovered = applyPublicSettings(bundle.data.settings);
     setHydrated(true);
+    if (recovered.recovered) {
+      toast.message(t("callCenter.carrierTrunkHostMoved"));
+    }
   }, [bundle.data, hydrated]);
 
   async function runCarrierCheck() {
-    // Check reads last-saved settings — warn if the form still has a SIP host in the trunk id field.
-    if (looksLikeSipHostNotId(livekitSipTrunkId)) {
-      toast.error(t("callCenter.carrierTrunkLooksLikeHost"));
+    // Recover a misplaced SIP host in the form first (check also repairs saved settings).
+    const recovered = recoverOutboundTrunkHostFromForm();
+    if (recovered.recovered) {
+      // Still need ST_… before a meaningful check; toast already shown.
       return;
     }
     setCheckingCarrier(true);
@@ -171,10 +196,18 @@ function CallCenterSettingsPage() {
       toast.error(result.error);
       return;
     }
+    if (result.data.sipHostRecovered) {
+      applyPublicSettings(result.data.settings);
+      toast.message(t("callCenter.carrierTrunkHostMoved"));
+      queryClient.setQueryData(["call-center", "config"], (prev) =>
+        prev ? { ...prev, settings: result.data.settings } : prev,
+      );
+    }
     setCarrierChecks(result.data.checks);
   }
 
   async function save() {
+    const recovered = recoverOutboundTrunkHostFromForm();
     setSaving(true);
     const result = await saveCallCenterSettings({
       enabled,
@@ -183,11 +216,11 @@ function CallCenterSettingsPage() {
       businessHoursJson: hours,
       timezone,
       defaultQueueId: defaultQueueId || null,
-      telnyxSipUri,
+      telnyxSipUri: recovered.sipUri,
       telnyxConnectionId,
       telnyxApiKey,
       telnyxWebhookSecret,
-      livekitSipTrunkId,
+      livekitSipTrunkId: recovered.outboundTrunkId,
       livekitSipInboundTrunkId,
       livekitSipDispatchRuleId,
       inboundMode,
@@ -635,6 +668,9 @@ function CallCenterSettingsPage() {
                 value={livekitSipTrunkId}
                 placeholder="ST_xxxxxxxxxxxx"
                 onChange={(e) => setLivekitSipTrunkId(e.target.value)}
+                onBlur={() => {
+                  recoverOutboundTrunkHostFromForm();
+                }}
                 autoComplete="off"
                 spellCheck={false}
               />

@@ -311,7 +311,7 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
       ? qatarDid.startsWith("+974")
         ? `Qatar DID ${qatarDid} recorded.`
         : `DID ${qatarDid} does not look like +974…`
-      : "Qatar DID not set (optional reminder). Map the number under Numbers after purchase/port.",
+      : "Qatar DID not set (optional reminder). Map it under Call Center → Numbers after purchase/port.",
   });
 
   const inboundTrunkId = settings?.livekit_sip_inbound_trunk_id?.trim() ?? "";
@@ -321,8 +321,8 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
       ok: inboundMode !== "telnyx_sip_trunk",
       detail:
         inboundMode === "telnyx_sip_trunk"
-          ? "Inbound trunk id not set (required for Telnyx SIP → LiveKit)."
-          : "Inbound trunk id not set (optional when using Call Control bridge).",
+          ? "Inbound trunk id not set (required for Telnyx SIP → LiveKit). LiveKit Cloud → Telephony → SIP trunks → Inbound → copy ST_… (not SIP host)."
+          : "Inbound trunk id not set (optional when using Call Control bridge). If needed: LiveKit Cloud → Telephony → SIP trunks → Inbound → copy ST_….",
     });
   } else if (looksLikeSipHostNotId(inboundTrunkId)) {
     checks.push({
@@ -352,7 +352,12 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
 
   const trunkId = settings?.livekit_sip_trunk_id?.trim() ?? "";
   if (!trunkId) {
-    checks.push({ key: "outbound_trunk", ok: false, detail: "Outbound trunk id not set (needed for dial-out)." });
+    checks.push({
+      key: "outbound_trunk",
+      ok: false,
+      detail:
+        "Outbound trunk id not set (needed for dial-out). LiveKit Cloud → Telephony → SIP trunks → Outbound → copy ST_… (not SIP host).",
+    });
   } else if (looksLikeSipHostNotId(trunkId)) {
     checks.push({
       key: "outbound_trunk",

@@ -2316,6 +2316,7 @@
     "carrierChecking": "Checking…",
     "carrierCheckSaveFirst": "Save settings before checking — the check uses the last saved values.",
     "carrierTrunkLooksLikeHost": "Outbound trunk id looks like a SIP host. Put the host in Telnyx / SIP URI and paste ST_… from LiveKit → Outbound trunks.",
+    "carrierTrunkHostMoved": "Moved that SIP host into Telnyx / SIP URI. You still need the Outbound trunk id (ST_…) from LiveKit → Telephony → SIP trunks → Outbound — then Save and Check carrier setup.",
 
     "callEndedRemote": "The call ended.",
     "callFailedRemote": "The call could not be completed.",

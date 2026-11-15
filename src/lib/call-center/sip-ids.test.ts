@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  extractSipHostCandidate,
   isLiveKitDispatchRuleIdShape,
   isLiveKitTrunkIdShape,
   looksLikeSipHostNotId,
+  recoverMisplacedOutboundSipHost,
 } from "./sip-ids";
 
 describe("looksLikeSipHostNotId", () => {
@@ -26,5 +28,70 @@ describe("LiveKit id shapes", () => {
     expect(isLiveKitTrunkIdShape("k4xpylvcnur.sip.livekit.cloud")).toBe(false);
     expect(isLiveKitDispatchRuleIdShape("SDR_abc123")).toBe(true);
     expect(isLiveKitDispatchRuleIdShape("ST_abc123")).toBe(false);
+  });
+});
+
+describe("extractSipHostCandidate", () => {
+  it("strips schemes and paths", () => {
+    expect(extractSipHostCandidate("sip:k4xpylvcnur.sip.livekit.cloud")).toBe(
+      "k4xpylvcnur.sip.livekit.cloud",
+    );
+    expect(extractSipHostCandidate("room@k4xpylvcnur.sip.livekit.cloud")).toBe(
+      "k4xpylvcnur.sip.livekit.cloud",
+    );
+  });
+});
+
+describe("recoverMisplacedOutboundSipHost", () => {
+  it("moves a SIP host into an empty SIP URI field and clears trunk id", () => {
+    expect(
+      recoverMisplacedOutboundSipHost({
+        outboundTrunkId: "k4xpylvcnur.sip.livekit.cloud",
+        sipUri: "",
+      }),
+    ).toEqual({
+      outboundTrunkId: "",
+      sipUri: "k4xpylvcnur.sip.livekit.cloud",
+      recovered: true,
+    });
+  });
+
+  it("clears trunk id when SIP URI already has the same host", () => {
+    expect(
+      recoverMisplacedOutboundSipHost({
+        outboundTrunkId: "sip:k4xpylvcnur.sip.livekit.cloud",
+        sipUri: "k4xpylvcnur.sip.livekit.cloud",
+      }),
+    ).toEqual({
+      outboundTrunkId: "",
+      sipUri: "k4xpylvcnur.sip.livekit.cloud",
+      recovered: true,
+    });
+  });
+
+  it("clears trunk id without overwriting a different SIP URI host", () => {
+    expect(
+      recoverMisplacedOutboundSipHost({
+        outboundTrunkId: "k4xpylvcnur.sip.livekit.cloud",
+        sipUri: "other.sip.livekit.cloud",
+      }),
+    ).toEqual({
+      outboundTrunkId: "",
+      sipUri: "other.sip.livekit.cloud",
+      recovered: true,
+    });
+  });
+
+  it("leaves a real ST_ trunk id alone", () => {
+    expect(
+      recoverMisplacedOutboundSipHost({
+        outboundTrunkId: "ST_abc123XYZ",
+        sipUri: "k4xpylvcnur.sip.livekit.cloud",
+      }),
+    ).toEqual({
+      outboundTrunkId: "ST_abc123XYZ",
+      sipUri: "k4xpylvcnur.sip.livekit.cloud",
+      recovered: false,
+    });
   });
 });
