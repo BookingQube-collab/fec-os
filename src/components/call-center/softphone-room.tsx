@@ -53,6 +53,7 @@ export function CallCenterSoftphoneRoom({
   transferTargets = [],
   compact = false,
   micMuted = false,
+  speakerMuted = false,
   onMicMutedChange,
   onHangup,
   onHoldToggle,
@@ -68,6 +69,7 @@ export function CallCenterSoftphoneRoom({
   transferTargets?: CallCenterTransferTarget[];
   compact?: boolean;
   micMuted?: boolean;
+  speakerMuted?: boolean;
   onMicMutedChange?: (muted: boolean) => void;
   onHangup: () => void;
   onHoldToggle: () => void;
@@ -78,8 +80,10 @@ export function CallCenterSoftphoneRoom({
   const { t } = useTranslation();
   const audioRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef<Room | null>(null);
+  const attachedRef = useRef<Set<HTMLMediaElement>>(new Set());
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Disconnected);
   const [failed, setFailed] = useState(false);
+  const [remoteAudio, setRemoteAudio] = useState(false);
   const [micOn, setMicOn] = useState(!micMuted);
   const [showPad, setShowPad] = useState(!compact);
   const [showTransfer, setShowTransfer] = useState(false);
@@ -104,21 +108,42 @@ export function CallCenterSoftphoneRoom({
   }, [answeredAt]);
 
   useEffect(() => {
+    for (const element of attachedRef.current) {
+      element.muted = speakerMuted;
+      if (!speakerMuted) void ensureRemoteAudioPlays(element);
+    }
+  }, [speakerMuted]);
+
+  useEffect(() => {
     if (!isLiveKitAccessToken(token) || !serverUrl.startsWith("wss://")) return;
     const room = new Room({
       audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+      adaptiveStream: true,
     });
     roomRef.current = room;
-    const attached = new Set<HTMLMediaElement>();
+    const attached = attachedRef.current;
+    attached.clear();
     let cancelled = false;
+
+    const refreshRemoteAudio = () => {
+      let hasAudio = false;
+      room.remoteParticipants.forEach((participant) => {
+        participant.audioTrackPublications.forEach((publication) => {
+          if (publication.track && !publication.isMuted) hasAudio = true;
+        });
+      });
+      setRemoteAudio(hasAudio);
+    };
 
     const mountRemoteAudio = (track: Track) => {
       if (track.kind !== Track.Kind.Audio) return;
       const element = track.attach();
       element.className = "sr-only";
+      element.muted = speakerMuted;
       attached.add(element);
       audioRef.current?.appendChild(element);
       void ensureRemoteAudioPlays(element);
+      refreshRemoteAudio();
     };
 
     const attachExistingRemotes = () => {
@@ -127,12 +152,21 @@ export function CallCenterSoftphoneRoom({
           if (publication.track) mountRemoteAudio(publication.track);
         });
       });
+      refreshRemoteAudio();
     };
 
-    const refresh = () => setConnection(room.state);
+    const refresh = () => {
+      setConnection(room.state);
+      refreshRemoteAudio();
+    };
 
     room.on(RoomEvent.ConnectionStateChanged, refresh);
+    room.on(RoomEvent.ParticipantConnected, refresh);
+    room.on(RoomEvent.ParticipantDisconnected, refresh);
     room.on(RoomEvent.TrackSubscribed, (track) => mountRemoteAudio(track));
+    room.on(RoomEvent.TrackUnsubscribed, refreshRemoteAudio);
+    room.on(RoomEvent.TrackMuted, refreshRemoteAudio);
+    room.on(RoomEvent.TrackUnmuted, refreshRemoteAudio);
     room.on(RoomEvent.Disconnected, refresh);
 
     void (async () => {
@@ -141,7 +175,7 @@ export function CallCenterSoftphoneRoom({
         await room.connect(serverUrl, token);
         if (cancelled) return;
         attachExistingRemotes();
-        await room.localParticipant.setMicrophoneEnabled(true);
+        await room.localParticipant.setMicrophoneEnabled(!micMuted);
         if (!cancelled) refresh();
       } catch {
         if (!cancelled) {
@@ -163,7 +197,10 @@ export function CallCenterSoftphoneRoom({
       });
       void room.disconnect(true);
       roomRef.current = null;
+      setRemoteAudio(false);
     };
+    // speakerMuted / micMuted applied via separate effects; reconnect only on media session change
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- token/serverUrl define the session
   }, [serverUrl, token]);
 
   useEffect(() => {
@@ -195,6 +232,17 @@ export function CallCenterSoftphoneRoom({
 
   const connected = connection === ConnectionState.Connected;
   const mediaReady = isLiveKitAccessToken(token) && serverUrl.startsWith("wss://");
+  const statusLabel = !mediaReady
+    ? t("callCenter.mediaNotConfigured")
+    : failed
+      ? t("callCenter.mediaFailed")
+      : held
+        ? t("callCenter.onHold")
+        : connected
+          ? remoteAudio
+            ? t("callCenter.connected")
+            : t("callCenter.waitingCallerAudio")
+          : t("callCenter.connecting");
 
   return (
     <section
@@ -214,17 +262,7 @@ export function CallCenterSoftphoneRoom({
           <p className="mt-1 truncate text-xl font-semibold tracking-tight sm:text-2xl">
             {callerLabel || t("callCenter.unknownCaller")}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {!mediaReady
-              ? t("callCenter.mediaNotConfigured")
-              : failed
-                ? t("callCenter.mediaFailed")
-                : held
-                  ? t("callCenter.onHold")
-                  : connected
-                    ? t("callCenter.connected")
-                    : t("callCenter.connecting")}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{statusLabel}</p>
         </div>
         <p className="font-mono text-3xl tabular-nums tracking-wide text-foreground sm:text-4xl">
           {formatElapsed(elapsed)}

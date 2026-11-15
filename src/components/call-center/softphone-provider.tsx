@@ -845,6 +845,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
             }
             transferTargets={transferTargets}
             micMuted={micMuted}
+            speakerMuted={speakerMuted}
             onMicMutedChange={setMicMuted}
             compact
             onHangup={() => void onHangup()}

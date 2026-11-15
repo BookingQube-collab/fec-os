@@ -231,11 +231,16 @@ export function createTelnyxClient(apiKey: string) {
     transfer: (
       id: string,
       to: string,
-      options: { headers?: Array<{ name: string; value: string }>; clientState?: Record<string, unknown> } = {},
+      options: {
+        from?: string;
+        headers?: Array<{ name: string; value: string }>;
+        clientState?: Record<string, unknown>;
+      } = {},
     ) =>
       action(id, "transfer", {
         to,
         timeout_secs: 30,
+        ...(options.from ? { from: options.from } : {}),
         ...(options.headers?.length ? { custom_headers: options.headers } : {}),
         ...(options.clientState ? { client_state: encodeClientState(options.clientState) } : {}),
       }),

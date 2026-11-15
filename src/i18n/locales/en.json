@@ -2038,6 +2038,7 @@
     "mediaFailed": "Could not connect to LiveKit.",
     "onHold": "On hold (best-effort)",
     "connected": "Connected",
+    "waitingCallerAudio": "Connected — waiting for caller audio…",
     "connecting": "Connecting…",
     "mute": "Mute",
     "unmute": "Unmute",

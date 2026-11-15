@@ -19,6 +19,7 @@ import {
   deleteLiveKitRoom,
   dialOutboundSip,
   dispatchLiveKitAgent,
+  waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
 import { createTelnyxClient, resolveTelnyxApiKey, type TelnyxClient, type TelnyxEvent } from "./telnyx";
@@ -601,8 +602,15 @@ export async function bridgeCallerToLiveKit(
   } catch {
     // nothing was playing
   }
+
+  const from =
+    settings?.outbound_caller_id_e164?.trim() ||
+    (call.toE164?.startsWith("+") ? call.toE164 : "") ||
+    undefined;
+
   try {
     await telnyx.transfer(call.providerCallId, uri, {
+      from,
       headers: [{ name: "X-FEC-Call-Id", value: call.id }],
       clientState: { step: "bridge", callId: call.id },
     });
@@ -613,6 +621,25 @@ export async function bridgeCallerToLiveKit(
     throw new Error(`Could not connect the caller: ${e instanceof Error ? e.message : "carrier error"}`);
   }
   await patchMeta(call.id, { bridgedAt: new Date().toISOString(), bridgeSipUri: uri });
+
+  // Telnyx transfer returning 200 only means the INVITE was started. Dead air happens when
+  // LiveKit rejects it (e.g. inbound trunk numbers locked to the DID instead of wildcard).
+  const sipIdentity = await waitForSipParticipantInRoom(roomName, 12_000);
+  if (!sipIdentity) {
+    await patchMeta(call.id, {
+      bridgeError:
+        "LiveKit did not accept the SIP bridge. For Call Control, inbound trunk numbers must be empty (wildcard) so sip:<room>@host matches.",
+    });
+    try {
+      await telnyx.hangup(call.providerCallId);
+    } catch {
+      // already dropped / transfer failed mid-flight
+    }
+    throw new Error(
+      "Caller could not join the softphone room. Check LiveKit inbound trunk: Call Control bridge needs empty numbers (wildcard), not only the DID.",
+    );
+  }
+  await patchMeta(call.id, { sipParticipantIdentity: sipIdentity, bridgeVerifiedAt: new Date().toISOString() });
 }
 
 /** Tear down the carrier side of a call (agent hangup / decline). Best effort. */

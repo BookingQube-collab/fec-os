@@ -585,6 +585,7 @@ function CallCenterPage() {
                   }
                   transferTargets={phone.transferTargets}
                   micMuted={phone.micMuted}
+                  speakerMuted={phone.speakerMuted}
                   onMicMutedChange={phone.setMicMuted}
                   onHangup={() => void phone.onHangup()}
                   onHoldToggle={() => void phone.onHoldToggle()}

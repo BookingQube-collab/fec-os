@@ -71,6 +71,40 @@ async function roomClient(): Promise<RoomServiceClient> {
   return new RoomServiceClient(liveKitHttpUrl(c.serverUrl), c.apiKey, c.apiSecret);
 }
 
+function looksLikeSipParticipant(p: {
+  identity?: string;
+  kind?: number | string;
+  attributes?: Record<string, string>;
+}): boolean {
+  if (Number(p.kind) === 3) return true;
+  const id = p.identity ?? "";
+  if (id.startsWith("sip_") || id.startsWith("sip-")) return true;
+  return Object.keys(p.attributes ?? {}).some((k) => k.startsWith("sip."));
+}
+
+/**
+ * After Telnyx transfers into LiveKit SIP, wait until the caller appears in the room.
+ * Returns the SIP participant identity, or null on timeout.
+ */
+export async function waitForSipParticipantInRoom(
+  roomName: string,
+  timeoutMs = 12_000,
+): Promise<string | null> {
+  const rooms = await roomClient();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const participants = await rooms.listParticipants(roomName);
+      const sip = participants.find((p) => looksLikeSipParticipant(p));
+      if (sip?.identity) return sip.identity;
+    } catch {
+      // Room may not exist yet while SIP INVITE is in flight.
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return null;
+}
+
 let prefixCache: { ruleId: string; prefix: string; at: number } | null = null;
 const PREFIX_CACHE_MS = 60_000;
 
@@ -334,13 +368,26 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
     try {
       const trunks = await (await sipClient()).listSipInboundTrunk({ trunkIds: [inboundTrunkId] });
       const found = trunks.find((t) => t?.sipTrunkId === inboundTrunkId);
-      checks.push({
-        key: "inbound_trunk",
-        ok: Boolean(found),
-        detail: found
-          ? `Inbound trunk "${found.name || inboundTrunkId}" ready for Telnyx origination.`
-          : `Inbound trunk "${truncateId(inboundTrunkId)}" not found on ${hostOf(credentials.serverUrl)}.`,
-      });
+      if (!found) {
+        checks.push({
+          key: "inbound_trunk",
+          ok: false,
+          detail: `Inbound trunk "${truncateId(inboundTrunkId)}" not found on ${hostOf(credentials.serverUrl)}.`,
+        });
+      } else {
+        const numbers = found.numbers ?? [];
+        // Call Control transfers to sip:<roomUser>@host — trunk must accept any destination.
+        const bridgeNeedsWildcard = inboundMode === "telnyx_call_control" && numbers.length > 0;
+        checks.push({
+          key: "inbound_trunk",
+          ok: !bridgeNeedsWildcard,
+          detail: bridgeNeedsWildcard
+            ? `Inbound trunk "${found.name || inboundTrunkId}" only allows ${numbers.slice(0, 3).join(", ")}. Call Control bridge dials the room user (not the DID) — clear numbers (wildcard) or agent will get dead air. Run scripts/fix-call-control-bridge-trunk.mjs.`
+            : numbers.length === 0
+              ? `Inbound trunk "${found.name || inboundTrunkId}" is wildcard (any destination) — OK for Call Control bridge.`
+              : `Inbound trunk "${found.name || inboundTrunkId}" ready for Telnyx origination (${numbers.slice(0, 3).join(", ")}).`,
+        });
+      }
     } catch (e) {
       checks.push({
         key: "inbound_trunk",
