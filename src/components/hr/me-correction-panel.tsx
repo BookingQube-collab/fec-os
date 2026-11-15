@@ -111,16 +111,15 @@ export function MeCorrectionPanel({
     if (showRequest && reportsPending) return;
     if (showRequest && !reportsPending && mineQ.isPending) return;
 
-    // Change-required / requester deep links beat the waiting-approvals default.
+    // Change-required / requester deep links beat the waiting-approvals default
+    // on the *first* pick only. Do not re-force Request while the URL stays
+    // #me-correction — that made Approve / Approved / Fill feel unclickable.
     const preferRequest =
       (hashPrefersRequest() || changeRequiredCount > 0) && jobs.includes("request");
     const preferApprove = hashIsApproveDeepLink() || (!preferRequest && (pendingCount ?? 0) > 0);
-    // Only the Approve deep link re-selects after the first pick (not #me-correction).
     if (pickedDefault.current) {
       if (hashIsApproveDeepLink() && jobs.includes("approve") && job !== "approve") {
         setJob("approve");
-      } else if (hashPrefersRequest() && jobs.includes("request") && job !== "request") {
-        setJob("request");
       }
       return;
     }
@@ -154,6 +153,7 @@ export function MeCorrectionPanel({
         setJob("approve");
         return;
       }
+      // Fresh navigation to #me-correction (e.g. inbox click) opens Request once.
       if (hashPrefersRequest() && jobs.includes("request")) {
         setJob("request");
       }
@@ -218,7 +218,11 @@ export function MeCorrectionPanel({
   return (
     <Tabs
       value={active}
-      onValueChange={(value) => setJob(value as CorrectionJob)}
+      onValueChange={(value) => {
+        const next = value as CorrectionJob;
+        if (!jobs.includes(next)) return;
+        setJob(next);
+      }}
       className="space-y-1"
     >
       <TabsList className="ess-tabs w-full justify-start" aria-label={t("hr.me.correction")}>
