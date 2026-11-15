@@ -127,41 +127,46 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
             "DTMF menu",
           )}
         </p>
-        {/* All handles stay mounted so edges keep working when the list is collapsed. */}
-        <div className="relative px-2.5 py-2">
-          {digits.map((d, index) => {
-            const topPct = ((index + 0.5) / Math.max(digits.length, 1)) * 100;
-            return (
+        {/* Handles stay mounted for every digit so edges keep working when the list is collapsed. */}
+        <ul className="space-y-1 px-2.5 py-2">
+          {visible.map((d) => (
+            <li
+              key={d.digit}
+              className="relative flex items-center gap-2 rounded-md bg-background/70 px-2 py-1.5 text-[0.8125rem]"
+            >
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border font-semibold">
+                {d.digit}
+              </span>
+              <span className="truncate text-foreground/90">{d.label || `Key ${d.digit}`}</span>
               <Handle
-                key={`handle-${d.digit}`}
                 type="source"
                 position={Position.Right}
                 id={d.digit}
                 className={HANDLE_CLASS}
-                style={{ top: `${topPct}%` }}
                 title={`Key ${d.digit}`}
               />
-            );
-          })}
-          <ul className="space-y-1">
-            {visible.map((d) => (
-              <li
-                key={d.digit}
-                className="flex items-center gap-2 rounded-md bg-background/70 px-2 py-1.5 text-[0.8125rem]"
-              >
-                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border font-semibold">
-                  {d.digit}
-                </span>
-                <span className="truncate text-foreground/90">{d.label || `Key ${d.digit}`}</span>
-              </li>
-            ))}
-            {hiddenCount > 0 ? (
-              <li className="px-2 py-1 text-[0.75rem] font-medium text-muted-foreground">
-                +{hiddenCount} more — edit in inspector
-              </li>
-            ) : null}
-          </ul>
-        </div>
+            </li>
+          ))}
+          {hiddenCount > 0 ? (
+            <li className="relative px-2 py-1.5 text-[0.75rem] font-medium text-muted-foreground">
+              +{hiddenCount} more — edit in inspector
+              {digits.slice(MENU_VISIBLE_DIGITS).map((d, index, hidden) => {
+                const topPct = ((index + 0.5) / Math.max(hidden.length, 1)) * 100;
+                return (
+                  <Handle
+                    key={`hidden-${d.digit}`}
+                    type="source"
+                    position={Position.Right}
+                    id={d.digit}
+                    className={HANDLE_CLASS}
+                    style={{ top: `${topPct}%` }}
+                    title={`Key ${d.digit}`}
+                  />
+                );
+              })}
+            </li>
+          ) : null}
+        </ul>
       </IvrNodeShell>
     );
   }
