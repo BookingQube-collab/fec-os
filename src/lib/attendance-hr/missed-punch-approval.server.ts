@@ -34,7 +34,7 @@ import {
   isSiteSupervisorTitle,
   missedPunchSubmitterAutoCompletesManagerSeat,
   ME_CORRECTION_HREF,
-  ME_PUNCH_APPROVALS_HREF,
+  punchApprovalQueueHref,
   MISSED_PUNCH_OUTCOME_NOTICE_SOURCE,
   nearestSiteSupervisorUserId,
   siteApproverLocationMap,
@@ -1221,7 +1221,7 @@ async function notifyApprovers(args: {
       title: args.title,
       body: args.body,
       severity: args.severity ?? "warning",
-      actionUrl: args.actionUrl ?? ME_PUNCH_APPROVALS_HREF,
+      actionUrl: args.actionUrl ?? punchApprovalQueueHref(args.sourceId),
       sourceType: APPROVER_NOTICE_SOURCE,
       sourceId: args.sourceId,
     });
@@ -1630,7 +1630,7 @@ export async function submitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: created.id as string,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: punchApprovalQueueHref(created.id as string),
     });
     await notifyExecutiveObservers({
       step: "ops",
@@ -1669,7 +1669,7 @@ export async function submitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: created.id as string,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: punchApprovalQueueHref(created.id as string),
     });
     await notifyExecutiveObservers({
       step: "ops",
@@ -2270,7 +2270,7 @@ async function reviewOneMissedPunchChain(args: {
     title: nextTitle,
     body: nextBody,
     sourceId: row.id,
-    actionUrl: ME_PUNCH_APPROVALS_HREF,
+    actionUrl: punchApprovalQueueHref(row.id),
   });
   await notifyExecutiveObservers({
     step: next,
@@ -2596,7 +2596,7 @@ export async function resubmitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: args.correctionId,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: punchApprovalQueueHref(args.correctionId),
     });
     await notifyExecutiveObservers({
       step: "ops",

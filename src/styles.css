@@ -3775,6 +3775,13 @@
     inset 0 0 0 1px color-mix(in oklab, var(--warning) 18%, transparent);
 }
 
+.hd-approval--focus {
+  border-color: color-mix(in oklab, var(--brand, #4a2c6a) 42%, var(--border));
+  box-shadow:
+    var(--shadow-xs),
+    inset 0 0 0 1px color-mix(in oklab, var(--brand, #4a2c6a) 16%, transparent);
+}
+
 .hd-approval__fix-note {
   padding: 0.7rem 0.8rem;
   border-radius: 0.85rem;

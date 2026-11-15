@@ -64,6 +64,7 @@ import {
   missedPunchPrintSignatureDone,
   ME_CORRECTION_HREF,
   ME_PUNCH_APPROVALS_HREF,
+  punchApprovalQueueHref,
   NOTIFICATIONS_INBOX_HREF,
   PEOPLE_CORRECTIONS_HREF,
   punchApprovalInboxActionUrl,
@@ -120,6 +121,14 @@ function row(partial?: Partial<CorrectionApprovalView>): CorrectionApprovalView 
   };
 }
 
+describe("punchApprovalQueueHref", () => {
+  it("builds Approve deep links with optional focus id", () => {
+    expect(punchApprovalQueueHref()).toBe(ME_PUNCH_APPROVALS_HREF);
+    expect(punchApprovalQueueHref("  ")).toBe(ME_PUNCH_APPROVALS_HREF);
+    expect(punchApprovalQueueHref(MARY)).toBe(`/hr/me?q=${MARY}#me-punch-approvals`);
+  });
+});
+
 describe("punchApprovalInboxActionUrl", () => {
   it("sends every role to My Day Approve when no stored URL", () => {
     expect(punchApprovalInboxActionUrl({ roles: ["regional_ops"] })).toBe(ME_PUNCH_APPROVALS_HREF);
@@ -148,6 +157,25 @@ describe("punchApprovalInboxActionUrl", () => {
         sourceType: "attendance_corrections",
       }),
     ).toBe(ME_PUNCH_APPROVALS_HREF);
+  });
+
+  it("enriches bare Approve hrefs with sourceId so Review focuses the card", () => {
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["regional_ops"],
+        storedUrl: ME_PUNCH_APPROVALS_HREF,
+        sourceType: "attendance_corrections",
+        sourceId: MARY,
+      }),
+    ).toBe(`/hr/me?q=${MARY}#me-punch-approvals`);
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["regional_ops"],
+        storedUrl: NOTIFICATIONS_INBOX_HREF,
+        sourceType: "attendance_corrections",
+        sourceId: MARY,
+      }),
+    ).toBe(`/hr/me?q=${MARY}#me-punch-approvals`);
   });
 
   it("keeps Request-tab href for requester change-required / outcome notifies", () => {

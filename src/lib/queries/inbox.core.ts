@@ -64,6 +64,7 @@ async function fetchPersisted(context: AuthContext): Promise<InboxItem[]> {
         roles,
         storedUrl: row.action_url || "/notifications",
         sourceType: (row.source_type as string | null) ?? null,
+        sourceId: (row.source_id as string | null) ?? null,
       }),
       readAt: row.read_at,
       createdAt: row.created_at,
@@ -372,7 +373,6 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
       queue: "waiting",
       actionableOnly: true,
     });
-    const actionUrl = punchApprovalInboxActionUrl({ roles });
     return rows
       .filter((row) => row.status === "pending")
       .slice(0, 12)
@@ -386,7 +386,7 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
             requested_at: row.requestedAt,
             staffName: row.staffName,
           },
-          actionUrl,
+          punchApprovalInboxActionUrl({ roles, sourceId: row.id }),
         ),
       );
   } catch {

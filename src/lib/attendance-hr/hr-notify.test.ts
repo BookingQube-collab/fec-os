@@ -34,6 +34,15 @@ describe("mapHrNotifyEvent", () => {
   it("maps correction submitted to My Day Approve and decisions to My Day Correction", () => {
     const submitted = mapHrNotifyEvent({ kind: "correction_submitted", staffName: "Noor", workDate: "2026-08-21" });
     expect(submitted.actionUrl).toBe("/hr/me#me-punch-approvals");
+    const focused = mapHrNotifyEvent({
+      kind: "correction_submitted",
+      staffName: "Noor",
+      workDate: "2026-08-21",
+      sourceId: "fe8f7df9-9331-4d5f-80a3-41930dc84f65",
+    });
+    expect(focused.actionUrl).toBe(
+      "/hr/me?q=fe8f7df9-9331-4d5f-80a3-41930dc84f65#me-punch-approvals",
+    );
     const approved = mapHrNotifyEvent({ kind: "correction_approved", staffName: "Noor", workDate: "2026-08-21" });
     expect(approved.actionUrl).toBe("/hr/me#me-correction");
     expect(approved.severity).toBe("info");

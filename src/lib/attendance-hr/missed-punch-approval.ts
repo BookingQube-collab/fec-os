@@ -52,14 +52,40 @@ const STALE_APPROVER_PUNCH_INBOX_HREFS = new Set([
 ]);
 
 /**
+ * My Day Correction → Approve, optionally focused on one correction (`?q=` id or request number).
+ * Mirrors {@link leaveApprovalQueueHref}.
+ */
+export function punchApprovalQueueHref(focusIdOrNumber?: string | null): string {
+  const q = focusIdOrNumber?.trim();
+  if (!q) return ME_PUNCH_APPROVALS_HREF;
+  return `/hr/me?q=${encodeURIComponent(q)}#me-punch-approvals`;
+}
+
+function isBarePunchApprovalsHref(href: string): boolean {
+  if (href === ME_PUNCH_APPROVALS_HREF || href === "#me-punch-approvals") return true;
+  // `/hr/me#me-punch-approvals` with no query — enrich with sourceId when available.
+  try {
+    const url = new URL(href, "https://fec.local");
+    return (
+      url.pathname === "/hr/me" &&
+      url.hash === "#me-punch-approvals" &&
+      !url.searchParams.get("q")?.trim()
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve inbox click targets for punch-correction notifies.
- * Approver seat notifies use {@link ME_PUNCH_APPROVALS_HREF}; requester outcomes keep
+ * Approver seat notifies use {@link punchApprovalQueueHref}; requester outcomes keep
  * {@link ME_CORRECTION_HREF}. Rewrites only All-notifications and the retired People desk.
  */
 export function punchApprovalInboxActionUrl(input: {
   roles: readonly string[];
   storedUrl?: string | null;
   sourceType?: string | null;
+  sourceId?: string | null;
 }): string {
   void input.roles;
   const stored = input.storedUrl?.trim() || null;
@@ -69,8 +95,8 @@ export function punchApprovalInboxActionUrl(input: {
   if (input.sourceType === MISSED_PUNCH_OUTCOME_NOTICE_SOURCE) {
     return stored && !STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored) ? stored : ME_CORRECTION_HREF;
   }
-  if (!stored || STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored)) {
-    return ME_PUNCH_APPROVALS_HREF;
+  if (!stored || STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored) || isBarePunchApprovalsHref(stored)) {
+    return punchApprovalQueueHref(input.sourceId);
   }
   return stored;
 }

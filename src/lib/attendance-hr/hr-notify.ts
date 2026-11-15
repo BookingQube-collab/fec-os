@@ -1,6 +1,6 @@
 import {
   ME_CORRECTION_HREF,
-  ME_PUNCH_APPROVALS_HREF,
+  punchApprovalQueueHref,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { leaveApprovalQueueHref } from "@/lib/hr-leave";
 
@@ -66,7 +66,7 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
   const numberSuffix = number ? ` (${number})` : "";
   const actionUrl =
     event.kind === "correction_submitted"
-      ? ME_PUNCH_APPROVALS_HREF
+      ? punchApprovalQueueHref(event.sourceId ?? event.requestNumber)
       : event.kind === "correction_approved" || event.kind === "correction_rejected"
         ? ME_CORRECTION_HREF
         : event.kind.startsWith("leave")

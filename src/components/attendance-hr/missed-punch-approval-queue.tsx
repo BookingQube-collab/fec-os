@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -179,6 +180,8 @@ export function MissedPunchApprovalQueue({
   const { t } = useTranslation();
   const stepLabel = useStepLabel();
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
+  const focusRequest = (searchParams.get("q") ?? "").trim();
   const historyOnly = queue === "approved";
   const { data: sites } = useSites({ enabled: historyOnly });
   const [historyFilters, setHistoryFilters] = useState<ApprovedHistoryFilters>(
@@ -255,7 +258,37 @@ export function MissedPunchApprovalQueue({
     () => (historyOnly ? filterApprovedHistoryRows(rows, historyFilters) : rows),
     [historyOnly, rows, historyFilters],
   );
-  const cards = groupOpenLegacyPunchPairs(filteredRows);
+  const cards = useMemo(() => {
+    const grouped = groupOpenLegacyPunchPairs(filteredRows);
+    if (historyOnly || !focusRequest) return grouped;
+    const idx = grouped.findIndex(
+      (card) =>
+        card.primary.id === focusRequest ||
+        card.reviewIds.includes(focusRequest) ||
+        card.primary.requestNumber === focusRequest ||
+        card.requestNumbers.includes(focusRequest),
+    );
+    if (idx <= 0) return grouped;
+    const next = [...grouped];
+    const [hit] = next.splice(idx, 1);
+    next.unshift(hit);
+    return next;
+  }, [filteredRows, focusRequest, historyOnly]);
+
+  useEffect(() => {
+    if (historyOnly || !focusRequest || cards.length === 0) return;
+    const match = cards.find(
+      (card) =>
+        card.primary.id === focusRequest ||
+        card.reviewIds.includes(focusRequest) ||
+        card.primary.requestNumber === focusRequest ||
+        card.requestNumbers.includes(focusRequest),
+    );
+    if (!match) return;
+    const el = document.getElementById(`punch-approval-${match.primary.id}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [cards, focusRequest, historyOnly]);
+
   const siteById = useMemo(() => new Map((sites ?? []).map((site) => [site.id, site])), [sites]);
   const locationLabel = useMemo(() => {
     return (locationId: string) => {
@@ -396,7 +429,20 @@ export function MissedPunchApprovalQueue({
               : row.requestNumber;
             return (
               <li key={card.reviewIds.join("-")}>
-                <article className="hd-approval" aria-busy={busy || undefined} aria-labelledby={`punch-approval-${row.id}-name`}>
+                <article
+                  id={`punch-approval-${row.id}`}
+                  className={
+                    focusRequest &&
+                    (row.id === focusRequest ||
+                      card.reviewIds.includes(focusRequest) ||
+                      row.requestNumber === focusRequest ||
+                      card.requestNumbers.includes(focusRequest))
+                      ? "hd-approval hd-approval--focus"
+                      : "hd-approval"
+                  }
+                  aria-busy={busy || undefined}
+                  aria-labelledby={`punch-approval-${row.id}-name`}
+                >
                   <header className="hd-approval__top">
                     <div className="min-w-0">
                       <h4 id={`punch-approval-${row.id}-name`} className="hd-approval__name">

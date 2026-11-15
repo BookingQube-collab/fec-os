@@ -111,24 +111,28 @@ export function MeCorrectionPanel({
     if (showRequest && reportsPending) return;
     if (showRequest && !reportsPending && mineQ.isPending) return;
 
-    // Change-required / requester deep links beat the waiting-approvals default
-    // on the *first* pick only. Do not re-force Request while the URL stays
-    // #me-correction — that made Approve / Approved / Fill feel unclickable.
+    // Review / inbox `#me-punch-approvals` must open Approve even when the actor
+    // also has change-required items (otherwise Review lands on Request).
+    // Change-required / `#me-correction` beat the waiting-approvals default on the
+    // *first* pick only — do not re-force Request while the URL stays #me-correction.
+    const deepLinkApprove = hashIsApproveDeepLink() && jobs.includes("approve");
     const preferRequest =
-      (hashPrefersRequest() || changeRequiredCount > 0) && jobs.includes("request");
-    const preferApprove = hashIsApproveDeepLink() || (!preferRequest && (pendingCount ?? 0) > 0);
+      !deepLinkApprove &&
+      (hashPrefersRequest() || changeRequiredCount > 0) &&
+      jobs.includes("request");
+    const preferApprove = deepLinkApprove || (!preferRequest && (pendingCount ?? 0) > 0);
     if (pickedDefault.current) {
-      if (hashIsApproveDeepLink() && jobs.includes("approve") && job !== "approve") {
+      if (deepLinkApprove && job !== "approve") {
         setJob("approve");
       }
       return;
     }
 
     const fallback: CorrectionJob =
-      preferRequest
-        ? "request"
-        : preferApprove && jobs.includes("approve")
-          ? "approve"
+      preferApprove
+        ? "approve"
+        : preferRequest
+          ? "request"
           : jobs.includes("request")
             ? "request"
             : jobs[0]!;
