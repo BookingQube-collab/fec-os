@@ -4,6 +4,7 @@ import { after } from "next/server";
 
 import { getCallProvider } from "@/lib/chat/call-provider";
 
+import { startAiAnswerSession } from "./ai-session";
 import { isWithinBusinessHours } from "./business-hours";
 import {
   claimCallForAnswer,
@@ -97,7 +98,7 @@ async function resolveQueueAgents(queue: CallCenterQueue): Promise<string[]> {
   return pickAgents(queue.strategy, pool);
 }
 
-async function offerToQueue(params: {
+export async function offerCallToQueue(params: {
   call: CallCenterCall;
   queue: CallCenterQueue;
   eventId: string | null;
@@ -376,9 +377,16 @@ export async function routeInboundCall(input: {
     return { call: failed, offeredUserIds: [], phase: "ended", message: "No queue configured." };
   }
 
+  const preferAiFirst =
+    Boolean(settings?.ai_first_answer_enabled) &&
+    !vipContact &&
+    !forceQueue &&
+    input.provider !== "test" &&
+    openNow;
+
   const call = await createCall({
     direction: input.provider === "test" ? "internal_test" : "inbound",
-    status: "queued",
+    status: preferAiFirst ? "answered" : "queued",
     fromE164: fromE164 || "+00000000000",
     toE164: toE164 || "unknown",
     didId: did?.id ?? null,
@@ -394,10 +402,19 @@ export async function routeInboundCall(input: {
           vipContactName: vipContact.displayName,
           ivrSkipped: "priority_contact",
         }
-      : undefined,
+      : preferAiFirst
+        ? { aiFirstAnswer: true }
+        : undefined,
   });
   const withRoom = await updateCall(call.id, { livekitRoom: roomNameForCall(call.id) });
-  return offerToQueue({
+  if (preferAiFirst) {
+    return startAiAnswerSession({
+      call: withRoom,
+      settings,
+      handoffQueueId: settings?.ai_handoff_queue_id ?? targetQueue.id,
+    });
+  }
+  return offerCallToQueue({
     call: withRoom,
     queue: targetQueue,
     eventId: did?.eventId ?? targetQueue.eventId,
@@ -511,27 +528,11 @@ async function resolveTerminalIvrNode(params: {
     if (current.type === "ai") {
       const settings = await loadSettingsRow();
       const nodeEnabled = current.data.aiEnabled !== false;
-      const settingsFirstAnswer = Boolean(settings?.ai_first_answer_enabled);
-      // Node switch is enough for canvas routing; settings flag is recorded for Agents dispatch.
-      const aiActive = nodeEnabled;
       const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
       const handoffQueueId =
         current.data.aiHandoffQueueId ?? current.data.queueId ?? call.queueId ?? null;
-      const meta = {
-        ...((call.metadata as Record<string, unknown>) ?? {}),
-        ivrNodeId: current.id,
-        ai_answered: true,
-        aiEnabled: aiActive,
-        aiFirstAnswerSetting: settingsFirstAnswer,
-        aiLanguage: current.data.aiLanguage ?? "auto",
-        aiSystemPrompt: current.data.aiSystemPrompt ?? settings?.ai_notes ?? "",
-        livekitAgentsHandoff: true,
-        aiHandoffEnabled: settings?.ai_handoff_enabled !== false,
-        aiHandoffQueueId: handoffQueueId,
-      };
 
-      if (!aiActive) {
-        // Node disabled → fall through to handoff queue if configured
+      if (!nodeEnabled) {
         if (handoffQueueId) {
           const queues = await listQueues();
           const queue = queues.find((q) => q.id === handoffQueueId);
@@ -541,9 +542,14 @@ async function resolveTerminalIvrNode(params: {
               queueId: queue.id,
               status: "queued",
               livekitRoom,
-              metadata: { ...meta, ai_answered: false, aiSkipped: true },
+              metadata: {
+                ...((call.metadata as Record<string, unknown>) ?? {}),
+                ivrNodeId: current.id,
+                ai_answered: false,
+                aiSkipped: true,
+              },
             });
-            return offerToQueue({
+            return offerCallToQueue({
               call: updated,
               queue,
               eventId: call.eventId,
@@ -554,7 +560,12 @@ async function resolveTerminalIvrNode(params: {
           status: "ivr",
           ivrDigit: digit,
           livekitRoom,
-          metadata: { ...meta, ai_answered: false, aiSkipped: true },
+          metadata: {
+            ...((call.metadata as Record<string, unknown>) ?? {}),
+            ivrNodeId: current.id,
+            ai_answered: false,
+            aiSkipped: true,
+          },
         });
         return {
           call: updated,
@@ -564,21 +575,15 @@ async function resolveTerminalIvrNode(params: {
         };
       }
 
-      // Stub: mark CDR for LiveKit Agents handoff; keep call answered until Agents worker joins.
-      const updated = await updateCall(call.id, {
-        status: "answered",
-        ivrDigit: digit,
-        livekitRoom,
-        answeredAt: new Date().toISOString(),
-        queueId: handoffQueueId ?? call.queueId,
-        metadata: meta,
+      return startAiAnswerSession({
+        call,
+        settings,
+        digit,
+        language: current.data.aiLanguage ?? "auto",
+        systemPrompt: current.data.aiSystemPrompt ?? settings?.ai_notes ?? "",
+        handoffQueueId,
+        ivrNodeId: current.id,
       });
-      return {
-        call: updated,
-        offeredUserIds: [],
-        phase: "queue",
-        message: "AI agent answering (LiveKit Agents stub). CDR: ai_answered=true.",
-      };
     }
     if (current.type === "queue" || current.type === "event") {
       const terminal: IvrFlowNode = current;
@@ -613,7 +618,7 @@ async function resolveTerminalIvrNode(params: {
           ivrNodeId: terminal.id,
         },
       });
-      return offerToQueue({
+      return offerCallToQueue({
         call: updated,
         queue,
         eventId: terminal.data.eventId ?? call.eventId,
@@ -644,7 +649,7 @@ export async function routeCallToFallbackQueue(callId: string): Promise<InboundR
     null;
   if (!queue) throw new Error("No fallback queue configured.");
   const updated = await updateCall(call.id, { queueId: queue.id, status: "queued" });
-  return offerToQueue({ call: updated, queue, eventId: call.eventId });
+  return offerCallToQueue({ call: updated, queue, eventId: call.eventId });
 }
 
 /** Apply IVR digit selection and continue to queue / hangup / etc. */
@@ -775,28 +780,17 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
   }
   if (option.action === "ai") {
     const settings = await loadSettingsRow();
-    const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
-    const updated = await updateCall(call.id, {
-      status: "answered",
-      ivrDigit: digit,
-      livekitRoom,
-      answeredAt: new Date().toISOString(),
-      queueId: option.queueId ?? call.queueId,
-      metadata: {
-        ...meta,
-        ai_answered: true,
-        livekitAgentsHandoff: true,
-        aiHandoffEnabled: settings?.ai_handoff_enabled !== false,
-        aiHandoffQueueId: option.queueId,
-        targetNodeId: option.targetNodeId,
-      },
+    return startAiAnswerSession({
+      call: await updateCall(call.id, {
+        metadata: {
+          ...meta,
+          targetNodeId: option.targetNodeId,
+        },
+      }),
+      settings,
+      digit,
+      handoffQueueId: option.queueId ?? call.queueId,
     });
-    return {
-      call: updated,
-      offeredUserIds: [],
-      phase: "queue",
-      message: "AI agent answering (LiveKit Agents stub). CDR: ai_answered=true.",
-    };
   }
   if (option.action === "transfer_sip") {
     const ended = await updateCall(call.id, {
@@ -822,7 +816,7 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
     queueId: queue.id,
     status: "queued",
   });
-  return offerToQueue({
+  return offerCallToQueue({
     call: updated,
     queue,
     eventId: option.eventId ?? call.eventId,

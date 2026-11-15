@@ -2,8 +2,7 @@
 
 import { z } from "zod";
 
-import { generateText } from "@/lib/ai/gateway";
-import { gatewayModelForCallCenterTest } from "@/lib/call-center/gateway-model";
+import { generateCallCenterAiReply } from "@/lib/call-center/ai-reply";
 import { getCallProvider } from "@/lib/chat/call-provider";
 import { createSafeAuthenticatedAction } from "@/lib/server/create-action";
 
@@ -197,7 +196,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     aiSystemPromptAr: z.string().max(8000).optional(),
     aiWelcomeEn: z.string().max(2000).optional(),
     aiWelcomeAr: z.string().max(2000).optional(),
-    aiProvider: z.enum(["openai", "openai_compatible", "livekit_agents"]).optional(),
+    aiProvider: z.enum(["admin_gateway", "openai", "openai_compatible", "livekit_agents"]).optional(),
     aiModel: z.string().trim().max(120).optional(),
     aiApiKey: z.string().max(500).optional(),
     aiBaseUrl: z.string().trim().max(500).optional(),
@@ -275,7 +274,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           data.aiWelcomeAr ??
           existing?.ai_welcome_ar ??
           "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
-        ai_provider: (data.aiProvider ?? existing?.ai_provider ?? "openai") as CallCenterAiProvider,
+        ai_provider: (data.aiProvider ?? existing?.ai_provider ?? "admin_gateway") as CallCenterAiProvider,
         ai_model: data.aiModel ?? existing?.ai_model ?? "gemini-flash-latest",
         ai_api_key: keepSecret(existing?.ai_api_key ?? "", data.aiApiKey ?? ""),
         ai_base_url: data.aiBaseUrl ?? existing?.ai_base_url ?? "",
@@ -1592,22 +1591,11 @@ export const testCallCenterAiPrompt = createSafeAuthenticatedAction(
   }),
   async (data) => {
     const settings = await loadSettingsRow();
-    const lang = data.language ?? "en";
-    const system =
-      (lang === "ar" ? settings?.ai_system_prompt_ar : settings?.ai_system_prompt_en)?.trim() ||
-      settings?.ai_notes?.trim() ||
-      "You are a helpful call-center AI assistant for FEC.";
-    const welcome =
-      (lang === "ar" ? settings?.ai_welcome_ar : settings?.ai_welcome_en)?.trim() || "";
-    const result = await generateText({
+    const result = await generateCallCenterAiReply({
+      settings,
+      utterance: data.prompt,
+      language: data.language ?? "en",
       moduleSource: "call_center_ai_test",
-      model: gatewayModelForCallCenterTest(settings?.ai_model),
-      messages: [
-        { role: "system", content: system },
-        ...(welcome ? [{ role: "assistant" as const, content: welcome }] : []),
-        { role: "user", content: data.prompt },
-      ],
-      temperature: 0.4,
     });
     return {
       text: result.text,

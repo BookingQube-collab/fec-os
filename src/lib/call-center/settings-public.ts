@@ -22,10 +22,15 @@ export function isSipConfigured(settings: CallCenterSettingsRow | null): boolean
 }
 
 function normalizeAiProvider(value: unknown): CallCenterAiProvider {
-  if (value === "openai_compatible" || value === "livekit_agents" || value === "openai") {
+  if (
+    value === "admin_gateway" ||
+    value === "openai_compatible" ||
+    value === "livekit_agents" ||
+    value === "openai"
+  ) {
     return value;
   }
-  return "openai";
+  return "admin_gateway";
 }
 
 export function toPublicSettings(
@@ -35,10 +40,12 @@ export function toPublicSettings(
   const aiApiKey = row?.ai_api_key?.trim() ?? "";
   const whatsappToken = row?.whatsapp_access_token?.trim() ?? "";
   const openaiEnvOnly = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const provider = normalizeAiProvider(row?.ai_provider);
   const aiConfigured =
+    provider === "admin_gateway" ||
     aiApiKey.length > 0 ||
     openaiEnvOnly ||
-    (row?.ai_provider === "livekit_agents" && Boolean(row.ai_livekit_agent_name?.trim()));
+    (provider === "livekit_agents" && Boolean(row?.ai_livekit_agent_name?.trim()));
   const whatsappConfigured =
     Boolean(row?.whatsapp_phone_number_id?.trim()) &&
     (whatsappToken.length > 0 || Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()));
@@ -81,7 +88,7 @@ export function toPublicSettings(
     aiWelcomeAr:
       row?.ai_welcome_ar?.trim() ||
       "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
-    aiProvider: normalizeAiProvider(row?.ai_provider),
+    aiProvider: provider,
     aiModel: row?.ai_model?.trim() || "gemini-flash-latest",
     aiApiKeySet: aiApiKey.length > 0,
     aiApiKeyLast4: secretLast4(aiApiKey),

@@ -74,7 +74,12 @@ export type CallCenterContactStatus = (typeof CALL_CENTER_CONTACT_STATUSES)[numb
 
 export type CallCenterAfterHoursAction = "voicemail" | "hangup" | "queue";
 
-export const CALL_CENTER_AI_PROVIDERS = ["openai", "openai_compatible", "livekit_agents"] as const;
+export const CALL_CENTER_AI_PROVIDERS = [
+  "admin_gateway",
+  "openai",
+  "openai_compatible",
+  "livekit_agents",
+] as const;
 export type CallCenterAiProvider = (typeof CALL_CENTER_AI_PROVIDERS)[number];
 
 export type CallCenterSettingsRow = {

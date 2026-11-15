@@ -90,7 +90,7 @@ function CallCenterAiPage() {
   const [promptAr, setPromptAr] = useState("");
   const [welcomeEn, setWelcomeEn] = useState("");
   const [welcomeAr, setWelcomeAr] = useState("");
-  const [provider, setProvider] = useState<CallCenterAiProvider>("openai");
+  const [provider, setProvider] = useState<CallCenterAiProvider>("admin_gateway");
   const [model, setModel] = useState("gemini-flash-latest");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -345,6 +345,7 @@ function CallCenterAiPage() {
 
           <section className="space-y-4 rounded-2xl border border-border/50 bg-card p-4">
             <h2 className="text-sm font-semibold">{t("callCenter.aiProviderHeading")}</h2>
+            <p className="text-xs text-muted-foreground">{t("callCenter.aiProviderHint")}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenter.aiProvider")}</Label>
@@ -357,9 +358,12 @@ function CallCenterAiPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="admin_gateway">
+                      {t("callCenter.aiProviderAdminGateway")}
+                    </SelectItem>
+                    <SelectItem value="livekit_agents">LiveKit Agents</SelectItem>
                     <SelectItem value="openai">OpenAI</SelectItem>
                     <SelectItem value="openai_compatible">OpenAI-compatible</SelectItem>
-                    <SelectItem value="livekit_agents">LiveKit Agents</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -369,27 +373,32 @@ function CallCenterAiPage() {
                   value={model}
                   disabled={!canEdit}
                   onChange={(e) => setModel(e.target.value)}
+                  placeholder="gemini-flash-latest"
                 />
               </div>
-              <CallCenterSecretField
-                id="cc-ai-api-key"
-                label={t("callCenter.aiApiKey")}
-                value={apiKey}
-                onChange={setApiKey}
-                isSet={Boolean(settings?.aiApiKeySet)}
-                last4={settings?.aiApiKeyLast4 ?? ""}
-                revealField="ai_api_key"
-                disabled={!canEdit}
-              />
-              <div className="space-y-1.5">
-                <Label>{t("callCenter.aiBaseUrl")}</Label>
-                <Input
-                  value={baseUrl}
-                  disabled={!canEdit}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://api.openai.com/v1"
-                />
-              </div>
+              {provider === "admin_gateway" ? null : (
+                <>
+                  <CallCenterSecretField
+                    id="cc-ai-api-key"
+                    label={t("callCenter.aiApiKey")}
+                    value={apiKey}
+                    onChange={setApiKey}
+                    isSet={Boolean(settings?.aiApiKeySet)}
+                    last4={settings?.aiApiKeyLast4 ?? ""}
+                    revealField="ai_api_key"
+                    disabled={!canEdit}
+                  />
+                  <div className="space-y-1.5">
+                    <Label>{t("callCenter.aiBaseUrl")}</Label>
+                    <Input
+                      value={baseUrl}
+                      disabled={!canEdit}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                    />
+                  </div>
+                </>
+              )}
               <div className="space-y-1.5">
                 <Label>{t("callCenter.aiLanguages")}</Label>
                 <Input
@@ -406,6 +415,7 @@ function CallCenterAiPage() {
                   onChange={(e) => setLivekitAgent(e.target.value)}
                   placeholder="fec-call-agent"
                 />
+                <p className="text-xs text-muted-foreground">{t("callCenter.aiLivekitAgentHint")}</p>
               </div>
             </div>
             {canEdit ? (

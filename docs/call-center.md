@@ -191,12 +191,12 @@ Adds agent edit fields (`display_name_override`, max concurrent, whisper/barge, 
 Open `/call-center/ai` (admin edit).
 
 1. Enable **AI first answer** and set EN/AR welcome + system prompts.
-2. Choose provider (`openai` / `openai_compatible` / `livekit_agents`) for the live voice agent path, model (default `gemini-flash-latest` for gateway Run test), optional API key (masked; blank keeps saved), languages, LiveKit agent name.
-3. Handoff: after N seconds, keyword list, target queue.
-4. **Run test** uses Admin → AI Integrations routing (primary Gemini → OpenRouter fallback). It ignores legacy OpenAI model ids like `gpt-4o-mini` so the gateway can use each provider’s selected model. Env fallbacks still apply if no admin provider is eligible.
-5. IVR canvas **AI Agent** node links here for global flags; node-local prompt still lives on the flow. Live voice agent still needs its own provider wiring (not the admin text gateway).
+2. Choose provider — prefer **`admin_gateway`** (Admin → AI Integrations: Gemini → OpenRouter). Alternatives: `livekit_agents`, `openai`, `openai_compatible`. Model default `gemini-flash-latest`; dedicated API key fields only matter for OpenAI-compatible / OpenAI providers.
+3. Handoff: after N seconds, keyword list, target queue. On Telnyx Call Control, callers can press **0** for a human.
+4. **Run test** and **live admin_gateway turns** both use Admin → AI Integrations (`generateText`). Legacy OpenAI model ids like `gpt-4o-mini` are ignored so Gemini/OpenRouter selected models apply.
+5. IVR canvas **AI Agent** node starts an AI session (CDR `ai_answered`). LiveKit Agents is optional for realtime STT/TTS; workers should POST transcripts to `/api/public/call-center/ai-turn` instead of calling OpenAI.
 
-Status badge shows configured vs missing keys (`ai_api_key` or `OPENAI_API_KEY`, or LiveKit agent name when provider is `livekit_agents`).
+Status badge: **Configured** for `admin_gateway` (uses Admin keys). Otherwise needs `ai_api_key` / `OPENAI_API_KEY`, or a LiveKit agent name when provider is `livekit_agents`.
 
 ## WhatsApp (Meta Cloud API)
 
@@ -223,7 +223,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | Visual IVR canvas | `/call-center/ivr` — drag nodes, connect digits, Save; reload restores positions |
 | FEC bilingual venues template | **Apply FEC venues template** — Language → venues → queues; Test digits `12` etc. |
 | Voice preview (Listen) | Inspector + Test path use browser `speechSynthesis` (EN/AR) |
-| AI Agent IVR node | Palette + CDR `ai_answered` stub; flags on `/call-center/ai` |
+| AI Agent IVR node | Palette + CDR `ai_answered`; Admin gateway replies via `/api/public/call-center/ai-turn` |
 | Nested / hours / voicemail IVR nodes | Canvas + inbound DTMF walker in `routing.ts` |
 | Business hours + holidays enforce routing | Settings → enable hours; closed → after-hours action (voicemail/hangup/queue) |
 | Voicemail inbox | `/call-center/voicemail` — Add test voicemail; Mark listened |
@@ -295,7 +295,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | `TELNYX_WEBHOOK_SECRET` | Webhooks | Optional shared-secret fallback |
 | `TELNYX_API_KEY` | Inbound PSTN | Telnyx v2 API key (answer / speak / gather / transfer / hangup). Settings field wins |
 | `CALL_CENTER_SIP_ROOM_PREFIX` | Optional | Fallback LiveKit callee-rule room prefix (default `cc-`) when the dispatch rule cannot be read |
-| `OPENAI_API_KEY` | AI test / fallback | Used when Call Center AI API key is empty |
+| `OPENAI_API_KEY` | AI env fallback only | Prefer Admin Gemini/OpenRouter; used only if admin gateway has no eligible provider |
 | `WHATSAPP_ACCESS_TOKEN` | WhatsApp | Fallback if admin token empty |
 | `WHATSAPP_VERIFY_TOKEN` | WhatsApp webhook | Fallback verify token |
 | `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp | Fallback phone number id |

@@ -374,10 +374,15 @@ function normalizeDtmfMode(value: unknown): CallCenterSettingsRow["telnyx_dtmf_m
 }
 
 function normalizeAiProvider(value: unknown): CallCenterAiProvider {
-  if (value === "openai_compatible" || value === "livekit_agents" || value === "openai") {
+  if (
+    value === "admin_gateway" ||
+    value === "openai_compatible" ||
+    value === "livekit_agents" ||
+    value === "openai"
+  ) {
     return value;
   }
-  return "openai";
+  return "admin_gateway";
 }
 
 function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {

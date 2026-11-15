@@ -1,5 +1,7 @@
 import "server-only";
 
+import { usesAdminAiGateway } from "./ai-reply-helpers";
+import { handoffAiCallToQueue } from "./ai-session";
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
 import {
   findCallByLivekitRoom,
@@ -55,6 +57,7 @@ async function maybeDispatchIvrAgent(
       fecCallId: call.id,
       purpose: "ivr",
       greeting: (call.metadata as Record<string, unknown> | null)?.ivrGreeting ?? "",
+      llmVia: usesAdminAiGateway(settings?.ai_provider) ? "admin_gateway" : settings?.ai_provider,
     }),
   });
   if (dispatched.ok) {
@@ -63,6 +66,62 @@ async function maybeDispatchIvrAgent(
   } else {
     actions.push(`ivr_agent_dispatch_failed:${dispatched.reason}`);
   }
+}
+
+/** Dispatch LiveKit agent for AI first-answer; metadata tells the worker to call FEC /ai-turn (Gemini). */
+async function maybeDispatchAiAgent(
+  call: CallCenterCall,
+  settings: CallCenterSettingsRow | null,
+  actions: string[],
+): Promise<void> {
+  const meta = metaOf(call);
+  if (!meta.aiSession && !meta.ai_answered) return;
+  if (!call.livekitRoom) return;
+  const agentName = settings?.ai_livekit_agent_name?.trim() ?? "";
+  if (!agentName) {
+    actions.push("ai_session_no_livekit_agent");
+    return;
+  }
+  const adminGateway = usesAdminAiGateway(
+    typeof meta.aiProvider === "string" ? meta.aiProvider : settings?.ai_provider,
+  );
+  const dispatched = await dispatchLiveKitAgent({
+    roomName: call.livekitRoom,
+    agentName,
+    metadata: JSON.stringify({
+      fecCallId: call.id,
+      purpose: "ai_first_answer",
+      welcome: typeof meta.aiWelcome === "string" ? meta.aiWelcome : "",
+      systemPrompt: typeof meta.aiSystemPrompt === "string" ? meta.aiSystemPrompt : "",
+      language: typeof meta.aiLanguage === "string" ? meta.aiLanguage : "en",
+      llmVia: adminGateway ? "admin_gateway" : settings?.ai_provider ?? "admin_gateway",
+      /** Worker should POST caller transcripts here instead of calling OpenAI directly. */
+      aiTurnPath: "/api/public/call-center/ai-turn",
+    }),
+  });
+  if (dispatched.ok) {
+    actions.push(`ai_agent_dispatched:${dispatched.dispatchId || agentName}`);
+    await patchMeta(call.id, { aiAgentDispatched: true, aiAgentName: agentName });
+  } else {
+    actions.push(`ai_agent_dispatch_failed:${dispatched.reason}`);
+  }
+}
+
+async function startAdminGatewayAiPrompt(ctx: Ctx, call: CallCenterCall) {
+  const meta = metaOf(call);
+  const welcome =
+    (typeof meta.aiWelcome === "string" && meta.aiWelcome.trim()) ||
+    (typeof meta.aiGatherPrompt === "string" && meta.aiGatherPrompt.trim()) ||
+    "Thank you for calling. How can I help?";
+  const gatherHint =
+    typeof meta.aiGatherPrompt === "string" && meta.aiGatherPrompt.trim()
+      ? meta.aiGatherPrompt.trim()
+      : "To speak with a human agent, press zero.";
+  const spoken = clip(`${welcome} ${gatherHint}`);
+  await exec(ctx, "ai_welcome_gather", (c) =>
+    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ai_session" }, voiceOf(ctx)),
+  );
+  await patchMeta(call.id, { aiWelcomeSpoken: true });
 }
 
 const FINAL_STATUSES = new Set(["ended", "missed", "declined", "failed", "voicemail"]);
@@ -251,13 +310,24 @@ async function applyRouteResult(ctx: Ctx, result: InboundRouteResult) {
   }
 
   if (result.phase === "queue") {
-    if (call.status === "answered" && call.livekitRoom) {
-      // AI-answered stub: connect the caller to the room right away so a LiveKit Agents worker can join.
-      try {
-        await bridgeCallerToLiveKit(call, call.livekitRoom, ctx.client);
-        ctx.actions.push("bridge_ai_room");
-      } catch (e) {
-        ctx.actions.push(`bridge_ai_room:error(${e instanceof Error ? e.message : "failed"})`);
+    if (call.status === "answered" && (meta.aiSession || meta.ai_answered)) {
+      const adminGateway = usesAdminAiGateway(
+        typeof meta.aiProvider === "string" ? meta.aiProvider : ctx.settings?.ai_provider,
+      );
+      if (adminGateway && call.provider === "telnyx") {
+        // In-app path: Telnyx TTS welcome + digit-0 handoff; LLM turns via /ai-turn (Gemini).
+        await startAdminGatewayAiPrompt(ctx, call);
+        return;
+      }
+      // LiveKit Agents (or SIP bridge): connect so an external worker can join for STT/TTS.
+      if (call.livekitRoom) {
+        try {
+          await bridgeCallerToLiveKit(call, call.livekitRoom, ctx.client);
+          ctx.actions.push("bridge_ai_room");
+          await maybeDispatchAiAgent(call, ctx.settings, ctx.actions);
+        } catch (e) {
+          ctx.actions.push(`bridge_ai_room:error(${e instanceof Error ? e.message : "failed"})`);
+        }
       }
       return;
     }
@@ -363,12 +433,20 @@ export async function handleTelnyxEvent(
         await gather(ctx, greeting, audio);
       } else if (WAITING_STATUSES.has(call.status)) {
         await startQueueWait(ctx);
-      } else if (call.status === "answered" && !call.agentUserId && call.livekitRoom) {
-        try {
-          await bridgeCallerToLiveKit(call, call.livekitRoom, ctx.client);
-          actions.push("bridge_ai_room");
-        } catch (e) {
-          actions.push(`bridge_ai_room:error(${e instanceof Error ? e.message : "failed"})`);
+      } else if (call.status === "answered" && !call.agentUserId && (meta.aiSession || meta.ai_answered)) {
+        const adminGateway = usesAdminAiGateway(
+          typeof meta.aiProvider === "string" ? meta.aiProvider : settings?.ai_provider,
+        );
+        if (adminGateway && call.provider === "telnyx") {
+          await startAdminGatewayAiPrompt(ctx, call);
+        } else if (call.livekitRoom) {
+          try {
+            await bridgeCallerToLiveKit(call, call.livekitRoom, ctx.client);
+            actions.push("bridge_ai_room");
+            await maybeDispatchAiAgent(call, settings, actions);
+          } catch (e) {
+            actions.push(`bridge_ai_room:error(${e instanceof Error ? e.message : "failed"})`);
+          }
         }
       } else if (isFinal(call.status)) {
         await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
@@ -379,8 +457,34 @@ export async function handleTelnyxEvent(
     case "call.gather.ended": {
       const call = await findCallByProviderCallId(ev.callControlId);
       if (!call) return done(false, "unknown call");
-      if (call.status !== "ivr") return done(true, "not waiting on IVR", call.id);
       if (ev.gatherStatus === "call_hangup") return done(true, "caller hung up", call.id);
+
+      const gatherStep = typeof ev.clientState.step === "string" ? ev.clientState.step : "";
+      const meta = metaOf(call);
+      if (gatherStep === "ai_session" || (meta.aiSession && call.status === "answered")) {
+        const digit = ev.digits.slice(0, 1);
+        if (digit === "0" && meta.aiHandoffEnabled !== false) {
+          try {
+            const result = await handoffAiCallToQueue(call.id);
+            await applyRouteResult(ctx, result);
+            return done(true, "AI → human handoff", call.id);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : "AI handoff failed";
+            await failCall(ctx, call, msg);
+            return done(true, msg, call.id);
+          }
+        }
+        // Stay in AI session: re-prompt digit handoff; text turns use /api/public/call-center/ai-turn.
+        const hint =
+          (typeof meta.aiGatherPrompt === "string" && meta.aiGatherPrompt.trim()) ||
+          "To speak with a human agent, press zero.";
+        await exec(ctx, "ai_reprompt", (c) =>
+          c.gatherUsingSpeak(ctx.ccid, clip(hint), { step: "ai_session" }, voiceOf(ctx)),
+        );
+        return done(true, "AI session waiting", call.id);
+      }
+
+      if (call.status !== "ivr") return done(true, "not waiting on IVR", call.id);
 
       const digit = ev.digits.slice(0, 1);
       try {
@@ -392,7 +496,6 @@ export async function handleTelnyxEvent(
 
         const menus = await listIvrMenus();
         const menu = menus.find((m) => m.id === call.ivrMenuId);
-        const meta = metaOf(call);
         const retries = Number(meta.ivrRetries ?? 0) + 1;
         const maxRetries = Math.max(1, menu?.maxRetries ?? 3);
         if (retries > maxRetries) {
@@ -668,6 +771,9 @@ export async function handleLiveKitSipEvent(event: LiveKitEventLike): Promise<Ca
       })) ?? result.call;
     actions.push(skipIvr ? "routed_skip_ivr_call_control_mode" : `routed_${result.phase}`);
     if (!skipIvr) await maybeDispatchIvrAgent(updated, settings, actions);
+    if (updated.status === "answered" && (metaOf(updated).aiSession || metaOf(updated).ai_answered)) {
+      await maybeDispatchAiAgent(updated, settings, actions);
+    }
     return done(true, result.message, updated.id);
   }
 
