@@ -12,6 +12,7 @@ import {
   MissedPunchPrintDialog,
   type MissedPunchPrintPayload,
 } from "@/components/hr/missed-punch-print-form";
+import { RosterChangeReasonDialog } from "@/components/people/roster-change-reason-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -202,6 +203,10 @@ export function MissedPunchApprovalQueue({
     MissedPunchPrintPayload | MissedPunchPrintPayload[] | null
   >(null);
   const [printOpen, setPrintOpen] = useState(false);
+  const [changeRequiredTarget, setChangeRequiredTarget] = useState<{
+    id: string;
+    reviewIds: string[];
+  } | null>(null);
   const listQueryKey = queryKeys.people.attendanceHr({
     view: historyOnly
       ? "missed-punch-approved"
@@ -213,9 +218,15 @@ export function MissedPunchApprovalQueue({
     mutationFn: (input: {
       id: string;
       decision: "approved" | "rejected" | "change_required";
+      reviewNote?: string;
       /** Display-only; server expands open legacy same-day siblings from this id. */
       reviewIds?: string[];
-    }) => reviewAttendanceCorrection({ id: input.id, decision: input.decision }),
+    }) =>
+      reviewAttendanceCorrection({
+        id: input.id,
+        decision: input.decision,
+        reviewNote: input.reviewNote,
+      }),
     onMutate: async (input) => {
       // Waiting queue: drop acted cards immediately. Approved history keeps rows.
       if (historyOnly) return { previous: undefined as CorrectionListRow[] | undefined };
@@ -227,7 +238,8 @@ export function MissedPunchApprovalQueue({
       );
       return { previous };
     },
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
+      if (input.decision === "change_required") setChangeRequiredTarget(null);
       toast.success(t("hr.leave.updated"));
     },
     onError: (e: Error, _vars, ctx) => {
@@ -406,11 +418,23 @@ export function MissedPunchApprovalQueue({
                       <dt>{t("common.date")}</dt>
                       <dd>{row.workDate ? formatWorkDateDdMmYyyy(row.workDate) : "—"}</dd>
                     </div>
-                    <div className="hd-approval__fact">
+                    <div
+                      className={
+                        displayType === "both"
+                          ? "hd-approval__fact hd-approval__fact--in"
+                          : "hd-approval__fact"
+                      }
+                    >
                       <dt>{t("hr.me.punchIn")}</dt>
                       <dd>{clockText(clocks.punchIn)}</dd>
                     </div>
-                    <div className="hd-approval__fact">
+                    <div
+                      className={
+                        displayType === "both"
+                          ? "hd-approval__fact hd-approval__fact--out"
+                          : "hd-approval__fact"
+                      }
+                    >
                       <dt>{t("hr.me.punchOut")}</dt>
                       <dd>{clockText(clocks.punchOut)}</dd>
                     </div>
@@ -525,14 +549,13 @@ export function MissedPunchApprovalQueue({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          reviewMut.mutate({
+                          setChangeRequiredTarget({
                             id: row.id,
-                            decision: "change_required",
                             reviewIds: card.reviewIds,
                           });
                         }}
                       >
-                        Change required
+                        {t("hr.me.changeRequired", { defaultValue: "Change required" })}
                       </Button>
                       <button
                         type="button"
@@ -560,6 +583,35 @@ export function MissedPunchApprovalQueue({
         </ul>
       )}
       <MissedPunchPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
+      <RosterChangeReasonDialog
+        open={Boolean(changeRequiredTarget)}
+        pending={
+          reviewMut.isPending &&
+          reviewMut.variables?.decision === "change_required" &&
+          reviewMut.variables?.id === changeRequiredTarget?.id
+        }
+        title={t("hr.me.changeRequiredTitle", {
+          defaultValue: "Why is a change needed?",
+        })}
+        description={t("hr.me.changeRequiredHelp", {
+          defaultValue: "Tell the requester what to fix so they can update and send again.",
+        })}
+        confirmLabel={t("hr.me.changeRequiredConfirm", {
+          defaultValue: "Send change request",
+        })}
+        onOpenChange={(open) => {
+          if (!open) setChangeRequiredTarget(null);
+        }}
+        onConfirm={(reason) => {
+          if (!changeRequiredTarget) return;
+          reviewMut.mutate({
+            id: changeRequiredTarget.id,
+            decision: "change_required",
+            reviewNote: reason,
+            reviewIds: changeRequiredTarget.reviewIds,
+          });
+        }}
+      />
     </div>
   );
 }
@@ -605,7 +657,13 @@ export function MyMissedPunchRequests() {
       row.status === "approved" ||
       row.status === "change_required",
   );
-  const cards = groupOpenLegacyPunchPairs(rows).slice(0, 8);
+  // Surface change-required first so the requester sees the action item immediately.
+  const orderedRows = rows.toSorted((a, b) => {
+    const rank = (status: string) =>
+      status === "change_required" ? 0 : status === "pending" ? 1 : status === "rejected" ? 2 : 3;
+    return rank(a.status) - rank(b.status);
+  });
+  const cards = groupOpenLegacyPunchPairs(orderedRows).slice(0, 8);
   if (!cards.length) return null;
   return (
     <div className="mt-4 space-y-2">
@@ -676,7 +734,9 @@ export function MyMissedPunchRequests() {
                 {row.status === "rejected" ? (
                   <span className="font-semibold text-destructive">Reject</span>
                 ) : row.status === "change_required" ? (
-                  <span className="font-semibold text-amber-700 dark:text-amber-300">Change required</span>
+                  <span className="font-semibold text-amber-700 dark:text-amber-300">
+                    {t("hr.me.changeRequired", { defaultValue: "Change required" })}
+                  </span>
                 ) : (
                   <Badge variant={row.status === "approved" ? "success" : "warning"}>
                     {row.status === "pending"
@@ -722,11 +782,21 @@ export function MyMissedPunchRequests() {
                       setReason(row.reason ?? "");
                     }}
                   >
-                    {t("common.edit")}
+                    {row.status === "change_required"
+                      ? t("hr.me.updateAndSendAgain", { defaultValue: "Update and send again" })
+                      : t("common.edit")}
                   </Button>
                 ) : null}
               </div>
             </div>
+            {row.status === "change_required" && row.reviewNote ? (
+              <p className="rounded-lg border border-amber-300/60 bg-amber-50/80 px-2.5 py-2 text-xs text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-100">
+                <span className="font-semibold">
+                  {t("hr.me.changeRequiredNoteLabel", { defaultValue: "What to fix:" })}{" "}
+                </span>
+                {row.reviewNote}
+              </p>
+            ) : null}
             {editing ? (
               <div className="space-y-2 border-t border-border/50 pt-2">
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -899,7 +969,9 @@ export function MissedPunchRequestButton({
         }`}
       >
         {changeRequired ? (
-          <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Change required</p>
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+            {t("hr.me.changeRequired", { defaultValue: "Change required" })}
+          </p>
         ) : (
           <Badge variant="warning">
             {typeLabel}
@@ -912,6 +984,14 @@ export function MissedPunchRequestButton({
           <span className="mx-1.5">·</span>
           {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
         </p>
+        {changeRequired && row.reviewNote ? (
+          <p className="rounded-lg border border-amber-300/60 bg-amber-50/80 px-2.5 py-2 text-xs text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-100">
+            <span className="font-semibold">
+              {t("hr.me.changeRequiredNoteLabel", { defaultValue: "What to fix:" })}{" "}
+            </span>
+            {row.reviewNote}
+          </p>
+        ) : null}
         {row.reason ? <p className="text-xs text-muted-foreground">{row.reason}</p> : null}
         {editing ? (
           <div className="space-y-2">
@@ -974,7 +1054,9 @@ export function MissedPunchRequestButton({
               setReason(row.reason ?? "");
             }}
           >
-            {changeRequired ? "Update and send again" : t("common.edit")}
+            {changeRequired
+              ? t("hr.me.updateAndSendAgain", { defaultValue: "Update and send again" })
+              : t("common.edit")}
           </Button>
         )}
       </div>

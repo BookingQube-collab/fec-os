@@ -2104,19 +2104,23 @@ async function reviewOneMissedPunchChain(args: {
 
   if (args.decision === "rejected" || args.decision === "change_required") {
     const sendingBack = args.decision === "change_required";
+    const note = (args.reviewNote ?? "").trim();
+    if (sendingBack && note.length < 3) {
+      throw new Error("Explain why a change is needed (at least 3 characters).");
+    }
     await updateThisCorrectionOnly(args.correctionId, step, {
       status: sendingBack ? "change_required" : "rejected",
       current_step_role: null,
       reviewed_by: args.userId,
       reviewed_at: now,
-      review_note: args.reviewNote ?? null,
+      review_note: note || null,
     });
     if (pending) {
       await closeThisStep(String(pending.id), args.correctionId, {
         status: "rejected",
         acted_by: args.userId,
         acted_at: now,
-        comments: args.reviewNote ?? (sendingBack ? "Change required" : null),
+        comments: note || (sendingBack ? "Change required" : null),
       });
     }
     try {
@@ -2129,15 +2133,16 @@ async function reviewOneMissedPunchChain(args: {
     }
     await dismissExecutiveMissedPunchNotices(row.id);
     const when = row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : "";
+    const noteSuffix = note ? ` Reason: ${note}` : "";
     await notifyApprovers({
       userIds: [String(row.requested_by)],
       locationId: String(row.location_id),
       title: sendingBack ? "Missed punch change required" : "Missed punch request rejected",
       body: sendingBack
-        ? `Your missed punch request${when} needs a change. Update it and send it again.`
-        : `Your missed punch request${when} was rejected.`,
+        ? `Your missed punch request${when} needs a change. Update it and send it again.${noteSuffix}`
+        : `Your missed punch request${when} was rejected.${noteSuffix}`,
       sourceId: row.id,
-      actionUrl: "/hr/me",
+      actionUrl: ME_CORRECTION_HREF,
     });
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
   }
@@ -2187,7 +2192,7 @@ async function reviewOneMissedPunchChain(args: {
       title: "Missed punch request approved",
       body: `Your missed punch request${row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : ""} was approved.`,
       sourceId: row.id,
-      actionUrl: "/hr/me",
+      actionUrl: ME_CORRECTION_HREF,
     });
     const { data: person } = row.staff_id
       ? await supabaseAdmin.from("staff").select("full_name").eq("id", row.staff_id).maybeSingle()

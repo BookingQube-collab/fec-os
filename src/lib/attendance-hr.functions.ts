@@ -168,6 +168,8 @@ import {
   upcomingPeriod,
 } from "@/lib/attendance-hr/availability";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
+import { ME_CORRECTION_HREF } from "@/lib/attendance-hr/missed-punch-approval";
+import { notifyUsers } from "@/lib/notifications/action-notify";
 import {
   applyAcceptedCorrectionTimes,
   previousPunchesFromOriginalValue,
@@ -2679,12 +2681,25 @@ export const submitMissedPunchRequest = createSafeAuthenticatedAction(
 );
 
 export const reviewAttendanceCorrection = createAuthenticatedAction(
-  z.object({
-    id: z.string().uuid(),
-    decision: z.enum(["approved", "rejected", "change_required"]),
-    reviewNote: z.string().max(500).optional(),
-  }),
+  z
+    .object({
+      id: z.string().uuid(),
+      decision: z.enum(["approved", "rejected", "change_required"]),
+      reviewNote: z.string().max(500).optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (data.decision !== "change_required") return;
+      const note = (data.reviewNote ?? "").trim();
+      if (note.length < 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["reviewNote"],
+          message: "Explain why a change is needed (at least 3 characters).",
+        });
+      }
+    }),
   async (data, context) => {
+    const reviewNote = (data.reviewNote ?? "").trim() || undefined;
     const { data: existing, error: readErr } = await supabaseAdmin
       .from("attendance_corrections")
       .select("id, current_step_role, location_id")
@@ -2697,7 +2712,7 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
         userId: context.userId,
         correctionId: data.id,
         decision: data.decision,
-        reviewNote: data.reviewNote,
+        reviewNote,
         applyFinal: async (row) => {
           await applyCorrection(context, row as unknown as Record<string, unknown>);
         },
@@ -2732,7 +2747,7 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
         status: data.decision,
         reviewed_by: context.userId,
         reviewed_at: new Date().toISOString(),
-        review_note: data.reviewNote ?? null,
+        review_note: reviewNote ?? null,
       })
       .eq("id", data.id);
     if (uErr) throw uErr;
@@ -2741,8 +2756,25 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
       await applyCorrection(context, row);
     }
     await audit(context, `attendance.correction_${data.decision}`, "attendance_corrections", data.id, row.location_id as string);
-    if (data.decision !== "change_required") {
-      const requester = typeof row.requested_by === "string" ? row.requested_by : null;
+    const requester = typeof row.requested_by === "string" ? row.requested_by : null;
+    if (data.decision === "change_required") {
+      // Legacy single-step path: still notify the requester so the change request is not silent.
+      if (requester) {
+        const when = row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : "";
+        const noteSuffix = reviewNote ? ` Reason: ${reviewNote}` : "";
+        await notifyUsers({
+          userIds: [requester],
+          locationId: row.location_id as string,
+          category: "people",
+          title: "Missed punch change required",
+          body: `Your missed punch request${when} needs a change. Update it and send it again.${noteSuffix}`,
+          severity: "warning",
+          actionUrl: ME_CORRECTION_HREF,
+          sourceType: "attendance_corrections",
+          sourceId: data.id,
+        });
+      }
+    } else {
       await dispatchHrNotify(
         {
           kind: data.decision === "approved" ? "correction_approved" : "correction_rejected",

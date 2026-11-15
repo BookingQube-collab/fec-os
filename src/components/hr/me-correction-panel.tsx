@@ -29,11 +29,10 @@ function hashIsApproveDeepLink(): boolean {
   return window.location.hash.replace(/^#/, "") === "me-punch-approvals";
 }
 
-/** First paint: Approve deep link or Correction tab hash prefers Approve when available. */
-function hashPrefersApprove(): boolean {
+/** Requester outcome notifies (#me-correction) should open Request, not Approve. */
+function hashPrefersRequest(): boolean {
   if (typeof window === "undefined") return false;
-  const hash = window.location.hash.replace(/^#/, "");
-  return hash === "me-punch-approvals" || hash === "me-correction";
+  return window.location.hash.replace(/^#/, "") === "me-correction";
 }
 
 export function MeCorrectionPanel({
@@ -94,6 +93,9 @@ export function MeCorrectionPanel({
   const pendingCount = pendingQ.isPending ? null : (pendingQ.data?.length ?? 0);
   const approvedCount = approvedQ.isPending ? null : (approvedQ.data?.length ?? 0);
   const requestCount = mineQ.isPending ? null : (mineQ.data?.length ?? 0);
+  const changeRequiredCount = mineQ.isPending
+    ? 0
+    : (mineQ.data ?? []).filter((row) => row.status === "change_required").length;
   const tabCount: Partial<Record<CorrectionJob, number | null>> = {
     approve: pendingCount,
     approved: approvedCount,
@@ -107,27 +109,37 @@ export function MeCorrectionPanel({
     if (jobs.length === 0) return;
     if (showApprove && !reports.isPending && pendingQ.isPending) return;
     if (showRequest && reportsPending) return;
+    if (showRequest && !reportsPending && mineQ.isPending) return;
 
-    const preferApprove = hashPrefersApprove() || (pendingCount ?? 0) > 0;
+    // Change-required / requester deep links beat the waiting-approvals default.
+    const preferRequest =
+      (hashPrefersRequest() || changeRequiredCount > 0) && jobs.includes("request");
+    const preferApprove = hashIsApproveDeepLink() || (!preferRequest && (pendingCount ?? 0) > 0);
     // Only the Approve deep link re-selects after the first pick (not #me-correction).
     if (pickedDefault.current) {
       if (hashIsApproveDeepLink() && jobs.includes("approve") && job !== "approve") {
         setJob("approve");
+      } else if (hashPrefersRequest() && jobs.includes("request") && job !== "request") {
+        setJob("request");
       }
       return;
     }
 
     const fallback: CorrectionJob =
-      preferApprove && jobs.includes("approve")
-        ? "approve"
-        : jobs.includes("request")
-          ? "request"
-          : jobs[0]!;
+      preferRequest
+        ? "request"
+        : preferApprove && jobs.includes("approve")
+          ? "approve"
+          : jobs.includes("request")
+            ? "request"
+            : jobs[0]!;
     setJob(fallback);
     pickedDefault.current = true;
   }, [
+    changeRequiredCount,
     job,
     jobs,
+    mineQ.isPending,
     pendingCount,
     pendingQ.isPending,
     reports.isPending,
@@ -138,8 +150,13 @@ export function MeCorrectionPanel({
 
   useEffect(() => {
     const onHash = () => {
-      if (!hashIsApproveDeepLink() || !jobs.includes("approve")) return;
-      setJob("approve");
+      if (hashIsApproveDeepLink() && jobs.includes("approve")) {
+        setJob("approve");
+        return;
+      }
+      if (hashPrefersRequest() && jobs.includes("request")) {
+        setJob("request");
+      }
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
