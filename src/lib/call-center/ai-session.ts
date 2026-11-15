@@ -24,6 +24,21 @@ function metaOf(call: CallCenterCall): Record<string, unknown> {
   return (call.metadata as Record<string, unknown> | null) ?? {};
 }
 
+function normalizeAiHistory(raw: unknown): CallCenterAiHistoryItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CallCenterAiHistoryItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+    if ((role !== "user" && role !== "assistant") || typeof content !== "string") continue;
+    const trimmed = content.trim();
+    if (!trimmed) continue;
+    out.push({ role, content: trimmed });
+  }
+  return out;
+}
+
 export type StartAiAnswerInput = {
   call: CallCenterCall;
   settings: CallCenterSettingsRow | null;
@@ -154,9 +169,7 @@ export async function processCallCenterAiTurn(input: {
   }
 
   const settings = await loadSettingsRow();
-  const history = Array.isArray(meta.aiHistory)
-    ? (meta.aiHistory as CallCenterAiHistoryItem[])
-    : [];
+  const history = normalizeAiHistory(meta.aiHistory);
   const languageHint =
     input.language || (typeof meta.aiLanguage === "string" ? meta.aiLanguage : null) || "auto";
 
@@ -172,8 +185,8 @@ export async function processCallCenterAiTurn(input: {
 
   const nextHistory: CallCenterAiHistoryItem[] = [
     ...history,
-    { role: "user", content: utterance },
-    { role: "assistant", content: generated.text },
+    { role: "user" as const, content: utterance },
+    { role: "assistant" as const, content: generated.text },
   ].slice(-24);
 
   const patched = await updateCall(call.id, {
