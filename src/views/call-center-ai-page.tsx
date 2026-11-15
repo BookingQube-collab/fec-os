@@ -91,7 +91,7 @@ function CallCenterAiPage() {
   const [welcomeEn, setWelcomeEn] = useState("");
   const [welcomeAr, setWelcomeAr] = useState("");
   const [provider, setProvider] = useState<CallCenterAiProvider>("openai");
-  const [model, setModel] = useState("gpt-4o-mini");
+  const [model, setModel] = useState("gemini-flash-latest");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [languages, setLanguages] = useState("en, ar");

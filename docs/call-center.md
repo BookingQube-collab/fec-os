@@ -191,10 +191,10 @@ Adds agent edit fields (`display_name_override`, max concurrent, whisper/barge, 
 Open `/call-center/ai` (admin edit).
 
 1. Enable **AI first answer** and set EN/AR welcome + system prompts.
-2. Choose provider (`openai` / `openai_compatible` / `livekit_agents`), model, optional API key (masked; blank keeps saved), languages, LiveKit agent name.
+2. Choose provider (`openai` / `openai_compatible` / `livekit_agents`) for the live voice agent path, model (default `gemini-flash-latest` for gateway Run test), optional API key (masked; blank keeps saved), languages, LiveKit agent name.
 3. Handoff: after N seconds, keyword list, target queue.
-4. **Run test** uses the FEC AI gateway (falls back to `OPENAI_API_KEY`).
-5. IVR canvas **AI Agent** node links here for global flags; node-local prompt still lives on the flow.
+4. **Run test** uses Admin → AI Integrations routing (primary Gemini → OpenRouter fallback). It ignores legacy OpenAI model ids like `gpt-4o-mini` so the gateway can use each provider’s selected model. Env fallbacks still apply if no admin provider is eligible.
+5. IVR canvas **AI Agent** node links here for global flags; node-local prompt still lives on the flow. Live voice agent still needs its own provider wiring (not the admin text gateway).
 
 Status badge shows configured vs missing keys (`ai_api_key` or `OPENAI_API_KEY`, or LiveKit agent name when provider is `livekit_agents`).
 

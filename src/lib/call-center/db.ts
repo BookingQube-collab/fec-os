@@ -415,7 +415,7 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
       row.ai_welcome_ar ?? "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
     ),
     ai_provider: normalizeAiProvider(row.ai_provider),
-    ai_model: String(row.ai_model ?? "gpt-4o-mini"),
+    ai_model: String(row.ai_model ?? "gemini-flash-latest"),
     ai_api_key: String(row.ai_api_key ?? ""),
     ai_base_url: String(row.ai_base_url ?? ""),
     ai_languages: Array.isArray(row.ai_languages)

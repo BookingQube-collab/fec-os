@@ -2404,7 +2404,7 @@
     "aiHandoffQueue": "Handoff queue",
     "aiHandoffKeywords": "Handoff keywords",
     "aiTestHeading": "Test prompt",
-    "aiTestHint": "Runs against the saved system prompt using the FEC AI gateway / OpenAI env fallback.",
+    "aiTestHint": "Runs the saved system prompt via Admin → AI Integrations (Gemini primary, OpenRouter fallback). Legacy OpenAI model ids are ignored for this test.",
     "aiTestPlaceholder": "Ask a sample caller question…",
     "aiRunTest": "Run test",
     "whatsappComing": "WhatsApp inbox",

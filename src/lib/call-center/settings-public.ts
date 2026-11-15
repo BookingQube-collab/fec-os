@@ -82,7 +82,7 @@ export function toPublicSettings(
       row?.ai_welcome_ar?.trim() ||
       "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
     aiProvider: normalizeAiProvider(row?.ai_provider),
-    aiModel: row?.ai_model?.trim() || "gpt-4o-mini",
+    aiModel: row?.ai_model?.trim() || "gemini-flash-latest",
     aiApiKeySet: aiApiKey.length > 0,
     aiApiKeyLast4: secretLast4(aiApiKey),
     aiBaseUrl: row?.ai_base_url?.trim() ?? "",

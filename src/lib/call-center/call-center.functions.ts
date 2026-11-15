@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { generateText } from "@/lib/ai/gateway";
+import { gatewayModelForCallCenterTest } from "@/lib/call-center/gateway-model";
 import { getCallProvider } from "@/lib/chat/call-provider";
 import { createSafeAuthenticatedAction } from "@/lib/server/create-action";
 
@@ -1600,7 +1601,7 @@ export const testCallCenterAiPrompt = createSafeAuthenticatedAction(
       (lang === "ar" ? settings?.ai_welcome_ar : settings?.ai_welcome_en)?.trim() || "";
     const result = await generateText({
       moduleSource: "call_center_ai_test",
-      model: settings?.ai_model || undefined,
+      model: gatewayModelForCallCenterTest(settings?.ai_model),
       messages: [
         { role: "system", content: system },
         ...(welcome ? [{ role: "assistant" as const, content: welcome }] : []),
