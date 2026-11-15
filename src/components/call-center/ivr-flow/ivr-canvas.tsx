@@ -20,6 +20,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   LayoutGrid,
+  Phone,
+  PhoneOff,
   Plus,
   Save,
   Trash2,
@@ -28,7 +30,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { FecButton as Button } from "@/components/fec";
@@ -46,6 +48,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   autoLayoutFlow,
   defaultNodeData,
+  formatValidDigits,
   parseIvrFlowJson,
   simulateDigitPath,
   type IvrFlowJson,
@@ -58,7 +61,9 @@ import {
 import {
   playIvrVoicePreview,
   playIvrVoicePreviewSequence,
+  resolveIvrPreviewLang,
   stopIvrVoicePreview,
+  unlockIvrAudio,
   type IvrPreviewLang,
 } from "@/lib/call-center/ivr-voice-preview";
 import { cn } from "@/lib/utils";
@@ -567,12 +572,18 @@ function CanvasInner({
   const [nodes, setNodes, onNodesChange] = useNodesState(toRfNodes(initialFlow));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toRfEdges(initialFlow));
   const [selected, setSelected] = useState<Node | null>(null);
-  const [previewDigits, setPreviewDigits] = useState("14");
+  const [previewDigits, setPreviewDigits] = useState("");
   const [preview, setPreview] = useState<IvrPathSimulation | null>(null);
+  const [liveActive, setLiveActive] = useState(false);
+  const spokenLenRef = useRef(0);
 
   useEffect(() => {
     setNodes(toRfNodes(initialFlow));
     setEdges(toRfEdges(initialFlow));
+    setLiveActive(false);
+    setPreview(null);
+    setPreviewDigits("");
+    spokenLenRef.current = 0;
     if (initialFlow.viewport) {
       void setViewport(initialFlow.viewport);
     } else {
@@ -581,6 +592,58 @@ function CanvasInner({
   }, [initialFlow, setNodes, setEdges, setViewport, fitView]);
 
   useEffect(() => () => stopIvrVoicePreview(), []);
+
+  useEffect(() => {
+    const onVoiceError = (event: Event) => {
+      const error = (event as CustomEvent<{ error?: string }>).detail?.error;
+      if (error) toast.error(error);
+    };
+    const onVoiceInfo = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message;
+      if (message) toast.message(message);
+    };
+    window.addEventListener("ivr-voice-preview-error", onVoiceError);
+    window.addEventListener("ivr-voice-preview-info", onVoiceInfo);
+    return () => {
+      window.removeEventListener("ivr-voice-preview-error", onVoiceError);
+      window.removeEventListener("ivr-voice-preview-info", onVoiceInfo);
+    };
+  }, []);
+
+  // Highlight the live call path on the canvas.
+  useEffect(() => {
+    if (!preview?.path.length) {
+      setNodes((ns) =>
+        ns.map((n) => ({
+          ...n,
+          className: undefined,
+          style: { ...(n.style ?? {}), outline: "none", outlineOffset: "0" },
+        })),
+      );
+      return;
+    }
+    const activeId = preview.path[preview.path.length - 1]?.nodeId;
+    const visited = new Set(preview.path.map((p) => p.nodeId));
+    setNodes((ns) =>
+      ns.map((n) => {
+        const isActive = n.id === activeId;
+        const isVisited = visited.has(n.id);
+        return {
+          ...n,
+          className: isActive ? "ivr-live-active" : isVisited ? "ivr-live-visited" : undefined,
+          style: {
+            ...(n.style ?? {}),
+            outline: isActive
+              ? "2px solid var(--fec-star)"
+              : isVisited
+                ? "1px solid color-mix(in oklab, var(--fec-star) 55%, transparent)"
+                : "none",
+            outlineOffset: isActive || isVisited ? "3px" : "0",
+          },
+        };
+      }),
+    );
+  }, [preview, setNodes]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -641,34 +704,164 @@ function CanvasInner({
     requestAnimationFrame(() => fitView({ padding: 0.2 }));
   }
 
-  function runSimulation(): IvrPathSimulation {
+  function spokenPartsFrom(
+    result: IvrPathSimulation,
+    fromIndex = 0,
+  ): Array<{ text: string; lang: IvrPreviewLang }> {
+    const parts: Array<{ text: string; lang: IvrPreviewLang }> = [];
+    for (let i = fromIndex; i < result.path.length; i += 1) {
+      const step = result.path[i]!;
+      if (!["start", "menu", "play", "ai"].includes(step.type)) continue;
+      // Prefer the language-specific script after EN/AR selection.
+      const text = (
+        result.language === "ar"
+          ? step.spokenAr || step.spoken || step.spokenEn
+          : step.spokenEn || step.spoken || step.spokenAr
+      ).trim();
+      if (!text || parts[parts.length - 1]?.text === text) continue;
+      parts.push({ text, lang: resolveIvrPreviewLang(text, result.language) });
+    }
+    return parts;
+  }
+
+  function runSimulation(digitsRaw: string): IvrPathSimulation {
     const flow = fromRf(nodes, edges, getViewport());
-    const digits = previewDigits.split("").filter((d) => /^[0-9*#]$/.test(d));
+    const digits = digitsRaw.split("").filter((d) => /^[0-9*#]$/.test(d));
     const result = simulateDigitPath(flow, digits);
     setPreview(result);
     return result;
   }
 
-  function runPreview() {
-    const result = runSimulation();
-    if (result.status === "invalid") toast.error(result.terminal);
+  function speakSimulation(result: IvrPathSimulation, fromIndex = 0) {
+    const parts = spokenPartsFrom(result, fromIndex);
+    if (!parts.length) return;
+    const played = playIvrVoicePreviewSequence(parts);
+    if (!played.ok) toast.error(played.error);
+  }
+
+  function startLiveCall() {
+    unlockIvrAudio();
+    stopIvrVoicePreview();
+    spokenLenRef.current = 0;
+    setPreviewDigits("");
+    setLiveActive(true);
+    const result = runSimulation("");
+    speakSimulation(result, 0);
+    spokenLenRef.current = result.path.length;
+    if (result.status === "dead_end") {
+      toast.error(result.terminal);
+      setLiveActive(false);
+      return;
+    }
+    toast.message("Live IVR test started — press digits like a caller.");
+  }
+
+  function endLiveCall() {
+    stopIvrVoicePreview();
+    setLiveActive(false);
+    setPreviewDigits("");
+    setPreview(null);
+    spokenLenRef.current = 0;
+  }
+
+  function pressLiveDigit(digit: string) {
+    if (!/^[0-9*#]$/.test(digit)) return;
+    unlockIvrAudio();
+
+    let baseDigits = previewDigits;
+    let from = spokenLenRef.current;
+
+    if (!liveActive) {
+      stopIvrVoicePreview();
+      spokenLenRef.current = 0;
+      baseDigits = "";
+      setLiveActive(true);
+      const greeting = runSimulation("");
+      speakSimulation(greeting, 0);
+      from = greeting.path.length;
+      spokenLenRef.current = from;
+      if (greeting.status === "dead_end") {
+        toast.error(greeting.terminal);
+        setLiveActive(false);
+        return;
+      }
+    }
+
+    const next = `${baseDigits}${digit}`;
+    const result = runSimulation(next);
+
+    if (result.status === "invalid") {
+      toast.error(result.terminal);
+      // Drop the bad digit and restore the waiting menu so the caller can retry.
+      setPreviewDigits(baseDigits);
+      runSimulation(baseDigits);
+      return;
+    }
+
+    setPreviewDigits(next);
+    speakSimulation(result, from);
+    spokenLenRef.current = result.path.length;
+
+    if (result.status === "ok") {
+      toast.success(result.terminal);
+      setLiveActive(false);
+    }
+  }
+
+  const pressLiveDigitRef = useRef(pressLiveDigit);
+  const endLiveCallRef = useRef(endLiveCall);
+  pressLiveDigitRef.current = pressLiveDigit;
+  endLiveCallRef.current = endLiveCall;
+
+  // Phone-style keypad while a live test is running.
+  useEffect(() => {
+    if (!liveActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "Escape") {
+        endLiveCallRef.current();
+        return;
+      }
+      if (/^[0-9*#]$/.test(e.key)) {
+        e.preventDefault();
+        pressLiveDigitRef.current(e.key);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [liveActive]);
+
+  /** One-shot: run a full typed path (e.g. 111) and speak the whole script. */
+  function runFullPathTest() {
+    stopIvrVoicePreview();
+    setLiveActive(false);
+    const result = runSimulation(previewDigits);
+    spokenLenRef.current = result.path.length;
+    if (result.status === "invalid" || result.status === "dead_end") {
+      toast.error(result.terminal);
+      return;
+    }
+    speakSimulation(result, 0);
+    if (result.status === "waiting") {
+      toast.message(result.terminal);
+      setLiveActive(true);
+      return;
+    }
+    toast.success(result.terminal);
   }
 
   function listenPreviewPath() {
-    const result = runSimulation();
-    // Start and the first menu often share the same prompt — don't read it twice.
-    const parts: Array<{ text: string; lang: IvrPreviewLang }> = [];
-    for (const step of result.path) {
-      if (!["start", "menu", "play", "ai"].includes(step.type)) continue;
-      const text = step.spoken.trim();
-      if (!text || parts[parts.length - 1]?.text === text) continue;
-      parts.push({ text, lang: result.language });
-    }
-    const played = playIvrVoicePreviewSequence(parts);
-    if (!played.ok) {
-      toast.error(played.error);
-      return;
-    }
+    const result = runSimulation(previewDigits);
+    spokenLenRef.current = result.path.length;
+    speakSimulation(result, 0);
     if (result.status === "invalid") toast.error(result.terminal);
   }
 
@@ -744,21 +937,36 @@ function CanvasInner({
           </Button>
           <div className="ms-auto flex flex-wrap items-center gap-1.5">
             <Input
-              className="h-8 w-32"
+              className="h-8 w-28"
               inputMode="numeric"
               aria-label="Digit path to test"
-              placeholder="Path e.g. 14"
-              title="Type one digit per menu, in order. 14 = English (1) → Birthday enquiry (4); 21 = Arabic (2) → InflataPark (1). A single digit only tests the first menu."
+              placeholder="Path e.g. 111"
+              title="Optional: type the full digit path then press Listen, or start a live call and use the keypad."
               value={previewDigits}
-              onChange={(e) => setPreviewDigits(e.target.value)}
+              disabled={liveActive}
+              onChange={(e) => setPreviewDigits(e.target.value.replace(/[^0-9*#]/g, ""))}
               onKeyDown={(e) => {
-                if (e.key === "Enter") runPreview();
+                if (e.key === "Enter") runFullPathTest();
               }}
             />
-            <Button type="button" size="sm" variant="secondary" onClick={runPreview}>
-              Test
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={listenPreviewPath}>
+            {liveActive ? (
+              <Button type="button" size="sm" variant="destructive" onClick={endLiveCall}>
+                <PhoneOff className="me-1 h-3.5 w-3.5" />
+                End test
+              </Button>
+            ) : (
+              <Button type="button" size="sm" variant="secondary" onClick={startLiveCall}>
+                <Phone className="me-1 h-3.5 w-3.5" />
+                Test
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={liveActive}
+              onClick={listenPreviewPath}
+            >
               <Volume2 className="me-1 h-3.5 w-3.5" />
               Listen
             </Button>
@@ -792,53 +1000,87 @@ function CanvasInner({
           </ReactFlow>
         </div>
 
-        {preview ? (
-          <div className="absolute bottom-3 left-3 z-10 max-w-md rounded-lg border border-border/50 bg-card/95 px-3 py-2 text-xs shadow-sm">
-            <p className="font-semibold text-foreground">
-              Path ({preview.language.toUpperCase()}):{" "}
-              {preview.path.map((p) => p.label).join(" → ") || "(empty)"}
-            </p>
-            <p
-              className={cn(
-                "mt-1",
-                preview.status === "invalid" || preview.status === "dead_end"
-                  ? "font-medium text-destructive"
-                  : preview.status === "waiting"
-                    ? "text-amber-700 dark:text-amber-400"
-                    : "text-muted-foreground",
-              )}
-            >
-              {preview.terminal}
-            </p>
-            {preview.ignoredDigits ? (
-              <p className="mt-1 text-muted-foreground">
-                Ignored extra digits: {preview.ignoredDigits}
-              </p>
-            ) : null}
-            {preview.queueLabel || preview.queueId ? (
-              <p className="mt-1 text-muted-foreground">
-                Queue: {preview.queueLabel || preview.queueId}
-              </p>
-            ) : null}
-            {preview.aiAnswered ? (
-              <p className="mt-1 text-muted-foreground">CDR flag: ai_answered</p>
-            ) : null}
-            <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
-              <p className="font-medium text-foreground/90">Spoken script</p>
-              {preview.path
-                .filter(
-                  (p, i, all) =>
-                    ["start", "menu", "play", "ai"].includes(p.type) &&
-                    p.spoken &&
-                    // Start often shares its prompt with the first menu; show it once.
-                    !(i > 0 && all[i - 1]?.spoken === p.spoken && all[i - 1]?.type === "start"),
-                )
-                .map((p) => (
-                  <p key={`${p.nodeId}-script`} className="text-muted-foreground">
-                    <span className="font-medium text-foreground/80">{p.label}:</span> {p.spoken}
+        {liveActive || preview ? (
+          <div className="absolute bottom-3 left-3 z-10 flex max-w-lg flex-col gap-2 rounded-lg border border-border/50 bg-card/95 px-3 py-2 text-xs shadow-sm">
+            {liveActive ? (
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Live IVR test
+                    {previewDigits ? (
+                      <span className="ms-1 font-mono text-muted-foreground">· {previewDigits}</span>
+                    ) : null}
                   </p>
-                ))}
-            </div>
+                  <p className="mt-0.5 text-muted-foreground">
+                    Press digits like a caller. Prompts play as you move through the flow.
+                  </p>
+                </div>
+                <div className="grid shrink-0 grid-cols-3 gap-1">
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      className="h-8 w-8 rounded-md border border-border/60 bg-background font-mono text-sm font-semibold hover:bg-muted"
+                      onClick={() => pressLiveDigit(d)}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {preview ? (
+              <>
+                <p className="font-semibold text-foreground">
+                  Path ({preview.language.toUpperCase()}):{" "}
+                  {preview.path.map((p) => p.label).join(" → ") || "(empty)"}
+                </p>
+                <p
+                  className={cn(
+                    preview.status === "invalid" || preview.status === "dead_end"
+                      ? "font-medium text-destructive"
+                      : preview.status === "waiting"
+                        ? "text-amber-700 dark:text-amber-400"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {preview.terminal}
+                </p>
+                {preview.status === "waiting" && preview.validDigits.length > 0 ? (
+                  <p className="text-muted-foreground">
+                    Options: {formatValidDigits(preview.validDigits)}
+                  </p>
+                ) : null}
+                {preview.ignoredDigits ? (
+                  <p className="text-muted-foreground">
+                    Ignored extra digits: {preview.ignoredDigits}
+                  </p>
+                ) : null}
+                {preview.queueLabel || preview.queueId ? (
+                  <p className="text-muted-foreground">
+                    Queue: {preview.queueLabel || preview.queueId}
+                  </p>
+                ) : null}
+                {preview.aiAnswered ? (
+                  <p className="text-muted-foreground">CDR flag: ai_answered</p>
+                ) : null}
+                <div className="space-y-1 border-t border-border/40 pt-2">
+                  <p className="font-medium text-foreground/90">Spoken script</p>
+                  {preview.path
+                    .filter(
+                      (p, i, all) =>
+                        ["start", "menu", "play", "ai"].includes(p.type) &&
+                        p.spoken &&
+                        !(i > 0 && all[i - 1]?.spoken === p.spoken && all[i - 1]?.type === "start"),
+                    )
+                    .map((p) => (
+                      <p key={`${p.nodeId}-script`} className="text-muted-foreground">
+                        <span className="font-medium text-foreground/80">{p.label}:</span> {p.spoken}
+                      </p>
+                    ))}
+                </div>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
