@@ -112,7 +112,7 @@ export async function commitLiveShiftRoster(
     preview: AttendanceRosterPreview;
     fileName: string;
     fileType: string;
-    /** Required reason for this commit (shown in roster history). */
+    /** Reason for re-upload after the first completed upload (shown in roster history). */
     changeReason?: string | null;
   },
   team?: TeamRosterUploadScope,

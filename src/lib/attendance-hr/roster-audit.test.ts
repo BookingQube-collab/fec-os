@@ -25,18 +25,39 @@ describe("roster change reason", () => {
     expect(rosterAuditChangeReason(null, null)).toBeNull();
   });
 
-  it("always requires a reason for every roster mutate (no upload gate)", async () => {
+  it("requires a reason only after a location-month upload exists", async () => {
     const { resolveRosterPostUploadChangeReason, resolveRosterPostUploadChangeReasonForLocations } =
       await import("@/lib/attendance-hr/roster-audit");
-    const db = {} as never;
-    await expect(resolveRosterPostUploadChangeReason(db, "loc", "2026-03-01", null)).rejects.toThrow(
+
+    const mockDb = (rows: Array<{ location_id: string }>) => {
+      const result = { data: rows, error: null };
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        eq: () => chain,
+        gte: () => chain,
+        lte: () => chain,
+        in: () => chain,
+        limit: () => chain,
+        then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
+      };
+      return { from: () => chain } as never;
+    };
+
+    const emptyDb = mockDb([]);
+    await expect(resolveRosterPostUploadChangeReason(emptyDb, "loc", "2026-03-01", null)).resolves.toBeNull();
+    await expect(
+      resolveRosterPostUploadChangeReasonForLocations(emptyDb, ["loc"], "2026-03-01", "2026-03-31", "  "),
+    ).resolves.toBeNull();
+    await expect(
+      resolveRosterPostUploadChangeReason(emptyDb, "loc", "2026-03-01", "Coverage swap"),
+    ).resolves.toBe("Coverage swap");
+
+    const uploadedDb = mockDb([{ location_id: "loc" }]);
+    await expect(resolveRosterPostUploadChangeReason(uploadedDb, "loc", "2026-03-01", null)).rejects.toThrow(
       /reason is required/i,
     );
     await expect(
-      resolveRosterPostUploadChangeReasonForLocations(db, ["loc"], "2026-03-01", "2026-03-31", "  "),
-    ).rejects.toThrow(/reason is required/i);
-    await expect(
-      resolveRosterPostUploadChangeReason(db, "loc", "2026-03-01", "Coverage swap"),
+      resolveRosterPostUploadChangeReason(uploadedDb, "loc", "2026-03-01", "Coverage swap"),
     ).resolves.toBe("Coverage swap");
   });
 });

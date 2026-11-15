@@ -88,7 +88,7 @@ export async function replaceAttendanceRosterPeriod(
     fileName: string;
     fileType: string;
     rows: MatchedRosterRow[];
-    /** Required reason for this upload / replace (shown in roster history). */
+    /** Reason for re-upload / replace after the first completed upload (shown in roster history). */
     changeReason?: string | null;
   },
   db: AuthContext["supabase"] = context.supabase,
