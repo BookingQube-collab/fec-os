@@ -1321,12 +1321,23 @@ export async function findCallByLivekitRoom(roomName: string): Promise<CallCente
 }
 
 export async function listRecentCalls(limit = 40): Promise<CallCenterCall[]> {
+  // Over-fetch slightly so phantom DID bridge rows can be filtered without thinning the list.
+  const fetchLimit = Math.min(Math.max(limit * 2, limit + 10), 80);
   const result = (await table<Record<string, unknown>>("call_center_calls")
     .select("*")
     .order("started_at", { ascending: false })
-    .limit(limit)) as ListResult<Record<string, unknown>>;
+    .limit(fetchLimit)) as ListResult<Record<string, unknown>>;
   throwIfError(result.error);
-  return (result.data ?? []).map(mapCall);
+  const calls = (result.data ?? []).map(mapCall);
+  const settings = await loadSettingsRow().catch(() => null);
+  const dids = await listDids().catch(() => []);
+  const { collectOwnedE164s, isPhantomDidInbound } = await import("./call-party");
+  const owned = collectOwnedE164s({
+    outboundCallerIdE164: settings?.outbound_caller_id_e164,
+    qatarDidE164: settings?.qatar_did_e164,
+    didE164s: dids.map((d) => d.e164),
+  });
+  return calls.filter((c) => !isPhantomDidInbound(c, owned)).slice(0, limit);
 }
 
 export async function listRingingCallsForAgent(userId: string): Promise<CallCenterCall[]> {

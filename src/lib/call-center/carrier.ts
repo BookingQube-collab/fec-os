@@ -8,8 +8,10 @@ import {
   findCallByProviderCallId,
   getAgentStatus,
   getCall,
+  listDids,
   listIvrMenus,
   loadSettingsRow,
+  normalizeE164,
   setAgentStatus,
   updateCall,
 } from "./db";
@@ -19,6 +21,7 @@ import {
   deleteLiveKitRoom,
   dialOutboundSip,
   dispatchLiveKitAgent,
+  ensureCallControlBridgeDispatch,
   ensureLiveKitRoom,
   waitForSipParticipantInRoom,
 } from "./livekit-sip";
@@ -604,13 +607,19 @@ export async function bridgeCallerToLiveKit(
     // nothing was playing
   }
 
-  // Pre-create the room so SIP dispatch has a destination while the agent softphone connects.
-  try {
-    await ensureLiveKitRoom(roomName);
-  } catch {
-    // Transfer can still create the room via the callee dispatch rule.
+  // Heal dispatch (remove individual rules that steal INVITEs) + pre-create room in parallel.
+  const [dispatchHeal] = await Promise.all([
+    ensureCallControlBridgeDispatch(settings).catch((e) => ({
+      ok: false as const,
+      detail: e instanceof Error ? e.message : "dispatch heal failed",
+    })),
+    ensureLiveKitRoom(roomName).catch(() => undefined),
+  ]);
+  if (!dispatchHeal.ok) {
+    console.warn("[call-center/bridge] dispatch heal:", dispatchHeal.detail);
   }
 
+  // Use our Telnyx-owned CLI on the bridge INVITE (customer ANI is already on the CDR).
   const from =
     settings?.outbound_caller_id_e164?.trim() ||
     (call.toE164?.startsWith("+") ? call.toE164 : "") ||
@@ -632,12 +641,12 @@ export async function bridgeCallerToLiveKit(
     bridgedAt: new Date().toISOString(),
     bridgeSipUri: uri,
     bridgeError: null,
+    bridgeDispatchHeal: dispatchHeal.detail,
   });
 
-  // Telnyx 200 only means the INVITE started. Wait briefly for diagnostics — but do NOT
-  // hang up or fail Answer if SIP is slow to appear. Hard-failing here left agents stuck on
-  // the Incoming modal (toast: trunk wildcard) while killing calls that were still bridging.
-  const sipIdentity = await waitForSipParticipantInRoom(roomName, 6_000);
+  // Short soft-verify only — do not block Answer for many seconds. Softphone shows
+  // "waiting for caller audio" until the SIP participant publishes in the agent room.
+  const sipIdentity = await waitForSipParticipantInRoom(roomName, 2_500);
   if (sipIdentity) {
     await patchMeta(call.id, {
       sipParticipantIdentity: sipIdentity,
@@ -785,6 +794,8 @@ export async function handleLiveKitSipEvent(event: LiveKitEventLike): Promise<Ca
       await patchMeta(linked.id, {
         sipParticipantIdentity: participant.identity ?? "",
         sipCallId: attrs["sip.callID"] ?? "",
+        bridgePendingSip: false,
+        bridgeVerifiedAt: new Date().toISOString(),
       });
       return done(true, "linked to CDR", linked.id);
     }
@@ -802,6 +813,30 @@ export async function handleLiveKitSipEvent(event: LiveKitEventLike): Promise<Ca
     if (!from && !to) return done(false, "no SIP numbers on participant");
 
     const settings = await loadSettingsRow();
+    // Call Control owns CDRs via Telnyx webhooks. A bridge INVITE that lands in the wrong
+    // room (or with From=our DID) must NOT create a second "inbound" Recent row.
+    if (settings?.inbound_mode === "telnyx_call_control") {
+      const owned = new Set<string>();
+      const addOwned = (n: string | null | undefined) => {
+        const v = normalizeE164(n ?? "");
+        if (v) owned.add(v);
+      };
+      addOwned(settings.outbound_caller_id_e164);
+      addOwned(settings.qatar_did_e164);
+      try {
+        for (const did of await listDids()) addOwned(did.e164);
+      } catch {
+        // best-effort
+      }
+      const fromN = normalizeE164(from);
+      if (fromN && owned.has(fromN)) {
+        return done(false, "suppressed phantom DID-as-caller (Call Control bridge)");
+      }
+      if (room.startsWith(CALL_CENTER_ROOM_PREFIX)) {
+        return done(false, "call control mode: ignore unlinked SIP join on cc room");
+      }
+    }
+
     // Call Control mode still uses Telnyx for IVR; SIP-trunk arrivals on LiveKit get full IVR routing.
     const skipIvr = settings?.inbound_mode === "telnyx_call_control";
     const result = await routeInboundCall({

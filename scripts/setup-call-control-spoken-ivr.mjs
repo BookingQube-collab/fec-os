@@ -120,7 +120,23 @@ function summarize(r) {
     trunkIds: r.trunkIds ?? [],
   };
 }
-const summarized = (allRules || []).filter(Boolean).map(summarize);
+const inboundTrunkId = (cc?.livekit_sip_inbound_trunk_id || "").trim();
+
+// Individual rules on the bridge trunk steal Call Control INVITEs into cc-_+DID_random rooms.
+for (const r of allRules || []) {
+  const s = summarize(r);
+  if (s.case !== "dispatchRuleIndividual") continue;
+  if (!inboundTrunkId || s.trunkIds.length === 0 || s.trunkIds.includes(inboundTrunkId)) {
+    try {
+      await sip.deleteSipDispatchRule(s.id);
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+const rulesAfterCleanup = ((await sip.listSipDispatchRule()) || []).filter(Boolean);
+const summarized = rulesAfterCleanup.map(summarize);
 let callee = summarized.find(
   (r) => r.case === "dispatchRuleCallee" && (r.roomPrefix === ROOM_PREFIX || r.roomPrefix === "cc-"),
 );
@@ -133,14 +149,20 @@ if (!callee) {
     },
     {
       name: CALLEE_RULE_NAME,
-      trunkIds: [], // all trunks — transfer URI does not need inbound trunk binding
+      // Bind to the Call Control bridge trunk so individual rules cannot win.
+      trunkIds: inboundTrunkId ? [inboundTrunkId] : [],
     },
   );
   callee = summarize(created);
+} else if (inboundTrunkId && !(callee.trunkIds || []).includes(inboundTrunkId)) {
+  await sip.updateSipDispatchRuleFields(callee.id, {
+    trunkIds: { set: [inboundTrunkId] },
+    name: CALLEE_RULE_NAME,
+  });
+  callee = { ...callee, trunkIds: [inboundTrunkId] };
 }
 
 // Call Control transfer uses sip:<roomUser>@host (not the DID). Inbound trunk must be wildcard.
-const inboundTrunkId = (cc?.livekit_sip_inbound_trunk_id || "").trim();
 let inboundTrunkFix = null;
 if (inboundTrunkId) {
   const trunks = await sip.listSipInboundTrunk({ trunkIds: [inboundTrunkId] });

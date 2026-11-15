@@ -43,6 +43,7 @@ import {
   transferCallCenterCall,
   startCallCenterConference,
 } from "@/lib/call-center/call-center.functions";
+import { collectOwnedE164s, remotePartyE164 } from "@/lib/call-center/call-party";
 import {
   stopSoftphoneRingtone,
   unlockSoftphoneAudio,
@@ -142,15 +143,18 @@ export function useCallCenterSoftphoneOptional() {
   return useContext(SoftphoneContext);
 }
 
-function callbackNumber(call: CallCenterCall, agentUserId: string | null): string {
-  if (call.direction === "outbound") {
-    return call.toE164 || "";
-  }
-  if (call.fromE164 && call.fromE164 !== "test" && !call.fromE164.endsWith("00000000")) {
-    return call.fromE164;
-  }
-  if (call.toE164 && call.toE164 !== "test") return call.toE164;
-  return call.fromE164 || call.toE164 || "";
+function ownedNumbersFromWorkspace(settings: {
+  outboundCallerIdE164?: string;
+  qatarDidE164?: string;
+} | null | undefined): string[] {
+  return collectOwnedE164s({
+    outboundCallerIdE164: settings?.outboundCallerIdE164,
+    qatarDidE164: settings?.qatarDidE164,
+  });
+}
+
+function callbackNumber(call: CallCenterCall, ownedE164s: string[] = []): string {
+  return remotePartyE164(call, ownedE164s);
 }
 
 export function CallCenterSoftphoneProvider({ children }: { children: ReactNode }) {
@@ -443,7 +447,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   }
 
   function onCallback(call: CallCenterCall) {
-    const number = callbackNumber(call, user?.id ?? null);
+    const owned = ownedNumbersFromWorkspace(workspace.data?.settings);
+    const number = callbackNumber(call, owned);
     if (!number) {
       toast.error(t("callCenter.callbackMissing"));
       return;
@@ -872,9 +877,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
             held={held}
             answeredAt={activeCall?.answeredAt}
             callerLabel={
-              activeCall?.direction === "outbound"
-                ? activeCall.toE164
-                : activeCall?.fromE164 || t("callCenter.unknownCaller")
+              activeCall
+                ? remotePartyE164(
+                    activeCall,
+                    ownedNumbersFromWorkspace(workspace.data?.settings),
+                  ) || t("callCenter.unknownCaller")
+                : t("callCenter.unknownCaller")
             }
             transferTargets={transferTargets}
             micMuted={micMuted}

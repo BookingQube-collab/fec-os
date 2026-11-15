@@ -97,6 +97,100 @@ export async function ensureLiveKitRoom(roomName: string): Promise<void> {
   });
 }
 
+let bridgeDispatchCache: { trunkId: string; ruleId: string; at: number; ok: boolean; detail: string } | null =
+  null;
+const BRIDGE_DISPATCH_CACHE_MS = 60_000;
+
+/**
+ * Call Control bridge needs a **callee** dispatch rule on the inbound trunk.
+ * An **individual** rule bound to the same trunk steals INVITEs into
+ * `cc-_+DID_<random>` rooms while the agent joins `cc-<callId>` → dead air + phantom CDR.
+ */
+export async function ensureCallControlBridgeDispatch(
+  settings: CallCenterSettingsRow | null,
+): Promise<{ ok: boolean; detail: string }> {
+  const trunkId = settings?.livekit_sip_inbound_trunk_id?.trim() ?? "";
+  const ruleId = settings?.livekit_sip_dispatch_rule_id?.trim() ?? "";
+  if (!trunkId || !ruleId) {
+    return {
+      ok: false,
+      detail: "Call Control bridge needs livekit_sip_inbound_trunk_id and livekit_sip_dispatch_rule_id.",
+    };
+  }
+  if (
+    bridgeDispatchCache &&
+    bridgeDispatchCache.trunkId === trunkId &&
+    bridgeDispatchCache.ruleId === ruleId &&
+    Date.now() - bridgeDispatchCache.at < BRIDGE_DISPATCH_CACHE_MS
+  ) {
+    return { ok: bridgeDispatchCache.ok, detail: bridgeDispatchCache.detail };
+  }
+
+  const sip = await sipClient();
+  const all = (await sip.listSipDispatchRule()).filter(Boolean);
+  const removed: string[] = [];
+
+  for (const rule of all) {
+    if (!rule?.sipDispatchRuleId || rule.sipDispatchRuleId === ruleId) continue;
+    const inner = rule.rule?.rule as { case?: string } | undefined;
+    if (inner?.case !== "dispatchRuleIndividual") continue;
+    const trunks = rule.trunkIds ?? [];
+    // Empty trunk list = all trunks — also steals Call Control transfers.
+    if (trunks.length === 0 || trunks.includes(trunkId)) {
+      try {
+        await sip.deleteSipDispatchRule(rule.sipDispatchRuleId);
+        removed.push(rule.sipDispatchRuleId);
+      } catch {
+        if (trunks.includes(trunkId)) {
+          try {
+            await sip.updateSipDispatchRuleFields(rule.sipDispatchRuleId, {
+              trunkIds: { remove: [trunkId] },
+            });
+            removed.push(`${rule.sipDispatchRuleId}:unbound`);
+          } catch {
+            // leave for carrier check UI
+          }
+        }
+      }
+    }
+  }
+
+  const calleeList = await sip.listSipDispatchRule({ dispatchRuleIds: [ruleId] });
+  const callee = calleeList.find((r) => r?.sipDispatchRuleId === ruleId);
+  if (!callee) {
+    const detail = `Callee dispatch rule ${truncateId(ruleId)} not found.`;
+    bridgeDispatchCache = { trunkId, ruleId, at: Date.now(), ok: false, detail };
+    return { ok: false, detail };
+  }
+  const inner = callee.rule?.rule as { case?: string; value?: { roomPrefix?: string } } | undefined;
+  if (inner?.case !== "dispatchRuleCallee") {
+    const detail = `Dispatch rule ${truncateId(ruleId)} must be type callee (got ${inner?.case ?? "unknown"}).`;
+    bridgeDispatchCache = { trunkId, ruleId, at: Date.now(), ok: false, detail };
+    return { ok: false, detail };
+  }
+  const prefix = inner.value?.roomPrefix ?? "";
+  if (prefix && prefix !== CALL_CENTER_ROOM_PREFIX) {
+    const detail = `Callee room prefix "${prefix}" must be "${CALL_CENTER_ROOM_PREFIX}".`;
+    bridgeDispatchCache = { trunkId, ruleId, at: Date.now(), ok: false, detail };
+    return { ok: false, detail };
+  }
+
+  const trunks = callee.trunkIds ?? [];
+  if (!trunks.includes(trunkId)) {
+    await sip.updateSipDispatchRuleFields(ruleId, {
+      trunkIds: { set: [trunkId] },
+      name: callee.name?.includes("callee") ? callee.name : "fec-callee-bridge",
+    });
+  }
+
+  const detail =
+    removed.length > 0
+      ? `Callee rule bound to trunk; removed conflicting individual rule(s): ${removed.join(", ")}.`
+      : `Callee rule bound to inbound trunk ${truncateId(trunkId)}.`;
+  bridgeDispatchCache = { trunkId, ruleId, at: Date.now(), ok: true, detail };
+  return { ok: true, detail };
+}
+
 /**
  * After Telnyx transfers into LiveKit SIP, wait until the caller appears in the room.
  * Returns the SIP participant identity, or null on timeout.
@@ -471,21 +565,52 @@ export async function checkCarrierSetup(settings: CallCenterSettingsRow | null):
     });
   } else {
     try {
-      const rules = await (await sipClient()).listSipDispatchRule({ dispatchRuleIds: [ruleId] });
-      const found = rules.find((r) => r?.sipDispatchRuleId === ruleId);
+      const allRules = await (await sipClient()).listSipDispatchRule();
+      const found = allRules.find((r) => r?.sipDispatchRuleId === ruleId);
       const inner = found?.rule?.rule as { case?: string; value?: { roomPrefix?: string } } | undefined;
       const isCallee = inner?.case === "dispatchRuleCallee";
       const isIndividual = inner?.case === "dispatchRuleIndividual";
+      const trunkIds = found?.trunkIds ?? [];
+      const boundOk =
+        inboundMode !== "telnyx_call_control" ||
+        !inboundTrunkId ||
+        trunkIds.length === 0 ||
+        trunkIds.includes(inboundTrunkId);
+
+      const conflicting = allRules.filter((r) => {
+        if (!r?.sipDispatchRuleId || r.sipDispatchRuleId === ruleId) return false;
+        const c = r.rule?.rule as { case?: string } | undefined;
+        if (c?.case !== "dispatchRuleIndividual") return false;
+        if (inboundMode !== "telnyx_call_control" || !inboundTrunkId) return false;
+        const t = r.trunkIds ?? [];
+        return t.length === 0 || t.includes(inboundTrunkId);
+      });
+
+      let detail = !found
+        ? `Dispatch rule "${truncateId(ruleId)}" not found. Paste the id (SDR_…) from LiveKit Cloud → Telephony → Dispatch rules.`
+        : isCallee
+          ? `Callee rule, room prefix "${inner?.value?.roomPrefix ?? ""}" (must match FEC room prefix "${CALL_CENTER_ROOM_PREFIX}" for Call Control bridge).`
+          : isIndividual
+            ? "Individual dispatch rule — suitable for Telnyx SIP Trunk → LiveKit inbound rooms."
+            : "Use a callee (cc-) or individual dispatch rule for FEC rooms.";
+
+      if (found && isCallee && inboundMode === "telnyx_call_control" && !boundOk) {
+        detail += ` Rule is not bound to inbound trunk ${truncateId(inboundTrunkId)} — Answer bridge may miss the agent room.`;
+      }
+      if (conflicting.length > 0) {
+        detail += ` Conflicting individual rule(s) on the same trunk will steal bridges into cc-_+DID_random rooms: ${conflicting
+          .map((r) => truncateId(r.sipDispatchRuleId))
+          .join(", ")}. Run scripts/fix-call-control-bridge-trunk.mjs.`;
+      }
+
       checks.push({
         key: "dispatch_rule",
-        ok: Boolean(found) && (isCallee || isIndividual),
-        detail: !found
-          ? `Dispatch rule "${truncateId(ruleId)}" not found. Paste the id (SDR_…) from LiveKit Cloud → Telephony → Dispatch rules.`
-          : isCallee
-            ? `Callee rule, room prefix "${inner?.value?.roomPrefix ?? ""}" (must match FEC room prefix "${CALL_CENTER_ROOM_PREFIX}" for Call Control bridge).`
-            : isIndividual
-              ? "Individual dispatch rule — suitable for Telnyx SIP Trunk → LiveKit inbound rooms."
-              : "Use a callee (cc-) or individual dispatch rule for FEC rooms.",
+        ok:
+          Boolean(found) &&
+          (isCallee || isIndividual) &&
+          conflicting.length === 0 &&
+          (inboundMode !== "telnyx_call_control" || (isCallee && boundOk)),
+        detail,
       });
     } catch (e) {
       checks.push({

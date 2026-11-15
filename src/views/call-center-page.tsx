@@ -35,6 +35,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { loadCallCenterTagCatalog } from "@/lib/call-center/call-center.functions";
+import { collectOwnedE164s, remotePartyE164 } from "@/lib/call-center/call-party";
 import type {
   CallCenterAgentStatusValue,
   CallCenterCall,
@@ -656,9 +657,13 @@ function CallCenterPage() {
                   held={phone.held}
                   answeredAt={phone.activeCall.answeredAt}
                   callerLabel={
-                    phone.activeCall.direction === "outbound"
-                      ? phone.activeCall.toE164
-                      : phone.activeCall.fromE164 || t("callCenter.unknownCaller")
+                    remotePartyE164(
+                      phone.activeCall,
+                      collectOwnedE164s({
+                        outboundCallerIdE164: phone.outboundCallerId,
+                        didE164s: phone.callerIdOptions,
+                      }),
+                    ) || t("callCenter.unknownCaller")
                   }
                   transferTargets={phone.transferTargets}
                   micMuted={phone.micMuted}
@@ -818,9 +823,13 @@ function CallCenterPage() {
                                       "text-rose-800 dark:text-rose-100",
                                   )}
                                 >
-                                  {call.direction === "outbound"
-                                    ? call.toE164 || "—"
-                                    : call.fromE164 || "—"}
+                                  {remotePartyE164(
+                                    call,
+                                    collectOwnedE164s({
+                                      outboundCallerIdE164: phone.outboundCallerId,
+                                      didE164s: phone.callerIdOptions,
+                                    }),
+                                  ) || "—"}
                                 </p>
                                 <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[0.7rem] text-muted-foreground">
                                   <span>{new Date(call.startedAt).toLocaleString()}</span>
