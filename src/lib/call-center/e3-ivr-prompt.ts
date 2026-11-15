@@ -32,12 +32,12 @@ export const E3_CENTER_LABELS = {
 
 export type E3CenterKey = keyof typeof E3_CENTER_LABELS;
 
-/** Step 1 — welcome + language. */
+/** Step 1 — welcome + language (+ early agent). */
 export const E3_LANG_GREETING_EN =
-  "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. للعربية، اضغط 2.";
+  "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0. للتحدث مع موظف، اضغط 0.";
 
 export const E3_LANG_GREETING_AR =
-  "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزية اضغط 1. للعربية اضغط 2.";
+  "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزية اضغط 1. للعربية اضغط 2. للتحدث مع موظف اضغط 0.";
 
 /** Step 2 — select entertainment center. */
 export const E3_CENTER_GREETING_EN =

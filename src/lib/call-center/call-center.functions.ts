@@ -783,7 +783,9 @@ export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
       myMemberships,
       wrapUpSeconds,
       speedDials,
-      availableAgents: agents.filter((a) => a.status === "available" && a.userId !== context.userId),
+      // Presence list for the dialer — include the current agent when available.
+      // Transfer targets still exclude self in softphone-provider.
+      availableAgents: agents.filter((a) => a.status === "available"),
       agents,
     };
   },

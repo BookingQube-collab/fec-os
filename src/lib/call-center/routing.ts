@@ -503,27 +503,50 @@ async function resolveTerminalIvrNode(params: {
     }
     if (current.type === "agent") {
       const agentUserId = current.data.agentUserId;
-      if (!agentUserId) throw new Error("Agent node has no agent selected.");
-      const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
-      const now = new Date().toISOString();
-      const updated = await updateCall(call.id, {
-        status: "offered",
-        ivrDigit: digit,
-        agentUserId,
-        livekitRoom,
-        offeredAt: now,
-        eventId: current.data.eventId ?? call.eventId,
-        metadata: {
-          ...((call.metadata as Record<string, unknown>) ?? {}),
-          ivrNodeId: current.id,
-        },
-      });
-      return {
-        call: updated,
-        offeredUserIds: [agentUserId],
-        phase: "queue",
-        message: "Offered to agent via IVR.",
-      };
+      if (agentUserId) {
+        const livekitRoom = call.livekitRoom || roomNameForCall(call.id);
+        const now = new Date().toISOString();
+        const updated = await updateCall(call.id, {
+          status: "offered",
+          ivrDigit: digit,
+          agentUserId,
+          livekitRoom,
+          offeredAt: now,
+          eventId: current.data.eventId ?? call.eventId,
+          metadata: {
+            ...((call.metadata as Record<string, unknown>) ?? {}),
+            ivrNodeId: current.id,
+          },
+        });
+        return {
+          call: updated,
+          offeredUserIds: [agentUserId],
+          phase: "queue",
+          message: "Offered to agent via IVR.",
+        };
+      }
+      // No fixed agent — ring available members of the linked / fallback queue.
+      const queueId = current.data.queueId ?? call.queueId ?? null;
+      if (queueId) {
+        const queues = await listQueues();
+        const queue = queues.find((q) => q.id === queueId);
+        if (queue) {
+          const updated = await updateCall(call.id, {
+            ivrDigit: digit,
+            metadata: {
+              ...((call.metadata as Record<string, unknown>) ?? {}),
+              ivrNodeId: current.id,
+              agentViaQueue: true,
+            },
+          });
+          return offerCallToQueue({
+            call: updated,
+            queue,
+            eventId: current.data.eventId ?? call.eventId,
+          });
+        }
+      }
+      throw new Error("Agent node has no agent or fallback queue selected.");
     }
     if (current.type === "ai") {
       const settings = await loadSettingsRow();
@@ -762,21 +785,35 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
   }
   if (option.action === "agent") {
     const agentUserId = option.agentUserId;
-    if (!agentUserId) throw new Error("IVR agent option has no agent.");
-    const now = new Date().toISOString();
-    const updated = await updateCall(call.id, {
-      status: "offered",
-      ivrDigit: digit,
-      agentUserId,
-      offeredAt: now,
-      eventId: option.eventId ?? call.eventId,
-    });
-    return {
-      call: updated,
-      offeredUserIds: [agentUserId],
-      phase: "queue",
-      message: "Offered to agent via IVR.",
-    };
+    if (agentUserId) {
+      const now = new Date().toISOString();
+      const updated = await updateCall(call.id, {
+        status: "offered",
+        ivrDigit: digit,
+        agentUserId,
+        offeredAt: now,
+        eventId: option.eventId ?? call.eventId,
+      });
+      return {
+        call: updated,
+        offeredUserIds: [agentUserId],
+        phase: "queue",
+        message: "Offered to agent via IVR.",
+      };
+    }
+    const queueId = option.queueId ?? call.queueId ?? null;
+    if (queueId) {
+      const queues = await listQueues();
+      const queue = queues.find((q) => q.id === queueId);
+      if (queue) {
+        return offerCallToQueue({
+          call: await updateCall(call.id, { ivrDigit: digit }),
+          queue,
+          eventId: option.eventId ?? call.eventId,
+        });
+      }
+    }
+    throw new Error("IVR agent option has no agent or fallback queue.");
   }
   if (option.action === "ai") {
     const settings = await loadSettingsRow();

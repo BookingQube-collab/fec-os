@@ -463,25 +463,52 @@ function Inspector({
       )}
 
       {type === "agent" && (
-        <div className="space-y-1.5">
-          <Label>Agent</Label>
-          <Select
-            value={data.agentUserId || "none"}
-            disabled={!canEdit}
-            onValueChange={(v) => patch({ agentUserId: v === "none" ? null : v })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              {agents.map((a) => (
-                <SelectItem key={a.userId} value={a.userId}>
-                  {a.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Agent</Label>
+            <Select
+              value={data.agentUserId || "none"}
+              disabled={!canEdit}
+              onValueChange={(v) => patch({ agentUserId: v === "none" ? null : v })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Any available (use queue)</SelectItem>
+                {agents.map((a) => (
+                  <SelectItem key={a.userId} value={a.userId}>
+                    {a.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {!data.agentUserId ? (
+            <div className="space-y-1.5">
+              <Label>Fallback queue</Label>
+              <Select
+                value={data.queueId || "none"}
+                disabled={!canEdit}
+                onValueChange={(v) => patch({ queueId: v === "none" ? null : v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Ring this queue" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {queues.map((q) => (
+                    <SelectItem key={q.id} value={q.id}>
+                      {q.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[0.7rem] text-muted-foreground">
+                When no specific agent is set, offers the call to available members of this queue.
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
 

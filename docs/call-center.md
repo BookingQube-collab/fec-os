@@ -128,7 +128,7 @@ Open `/call-center/ivr` (admin edit; agents can view).
 
 1. Pick or create a menu (seed **Main menu** migrates into the canvas on first open).
 2. Click **Apply E3 IVR template** once to load the bilingual E3 Smart IVR (creates venue queues if missing):
-   - Start → **Language** (1 English / 2 Arabic)
+   - Start → **Language** (1 English / 2 Arabic / **0 Connect with agent** → E3 General Support queue)
    - **Center**: 1 Inflata Park · 2 Kids Driving School · 3 Urban Arena · 0 General E3 support
    - **Service menu**: 1 bookings AI · 2 birthday queue · 3 school/group → birthday queue · 4–5 prices/visit AI · 6 support queue · 0 human queue
    - Per-center **AI Agent** nodes use the E3 bilingual system prompt (bookings, parties, groups, prices, hours, complaints, handoff rules)
@@ -151,7 +151,8 @@ Adds InflataPark / Urban Arena / Kids Driving School / Birthday enquiry queues a
 ### Test the bilingual E3 IVR (no Telnyx)
 
 1. Open `/call-center/ivr`, select **Main menu**, click **Apply E3 IVR template**, then **Save flow** if you edited further.
-2. In the Test field enter the **full digit path, one digit per menu, in order** (Language → Center → Service) and click **Test** (or press Enter). A single digit such as `4` only tests the Language menu, which accepts just `1` or `2`. A path that ends on a menu reports "Waiting at …" with the options.
+2. In the Test field enter the **full digit path, one digit per menu, in order** (Language → Center → Service) and click **Test** (or press Enter). A single digit such as `4` only tests the Language menu, which accepts `1`, `2`, or `0` (agent). A path that ends on a menu reports "Waiting at …" with the options.
+   - `0` → Connect with agent (E3 General Support) — press on the Language menu, no further digits
    - `111` → English → Inflata Park → Bookings AI
    - `112` → English → Inflata Park → Birthday & Events queue
    - `110` → English → Inflata Park → human agents

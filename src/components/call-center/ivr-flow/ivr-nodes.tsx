@@ -218,7 +218,12 @@ export function IvrFlowNodeView({ data, selected, type }: NodeProps & { type?: s
     <IvrNodeShell type={nodeType} selected={selected} data={nodeData}>
       <p className="px-3.5 py-2.5 text-[0.8125rem] text-muted-foreground">
         {nodeType === "queue" && (nodeData.queueId ? "Queue linked" : "Pick a queue")}
-        {nodeType === "agent" && (nodeData.agentUserId ? "Agent linked" : "Pick an agent")}
+        {nodeType === "agent" &&
+          (nodeData.agentUserId
+            ? "Agent linked"
+            : nodeData.queueId
+              ? "Any available (queue)"
+              : "Pick an agent or queue")}
         {nodeType === "ai" &&
           (nodeData.aiEnabled === false ? "AI disabled" : "AI answers call (LiveKit stub)")}
         {nodeType === "event" && (nodeData.eventId ? "Event linked" : "Optional event id")}

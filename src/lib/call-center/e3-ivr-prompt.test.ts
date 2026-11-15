@@ -13,6 +13,8 @@ describe("E3 IVR spoken prompts", () => {
   it("covers language, center, and service scripts", () => {
     expect(E3_LANG_GREETING_EN).toMatch(/press 1/i);
     expect(E3_LANG_GREETING_EN).toMatch(/اضغط 2/);
+    expect(E3_LANG_GREETING_EN).toMatch(/press 0/i);
+    expect(E3_LANG_GREETING_EN).toMatch(/agent/i);
     expect(E3_CENTER_GREETING_EN).toMatch(/Inflata Park/i);
     expect(E3_CENTER_GREETING_EN).toMatch(/Kids Driving School/i);
     expect(E3_CENTER_GREETING_EN).toMatch(/Urban Arena/i);
@@ -67,6 +69,18 @@ describe("buildFecVenuesTemplate E3 path", () => {
     const sim = simulateDigitPath(flow, ["1", "0", "0"]);
     expect(sim.status).toBe("ok");
     expect(sim.queueId).toBe(CALL_CENTER_VENUE_QUEUE_IDS.general);
+  });
+
+  it("routes Language digit 0 to Connect with agent (general queue)", () => {
+    const sim = simulateDigitPath(flow, ["0"]);
+    expect(sim.status).toBe("ok");
+    expect(sim.terminal).toMatch(/Connect with agent/i);
+    expect(sim.queueId).toBe(CALL_CENTER_VENUE_QUEUE_IDS.general);
+    const lang = flow.nodes.find((n) => n.id === "node-menu-lang");
+    expect(lang?.data.digits?.some((d) => d.digit === "0")).toBe(true);
+    const agent = flow.nodes.find((n) => n.id === "node-agent-lang");
+    expect(agent?.type).toBe("agent");
+    expect(agent?.data.queueId).toBe(CALL_CENTER_VENUE_QUEUE_IDS.general);
   });
 
   it("routes Arabic Inflata bookings to AI", () => {

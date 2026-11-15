@@ -2046,6 +2046,7 @@
     "keypad": "Keypad",
     "hangup": "Hang up",
     "recentCalls": "Recent calls",
+    "recentCallsToggle": "Show or hide recent calls",
     "noCalls": "No calls yet.",
     "status": {
       "available": "Available",

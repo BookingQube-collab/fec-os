@@ -237,7 +237,7 @@ export function defaultNodeData(type: IvrNodeType): IvrNodeData {
     case "queue":
       return { label: "Route to queue", queueId: null };
     case "agent":
-      return { label: "Route to agent", agentUserId: null };
+      return { label: "Route to agent", agentUserId: null, queueId: null };
     case "ai":
       return {
         label: "AI Agent",
@@ -301,8 +301,9 @@ type E3CenterBranch = {
 
 /**
  * E3 Smart IVR template:
- * Start → Language (1 EN / 2 AR) → Center → Service menu → AI / queues.
+ * Start → Language (1 EN / 2 AR / 0 agent) → Center → Service menu → AI / queues.
  *
+ * Language digits: 1 English, 2 Arabic, 0 Connect with agent (E3 General Support).
  * Center digits: 1 Inflata Park, 2 Kids Driving School, 3 Urban Arena, 0 General.
  * Service digits: 1 bookings AI, 2 birthday queue, 3 group/school → birthday queue,
  * 4–5 AI (prices / visit), 6 support queue, 0 human queue.
@@ -318,6 +319,7 @@ export function buildFecVenuesTemplate(
 ): IvrFlowJson {
   const startId = "node-start";
   const langId = "node-menu-lang";
+  const langAgentId = "node-agent-lang";
   const centerEnId = "node-menu-centers-en";
   const centerArId = "node-menu-centers-ar";
   const birthdayEnId = "node-q-birthday-en";
@@ -364,9 +366,21 @@ export function buildFecVenuesTemplate(
         digits: [
           { digit: "1", label: "English" },
           { digit: "2", label: "العربية" },
+          { digit: "0", label: "Connect with agent / التحدث مع موظف" },
         ],
         timeoutSeconds: 10,
         maxRetries: 2,
+      },
+    },
+    {
+      id: langAgentId,
+      type: "agent",
+      position: { x: 560, y: 360 },
+      data: {
+        label: "Connect with agent",
+        agentUserId: null,
+        // No fixed agent — ring available members of E3 General Support.
+        queueId: queues.general,
       },
     },
     {
@@ -421,6 +435,7 @@ export function buildFecVenuesTemplate(
     { id: "e-start-lang", source: startId, target: langId, sourceHandle: "out", label: "next" },
     { id: "e-lang-en", source: langId, target: centerEnId, sourceHandle: "1", label: "1" },
     { id: "e-lang-ar", source: langId, target: centerArId, sourceHandle: "2", label: "2" },
+    { id: "e-lang-agent", source: langId, target: langAgentId, sourceHandle: "0", label: "0" },
   ];
 
   centers.forEach((center, index) => {
@@ -1040,9 +1055,10 @@ export function simulateDigitPath(
         ignoredDigits: digits.slice(i + 1).join(""),
       };
     }
-    // First menu digit on a Language menu flips EN/AR for spoken script.
+    // First menu digit on a Language menu flips EN/AR for spoken script (1/2 only).
     if (digitIndex === 0 && /lang|language|لغة/i.test(node.data.label || "")) {
-      language = digit === "2" ? "ar" : "en";
+      if (digit === "2") language = "ar";
+      else if (digit === "1") language = "en";
     } else if (
       digitIndex === 0 &&
       digit === "2" &&

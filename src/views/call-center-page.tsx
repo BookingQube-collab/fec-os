@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+  ChevronDown,
   Delete,
   Mic,
   MicOff,
@@ -13,13 +14,14 @@ import {
   VolumeX,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CallCenterSoftphoneRoom } from "@/components/call-center/softphone-room";
 import { useCallCenterSoftphone } from "@/components/call-center/softphone-provider";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -37,6 +39,27 @@ import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
 const AWAY_REASONS = ["On Break", "In Training", "Admin Work", "Meeting"] as const;
+/** Matches softphone `cc-*:v1` localStorage keys — "1" = expanded, "0" = collapsed. */
+const RECENT_CALLS_EXPANDED_KEY = "cc-recent-calls-expanded:v1";
+
+function readRecentCallsExpandedPref(): boolean | null {
+  try {
+    const raw = localStorage.getItem(RECENT_CALLS_EXPANDED_KEY);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+  } catch {
+    /* private mode / disabled storage */
+  }
+  return null;
+}
+
+function writeRecentCallsExpandedPref(expanded: boolean) {
+  try {
+    localStorage.setItem(RECENT_CALLS_EXPANDED_KEY, expanded ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
 
 const STATUSES: CallCenterAgentStatusValue[] = ["available", "busy", "away", "acw", "offline"];
 const DIAL_KEYS = [
@@ -151,6 +174,8 @@ function CallCenterPage() {
   const phone = useCallCenterSoftphone();
   const [speedLabel, setSpeedLabel] = useState("");
   const [speedE164, setSpeedE164] = useState("+974");
+  const [recentCallsOpen, setRecentCallsOpen] = useState(true);
+  const [recentCallsPrefLoaded, setRecentCallsPrefLoaded] = useState(false);
 
   const tagsCatalog = useQuery({
     queryKey: ["call-center", "tags"],
@@ -161,6 +186,32 @@ function CallCenterPage() {
       return result.data.tags.filter((tag) => tag.isActive);
     },
   });
+
+  const notesNeedSpace = Boolean(phone.activeCall || phone.notesCallId);
+
+  useEffect(() => {
+    const stored = readRecentCallsExpandedPref();
+    if (stored !== null) {
+      setRecentCallsOpen(stored);
+    } else {
+      // No saved preference: keep notes/tags visible during an active call.
+      setRecentCallsOpen(!notesNeedSpace);
+    }
+    setRecentCallsPrefLoaded(true);
+    // Mount only — later call state is handled below when no pref exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional first-paint default
+  }, []);
+
+  useEffect(() => {
+    if (!recentCallsPrefLoaded) return;
+    if (readRecentCallsExpandedPref() !== null) return;
+    if (notesNeedSpace) setRecentCallsOpen(false);
+  }, [notesNeedSpace, recentCallsPrefLoaded]);
+
+  function onRecentCallsOpenChange(open: boolean) {
+    setRecentCallsOpen(open);
+    writeRecentCallsExpandedPref(open);
+  }
 
   if (!phone.canUse) {
     return (
@@ -636,45 +687,69 @@ function CallCenterPage() {
             {/* Right: recent + notes */}
             <aside className="space-y-4">
               <section className="rounded-[1.5rem] border border-border/50 bg-card p-4 shadow-elevated-xs">
-                <h2 className="text-sm font-semibold">{t("callCenter.recentCalls")}</h2>
-                <ul className="mt-3 divide-y divide-border/60">
-                  {phone.recentCalls.length === 0 ? (
-                    <li className="rounded-xl border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
-                      {t("callCenter.noCallsHint")}
-                    </li>
-                  ) : (
-                    phone.recentCalls.slice(0, 12).map((call) => (
-                      <li key={call.id} className="flex items-start justify-between gap-2 py-2.5 text-sm">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">
-                            {call.direction === "outbound"
-                              ? call.toE164 || "—"
-                              : call.fromE164 || "—"}
-                          </p>
-                          <p className="text-[0.7rem] text-muted-foreground">
-                            {new Date(call.startedAt).toLocaleString()} · {call.status}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1">
-                          <Badge variant="secondary" className="text-[0.65rem]">
-                            {call.direction}
-                          </Badge>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-2 text-xs"
-                            disabled={phone.pending || Boolean(phone.activeCall)}
-                            onClick={() => phone.onCallback(call)}
-                          >
-                            <Phone className="me-1 h-3 w-3" aria-hidden />
-                            {t("callCenter.callback")}
-                          </Button>
-                        </div>
-                      </li>
-                    ))
-                  )}
-                </ul>
+                <Collapsible open={recentCallsOpen} onOpenChange={onRecentCallsOpenChange}>
+                  <CollapsibleTrigger
+                    type="button"
+                    className="group flex w-full items-center gap-2 text-start"
+                    aria-label={t("callCenter.recentCallsToggle")}
+                  >
+                    <h2 className="min-w-0 flex-1 text-sm font-semibold">
+                      {t("callCenter.recentCalls")}
+                      {!recentCallsOpen && phone.recentCalls.length > 0 ? (
+                        <span className="ms-1.5 font-normal text-muted-foreground">
+                          ({Math.min(12, phone.recentCalls.length)})
+                        </span>
+                      ) : null}
+                    </h2>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+                      aria-hidden
+                    />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <ul
+                      id="cc-recent-calls-list"
+                      className="mt-3 max-h-56 divide-y divide-border/60 overflow-y-auto overscroll-contain pe-1"
+                    >
+                      {phone.recentCalls.length === 0 ? (
+                        <li className="rounded-xl border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
+                          {t("callCenter.noCallsHint")}
+                        </li>
+                      ) : (
+                        phone.recentCalls.slice(0, 12).map((call) => (
+                          <li key={call.id} className="flex items-start justify-between gap-2 py-2.5 text-sm">
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">
+                                {call.direction === "outbound"
+                                  ? call.toE164 || "—"
+                                  : call.fromE164 || "—"}
+                              </p>
+                              <p className="text-[0.7rem] text-muted-foreground">
+                                {new Date(call.startedAt).toLocaleString()} · {call.status}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <Badge variant="secondary" className="text-[0.65rem]">
+                                {call.direction}
+                              </Badge>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2 text-xs"
+                                disabled={phone.pending || Boolean(phone.activeCall)}
+                                onClick={() => phone.onCallback(call)}
+                              >
+                                <Phone className="me-1 h-3 w-3" aria-hidden />
+                                {t("callCenter.callback")}
+                              </Button>
+                            </div>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
               </section>
 
               <section className="rounded-[1.5rem] border border-border/50 bg-card p-4 shadow-elevated-xs">
