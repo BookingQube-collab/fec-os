@@ -3,9 +3,18 @@ import { describe, expect, it } from "vitest";
 import { clipTtsPreviewText, toRestTtsVoiceId } from "./tts-preview-voice";
 
 describe("toRestTtsVoiceId", () => {
-  it("maps Polly Call Control ids to aws.Polly REST ids", () => {
-    expect(toRestTtsVoiceId("Polly.Joanna-Neural")).toBe("aws.Polly.Joanna-Neural");
-    expect(toRestTtsVoiceId("Polly.Matthew-Neural")).toBe("aws.Polly.Matthew-Neural");
+  it("maps Polly Call Control ids to AWS.Polly REST ids (capital AWS)", () => {
+    expect(toRestTtsVoiceId("Polly.Joanna-Neural")).toBe("AWS.Polly.Joanna-Neural");
+    expect(toRestTtsVoiceId("Polly.Matthew-Neural")).toBe("AWS.Polly.Matthew-Neural");
+    expect(toRestTtsVoiceId("Polly.Hala-Neural")).toBe("AWS.Polly.Hala-Neural");
+  });
+
+  it("normalizes lowercase aws.Polly prefix to capital AWS", () => {
+    expect(toRestTtsVoiceId("aws.Polly.Joanna-Neural")).toBe("AWS.Polly.Joanna-Neural");
+  });
+
+  it("keeps AWS.Polly ids as-is", () => {
+    expect(toRestTtsVoiceId("AWS.Polly.Joanna-Neural")).toBe("AWS.Polly.Joanna-Neural");
   });
 
   it("passes Azure voices through", () => {

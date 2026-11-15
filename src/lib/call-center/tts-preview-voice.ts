@@ -6,14 +6,16 @@ export const TTS_PREVIEW_FALLBACK_TEXT =
 
 /**
  * Map Call Control speak voice ids to Telnyx REST TTS voice ids.
- * Call Control uses `Polly.Joanna-Neural`; REST prefers `aws.Polly.Joanna-Neural`.
+ * Call Control uses `Polly.Joanna-Neural`; REST accepts `AWS.Polly.Joanna-Neural`
+ * (capital AWS). Lowercase `aws.Polly.Joanna-Neural` returns HTTP 500 from Telnyx.
  */
 export function toRestTtsVoiceId(callControlVoice: string): string {
   const voice = normalizeConfiguredTtsVoice(callControlVoice);
   if (voice === "female") return "Telnyx.KokoroTTS.af_heart";
   if (voice === "male") return "Telnyx.KokoroTTS.am_adam";
-  if (voice.startsWith("Polly.")) return `aws.${voice}`;
-  if (voice.startsWith("AWS.Polly.")) return `aws.Polly.${voice.slice("AWS.Polly.".length)}`;
+  if (voice.startsWith("Polly.")) return `AWS.${voice}`;
+  if (voice.startsWith("aws.Polly.")) return `AWS.Polly.${voice.slice("aws.Polly.".length)}`;
+  if (voice.startsWith("AWS.Polly.")) return voice;
   return voice;
 }
 
