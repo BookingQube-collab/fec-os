@@ -1,5 +1,6 @@
 import "server-only";
 
+import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 import {
@@ -399,8 +400,10 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
   };
 }
 
-const SETTINGS_COLUMNS =
+const SETTINGS_COLUMNS_PRE_SENDPULSE =
   "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token, messenger_enabled, messenger_page_id, messenger_page_access_token, messenger_verify_token, m365_enabled, m365_mailbox, m365_tenant_id, m365_client_id, m365_client_secret, m365_webhook_client_state, m365_subscription_id, m365_subscription_expires_at";
+
+const SETTINGS_COLUMNS = `${SETTINGS_COLUMNS_PRE_SENDPULSE}, sendpulse_webhook_secret, sendpulse_whatsapp_number`;
 
 const SETTINGS_COLUMNS_LEGACY_OMNI =
   "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token, messenger_enabled, messenger_page_id, messenger_page_access_token, messenger_verify_token, m365_enabled, m365_mailbox, m365_tenant_id, m365_client_id, m365_client_secret, m365_webhook_client_state";
@@ -520,6 +523,8 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     m365_subscription_expires_at: row.m365_subscription_expires_at
       ? String(row.m365_subscription_expires_at)
       : null,
+    sendpulse_webhook_secret: String(row.sendpulse_webhook_secret ?? ""),
+    sendpulse_whatsapp_number: String(row.sendpulse_whatsapp_number ?? ""),
   };
 }
 
@@ -529,14 +534,19 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     .eq("id", CALL_CENTER_SETTINGS_ID)
     .maybeSingle();
 
-  // Before migration 20261115140000 / 20261116140000 / 20261116150000 / 20261116180000, newer columns may be missing — fall back.
+  // Before migration 20261115140000 / 20261116140000 / 20261116150000 / 20261116180000 / 20261116200000, newer columns may be missing — fall back.
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_|sendpulse_/i.test(
       result.error.message,
     )
   ) {
-    if (/messenger_|m365_/i.test(result.error.message)) {
+    if (/sendpulse_/i.test(result.error.message)) {
+      result = await table<Record<string, unknown>>("call_center_settings")
+        .select(SETTINGS_COLUMNS_PRE_SENDPULSE)
+        .eq("id", CALL_CENTER_SETTINGS_ID)
+        .maybeSingle();
+    } else if (/messenger_|m365_/i.test(result.error.message)) {
       result = await table<Record<string, unknown>>("call_center_settings")
         .select(SETTINGS_COLUMNS_LEGACY_OMNI)
         .eq("id", CALL_CENTER_SETTINGS_ID)
@@ -634,6 +644,8 @@ export async function saveSettingsRow(
         m365_webhook_client_state: row.m365_webhook_client_state ?? "",
         m365_subscription_id: row.m365_subscription_id ?? "",
         m365_subscription_expires_at: row.m365_subscription_expires_at ?? null,
+        sendpulse_webhook_secret: row.sendpulse_webhook_secret ?? "",
+        sendpulse_whatsapp_number: row.sendpulse_whatsapp_number ?? "",
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -643,7 +655,7 @@ export async function saveSettingsRow(
     .maybeSingle();
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_|sendpulse_/i.test(
       result.error.message,
     )
   ) {
@@ -1955,6 +1967,37 @@ export function secretLast4(value: string): string {
 export function keepSecret(previous: string, submitted: string): string {
   const incoming = submitted.trim();
   return incoming.length > 0 ? incoming : previous;
+}
+
+/** Ciphertext from `@/lib/ai/crypto` encryptSecret (`v1:iv:tag:data`). */
+export function isSealedCallCenterSecret(value: string): boolean {
+  const parts = value.trim().split(":");
+  return parts[0] === "v1" && parts.length >= 4 && Boolean(parts[1] && parts[2] && parts[3]);
+}
+
+/**
+ * Encrypt a call-center secret at rest using the shared AI credentials key
+ * (`encryptSecret` / `AI_CREDENTIALS_ENCRYPTION_KEY`).
+ */
+export function sealCallCenterSecret(plaintext: string): string {
+  const incoming = plaintext.trim();
+  if (!incoming) return "";
+  return encryptSecret(incoming);
+}
+
+/** Decrypt sealed secrets; pass through legacy plaintext for older rows. */
+export function unsealCallCenterSecret(stored: string): string {
+  const trimmed = stored.trim();
+  if (!trimmed) return "";
+  if (!isSealedCallCenterSecret(trimmed)) return trimmed;
+  return decryptSecret(trimmed);
+}
+
+/** Blank submitted value keeps the previous sealed (or plain) secret. */
+export function keepSealedSecret(previous: string, submitted: string): string {
+  const incoming = submitted.trim();
+  if (!incoming) return previous;
+  return sealCallCenterSecret(incoming);
 }
 
 function mapPhoneContact(row: Record<string, unknown>): CallCenterPhoneContact {

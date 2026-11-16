@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { loadSettingsRow } from "@/lib/call-center/db";
+import { loadSettingsRow, unsealCallCenterSecret } from "@/lib/call-center/db";
 import { processSendPulseWebhookBody } from "@/lib/call-center/sendpulse-bridge";
 import {
   assertSendPulseWebhookAuth,
@@ -13,12 +13,15 @@ import {
  * POST /api/public/call-center/sendpulse
  *
  * Auth (SendPulse usually cannot set custom headers — prefer query secret):
- *   Authorization: Bearer <SENDPULSE_WEBHOOK_SECRET>
+ *   Authorization: Bearer <secret>
  *   X-SendPulse-Secret: <secret>
  *   ?secret=<secret>
  *
+ * Prefer saving the secret in Call Center Settings → SendPulse (encrypted at rest).
+ * Env SENDPULSE_WEBHOOK_SECRET remains a fallback.
+ *
  * Configure in SendPulse → Bot Settings → Webhooks (or Action → Send webhook):
- *   https://<host>/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>
+ *   https://<host>/api/public/call-center/sendpulse?secret=<your-secret>
  *
  * Track at least: Opened live chat (`open_chat`), Incoming messages (optional),
  * and any custom Action webhooks used for handoff.
@@ -42,7 +45,18 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const settings = await loadSettingsRow();
-  const expected = resolveSendPulseWebhookSecret(settings?.webhook_shared_secret);
+  let sendpulseSecret = "";
+  try {
+    sendpulseSecret = settings?.sendpulse_webhook_secret
+      ? unsealCallCenterSecret(settings.sendpulse_webhook_secret)
+      : "";
+  } catch {
+    sendpulseSecret = "";
+  }
+  const expected = resolveSendPulseWebhookSecret({
+    sendpulseWebhookSecret: sendpulseSecret,
+    webhookSharedSecret: settings?.webhook_shared_secret,
+  });
   const denied = assertSendPulseWebhookAuth(request, { expectedSecret: expected });
   if (denied) return denied;
 
@@ -55,7 +69,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { results, processed, whatsappPolicy } = await processSendPulseWebhookBody(body);
+    const { results, processed, whatsappPolicy } = await processSendPulseWebhookBody(body, {
+      sendpulseWhatsappNumber: settings?.sendpulse_whatsapp_number,
+    });
     return NextResponse.json({
       ok: true,
       source: "sendpulse",

@@ -182,6 +182,8 @@ function CallCenterSettingsPage() {
   const [m365ClientId, setM365ClientId] = useState("");
   const [m365ClientSecret, setM365ClientSecret] = useState("");
   const [m365WebhookClientState, setM365WebhookClientState] = useState("");
+  const [sendpulseWhatsappNumber, setSendpulseWhatsappNumber] = useState("");
+  const [sendpulseWebhookSecret, setSendpulseWebhookSecret] = useState("");
   const [tplName, setTplName] = useState("");
   const [tplLanguage, setTplLanguage] = useState("en");
   const [tplBody, setTplBody] = useState("");
@@ -227,6 +229,7 @@ function CallCenterSettingsPage() {
     setM365Mailbox(s.m365Mailbox ?? "");
     setM365TenantId(s.m365TenantId ?? "");
     setM365ClientId(s.m365ClientId ?? "");
+    setSendpulseWhatsappNumber(s.sendpulseWhatsappNumber ?? "");
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
@@ -376,6 +379,8 @@ function CallCenterSettingsPage() {
       m365ClientId,
       m365ClientSecret,
       m365WebhookClientState,
+      sendpulseWhatsappNumber,
+      sendpulseWebhookSecret,
     });
     setSaving(false);
     if (!result.ok) {
@@ -397,6 +402,7 @@ function CallCenterSettingsPage() {
     setMessengerVerifyToken("");
     setM365ClientSecret("");
     setM365WebhookClientState("");
+    setSendpulseWebhookSecret("");
     queryClient.setQueryData(["call-center", "config"], (prev) =>
       prev ? { ...prev, settings: result.data } : prev,
     );
@@ -1024,41 +1030,36 @@ function CallCenterSettingsPage() {
                 )
               }
             />
-            <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface-2)]/40 px-3 py-2 text-xs text-muted-foreground">
-              {t("callCenter.sendpulseEnvOnlyNote")}
-            </p>
+            <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseAdminNote")}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>{t("callCenter.sendpulseWhatsappNumberLabel")}</Label>
+                <Label htmlFor="cc-sendpulse-wa-number">
+                  {t("callCenter.sendpulseWhatsappNumberLabel")}
+                </Label>
                 <Input
-                  readOnly
-                  value={
-                    bundle.data?.sendpulseBridge?.sendpulseNumber ||
-                    t("callCenter.sendpulseNumberUnset")
-                  }
+                  id="cc-sendpulse-wa-number"
+                  value={sendpulseWhatsappNumber}
+                  onChange={(e) => setSendpulseWhatsappNumber(e.target.value)}
+                  placeholder="+974XXXXXXXX"
                   className="font-mono text-xs"
                   autoComplete="off"
+                  inputMode="tel"
                 />
                 <p className="text-xs text-muted-foreground">
                   {t("callCenter.sendpulseWhatsappNumberHint")}
                 </p>
               </div>
-              <div className="space-y-1.5">
-                <Label>{t("callCenter.sendpulseWebhookSecretLabel")}</Label>
-                <Input
-                  readOnly
-                  value={
-                    bundle.data?.sendpulseBridge?.secretConfigured
-                      ? t("callCenter.sendpulseSecretConfigured")
-                      : t("callCenter.sendpulseSecretMissing")
-                  }
-                  autoComplete="off"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("callCenter.sendpulseWebhookSecretHint")}
-                </p>
-              </div>
+              <CallCenterSecretField
+                id="cc-sendpulse-webhook-secret"
+                label={t("callCenter.sendpulseWebhookSecretLabel")}
+                value={sendpulseWebhookSecret}
+                onChange={setSendpulseWebhookSecret}
+                isSet={Boolean(bundle.data?.settings.sendpulseWebhookSecretSet)}
+                last4={bundle.data?.settings.sendpulseWebhookSecretLast4 ?? ""}
+                revealField="sendpulse_webhook_secret"
+              />
             </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseWebhookSecretHint")}</p>
             <div className="space-y-1.5">
               <Label>{t("callCenter.sendpulseBridgeUrlLabel")}</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -1091,9 +1092,18 @@ function CallCenterSettingsPage() {
                   {t("callCenter.copyWebhookUrl")}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseBridgeUrlHint")}</p>
+              <p className="text-xs text-muted-foreground">
+                {bundle.data?.sendpulseBridge?.usesSavedSecret
+                  ? t("callCenter.sendpulseBridgeUrlSavedHint")
+                  : t("callCenter.sendpulseBridgeUrlHint")}
+              </p>
             </div>
             <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseBridgeNumbersHint")}</p>
+            <div className="sticky bottom-2 z-10">
+              <Button type="button" className="min-h-11 w-full sm:w-auto" disabled={saving} onClick={() => void save()}>
+                {saving ? t("callCenterAdmin.saving") : t("callCenterAdmin.save")}
+              </Button>
+            </div>
             {(bundle.data?.sendpulseBridge?.warnings ?? []).length > 0 ? (
               <ul className="space-y-1 rounded-xl border border-rag-amber/40 bg-rag-amber/10 px-3 py-2 text-xs text-foreground">
                 {bundle.data?.sendpulseBridge?.warnings.map((warning) => (

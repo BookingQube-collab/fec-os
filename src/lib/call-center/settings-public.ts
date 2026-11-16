@@ -1,4 +1,4 @@
-import { normalizeSipUriHost } from "./db";
+import { normalizeSipUriHost, unsealCallCenterSecret } from "./db";
 import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
 import type {
   CallCenterAiProvider,
@@ -10,6 +10,14 @@ function secretLast4(value: string): string {
   const v = value.trim();
   if (v.length <= 4) return "";
   return v.slice(-4);
+}
+
+function safeUnsealLast4(stored: string): string {
+  try {
+    return secretLast4(unsealCallCenterSecret(stored));
+  } catch {
+    return "";
+  }
 }
 
 export function isSipConfigured(settings: CallCenterSettingsRow | null): boolean {
@@ -226,5 +234,24 @@ export function toPublicSettings(
     m365SubscriptionExpiresAt: row?.m365_subscription_expires_at
       ? String(row.m365_subscription_expires_at)
       : null,
+    sendpulseWhatsappNumber:
+      row?.sendpulse_whatsapp_number?.trim() ||
+      process.env.SENDPULSE_WHATSAPP_NUMBER?.trim() ||
+      process.env.SENDPULSE_WHATSAPP_E164?.trim() ||
+      "",
+    sendpulseWebhookSecretSet:
+      Boolean(row?.sendpulse_webhook_secret?.trim()) ||
+      Boolean(process.env.SENDPULSE_WEBHOOK_SECRET?.trim()) ||
+      Boolean(row?.webhook_shared_secret?.trim()) ||
+      Boolean(process.env.CALL_CENTER_WEBHOOK_SECRET?.trim()),
+    sendpulseWebhookSecretLast4: (() => {
+      const admin = row?.sendpulse_webhook_secret?.trim() ?? "";
+      if (admin) return safeUnsealLast4(admin);
+      const env = process.env.SENDPULSE_WEBHOOK_SECRET?.trim() ?? "";
+      if (env) return secretLast4(env);
+      const shared = row?.webhook_shared_secret?.trim() ?? "";
+      if (shared) return secretLast4(shared);
+      return secretLast4(process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ?? "");
+    })(),
   };
 }

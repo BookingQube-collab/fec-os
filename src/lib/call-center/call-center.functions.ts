@@ -28,7 +28,10 @@ import {
   getWhatsappConversation,
   insertWhatsappOutboundMessage,
   keepSecret,
+  keepSealedSecret,
+  normalizeE164,
   normalizeSipUriHost,
+  unsealCallCenterSecret,
   listActiveCalls,
   listAgentStatuses,
   listBlacklist,
@@ -148,6 +151,16 @@ import {
 
 const ADMIN_AUTH = { capability: "admin.view" as const, minRoleLevel: 95 };
 const AGENT_AUTH = { capability: "call_center.view" as const };
+
+function safeUnsealSendPulseSecret(stored: string | null | undefined): string {
+  const raw = stored?.trim() ?? "";
+  if (!raw) return "";
+  try {
+    return unsealCallCenterSecret(raw);
+  } catch {
+    return "";
+  }
+}
 
 const optionalUuid = z
   .union([z.string().uuid(), z.literal(""), z.null()])
@@ -290,6 +303,8 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     m365ClientId: z.string().trim().max(80).optional(),
     m365ClientSecret: z.string().max(500).optional(),
     m365WebhookClientState: z.string().max(200).optional(),
+    sendpulseWhatsappNumber: z.string().trim().max(20).optional(),
+    sendpulseWebhookSecret: z.string().max(500).optional(),
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
@@ -438,6 +453,13 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         ),
         m365_subscription_id: existing?.m365_subscription_id ?? "",
         m365_subscription_expires_at: existing?.m365_subscription_expires_at ?? null,
+        sendpulse_whatsapp_number: normalizeE164(
+          data.sendpulseWhatsappNumber ?? existing?.sendpulse_whatsapp_number ?? "",
+        ),
+        sendpulse_webhook_secret: keepSealedSecret(
+          existing?.sendpulse_webhook_secret ?? "",
+          data.sendpulseWebhookSecret ?? "",
+        ),
       },
       context.userId,
     );
@@ -463,11 +485,22 @@ export const revealCallCenterSettingSecret = createSafeAuthenticatedAction(
       "messenger_verify_token",
       "m365_client_secret",
       "m365_webhook_client_state",
+      "sendpulse_webhook_secret",
     ]),
   }),
   async (data) => {
     const row = await loadSettingsRow();
-    const value = row?.[data.field]?.trim() ?? "";
+    const raw = row?.[data.field]?.trim() ?? "";
+    let value = raw;
+    if (data.field === "sendpulse_webhook_secret" && raw) {
+      try {
+        value = unsealCallCenterSecret(raw);
+      } catch {
+        throw new Error(
+          "Could not decrypt SendPulse webhook secret. Check AI_CREDENTIALS_ENCRYPTION_KEY.",
+        );
+      }
+    }
     return { field: data.field, value };
   },
   { auth: ADMIN_AUTH },
@@ -1448,7 +1481,11 @@ export const loadCallCenterConfigBundle = createSafeAuthenticatedAction(
     const { getMessengerPublicStatus, getM365PublicStatus } = await import("./omni");
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
-      sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
+      sendpulseBridge: getSendPulseBridgePublicStatus({
+        sendpulseWebhookSecret: safeUnsealSendPulseSecret(settings?.sendpulse_webhook_secret),
+        webhookSharedSecret: settings?.webhook_shared_secret,
+        sendpulseWhatsappNumber: settings?.sendpulse_whatsapp_number,
+      }),
       messenger: getMessengerPublicStatus({
         enabled: settings?.messenger_enabled,
         pageId: settings?.messenger_page_id,
@@ -1843,7 +1880,11 @@ export const loadCallCenterWhatsappInbox = createSafeAuthenticatedAction(
     const { getSendPulseBridgePublicStatus } = await import("./sendpulse");
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
-      sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
+      sendpulseBridge: getSendPulseBridgePublicStatus({
+        sendpulseWebhookSecret: safeUnsealSendPulseSecret(settings?.sendpulse_webhook_secret),
+        webhookSharedSecret: settings?.webhook_shared_secret,
+        sendpulseWhatsappNumber: settings?.sendpulse_whatsapp_number,
+      }),
       conversations,
       messages,
       selectedConversationId: selectedId,
@@ -1905,7 +1946,11 @@ export const loadCallCenterOmniInbox = createSafeAuthenticatedAction(
     const { getMessengerPublicStatus, getM365PublicStatus } = await import("./omni");
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
-      sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
+      sendpulseBridge: getSendPulseBridgePublicStatus({
+        sendpulseWebhookSecret: safeUnsealSendPulseSecret(settings?.sendpulse_webhook_secret),
+        webhookSharedSecret: settings?.webhook_shared_secret,
+        sendpulseWhatsappNumber: settings?.sendpulse_whatsapp_number,
+      }),
       messenger: getMessengerPublicStatus({
         enabled: settings?.messenger_enabled,
         pageId: settings?.messenger_page_id,

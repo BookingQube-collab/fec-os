@@ -210,7 +210,7 @@ export function buildSendPulseDedupeKey(event: SendPulseBridgeEvent): string {
 
 /**
  * Auth for SendPulse inbound webhooks.
- * Prefer SENDPULSE_WEBHOOK_SECRET; falls back to call-center shared secret.
+ * Effective secret: admin settings → SENDPULSE_WEBHOOK_SECRET → shared webhook secret / env.
  * SendPulse global webhooks typically cannot set custom headers — put `?secret=` on the URL.
  */
 export function assertSendPulseWebhookAuth(
@@ -231,7 +231,7 @@ export function assertSendPulseWebhookAuth(
       {
         ok: false,
         error:
-          "SendPulse webhook secret not configured. Set SENDPULSE_WEBHOOK_SECRET (or CALL_CENTER_WEBHOOK_SECRET).",
+          "SendPulse webhook secret not configured. Save it in Call Center Settings → SendPulse, or set SENDPULSE_WEBHOOK_SECRET.",
       },
       { status: 503 },
     );
@@ -254,10 +254,33 @@ export function assertSendPulseWebhookAuth(
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 }
 
-export function resolveSendPulseWebhookSecret(settingsSecret?: string | null): string {
+export type ResolveSendPulseSecretInput = {
+  /** Decrypted admin SendPulse webhook secret (preferred). */
+  sendpulseWebhookSecret?: string | null;
+  /** Legacy shared call-center webhook secret fallback. */
+  webhookSharedSecret?: string | null;
+};
+
+/**
+ * Resolve effective SendPulse webhook secret.
+ * Order: admin SendPulse secret → SENDPULSE_WEBHOOK_SECRET → admin shared secret → CALL_CENTER_WEBHOOK_SECRET.
+ */
+export function resolveSendPulseWebhookSecret(
+  input?: string | null | ResolveSendPulseSecretInput,
+): string {
+  if (typeof input === "string" || input == null) {
+    // Backward-compatible: treat a bare string as admin SendPulse secret (or legacy shared).
+    return (
+      input?.trim() ||
+      process.env.SENDPULSE_WEBHOOK_SECRET?.trim() ||
+      process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
+      ""
+    );
+  }
   return (
+    input.sendpulseWebhookSecret?.trim() ||
     process.env.SENDPULSE_WEBHOOK_SECRET?.trim() ||
-    settingsSecret?.trim() ||
+    input.webhookSharedSecret?.trim() ||
     process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
     ""
   );
@@ -271,9 +294,10 @@ export function sendPulsePhoneDigitsEqual(a: string, b: string): boolean {
 }
 
 /** SendPulse chatbot WhatsApp business number (E.164). Must differ from FEC inbox number. */
-export function resolveSendPulseWhatsappNumber(): string {
+export function resolveSendPulseWhatsappNumber(adminNumber?: string | null): string {
   return normalizeSendPulsePhone(
-    process.env.SENDPULSE_WHATSAPP_NUMBER?.trim() ||
+    adminNumber?.trim() ||
+      process.env.SENDPULSE_WHATSAPP_NUMBER?.trim() ||
       process.env.SENDPULSE_WHATSAPP_E164?.trim() ||
       "",
   );
@@ -306,28 +330,54 @@ export type SendPulseWhatsappBridgePolicy = {
 /** Safe status for Call Center Settings (no secret values). */
 export type SendPulseBridgePublicStatus = {
   secretConfigured: boolean;
+  /** True when the effective secret comes from admin settings (not only env). */
+  usesSavedSecret: boolean;
   sendpulseNumber: string;
   callCenterNumber: string;
   mode: "separate" | "shared";
   shouldMirrorInbox: boolean;
   warnings: string[];
+  /** Copy-safe path — never embeds the real secret. */
   webhookPath: string;
 };
 
+export type SendPulseBridgeStatusInput = {
+  sendpulseWebhookSecret?: string | null;
+  webhookSharedSecret?: string | null;
+  sendpulseWhatsappNumber?: string | null;
+};
+
 export function getSendPulseBridgePublicStatus(
-  settingsSecret?: string | null,
+  input?: string | null | SendPulseBridgeStatusInput,
   env: NodeJS.ProcessEnv = process.env,
 ): SendPulseBridgePublicStatus {
-  const policy = getSendPulseWhatsappBridgePolicy(env);
-  const secretConfigured = Boolean(resolveSendPulseWebhookSecret(settingsSecret));
+  const opts: SendPulseBridgeStatusInput =
+    typeof input === "string" || input == null
+      ? { sendpulseWebhookSecret: input }
+      : input;
+  const policy = getSendPulseWhatsappBridgePolicy(env, {
+    sendpulseWhatsappNumber: opts.sendpulseWhatsappNumber,
+  });
+  const adminSecret = opts.sendpulseWebhookSecret?.trim() || "";
+  const secretConfigured = Boolean(
+    resolveSendPulseWebhookSecret({
+      sendpulseWebhookSecret: adminSecret,
+      webhookSharedSecret: opts.webhookSharedSecret,
+    }),
+  );
+  const usesSavedSecret = Boolean(adminSecret);
   return {
     secretConfigured,
+    usesSavedSecret,
     sendpulseNumber: policy.sendpulseNumber,
     callCenterNumber: policy.callCenterNumber,
     mode: policy.mode,
     shouldMirrorInbox: policy.shouldMirrorInbox,
     warnings: policy.warnings,
-    webhookPath: "/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>",
+    // Never leak the real secret into the copy URL — placeholder always.
+    webhookPath: usesSavedSecret
+      ? "/api/public/call-center/sendpulse?secret=<saved-secret>"
+      : "/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>",
   };
 }
 
@@ -337,14 +387,24 @@ export function getSendPulseBridgePublicStatus(
  */
 export function getSendPulseWhatsappBridgePolicy(
   env: NodeJS.ProcessEnv = process.env,
+  options?: {
+    sendpulseWhatsappNumber?: string | null;
+    callCenterWhatsappNumber?: string | null;
+  },
 ): SendPulseWhatsappBridgePolicy {
   const mirrorFlag = (env.SENDPULSE_MIRROR_WHATSAPP_INBOX ?? "").trim().toLowerCase();
   const sharedRequested = mirrorFlag === "1" || mirrorFlag === "true" || mirrorFlag === "yes";
   const sendpulseNumber = normalizeSendPulsePhone(
-    env.SENDPULSE_WHATSAPP_NUMBER?.trim() || env.SENDPULSE_WHATSAPP_E164?.trim() || "",
+    options?.sendpulseWhatsappNumber?.trim() ||
+      env.SENDPULSE_WHATSAPP_NUMBER?.trim() ||
+      env.SENDPULSE_WHATSAPP_E164?.trim() ||
+      "",
   );
   const callCenterNumber = normalizeSendPulsePhone(
-    env.CALL_CENTER_WHATSAPP_NUMBER?.trim() || env.WHATSAPP_E164?.trim() || "",
+    options?.callCenterWhatsappNumber?.trim() ||
+      env.CALL_CENTER_WHATSAPP_NUMBER?.trim() ||
+      env.WHATSAPP_E164?.trim() ||
+      "",
   );
   const bothSet = Boolean(sendpulseNumber && callCenterNumber);
   const numbersCollide = bothSet && sendPulsePhoneDigitsEqual(sendpulseNumber, callCenterNumber);

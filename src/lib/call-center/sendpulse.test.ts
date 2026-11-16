@@ -4,9 +4,11 @@ import {
   assertSendPulseWebhookAuth,
   buildSendPulseDedupeKey,
   classifySendPulseEvent,
+  getSendPulseBridgePublicStatus,
   getSendPulseWhatsappBridgePolicy,
   normalizeSendPulsePhone,
   parseSendPulseWebhookBody,
+  resolveSendPulseWebhookSecret,
   sendPulsePhoneDigitsEqual,
 } from "./sendpulse";
 
@@ -141,6 +143,17 @@ describe("normalizeSendPulsePhone", () => {
 });
 
 describe("getSendPulseWhatsappBridgePolicy", () => {
+  it("prefers admin SendPulse number over env", () => {
+    const policy = getSendPulseWhatsappBridgePolicy(
+      {
+        SENDPULSE_WHATSAPP_NUMBER: "+97411110000",
+        CALL_CENTER_WHATSAPP_NUMBER: "+97422220000",
+      } as NodeJS.ProcessEnv,
+      { sendpulseWhatsappNumber: "+97433330000" },
+    );
+    expect(policy.sendpulseNumber).toBe("+97433330000");
+  });
+
   it("defaults to separate mode without inbox mirror", () => {
     const policy = getSendPulseWhatsappBridgePolicy({
       SENDPULSE_WHATSAPP_NUMBER: "+97411110000",
@@ -182,6 +195,33 @@ describe("getSendPulseWhatsappBridgePolicy", () => {
   it("compares phone digits loosely", () => {
     expect(sendPulsePhoneDigitsEqual("+974 5555 0000", "97455550000")).toBe(true);
     expect(sendPulsePhoneDigitsEqual("+97411110000", "+97422220000")).toBe(false);
+  });
+});
+
+describe("resolveSendPulseWebhookSecret", () => {
+  it("prefers admin SendPulse secret over env", () => {
+    const prev = process.env.SENDPULSE_WEBHOOK_SECRET;
+    process.env.SENDPULSE_WEBHOOK_SECRET = "env-secret";
+    expect(
+      resolveSendPulseWebhookSecret({
+        sendpulseWebhookSecret: "admin-secret",
+        webhookSharedSecret: "shared",
+      }),
+    ).toBe("admin-secret");
+    process.env.SENDPULSE_WEBHOOK_SECRET = prev;
+  });
+});
+
+describe("getSendPulseBridgePublicStatus", () => {
+  it("never embeds the real secret in webhookPath", () => {
+    const status = getSendPulseBridgePublicStatus({
+      sendpulseWebhookSecret: "super-secret-value",
+      sendpulseWhatsappNumber: "+97411110000",
+    });
+    expect(status.secretConfigured).toBe(true);
+    expect(status.usesSavedSecret).toBe(true);
+    expect(status.webhookPath).toContain("<saved-secret>");
+    expect(status.webhookPath).not.toContain("super-secret-value");
   });
 });
 

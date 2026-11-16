@@ -166,6 +166,10 @@ export type CallCenterSettingsRow = {
   m365_webhook_client_state: string;
   m365_subscription_id: string;
   m365_subscription_expires_at: string | null;
+  /** Encrypted SendPulse webhook secret (AES-256-GCM). Env SENDPULSE_WEBHOOK_SECRET is fallback. */
+  sendpulse_webhook_secret: string;
+  /** SendPulse chatbot WhatsApp E.164. Env SENDPULSE_WHATSAPP_NUMBER is fallback. */
+  sendpulse_whatsapp_number: string;
 };
 
 export const CALL_CENTER_SECRET_FIELDS = [
@@ -181,6 +185,7 @@ export const CALL_CENTER_SECRET_FIELDS = [
   "messenger_verify_token",
   "m365_client_secret",
   "m365_webhook_client_state",
+  "sendpulse_webhook_secret",
 ] as const;
 
 export type CallCenterSecretField = (typeof CALL_CENTER_SECRET_FIELDS)[number];
@@ -278,6 +283,10 @@ export type CallCenterSettingsPublic = {
   m365Configured: boolean;
   m365SubscriptionId: string;
   m365SubscriptionExpiresAt: string | null;
+  /** Admin-saved SendPulse chatbot WhatsApp (E.164); env is fallback when empty. */
+  sendpulseWhatsappNumber: string;
+  sendpulseWebhookSecretSet: boolean;
+  sendpulseWebhookSecretLast4: string;
 };
 
 export const CALL_CENTER_DISPOSITION_CODES = [

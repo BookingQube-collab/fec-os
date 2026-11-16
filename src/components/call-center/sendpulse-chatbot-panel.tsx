@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 
 export type SendPulseChatbotPanelStatus = {
   secretConfigured: boolean;
+  usesSavedSecret?: boolean;
   sendpulseNumber?: string;
   webhookPath?: string;
   warnings?: string[];

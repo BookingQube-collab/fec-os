@@ -70,14 +70,20 @@ async function maybeMirrorWhatsappInbox(
   return { conversationId: result.conversation.id };
 }
 
-export async function processSendPulseWebhookBody(body: unknown): Promise<{
+export async function processSendPulseWebhookBody(
+  body: unknown,
+  options?: { sendpulseWhatsappNumber?: string | null; callCenterWhatsappNumber?: string | null },
+): Promise<{
   results: SendPulseBridgeResultItem[];
   processed: number;
   whatsappPolicy: SendPulseWhatsappBridgePolicy;
 }> {
   const events = parseSendPulseWebhookBody(body);
   const results: SendPulseBridgeResultItem[] = [];
-  const whatsappPolicy = getSendPulseWhatsappBridgePolicy();
+  const whatsappPolicy = getSendPulseWhatsappBridgePolicy(process.env, {
+    sendpulseWhatsappNumber: options?.sendpulseWhatsappNumber,
+    callCenterWhatsappNumber: options?.callCenterWhatsappNumber,
+  });
 
   for (const event of events) {
     const action = classifySendPulseEvent(event.title);
