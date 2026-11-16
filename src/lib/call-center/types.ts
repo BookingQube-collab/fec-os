@@ -129,6 +129,9 @@ export type CallCenterSettingsRow = {
   whatsapp_waba_id: string;
   whatsapp_access_token: string;
   whatsapp_verify_token: string;
+  /** Send a one-shot text reply when a new WhatsApp conversation is created. */
+  whatsapp_auto_reply_enabled: boolean;
+  whatsapp_auto_reply_text: string;
   outbound_caller_id_e164: string;
   webhook_outbound_url: string;
   after_hours_greeting: string;
@@ -205,6 +208,8 @@ export type CallCenterSettingsPublic = {
   whatsappVerifyTokenLast4: string;
   whatsappVerifyTokenSet: boolean;
   whatsappConfigured: boolean;
+  whatsappAutoReplyEnabled: boolean;
+  whatsappAutoReplyText: string;
   outboundCallerIdE164: string;
   webhookOutboundUrl: string;
   afterHoursGreeting: string;

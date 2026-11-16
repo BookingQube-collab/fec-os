@@ -101,6 +101,8 @@ function CallCenterWhatsappPage() {
   const [wabaId, setWabaId] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [verifyToken, setVerifyToken] = useState("");
+  const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [autoReplyText, setAutoReplyText] = useState("");
   const [tplName, setTplName] = useState("");
   const [tplLanguage, setTplLanguage] = useState("en");
   const [tplBody, setTplBody] = useState("");
@@ -148,6 +150,8 @@ function CallCenterWhatsappPage() {
     setEnabled(s.whatsappEnabled);
     setPhoneNumberId(s.whatsappPhoneNumberId);
     setWabaId(s.whatsappWabaId);
+    setAutoReplyEnabled(s.whatsappAutoReplyEnabled);
+    setAutoReplyText(s.whatsappAutoReplyText);
     setHydrated(true);
   }, [config.data?.settings, inbox.data?.settings, hydrated]);
 
@@ -162,6 +166,8 @@ function CallCenterWhatsappPage() {
       whatsappWabaId: wabaId,
       whatsappAccessToken: accessToken,
       whatsappVerifyToken: verifyToken,
+      whatsappAutoReplyEnabled: autoReplyEnabled,
+      whatsappAutoReplyText: autoReplyText,
     });
     setSavingSettings(false);
     if (!result.ok) {
@@ -384,6 +390,28 @@ function CallCenterWhatsappPage() {
             />
           </div>
           <p className="text-xs text-muted-foreground">{t("callCenter.whatsappEnvHint")}</p>
+          <div className="rounded-xl border border-border/40 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{t("callCenter.whatsappAutoReply")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("callCenter.whatsappAutoReplyHint")}
+                </p>
+              </div>
+              <Switch checked={autoReplyEnabled} onCheckedChange={setAutoReplyEnabled} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.whatsappAutoReplyText")}</Label>
+              <Textarea
+                rows={3}
+                value={autoReplyText}
+                onChange={(e) => setAutoReplyText(e.target.value)}
+                placeholder={t("callCenter.whatsappAutoReplyPlaceholder")}
+                maxLength={4096}
+              />
+              <p className="text-[11px] text-muted-foreground">{autoReplyText.length}/4096</p>
+            </div>
+          </div>
           <Button
             type="button"
             disabled={savingSettings}

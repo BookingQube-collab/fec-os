@@ -207,8 +207,9 @@ Status badge: **Configured** for `admin_gateway` (uses Admin keys). Otherwise ne
 Open `/call-center/whatsapp`.
 
 1. Set Phone number ID, WABA ID, access token, webhook verify token (or use env below).
-2. Point Meta callback to `https://<host>/api/public/call-center/whatsapp`.
+2. Point Meta callback to `https://<host>/api/public/call-center/whatsapp` and subscribe to **messages** (includes delivery/read statuses).
 3. Inbox lists conversations/messages; assign an agent and reply — sends via Graph API when token + phone number ID are set (graceful failed log otherwise).
+4. Optional **first-message auto-reply**: enable WhatsApp + auto-reply, set the text (≤4096 chars). Sent once when a *new* conversation is created; inbound webhooks also update `delivered` / `read` / `failed` on outbound rows by `wa_message_id`.
 
 Local demo ingest:
 
@@ -217,6 +218,13 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
   -H "Content-Type: application/json" \
   -d "{\"from\":\"+97455551234\",\"text\":\"Hello from demo\",\"name\":\"Demo Customer\"}"
 ```
+
+### Not in product yet (needs Meta Business Manager + later engineering)
+
+- Visual chatbot flow builder (Message / List / CTA canvas like third-party BSPs)
+- Catalog / commerce product sync
+- Native WhatsApp Payments (not available in Qatar / GCC — use payment links from a local gateway instead)
+- Meta template approval sync, interactive/list/button messages, media download, webhook HMAC
 
 ## Maqsam parity (Done vs Later)
 
@@ -275,6 +283,8 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 - Full provider-side hold music / TTS for SIP-only trunks without Call Control
 - Voice cloning / dialect-tuned Maqsam AI (FEC uses configured LLM + LiveKit agent)
 - Meta WhatsApp template approval sync (local template library + send is wired)
+- WhatsApp visual flow builder / interactive list+CTA / catalog commerce
+- Native WhatsApp Payments (unavailable in Qatar; prefer payment-link templates)
 
 ## Agent console UX
 
@@ -388,7 +398,7 @@ Then: enable **Call Center**, map each DID on `/call-center/numbers` to a queue 
 
 ### What happens on a call
 
-**Inbound:** `call.initiated` → CDR + routing (blocklist, hours, IVR/queue) → FEC answers (or rejects blocked / unconfigured). IVR: greeting via Telnyx TTS (`Polly.Joanna-Neural` by default; Arabic-majority text → `Polly.Hala-Neural` + `arb`) + one-digit gather → `applyIvrDigit`; timeouts retry up to the menu's retries, then go to the fallback queue. Change voice under Settings → IVR TTS voice (`Polly.*-Neural`, `Azure.*`, or basic `female`/`male`). Queue: welcome (audio URL, or TTS if enabled) then looping hold music. Agent clicks **Answer** → Telnyx `transfer` to LiveKit SIP → FEC waits until the SIP participant joins the `cc-…` room (fails loudly if the inbound trunk is DID-locked) → agent softphone token. `call.hangup` / LiveKit `participant_left` end the CDR (`ended` after answer, `missed` before). Agent hangup / decline hangs up the Telnyx leg. In a simultaneous queue, one agent declining only hides the call for that agent. Fix script: `node --env-file=.env.local scripts/fix-call-control-bridge-trunk.mjs`.
+**Inbound:** `call.initiated` → CDR + routing (blocklist, hours, IVR/queue) → FEC answers (or rejects blocked / unconfigured). IVR: greeting via Telnyx TTS (`Polly.Joanna` by default; Arabic-majority text → `Polly.Hala` + `arb`) + one-digit gather → `applyIvrDigit`; timeouts retry up to the menu's retries, then go to the fallback queue. Change voice under Settings → IVR TTS voice (`Polly.*`, `Azure.*`, or basic `female`/`male`). Queue: welcome (audio URL, or TTS if enabled) then looping hold music. Agent clicks **Answer** → FEC heals LiveKit dispatch (wildcard inbound trunk + **callee** rule only; removes conflicting **individual** rules that steal INVITEs into `cc-_+DID_random` rooms) → Telnyx `transfer` to `sip:<roomUser>@<LiveKit SIP host>` → soft-verify SIP join → agent softphone token. Call Control mode does **not** create a second CDR from the bridge SIP join (avoids DID-as-caller Recent rows). `call.hangup` / LiveKit `participant_left` end the CDR (`ended` after answer, `missed` before). Agent hangup / decline hangs up the Telnyx leg. In a simultaneous queue, one agent declining only hides the call for that agent. Fix script: `node --env-file=.env.local scripts/fix-call-control-bridge-trunk.mjs`.
 
 **Outbound:** dial pad → `placeOutboundCall` creates the CDR, the agent joins the room (hears a dial tone), and a background task calls LiveKit `createSipParticipant` (waits up to ~60s for answer). On answer, `answered_at` is reset to the real pickup time; on busy / no answer / rejection the CDR becomes `failed` with the carrier reason and the softphone shows it. On Vercel make sure the function `maxDuration` is at least 60s.
 

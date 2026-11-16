@@ -386,7 +386,7 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls";
 
 function normalizeInboundMode(value: unknown): CallCenterSettingsRow["inbound_mode"] {
   return value === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk";
@@ -461,6 +461,8 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     whatsapp_waba_id: String(row.whatsapp_waba_id ?? ""),
     whatsapp_access_token: String(row.whatsapp_access_token ?? ""),
     whatsapp_verify_token: String(row.whatsapp_verify_token ?? ""),
+    whatsapp_auto_reply_enabled: Boolean(row.whatsapp_auto_reply_enabled),
+    whatsapp_auto_reply_text: String(row.whatsapp_auto_reply_text ?? ""),
     outbound_caller_id_e164: String(row.outbound_caller_id_e164 ?? ""),
     webhook_outbound_url: String(row.webhook_outbound_url ?? ""),
     after_hours_greeting: String(
@@ -490,10 +492,12 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     .eq("id", CALL_CENTER_SETTINGS_ID)
     .maybeSingle();
 
-  // Before migration 20261115140000 / 20261116140000, newer columns may be missing — fall back.
+  // Before migration 20261115140000 / 20261116140000 / 20261116150000, newer columns may be missing — fall back.
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls/i.test(result.error.message)
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply/i.test(
+      result.error.message,
+    )
   ) {
     const legacy =
       "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
@@ -555,6 +559,8 @@ export async function saveSettingsRow(
         whatsapp_waba_id: row.whatsapp_waba_id,
         whatsapp_access_token: row.whatsapp_access_token,
         whatsapp_verify_token: row.whatsapp_verify_token,
+        whatsapp_auto_reply_enabled: row.whatsapp_auto_reply_enabled,
+        whatsapp_auto_reply_text: row.whatsapp_auto_reply_text,
         outbound_caller_id_e164: row.outbound_caller_id_e164,
         webhook_outbound_url: row.webhook_outbound_url,
         after_hours_greeting: row.after_hours_greeting,
@@ -575,7 +581,9 @@ export async function saveSettingsRow(
     .maybeSingle();
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls/i.test(result.error.message)
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply/i.test(
+      result.error.message,
+    )
   ) {
     throw new Error(
       "Call Center settings columns are missing. Apply pending call_center migrations (supabase db push), then save again.",
@@ -2272,7 +2280,34 @@ export async function upsertWhatsappInboundMessage(input: {
   body: string;
   waMessageId: string;
   rawPayload: Record<string, unknown>;
-}): Promise<{ conversation: CallCenterWhatsappConversation; message: CallCenterWhatsappMessage }> {
+}): Promise<{
+  conversation: CallCenterWhatsappConversation;
+  message: CallCenterWhatsappMessage;
+  isNewConversation: boolean;
+  duplicate: boolean;
+}> {
+  const waMessageId = input.waMessageId.trim();
+  if (waMessageId) {
+    const prior = await table<Record<string, unknown>>("call_center_whatsapp_messages")
+      .select("*")
+      .eq("wa_message_id", waMessageId)
+      .maybeSingle();
+    throwIfError(prior.error);
+    if (prior.data) {
+      const conversationId = String(prior.data.conversation_id ?? "");
+      const conversation = conversationId
+        ? await getWhatsappConversation(conversationId)
+        : null;
+      if (!conversation) throw new Error("Duplicate WhatsApp message missing conversation.");
+      return {
+        conversation,
+        message: mapWhatsappMessage(prior.data),
+        isNewConversation: false,
+        duplicate: true,
+      };
+    }
+  }
+
   const now = new Date().toISOString();
   const existing = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
     .select("*")
@@ -2281,6 +2316,7 @@ export async function upsertWhatsappInboundMessage(input: {
   throwIfError(existing.error);
 
   let conversationRow = existing.data;
+  const isNewConversation = !conversationRow;
   if (!conversationRow) {
     const created = await table<Record<string, unknown>>("call_center_whatsapp_conversations")
       .insert({
@@ -2321,7 +2357,7 @@ export async function upsertWhatsappInboundMessage(input: {
       conversation_id: conversationRow.id,
       direction: "inbound",
       body: input.body,
-      wa_message_id: input.waMessageId,
+      wa_message_id: waMessageId,
       status: "received",
       raw_payload: input.rawPayload,
     })
@@ -2333,7 +2369,74 @@ export async function upsertWhatsappInboundMessage(input: {
   return {
     conversation: mapWhatsappConversation(conversationRow),
     message: mapWhatsappMessage(message.data),
+    isNewConversation,
+    duplicate: false,
   };
+}
+
+export async function updateWhatsappMessageStatusByWaId(input: {
+  waMessageId: string;
+  status: CallCenterWhatsappMessage["status"];
+  errorText?: string;
+}): Promise<boolean> {
+  const waMessageId = input.waMessageId.trim();
+  if (!waMessageId) return false;
+  const patch: Record<string, unknown> = { status: input.status };
+  if (input.errorText !== undefined) patch.error_text = input.errorText;
+  const result = await table<Record<string, unknown>>("call_center_whatsapp_messages")
+    .update(patch)
+    .eq("wa_message_id", waMessageId)
+    .select("id")
+    .maybeSingle();
+  throwIfError(result.error);
+  return Boolean(result.data);
+}
+
+/** Cloud API text send used by agent replies and first-message auto-reply. */
+export async function sendWhatsappCloudText(input: {
+  phoneNumberId: string;
+  accessToken: string;
+  toDigits: string;
+  body: string;
+}): Promise<{ ok: true; waMessageId: string } | { ok: false; error: string }> {
+  const to = input.toDigits.replace(/\D/g, "");
+  if (!input.phoneNumberId.trim() || !input.accessToken.trim() || !to || !input.body.trim()) {
+    return { ok: false, error: "WhatsApp send missing phone number ID, token, recipient, or body." };
+  }
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(input.phoneNumberId.trim())}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.accessToken.trim()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to,
+          type: "text",
+          text: { body: input.body.trim() },
+        }),
+      },
+    );
+    const payload = (await response.json().catch(() => ({}))) as {
+      messages?: Array<{ id?: string }>;
+      error?: { message?: string };
+    };
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: payload.error?.message || `Meta Graph HTTP ${response.status}`,
+      };
+    }
+    return {
+      ok: true,
+      waMessageId: String(payload.messages?.[0]?.id ?? ""),
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "WhatsApp send failed" };
+  }
 }
 
 export async function insertWhatsappOutboundMessage(input: {
@@ -2342,7 +2445,8 @@ export async function insertWhatsappOutboundMessage(input: {
   waMessageId: string;
   status: CallCenterWhatsappMessage["status"];
   errorText?: string;
-  sentBy: string;
+  /** Null for system auto-replies (no agent). */
+  sentBy: string | null;
 }): Promise<CallCenterWhatsappMessage> {
   const now = new Date().toISOString();
   const message = await table<Record<string, unknown>>("call_center_whatsapp_messages")

@@ -69,6 +69,7 @@ import {
   loadSettingsRow,
   resolveWhatsappAccessToken,
   resolveWhatsappPhoneNumberId,
+  sendWhatsappCloudText,
   saveCallAgentNotes,
   saveSettingsRow,
   setAgentExtension,
@@ -249,6 +250,8 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     whatsappWabaId: z.string().trim().max(80).optional(),
     whatsappAccessToken: z.string().max(500).optional(),
     whatsappVerifyToken: z.string().max(200).optional(),
+    whatsappAutoReplyEnabled: z.boolean().optional(),
+    whatsappAutoReplyText: z.string().max(4096).optional(),
     outboundCallerIdE164: z.string().trim().max(20).optional(),
     // Full https:// URLs are allowed; never treat as a secret / write-only field
     webhookOutboundUrl: z.string().trim().max(2000).optional(),
@@ -348,6 +351,10 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           existing?.whatsapp_verify_token ?? "",
           data.whatsappVerifyToken ?? "",
         ),
+        whatsapp_auto_reply_enabled:
+          data.whatsappAutoReplyEnabled ?? existing?.whatsapp_auto_reply_enabled ?? false,
+        whatsapp_auto_reply_text:
+          data.whatsappAutoReplyText ?? existing?.whatsapp_auto_reply_text ?? "",
         outbound_caller_id_e164: data.outboundCallerIdE164 ?? existing?.outbound_caller_id_e164 ?? "",
         after_hours_greeting:
           data.afterHoursGreeting ??
@@ -1800,63 +1807,34 @@ export const replyCallCenterWhatsappMessage = createSafeAuthenticatedAction(
       };
     }
 
-    try {
-      const res = await fetch(
-        `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to,
-            type: "text",
-            text: { body: data.body },
-          }),
-        },
-      );
-      const payload = (await res.json().catch(() => ({}))) as {
-        messages?: Array<{ id?: string }>;
-        error?: { message?: string };
-      };
-      if (!res.ok) {
-        const errText = payload.error?.message || `Meta API error (${res.status})`;
-        const saved = await insertWhatsappOutboundMessage({
-          conversationId: data.conversationId,
-          body: data.body,
-          waMessageId: "",
-          status: "failed",
-          errorText: errText,
-          sentBy: context.userId,
-        });
-        return { message: saved, sent: false, error: errText };
-      }
-      const waMessageId = payload.messages?.[0]?.id ?? "";
-      const saved = await insertWhatsappOutboundMessage({
-        conversationId: data.conversationId,
-        body: data.body,
-        waMessageId,
-        status: "sent",
-        sentBy: context.userId,
-      });
-      if (!conversation.assignedAgentId) {
-        await assignWhatsappConversation(data.conversationId, context.userId);
-      }
-      return { message: saved, sent: true as const };
-    } catch (error) {
-      const errText = error instanceof Error ? error.message : "Send failed";
+    const sent = await sendWhatsappCloudText({
+      phoneNumberId,
+      accessToken: token,
+      toDigits: to,
+      body: data.body,
+    });
+    if (!sent.ok) {
       const saved = await insertWhatsappOutboundMessage({
         conversationId: data.conversationId,
         body: data.body,
         waMessageId: "",
         status: "failed",
-        errorText: errText,
+        errorText: sent.error,
         sentBy: context.userId,
       });
-      return { message: saved, sent: false, error: errText };
+      return { message: saved, sent: false, error: sent.error };
     }
+    const saved = await insertWhatsappOutboundMessage({
+      conversationId: data.conversationId,
+      body: data.body,
+      waMessageId: sent.waMessageId,
+      status: "sent",
+      sentBy: context.userId,
+    });
+    if (!conversation.assignedAgentId) {
+      await assignWhatsappConversation(data.conversationId, context.userId);
+    }
+    return { message: saved, sent: true as const };
   },
   { auth: AGENT_AUTH },
 );

@@ -115,6 +115,8 @@ export function toPublicSettings(
       Boolean(row?.whatsapp_verify_token?.trim()) ||
       Boolean(process.env.WHATSAPP_VERIFY_TOKEN?.trim()),
     whatsappConfigured,
+    whatsappAutoReplyEnabled: Boolean(row?.whatsapp_auto_reply_enabled),
+    whatsappAutoReplyText: row?.whatsapp_auto_reply_text?.trim() ?? "",
     outboundCallerIdE164: row?.outbound_caller_id_e164?.trim() ?? "",
     webhookOutboundUrl: row?.webhook_outbound_url?.trim() ?? "",
     afterHoursGreeting:
