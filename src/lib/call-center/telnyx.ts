@@ -236,8 +236,8 @@ export function createTelnyxClient(apiKey: string) {
     playbackStop: (id: string) => action(id, "playback_stop"),
     /**
      * Dial `to` (SIP URI or E.164) and bridge the caller once answered.
-     * Defaults: TCP transport (LiveKit Cloud + Telnyx recommend TCP; Call Control default is UDP),
-     * early_media off (avoids PSTN hearing ringback while LiveKit INVITE is in flight).
+     * Call Control → LiveKit: prefer UDP (TCP INVITEs were not accepted on our inbound trunk).
+     * early_media off avoids PSTN ringback; we play a connecting TTS prompt instead.
      */
     transfer: (
       id: string,
@@ -254,8 +254,8 @@ export function createTelnyxClient(apiKey: string) {
     ) =>
       action(id, "transfer", {
         to,
-        timeout_secs: options.timeoutSecs ?? 45,
-        sip_transport_protocol: options.sipTransport ?? "TCP",
+        timeout_secs: options.timeoutSecs ?? 30,
+        sip_transport_protocol: options.sipTransport ?? "UDP",
         early_media: options.earlyMedia ?? false,
         media_encryption: options.mediaEncryption ?? "disabled",
         ...(options.from ? { from: options.from } : {}),

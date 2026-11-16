@@ -590,6 +590,11 @@ export async function handleTelnyxEvent(
   }
 }
 
+const CONNECTING_PROMPT =
+  "Please wait. We are connecting you to an agent.";
+
+type BridgeTransport = "UDP" | "TCP";
+
 /**
  * Connect the waiting PSTN caller to the LiveKit room via SIP. Called when an agent answers.
  * Throws a user-readable Error when the caller cannot be connected (call stays offered).
@@ -618,111 +623,116 @@ export async function bridgeCallerToLiveKit(
     throw new Error(e instanceof Error ? e.message : "LiveKit SIP is not configured.");
   }
 
-  // Mark bridge before stopping media so welcome playback.ended cannot restart hold mid-transfer.
-  await patchMeta(call.id, {
+  const voice = settings?.tts_voice ?? "";
+  const from =
+    settings?.outbound_caller_id_e164?.trim() ||
+    (call.toE164?.startsWith("+") ? call.toE164 : "") ||
+    undefined;
+
+  // Mark bridge + play connecting prompt + prep room/dispatch in parallel (fast path).
+  // TTS starts immediately so the caller hears a voice instead of silence/ringback.
+  const metaPromise = patchMeta(call.id, {
     bridgeInProgress: true,
     bridgeError: null,
     bridgePendingSip: true,
   });
-
-  try {
-    await telnyx.playbackStop(call.providerCallId);
-  } catch {
-    // nothing was playing
-  }
-
-  // Heal dispatch (remove individual rules that steal INVITEs) + pre-create room in parallel.
-  const [dispatchHeal] = await Promise.all([
+  const promptPromise = telnyx
+    .speak(call.providerCallId, CONNECTING_PROMPT, { step: "connecting", callId: call.id }, voice)
+    .catch(() => undefined);
+  const prepPromise = Promise.all([
     ensureCallControlBridgeDispatch(settings).catch((e) => ({
       ok: false as const,
       detail: e instanceof Error ? e.message : "dispatch heal failed",
     })),
     ensureLiveKitRoom(roomName).catch(() => undefined),
   ]);
-  if (!dispatchHeal.ok) {
+
+  const [, , [dispatchHeal]] = await Promise.all([metaPromise, promptPromise, prepPromise]);
+  if (dispatchHeal && "ok" in dispatchHeal && !dispatchHeal.ok) {
     console.warn("[call-center/bridge] dispatch heal:", dispatchHeal.detail);
   }
 
-  // Use our Telnyx-owned CLI on the bridge INVITE (customer ANI is already on the CDR).
-  const from =
-    settings?.outbound_caller_id_e164?.trim() ||
-    (call.toE164?.startsWith("+") ? call.toE164 : "") ||
-    undefined;
+  // UDP first: production TCP INVITEs never produced a SIP participant (toast after 5421900).
+  // Keep real-SIP verification (never treat cc-agent-… as the caller). TCP is fallback only.
+  const transports: BridgeTransport[] = ["UDP", "TCP"];
+  let sipIdentity: string | null = null;
+  let usedTransport: BridgeTransport = "UDP";
+  let lastError = "";
+  let attempt = 0;
 
-  const transferOpts = {
-    from,
-    headers: [{ name: "X-FEC-Call-Id", value: call.id }],
-    clientState: { step: "bridge", callId: call.id },
-    sipTransport: "TCP" as const,
-    earlyMedia: false,
-    mediaEncryption: "disabled" as const,
-    timeoutSecs: 45,
-  };
-
-  const runTransfer = async (label: string) => {
-    console.info(`[call-center/bridge] ${label} → ${uri}`);
-    await telnyx.transfer(call.providerCallId, uri, transferOpts);
-  };
-
-  try {
-    await runTransfer("transfer");
-  } catch (e) {
-    await patchMeta(call.id, {
-      bridgeInProgress: false,
-      bridgePendingSip: false,
-      bridgeError: e instanceof Error ? e.message : "transfer failed",
-    });
-    if (e instanceof TelnyxApiError && (e.status === 404 || e.status === 422)) {
-      throw new Error("The caller is no longer on the line.");
-    }
-    throw new Error(`Could not connect the caller: ${e instanceof Error ? e.message : "carrier error"}`);
-  }
-  await patchMeta(call.id, {
-    bridgedAt: new Date().toISOString(),
-    bridgeSipUri: uri,
-    bridgeError: null,
-    bridgeDispatchHeal: dispatchHeal.detail,
-    bridgePendingSip: true,
-    bridgeInProgress: true,
-    bridgeTransport: "TCP",
-  });
-
-  // Await a *real* SIP participant (not the agent softphone). Soft-verify used to fall back to
-  // any identity, mark cc-agent-… as "verified", and leave the PSTN leg ringing into LiveKit.
-  let sipIdentity = await waitForSipParticipantInRoom(roomName, 10_000);
-  if (!sipIdentity) {
+  for (const transport of transports) {
+    usedTransport = transport;
+    attempt += 1;
     try {
-      await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
-      await runTransfer("transfer-retry");
-      sipIdentity = await waitForSipParticipantInRoom(roomName, 12_000);
-    } catch (e) {
-      await patchMeta(call.id, {
-        bridgePendingSip: false,
-        bridgeInProgress: false,
-        bridgeError: e instanceof Error ? e.message : "SIP bridge retry failed",
+      // Do not playbackStop before the first transfer — that killed the connecting TTS.
+      // Retries clear leftover media from the previous INVITE attempt.
+      if (attempt > 1) {
+        await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
+      }
+      console.info(`[call-center/bridge] transfer ${transport} → ${uri}`);
+      await telnyx.transfer(call.providerCallId, uri, {
+        from,
+        headers: [{ name: "X-FEC-Call-Id", value: call.id }],
+        clientState: { step: "bridge", callId: call.id, transport },
+        sipTransport: transport,
+        earlyMedia: false,
+        mediaEncryption: "disabled",
+        timeoutSecs: 25,
       });
-      throw new Error(
-        `Could not connect the caller to the softphone (SIP retry failed). ${
-          e instanceof Error ? e.message : ""
-        }`.trim(),
-      );
+      await patchMeta(call.id, {
+        bridgedAt: new Date().toISOString(),
+        bridgeSipUri: uri,
+        bridgeTransport: transport,
+        bridgeDispatchHeal:
+          dispatchHeal && "detail" in dispatchHeal ? dispatchHeal.detail : undefined,
+        bridgePendingSip: true,
+        bridgeInProgress: true,
+        bridgeError: null,
+      });
+      // Short wait — SIP usually appears in 1–3s when the INVITE is accepted.
+      sipIdentity = await waitForSipParticipantInRoom(roomName, 5_500);
+      if (sipIdentity) break;
+      lastError = `No SIP participant after ${transport} transfer`;
+      console.warn(`[call-center/bridge] ${lastError}`);
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : "transfer failed";
+      console.warn(`[call-center/bridge] ${transport} failed:`, lastError);
+      if (e instanceof TelnyxApiError && (e.status === 404 || e.status === 422)) {
+        await patchMeta(call.id, {
+          bridgeInProgress: false,
+          bridgePendingSip: false,
+          bridgeError: "The caller is no longer on the line.",
+        });
+        throw new Error("The caller is no longer on the line.");
+      }
     }
   }
 
   if (!sipIdentity) {
     const note =
-      "LiveKit did not accept the caller SIP INVITE over TCP. Check Call Center → Settings → SIP URI host and inbound trunk (wildcard + callee rule).";
+      "Could not bridge the caller into the softphone room (SIP INVITE not accepted). Check Settings → SIP URI and inbound trunk.";
     await patchMeta(call.id, {
       bridgePendingSip: false,
       bridgeInProgress: false,
       bridgeError: note,
-      bridgeVerifyNote: note,
+      bridgeVerifyNote: lastError || note,
+      bridgeTransport: usedTransport,
     });
-    try {
-      // Leave the PSTN caller on Call Control (hold) rather than a dead-air "answered" softphone.
-      await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
-    } catch {
-      // ignore
+    // Restore hold so the caller is not left in silence after a failed Answer.
+    const holdUrl = settings?.hold_music_url?.trim() ?? "";
+    if (holdUrl) {
+      await telnyx
+        .playbackStart(call.providerCallId, holdUrl, { step: "hold" }, true)
+        .catch(() => undefined);
+    } else {
+      await telnyx
+        .speak(
+          call.providerCallId,
+          "We are still trying to connect you. Please stay on the line.",
+          { step: "bridge_failed" },
+          voice,
+        )
+        .catch(() => undefined);
     }
     throw new Error(note);
   }
@@ -733,8 +743,11 @@ export async function bridgeCallerToLiveKit(
     bridgePendingSip: false,
     bridgeInProgress: false,
     bridgeError: null,
+    bridgeTransport: usedTransport,
   });
-  console.info(`[call-center/bridge] SIP joined room=${roomName} identity=${sipIdentity}`);
+  console.info(
+    `[call-center/bridge] SIP joined room=${roomName} via ${usedTransport} identity=${sipIdentity}`,
+  );
 }
 
 /** Tear down the carrier side of a call (agent hangup / decline). Best effort. */

@@ -17,9 +17,13 @@ import {
 
 import { CarrierNotConfiguredError } from "./carrier-errors";
 import { normalizeSipUriHost } from "./db";
-import { looksLikeSipParticipant } from "./sip-participant";
+import { formatLiveKitSipUri, looksLikeSipParticipant } from "./sip-participant";
 
-export { isAgentSoftphoneIdentity, looksLikeSipParticipant } from "./sip-participant";
+export {
+  formatLiveKitSipUri,
+  isAgentSoftphoneIdentity,
+  looksLikeSipParticipant,
+} from "./sip-participant";
 import {
   looksLikeSipHostNotId,
   sipHostMistakenForIdMessage,
@@ -248,9 +252,7 @@ export async function buildLiveKitSipUri(
     );
   }
   const prefix = await resolveDispatchRoomPrefix(settings);
-  const user = prefix && roomName.startsWith(prefix) ? roomName.slice(prefix.length) : roomName;
-  // Explicit TCP — Telnyx Call Control transfer defaults to UDP; LiveKit+Telnyx docs use TCP.
-  return `sip:${user}@${host};transport=tcp`;
+  return formatLiveKitSipUri(roomName, host, prefix);
 }
 
 export type OutboundSipResult = {

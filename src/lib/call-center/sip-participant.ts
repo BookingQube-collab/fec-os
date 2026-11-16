@@ -1,7 +1,17 @@
 /**
- * Pure helpers for distinguishing LiveKit SIP callers from agent softphones.
- * Kept free of server-only imports so unit tests can cover the Answer false-positive.
+ * Pure helpers for distinguishing LiveKit SIP callers from agent softphones,
+ * plus SIP URI shaping for Call Control → LiveKit transfers.
+ * Kept free of server-only imports so unit tests can cover Answer false-positives.
  */
+
+/** `sip:<room-without-prefix>@host` — transport is set via Telnyx sip_transport_protocol. */
+export function formatLiveKitSipUri(roomName: string, host: string, roomPrefix = "cc-"): string {
+  const h = host.trim();
+  const prefix = roomPrefix.trim();
+  const user = prefix && roomName.startsWith(prefix) ? roomName.slice(prefix.length) : roomName;
+  return `sip:${user}@${h}`;
+}
+
 
 export function isAgentSoftphoneIdentity(identity: string): boolean {
   const id = identity.trim().toLowerCase();

@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { isAgentSoftphoneIdentity, looksLikeSipParticipant } from "./sip-participant";
+import {
+  formatLiveKitSipUri,
+  isAgentSoftphoneIdentity,
+  looksLikeSipParticipant,
+} from "./sip-participant";
+
+describe("formatLiveKitSipUri", () => {
+  it("strips room prefix and does not force ;transport=", () => {
+    expect(formatLiveKitSipUri("cc-abc123", "k4xpy1vcnur.sip.livekit.cloud")).toBe(
+      "sip:abc123@k4xpy1vcnur.sip.livekit.cloud",
+    );
+    expect(formatLiveKitSipUri("cc-abc123", "host", "cc-")).not.toContain("transport=");
+  });
+});
 
 describe("isAgentSoftphoneIdentity", () => {
   it("detects FEC softphone identities", () => {
