@@ -25,6 +25,10 @@ export {
 } from "./auto-reply";
 export { sendInstagramText, sendInstagramTextViaIgUser } from "./instagram";
 export {
+  parseMessengerInboundMessages,
+  sendMessengerText,
+} from "./messenger";
+export {
   parseInstagramInboundMessages,
   verifyMetaHubSignature,
   verifyMetaWebhookChallenge,

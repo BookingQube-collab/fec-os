@@ -8,9 +8,12 @@ import {
   Contact,
   Hash,
   Headphones,
+  AtSign,
+  Instagram,
   ListOrdered,
   Mail,
   MessageCircle,
+  MessageSquare,
   Phone,
   PhoneCall,
   Radio,
@@ -45,6 +48,9 @@ const LINKS: { href: string; key: string; icon: LucideIcon; exact?: boolean }[] 
   { href: "/call-center/settings", key: "settings", icon: Settings },
   { href: "/call-center/ai", key: "ai", icon: Bot },
   { href: "/call-center/whatsapp", key: "whatsapp", icon: MessageCircle },
+  { href: "/call-center/instagram", key: "instagram", icon: Instagram },
+  { href: "/call-center/messenger", key: "messenger", icon: MessageSquare },
+  { href: "/call-center/email", key: "email", icon: AtSign },
 ];
 
 function isActive(pathname: string, href: string, exact?: boolean) {

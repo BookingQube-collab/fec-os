@@ -68,6 +68,52 @@ export function toPublicSettings(
     "";
   const instagramConfigured = Boolean(igPageId) && igToken.length > 0;
 
+  const messengerToken =
+    row?.messenger_page_access_token?.trim() ||
+    process.env.MESSENGER_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.META_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.INSTAGRAM_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.META_ACCESS_TOKEN?.trim() ||
+    "";
+  const messengerPageId =
+    row?.messenger_page_id?.trim() ||
+    process.env.MESSENGER_PAGE_ID?.trim() ||
+    process.env.META_PAGE_ID?.trim() ||
+    process.env.INSTAGRAM_PAGE_ID?.trim() ||
+    "";
+  const messengerVerify =
+    row?.messenger_verify_token?.trim() ||
+    process.env.MESSENGER_VERIFY_TOKEN?.trim() ||
+    process.env.META_WEBHOOK_VERIFY_TOKEN?.trim() ||
+    "";
+  const messengerConfigured = Boolean(messengerPageId) && messengerToken.length > 0;
+
+  const m365Mailbox =
+    row?.m365_mailbox?.trim() ||
+    process.env.M365_MAILBOX?.trim() ||
+    process.env.MICROSOFT365_MAILBOX?.trim() ||
+    "";
+  const m365Tenant =
+    row?.m365_tenant_id?.trim() ||
+    process.env.M365_TENANT_ID?.trim() ||
+    process.env.AZURE_AD_TENANT_ID?.trim() ||
+    "";
+  const m365ClientId =
+    row?.m365_client_id?.trim() ||
+    process.env.M365_CLIENT_ID?.trim() ||
+    process.env.AZURE_AD_CLIENT_ID?.trim() ||
+    "";
+  const m365Secret =
+    row?.m365_client_secret?.trim() ||
+    process.env.M365_CLIENT_SECRET?.trim() ||
+    process.env.AZURE_AD_CLIENT_SECRET?.trim() ||
+    "";
+  const m365ClientState =
+    row?.m365_webhook_client_state?.trim() ||
+    process.env.M365_WEBHOOK_CLIENT_STATE?.trim() ||
+    "";
+  const m365Configured = Boolean(m365Mailbox && m365Tenant && m365ClientId && m365Secret);
+
   return {
     enabled: Boolean(row?.enabled),
     ivrEnabled: Boolean(row?.ivr_enabled ?? true),
@@ -160,5 +206,25 @@ export function toPublicSettings(
     instagramVerifyTokenSet: igVerify.length > 0,
     instagramVerifyTokenLast4: secretLast4(igVerify),
     instagramConfigured,
+    messengerEnabled: Boolean(row?.messenger_enabled),
+    messengerPageId: row?.messenger_page_id?.trim() ?? "",
+    messengerPageAccessTokenSet: messengerToken.length > 0,
+    messengerPageAccessTokenLast4: secretLast4(messengerToken),
+    messengerVerifyTokenSet: messengerVerify.length > 0,
+    messengerVerifyTokenLast4: secretLast4(messengerVerify),
+    messengerConfigured,
+    m365Enabled: Boolean(row?.m365_enabled),
+    m365Mailbox,
+    m365TenantId: m365Tenant,
+    m365ClientId,
+    m365ClientSecretSet: m365Secret.length > 0,
+    m365ClientSecretLast4: secretLast4(m365Secret),
+    m365WebhookClientStateSet: m365ClientState.length > 0,
+    m365WebhookClientStateLast4: secretLast4(m365ClientState),
+    m365Configured,
+    m365SubscriptionId: row?.m365_subscription_id?.trim() ?? "",
+    m365SubscriptionExpiresAt: row?.m365_subscription_expires_at
+      ? String(row.m365_subscription_expires_at)
+      : null,
   };
 }

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 import { CallCenterAudioUrlField } from "@/components/call-center/audio-url-field";
 import { CallCenterSecretField } from "@/components/call-center/secret-field";
+import { SendPulseChatbotPanel } from "@/components/call-center/sendpulse-chatbot-panel";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -171,6 +172,16 @@ function CallCenterSettingsPage() {
   const [instagramIgUserId, setInstagramIgUserId] = useState("");
   const [instagramPageAccessToken, setInstagramPageAccessToken] = useState("");
   const [instagramVerifyToken, setInstagramVerifyToken] = useState("");
+  const [messengerEnabled, setMessengerEnabled] = useState(false);
+  const [messengerPageId, setMessengerPageId] = useState("");
+  const [messengerPageAccessToken, setMessengerPageAccessToken] = useState("");
+  const [messengerVerifyToken, setMessengerVerifyToken] = useState("");
+  const [m365Enabled, setM365Enabled] = useState(false);
+  const [m365Mailbox, setM365Mailbox] = useState("");
+  const [m365TenantId, setM365TenantId] = useState("");
+  const [m365ClientId, setM365ClientId] = useState("");
+  const [m365ClientSecret, setM365ClientSecret] = useState("");
+  const [m365WebhookClientState, setM365WebhookClientState] = useState("");
   const [tplName, setTplName] = useState("");
   const [tplLanguage, setTplLanguage] = useState("en");
   const [tplBody, setTplBody] = useState("");
@@ -210,6 +221,12 @@ function CallCenterSettingsPage() {
     setInstagramEnabled(s.instagramEnabled);
     setInstagramPageId(s.instagramPageId);
     setInstagramIgUserId(s.instagramIgUserId);
+    setMessengerEnabled(Boolean(s.messengerEnabled));
+    setMessengerPageId(s.messengerPageId ?? "");
+    setM365Enabled(Boolean(s.m365Enabled));
+    setM365Mailbox(s.m365Mailbox ?? "");
+    setM365TenantId(s.m365TenantId ?? "");
+    setM365ClientId(s.m365ClientId ?? "");
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
@@ -349,6 +366,16 @@ function CallCenterSettingsPage() {
       instagramIgUserId,
       instagramPageAccessToken,
       instagramVerifyToken,
+      messengerEnabled,
+      messengerPageId,
+      messengerPageAccessToken,
+      messengerVerifyToken,
+      m365Enabled,
+      m365Mailbox,
+      m365TenantId,
+      m365ClientId,
+      m365ClientSecret,
+      m365WebhookClientState,
     });
     setSaving(false);
     if (!result.ok) {
@@ -366,6 +393,10 @@ function CallCenterSettingsPage() {
     setWhatsappVerifyToken("");
     setInstagramPageAccessToken("");
     setInstagramVerifyToken("");
+    setMessengerPageAccessToken("");
+    setMessengerVerifyToken("");
+    setM365ClientSecret("");
+    setM365WebhookClientState("");
     queryClient.setQueryData(["call-center", "config"], (prev) =>
       prev ? { ...prev, settings: result.data } : prev,
     );
@@ -1293,6 +1324,161 @@ function CallCenterSettingsPage() {
             <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface-2)]/40 px-3 py-2 text-xs text-muted-foreground">
               {t("callCenter.instagramInboxComing")}
             </p>
+            <SendPulseChatbotPanel
+              channel="instagram"
+              canEdit={canEdit}
+              status={bundle.data?.sendpulseBridge}
+            />
+            <p className="text-xs">
+              <Link href="/call-center/instagram" className="text-primary underline-offset-2 hover:underline">
+                {t("callCenter.instagramOpenChannel")}
+              </Link>
+            </p>
+          </section>
+
+          <section
+            id="messenger"
+            className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
+          >
+            <SettingsSectionHeader
+              title={t("callCenter.messengerSettings")}
+              hint={t("callCenter.messengerSettingsHint")}
+              tags={[
+                { label: t("callCenter.tagMessenger"), variant: "secondary" },
+                { label: t("callCenter.tagAgentInbox"), variant: "outline" },
+              ]}
+              trailing={
+                <>
+                  {bundle.data?.settings.messengerConfigured ? (
+                    <Badge variant="success">{t("callCenter.messengerConfigured")}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t("callCenter.messengerMissing")}</Badge>
+                  )}
+                  <Switch checked={messengerEnabled} onCheckedChange={setMessengerEnabled} />
+                </>
+              }
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>{t("callCenter.messengerPageId")}</Label>
+                <Input
+                  value={messengerPageId}
+                  onChange={(e) => setMessengerPageId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">{t("callCenter.messengerPageIdHint")}</p>
+              </div>
+              <CallCenterSecretField
+                id="cc-messenger-page-token"
+                label={t("callCenter.messengerPageAccessToken")}
+                value={messengerPageAccessToken}
+                onChange={setMessengerPageAccessToken}
+                isSet={Boolean(bundle.data?.settings.messengerPageAccessTokenSet)}
+                last4={bundle.data?.settings.messengerPageAccessTokenLast4 ?? ""}
+                revealField="messenger_page_access_token"
+              />
+              <CallCenterSecretField
+                id="cc-messenger-verify-token"
+                label={t("callCenter.messengerVerifyToken")}
+                value={messengerVerifyToken}
+                onChange={setMessengerVerifyToken}
+                isSet={Boolean(bundle.data?.settings.messengerVerifyTokenSet)}
+                last4={bundle.data?.settings.messengerVerifyTokenLast4 ?? ""}
+                revealField="messenger_verify_token"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.messengerEnvHint")}</p>
+            <SendPulseChatbotPanel
+              channel="messenger"
+              canEdit={canEdit}
+              status={bundle.data?.sendpulseBridge}
+            />
+            <p className="text-xs">
+              <Link href="/call-center/messenger" className="text-primary underline-offset-2 hover:underline">
+                {t("callCenter.messengerOpenChannel")}
+              </Link>
+            </p>
+          </section>
+
+          <section
+            id="m365"
+            className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
+          >
+            <SettingsSectionHeader
+              title={t("callCenter.m365Settings")}
+              hint={t("callCenter.m365SettingsHint")}
+              tags={[
+                { label: t("callCenter.tagM365"), variant: "secondary" },
+                { label: t("callCenter.tagEmail"), variant: "outline" },
+              ]}
+              trailing={
+                <>
+                  {bundle.data?.settings.m365Configured ? (
+                    <Badge variant="success">{t("callCenter.m365Configured")}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t("callCenter.m365Missing")}</Badge>
+                  )}
+                  <Switch checked={m365Enabled} onCheckedChange={setM365Enabled} />
+                </>
+              }
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>{t("callCenter.m365Mailbox")}</Label>
+                <Input
+                  value={m365Mailbox}
+                  onChange={(e) => setM365Mailbox(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.m365TenantId")}</Label>
+                <Input
+                  value={m365TenantId}
+                  onChange={(e) => setM365TenantId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.m365ClientId")}</Label>
+                <Input
+                  value={m365ClientId}
+                  onChange={(e) => setM365ClientId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <CallCenterSecretField
+                id="cc-m365-client-secret"
+                label={t("callCenter.m365ClientSecret")}
+                value={m365ClientSecret}
+                onChange={setM365ClientSecret}
+                isSet={Boolean(bundle.data?.settings.m365ClientSecretSet)}
+                last4={bundle.data?.settings.m365ClientSecretLast4 ?? ""}
+                revealField="m365_client_secret"
+              />
+              <CallCenterSecretField
+                id="cc-m365-client-state"
+                label={t("callCenter.m365WebhookClientState")}
+                value={m365WebhookClientState}
+                onChange={setM365WebhookClientState}
+                isSet={Boolean(bundle.data?.settings.m365WebhookClientStateSet)}
+                last4={bundle.data?.settings.m365WebhookClientStateLast4 ?? ""}
+                revealField="m365_webhook_client_state"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.m365EnvHint")}</p>
+            <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface-2)]/40 px-3 py-2 text-xs text-muted-foreground">
+              {t("callCenter.m365InboxComing")}
+            </p>
+            <p className="text-xs">
+              <Link href="/call-center/email" className="text-primary underline-offset-2 hover:underline">
+                {t("callCenter.m365OpenChannel")}
+              </Link>
+            </p>
           </section>
 
           <section
@@ -1303,9 +1489,14 @@ function CallCenterSettingsPage() {
               title={t("callCenter.automationTitle")}
               hint={t("callCenter.automationHint")}
               tags={[
-                { label: t("callCenter.tagFecWhatsapp"), variant: "secondary" },
-                { label: t("callCenter.tagAgentInbox"), variant: "outline" },
+                { label: t("callCenter.tagSendPulse"), variant: "secondary" },
+                { label: t("callCenter.tagChatbot"), variant: "outline" },
               ]}
+            />
+            <SendPulseChatbotPanel
+              channel="whatsapp"
+              canEdit={canEdit}
+              status={bundle.data?.sendpulseBridge}
             />
             <div className="rounded-xl border border-border/40 p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">

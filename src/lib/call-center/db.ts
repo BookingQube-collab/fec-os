@@ -46,7 +46,20 @@ import {
   type CallCenterWhatsappTemplate,
   type CallCenterKeywordAlert,
   type CallCenterSendpulseTicket,
+  type CallCenterOmniTicket,
+  type CallCenterOmniMessage,
 } from "./types";
+import {
+  type CallCenterOmniSource,
+  resolveM365ClientId,
+  resolveM365ClientSecret,
+  resolveM365ClientState,
+  resolveM365Mailbox,
+  resolveM365TenantId,
+  resolveMessengerAccessToken,
+  resolveMessengerPageId,
+  resolveMessengerVerifyToken,
+} from "./omni";
 
 type DbError = { message: string } | null;
 
@@ -387,7 +400,10 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token, messenger_enabled, messenger_page_id, messenger_page_access_token, messenger_verify_token, m365_enabled, m365_mailbox, m365_tenant_id, m365_client_id, m365_client_secret, m365_webhook_client_state, m365_subscription_id, m365_subscription_expires_at";
+
+const SETTINGS_COLUMNS_LEGACY_OMNI =
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token, messenger_enabled, messenger_page_id, messenger_page_access_token, messenger_verify_token, m365_enabled, m365_mailbox, m365_tenant_id, m365_client_id, m365_client_secret, m365_webhook_client_state";
 
 function normalizeInboundMode(value: unknown): CallCenterSettingsRow["inbound_mode"] {
   return value === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk";
@@ -490,6 +506,20 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     instagram_ig_user_id: String(row.instagram_ig_user_id ?? ""),
     instagram_page_access_token: String(row.instagram_page_access_token ?? ""),
     instagram_verify_token: String(row.instagram_verify_token ?? ""),
+    messenger_enabled: Boolean(row.messenger_enabled),
+    messenger_page_id: String(row.messenger_page_id ?? ""),
+    messenger_page_access_token: String(row.messenger_page_access_token ?? ""),
+    messenger_verify_token: String(row.messenger_verify_token ?? ""),
+    m365_enabled: Boolean(row.m365_enabled),
+    m365_mailbox: String(row.m365_mailbox ?? ""),
+    m365_tenant_id: String(row.m365_tenant_id ?? ""),
+    m365_client_id: String(row.m365_client_id ?? ""),
+    m365_client_secret: String(row.m365_client_secret ?? ""),
+    m365_webhook_client_state: String(row.m365_webhook_client_state ?? ""),
+    m365_subscription_id: String(row.m365_subscription_id ?? ""),
+    m365_subscription_expires_at: row.m365_subscription_expires_at
+      ? String(row.m365_subscription_expires_at)
+      : null,
   };
 }
 
@@ -499,19 +529,26 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     .eq("id", CALL_CENTER_SETTINGS_ID)
     .maybeSingle();
 
-  // Before migration 20261115140000 / 20261116140000 / 20261116150000, newer columns may be missing — fall back.
+  // Before migration 20261115140000 / 20261116140000 / 20261116150000 / 20261116180000, newer columns may be missing — fall back.
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_/i.test(
       result.error.message,
     )
   ) {
-    const legacy =
-      "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
-    result = await table<Record<string, unknown>>("call_center_settings")
-      .select(legacy)
-      .eq("id", CALL_CENTER_SETTINGS_ID)
-      .maybeSingle();
+    if (/messenger_|m365_/i.test(result.error.message)) {
+      result = await table<Record<string, unknown>>("call_center_settings")
+        .select(SETTINGS_COLUMNS_LEGACY_OMNI)
+        .eq("id", CALL_CENTER_SETTINGS_ID)
+        .maybeSingle();
+    } else {
+      const legacy =
+        "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+      result = await table<Record<string, unknown>>("call_center_settings")
+        .select(legacy)
+        .eq("id", CALL_CENTER_SETTINGS_ID)
+        .maybeSingle();
+    }
   }
 
   throwIfError(result.error);
@@ -585,6 +622,18 @@ export async function saveSettingsRow(
         instagram_ig_user_id: row.instagram_ig_user_id ?? "",
         instagram_page_access_token: row.instagram_page_access_token ?? "",
         instagram_verify_token: row.instagram_verify_token ?? "",
+        messenger_enabled: row.messenger_enabled ?? false,
+        messenger_page_id: row.messenger_page_id ?? "",
+        messenger_page_access_token: row.messenger_page_access_token ?? "",
+        messenger_verify_token: row.messenger_verify_token ?? "",
+        m365_enabled: row.m365_enabled ?? false,
+        m365_mailbox: row.m365_mailbox ?? "",
+        m365_tenant_id: row.m365_tenant_id ?? "",
+        m365_client_id: row.m365_client_id ?? "",
+        m365_client_secret: row.m365_client_secret ?? "",
+        m365_webhook_client_state: row.m365_webhook_client_state ?? "",
+        m365_subscription_id: row.m365_subscription_id ?? "",
+        m365_subscription_expires_at: row.m365_subscription_expires_at ?? null,
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -594,7 +643,7 @@ export async function saveSettingsRow(
     .maybeSingle();
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_/i.test(
       result.error.message,
     )
   ) {
@@ -2550,6 +2599,48 @@ export function resolveInstagramVerifyToken(settings: CallCenterSettingsRow | nu
   );
 }
 
+export function resolveMessengerSettingsAccessToken(
+  settings: CallCenterSettingsRow | null,
+): string {
+  return resolveMessengerAccessToken(settings?.messenger_page_access_token);
+}
+
+export function resolveMessengerSettingsPageId(
+  settings: CallCenterSettingsRow | null,
+): string {
+  return resolveMessengerPageId(settings?.messenger_page_id);
+}
+
+export function resolveMessengerSettingsVerifyToken(
+  settings: CallCenterSettingsRow | null,
+): string {
+  return resolveMessengerVerifyToken(settings?.messenger_verify_token);
+}
+
+export function resolveM365SettingsMailbox(settings: CallCenterSettingsRow | null): string {
+  return resolveM365Mailbox(settings?.m365_mailbox);
+}
+
+export function resolveM365SettingsTenantId(settings: CallCenterSettingsRow | null): string {
+  return resolveM365TenantId(settings?.m365_tenant_id);
+}
+
+export function resolveM365SettingsClientId(settings: CallCenterSettingsRow | null): string {
+  return resolveM365ClientId(settings?.m365_client_id);
+}
+
+export function resolveM365SettingsClientSecret(
+  settings: CallCenterSettingsRow | null,
+): string {
+  return resolveM365ClientSecret(settings?.m365_client_secret);
+}
+
+export function resolveM365SettingsClientState(
+  settings: CallCenterSettingsRow | null,
+): string {
+  return resolveM365ClientState(settings?.m365_webhook_client_state);
+}
+
 function mapQaTemplate(row: Record<string, unknown>): CallCenterQaTemplate {
   const raw = Array.isArray(row.criteria_json) ? row.criteria_json : [];
   const criteria: CallCenterQaCriterion[] = raw
@@ -3081,4 +3172,328 @@ export async function upsertSendpulseTicket(input: {
   throwIfError(result.error);
   if (!result.data) throw new Error("SendPulse ticket could not be created.");
   return { ticket: mapSendpulseTicket(result.data), duplicate: false };
+}
+
+function mapOmniTicket(row: Record<string, unknown>): CallCenterOmniTicket {
+  const metadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const source = String(row.source ?? "whatsapp") as CallCenterOmniTicket["source"];
+  return {
+    id: String(row.id),
+    dedupeKey: String(row.dedupe_key ?? ""),
+    source,
+    channel: String(row.channel ?? ""),
+    eventTitle: String(row.event_title ?? ""),
+    status: (row.status as CallCenterOmniTicket["status"]) || "open",
+    contactId: row.contact_id ? String(row.contact_id) : null,
+    externalThreadId: String(row.external_thread_id ?? ""),
+    externalMessageId: String(row.external_message_id ?? ""),
+    customerName: String(row.customer_name ?? ""),
+    customerE164: String(row.customer_e164 ?? ""),
+    customerEmail: String(row.customer_email ?? ""),
+    customerExternalId: String(row.customer_external_id ?? ""),
+    summary: String(row.summary ?? ""),
+    lastMessage: String(row.last_message ?? ""),
+    assignedAgentId: row.assigned_agent_id ? String(row.assigned_agent_id) : null,
+    metadata,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+export async function findOmniTicketByDedupeKey(
+  dedupeKey: string,
+): Promise<CallCenterOmniTicket | null> {
+  const key = dedupeKey.trim();
+  if (!key) return null;
+  const result = await table<Record<string, unknown>>("call_center_omni_tickets")
+    .select("*")
+    .eq("dedupe_key", key)
+    .maybeSingle();
+  if (result.error || !result.data) return null;
+  return mapOmniTicket(result.data);
+}
+
+export async function listOmniTickets(input?: {
+  source?: CallCenterOmniSource;
+  status?: CallCenterOmniTicket["status"];
+  limit?: number;
+}): Promise<CallCenterOmniTicket[]> {
+  let query = table<Record<string, unknown>>("call_center_omni_tickets")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(input?.limit ?? 80);
+  if (input?.source) query = query.eq("source", input.source);
+  if (input?.status) query = query.eq("status", input.status);
+  const result = (await query) as ListResult<Record<string, unknown>>;
+  if (result.error) {
+    // Table may not exist until migration is applied.
+    if (/call_center_omni_tickets|does not exist|schema cache/i.test(result.error.message)) {
+      return [];
+    }
+    throwIfError(result.error);
+  }
+  return (result.data ?? []).map(mapOmniTicket);
+}
+
+/**
+ * Upsert phonebook contact for any omnichannel source (Messenger, IG, M365, etc.).
+ */
+export async function upsertPhoneContactFromOmni(input: {
+  displayName: string;
+  e164?: string;
+  email?: string;
+  notes?: string;
+  tags?: string[];
+  externalId?: string;
+  sourceTag: string;
+}): Promise<CallCenterPhoneContact | null> {
+  const e164 = normalizeE164(input.e164 ?? "");
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (!e164 && !email && !input.externalId?.trim()) return null;
+
+  const existing =
+    (e164 ? await findPhoneContactByE164(e164) : null) ||
+    (email ? await findPhoneContactByEmail(email) : null);
+
+  const tagSet = new Set<string>([
+    ...(existing?.tags ?? []),
+    ...(input.tags ?? []),
+    input.sourceTag,
+  ]);
+  if (input.externalId) tagSet.add(`${input.sourceTag}:${input.externalId}`);
+
+  const noteBits = [
+    existing?.notes?.trim() ?? "",
+    input.notes?.trim() ?? "",
+    input.externalId ? `${input.sourceTag} id: ${input.externalId}` : "",
+  ].filter(Boolean);
+  const notes = [...new Set(noteBits)].join("\n").slice(0, 2000);
+
+  return upsertPhoneContact({
+    id: existing?.id,
+    displayName:
+      input.displayName.trim() ||
+      existing?.displayName ||
+      e164 ||
+      email ||
+      input.externalId ||
+      "Unknown",
+    e164: e164 || existing?.e164 || "",
+    email: email || existing?.email || "",
+    company: existing?.company,
+    notes,
+    tags: [...tagSet],
+    isFavorite: existing?.isFavorite,
+    isPriority: existing?.isPriority,
+  });
+}
+
+export async function upsertOmniTicket(input: {
+  dedupeKey: string;
+  source: CallCenterOmniSource;
+  channel?: string;
+  eventTitle?: string;
+  contactId?: string | null;
+  externalThreadId?: string;
+  externalMessageId?: string;
+  customerName?: string;
+  customerE164?: string;
+  customerEmail?: string;
+  customerExternalId?: string;
+  summary?: string;
+  lastMessage?: string;
+  assignedAgentId?: string | null;
+  metadata?: Record<string, unknown>;
+  status?: CallCenterOmniTicket["status"];
+}): Promise<{ ticket: CallCenterOmniTicket; duplicate: boolean }> {
+  const dedupeKey = input.dedupeKey.trim();
+  if (!dedupeKey) throw new Error("Omni ticket dedupe key required.");
+
+  const prior = await findOmniTicketByDedupeKey(dedupeKey);
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    dedupe_key: dedupeKey,
+    source: input.source,
+    channel: (input.channel || "").trim(),
+    event_title: (input.eventTitle || "inbound").trim(),
+    status: input.status ?? "open",
+    contact_id: input.contactId ?? prior?.contactId ?? null,
+    external_thread_id: (input.externalThreadId ?? "").trim() || prior?.externalThreadId || "",
+    external_message_id:
+      (input.externalMessageId ?? "").trim() || prior?.externalMessageId || "",
+    customer_name: (input.customerName ?? "").trim() || prior?.customerName || "",
+    customer_e164: normalizeE164(input.customerE164 ?? "") || prior?.customerE164 || "",
+    customer_email:
+      (input.customerEmail ?? "").trim().toLowerCase() || prior?.customerEmail || "",
+    customer_external_id:
+      (input.customerExternalId ?? "").trim() || prior?.customerExternalId || "",
+    summary: (input.summary ?? "").trim().slice(0, 2000) || prior?.summary || "",
+    last_message: (input.lastMessage ?? "").trim().slice(0, 2000) || prior?.lastMessage || "",
+    assigned_agent_id:
+      input.assignedAgentId !== undefined
+        ? input.assignedAgentId
+        : (prior?.assignedAgentId ?? null),
+    metadata: {
+      ...(prior?.metadata ?? {}),
+      source: input.source,
+      ...(input.metadata ?? {}),
+    },
+    updated_at: now,
+  };
+
+  if (prior) {
+    const result = await table<Record<string, unknown>>("call_center_omni_tickets")
+      .update(payload)
+      .eq("id", prior.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Omni ticket could not be updated.");
+    return { ticket: mapOmniTicket(result.data), duplicate: true };
+  }
+
+  const result = await table<Record<string, unknown>>("call_center_omni_tickets")
+    .insert({
+      ...payload,
+      created_at: now,
+    })
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Omni ticket could not be created.");
+  return { ticket: mapOmniTicket(result.data), duplicate: false };
+}
+
+function mapOmniMessage(row: Record<string, unknown>): CallCenterOmniMessage {
+  const raw =
+    row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
+      ? (row.raw_payload as Record<string, unknown>)
+      : {};
+  return {
+    id: String(row.id),
+    ticketId: String(row.ticket_id ?? ""),
+    direction: row.direction === "outbound" ? "outbound" : "inbound",
+    body: String(row.body ?? ""),
+    subject: String(row.subject ?? ""),
+    externalMessageId: String(row.external_message_id ?? ""),
+    status: (row.status as CallCenterOmniMessage["status"]) || "received",
+    errorText: String(row.error_text ?? ""),
+    sentBy: row.sent_by ? String(row.sent_by) : null,
+    rawPayload: raw,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+export async function getOmniTicket(id: string): Promise<CallCenterOmniTicket | null> {
+  const result = await table<Record<string, unknown>>("call_center_omni_tickets")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (result.error || !result.data) return null;
+  return mapOmniTicket(result.data);
+}
+
+export async function assignOmniTicket(
+  ticketId: string,
+  agentUserId: string | null,
+): Promise<CallCenterOmniTicket> {
+  const result = await table<Record<string, unknown>>("call_center_omni_tickets")
+    .update({
+      assigned_agent_id: agentUserId,
+      status: "open",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ticketId)
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("Omni ticket not found.");
+  return mapOmniTicket(result.data);
+}
+
+export async function listOmniMessages(ticketId: string): Promise<CallCenterOmniMessage[]> {
+  const result = (await table<Record<string, unknown>>("call_center_omni_messages")
+    .select("*")
+    .eq("ticket_id", ticketId)
+    .order("created_at", { ascending: true })
+    .limit(300)) as ListResult<Record<string, unknown>>;
+  if (result.error) {
+    if (/call_center_omni_messages|does not exist|schema cache/i.test(result.error.message)) {
+      return [];
+    }
+    throwIfError(result.error);
+  }
+  return (result.data ?? []).map(mapOmniMessage);
+}
+
+export async function insertOmniMessage(input: {
+  ticketId: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  subject?: string;
+  externalMessageId?: string;
+  status?: CallCenterOmniMessage["status"];
+  errorText?: string;
+  sentBy?: string | null;
+  rawPayload?: Record<string, unknown>;
+}): Promise<{ message: CallCenterOmniMessage; duplicate: boolean }> {
+  const externalMessageId = (input.externalMessageId ?? "").trim();
+  if (externalMessageId) {
+    const prior = await table<Record<string, unknown>>("call_center_omni_messages")
+      .select("*")
+      .eq("ticket_id", input.ticketId)
+      .eq("external_message_id", externalMessageId)
+      .maybeSingle();
+    if (!prior.error && prior.data) {
+      return { message: mapOmniMessage(prior.data), duplicate: true };
+    }
+  }
+
+  const result = await table<Record<string, unknown>>("call_center_omni_messages")
+    .insert({
+      ticket_id: input.ticketId,
+      direction: input.direction,
+      body: input.body.slice(0, 8000),
+      subject: (input.subject ?? "").slice(0, 500),
+      external_message_id: externalMessageId,
+      status: input.status ?? (input.direction === "inbound" ? "received" : "sent"),
+      error_text: input.errorText ?? "",
+      sent_by: input.sentBy ?? null,
+      raw_payload: input.rawPayload ?? {},
+    })
+    .select("*")
+    .maybeSingle();
+  if (result.error) {
+    if (/duplicate|unique/i.test(result.error.message) && externalMessageId) {
+      const again = await table<Record<string, unknown>>("call_center_omni_messages")
+        .select("*")
+        .eq("ticket_id", input.ticketId)
+        .eq("external_message_id", externalMessageId)
+        .maybeSingle();
+      if (again.data) return { message: mapOmniMessage(again.data), duplicate: true };
+    }
+    throwIfError(result.error);
+  }
+  if (!result.data) throw new Error("Omni message could not be saved.");
+  return { message: mapOmniMessage(result.data), duplicate: false };
+}
+
+export async function saveM365SubscriptionMeta(input: {
+  subscriptionId: string;
+  expiresAt: string | null;
+  updatedBy: string;
+}): Promise<void> {
+  const existing = await loadSettingsRow();
+  if (!existing) return;
+  await saveSettingsRow(
+    {
+      ...existing,
+      m365_subscription_id: input.subscriptionId,
+      m365_subscription_expires_at: input.expiresAt,
+    },
+    input.updatedBy,
+  );
 }

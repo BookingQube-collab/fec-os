@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { SendPulseChatbotPanel } from "@/components/call-center/sendpulse-chatbot-panel";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -121,9 +122,18 @@ function CallCenterWhatsappPage() {
 
   return (
     <CallCenterShell titleKey="callCenter.whatsappTitle" subtitleKey="callCenter.whatsappSubtitle">
+      <SendPulseChatbotPanel
+        className="mb-4"
+        channel="whatsapp"
+        canEdit={canEdit}
+        status={inbox.data?.sendpulseBridge}
+      />
+
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">{t("callCenter.tagFecWhatsapp")}</Badge>
+        <Badge variant="outline">{t("callCenter.tagAgentInbox")}</Badge>
         {settings?.whatsappConfigured ? (
-          <Badge variant="secondary">{t("callCenter.whatsappConfigured")}</Badge>
+          <Badge variant="success">{t("callCenter.whatsappConfigured")}</Badge>
         ) : (
           <Badge variant="outline">{t("callCenter.whatsappMissing")}</Badge>
         )}
@@ -139,6 +149,7 @@ function CallCenterWhatsappPage() {
           </Button>
         ) : null}
       </div>
+      <p className="mb-4 text-xs text-muted-foreground">{t("callCenter.whatsappFecInboxHint")}</p>
 
       {inbox.isLoading ? (
         <div className="flex justify-center py-16">

@@ -48,8 +48,18 @@ import {
   listSpeedDials,
   listTagCatalog,
   listWebhookEndpoints,
+  assignOmniTicket,
+  getOmniTicket,
+  insertOmniMessage,
+  listOmniMessages,
+  listOmniTickets,
   listWhatsappConversations,
   listWhatsappMessages,
+  resolveInstagramPageAccessToken,
+  resolveInstagramPageId,
+  resolveMessengerSettingsAccessToken,
+  resolveMessengerSettingsPageId,
+  saveM365SubscriptionMeta,
   listQaTemplates,
   upsertQaTemplate,
   deleteQaTemplate,
@@ -270,6 +280,16 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     instagramIgUserId: z.string().trim().max(80).optional(),
     instagramPageAccessToken: z.string().max(500).optional(),
     instagramVerifyToken: z.string().max(200).optional(),
+    messengerEnabled: z.boolean().optional(),
+    messengerPageId: z.string().trim().max(80).optional(),
+    messengerPageAccessToken: z.string().max(500).optional(),
+    messengerVerifyToken: z.string().max(200).optional(),
+    m365Enabled: z.boolean().optional(),
+    m365Mailbox: z.string().trim().max(320).optional(),
+    m365TenantId: z.string().trim().max(80).optional(),
+    m365ClientId: z.string().trim().max(80).optional(),
+    m365ClientSecret: z.string().max(500).optional(),
+    m365WebhookClientState: z.string().max(200).optional(),
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
@@ -394,6 +414,30 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           existing?.instagram_verify_token ?? "",
           data.instagramVerifyToken ?? "",
         ),
+        messenger_enabled: data.messengerEnabled ?? existing?.messenger_enabled ?? false,
+        messenger_page_id: data.messengerPageId ?? existing?.messenger_page_id ?? "",
+        messenger_page_access_token: keepSecret(
+          existing?.messenger_page_access_token ?? "",
+          data.messengerPageAccessToken ?? "",
+        ),
+        messenger_verify_token: keepSecret(
+          existing?.messenger_verify_token ?? "",
+          data.messengerVerifyToken ?? "",
+        ),
+        m365_enabled: data.m365Enabled ?? existing?.m365_enabled ?? false,
+        m365_mailbox: data.m365Mailbox ?? existing?.m365_mailbox ?? "",
+        m365_tenant_id: data.m365TenantId ?? existing?.m365_tenant_id ?? "",
+        m365_client_id: data.m365ClientId ?? existing?.m365_client_id ?? "",
+        m365_client_secret: keepSecret(
+          existing?.m365_client_secret ?? "",
+          data.m365ClientSecret ?? "",
+        ),
+        m365_webhook_client_state: keepSecret(
+          existing?.m365_webhook_client_state ?? "",
+          data.m365WebhookClientState ?? "",
+        ),
+        m365_subscription_id: existing?.m365_subscription_id ?? "",
+        m365_subscription_expires_at: existing?.m365_subscription_expires_at ?? null,
       },
       context.userId,
     );
@@ -415,6 +459,10 @@ export const revealCallCenterSettingSecret = createSafeAuthenticatedAction(
       "whatsapp_verify_token",
       "instagram_page_access_token",
       "instagram_verify_token",
+      "messenger_page_access_token",
+      "messenger_verify_token",
+      "m365_client_secret",
+      "m365_webhook_client_state",
     ]),
   }),
   async (data) => {
@@ -1397,9 +1445,24 @@ export const loadCallCenterConfigBundle = createSafeAuthenticatedAction(
     ]);
     const provider = await getCallProvider();
     const { getSendPulseBridgePublicStatus } = await import("./sendpulse");
+    const { getMessengerPublicStatus, getM365PublicStatus } = await import("./omni");
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
       sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
+      messenger: getMessengerPublicStatus({
+        enabled: settings?.messenger_enabled,
+        pageId: settings?.messenger_page_id,
+        accessToken: settings?.messenger_page_access_token,
+        verifyToken: settings?.messenger_verify_token,
+      }),
+      m365: getM365PublicStatus({
+        enabled: settings?.m365_enabled,
+        mailbox: settings?.m365_mailbox,
+        tenantId: settings?.m365_tenant_id,
+        clientId: settings?.m365_client_id,
+        clientSecret: settings?.m365_client_secret,
+        clientState: settings?.m365_webhook_client_state,
+      }),
       queues,
       members,
       dids,
@@ -1777,8 +1840,10 @@ export const loadCallCenterWhatsappInbox = createSafeAuthenticatedAction(
     const provider = await getCallProvider();
     const selectedId = data.conversationId || conversations[0]?.id || null;
     const messages = selectedId ? await listWhatsappMessages(selectedId) : [];
+    const { getSendPulseBridgePublicStatus } = await import("./sendpulse");
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
+      sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
       conversations,
       messages,
       selectedConversationId: selectedId,
@@ -1795,6 +1860,273 @@ export const assignCallCenterWhatsappConversation = createSafeAuthenticatedActio
   }),
   async (data) => assignWhatsappConversation(data.conversationId, data.agentUserId),
   { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterOmniTickets = createSafeAuthenticatedAction(
+  z.object({
+    source: z
+      .enum([
+        "sendpulse",
+        "facebook_messenger",
+        "instagram",
+        "microsoft365_email",
+        "whatsapp",
+      ])
+      .optional(),
+    status: z.enum(["open", "pending", "closed"]).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  async (data) => {
+    const tickets = await listOmniTickets({
+      source: data.source,
+      status: data.status,
+      limit: data.limit,
+    });
+    return { tickets };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const loadCallCenterOmniInbox = createSafeAuthenticatedAction(
+  z.object({
+    source: z.enum(["facebook_messenger", "instagram", "microsoft365_email"]),
+    ticketId: z.string().uuid().optional().nullable(),
+  }),
+  async (data) => {
+    const [settings, tickets, agents] = await Promise.all([
+      loadSettingsRow(),
+      listOmniTickets({ source: data.source, limit: 80 }),
+      listAgentStatuses(),
+    ]);
+    const provider = await getCallProvider();
+    const selectedId = data.ticketId || tickets[0]?.id || null;
+    const messages = selectedId ? await listOmniMessages(selectedId) : [];
+    const { getSendPulseBridgePublicStatus } = await import("./sendpulse");
+    const { getMessengerPublicStatus, getM365PublicStatus } = await import("./omni");
+    return {
+      settings: toPublicSettings(settings, provider.name === "livekit"),
+      sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
+      messenger: getMessengerPublicStatus({
+        enabled: settings?.messenger_enabled,
+        pageId: settings?.messenger_page_id,
+        accessToken: settings?.messenger_page_access_token,
+        verifyToken: settings?.messenger_verify_token,
+      }),
+      m365: getM365PublicStatus({
+        enabled: settings?.m365_enabled,
+        mailbox: settings?.m365_mailbox,
+        tenantId: settings?.m365_tenant_id,
+        clientId: settings?.m365_client_id,
+        clientSecret: settings?.m365_client_secret,
+        clientState: settings?.m365_webhook_client_state,
+      }),
+      tickets,
+      messages,
+      selectedTicketId: selectedId,
+      agents,
+    };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const assignCallCenterOmniTicket = createSafeAuthenticatedAction(
+  z.object({
+    ticketId: z.string().uuid(),
+    agentUserId: optionalUuid,
+  }),
+  async (data) => assignOmniTicket(data.ticketId, data.agentUserId),
+  { auth: AGENT_AUTH },
+);
+
+export const replyCallCenterOmniMessage = createSafeAuthenticatedAction(
+  z.object({
+    ticketId: z.string().uuid(),
+    body: z.string().trim().min(1).max(8000),
+  }),
+  async (data, context) => {
+    const [settings, ticket] = await Promise.all([
+      loadSettingsRow(),
+      getOmniTicket(data.ticketId),
+    ]);
+    if (!ticket) throw new Error("Ticket not found.");
+
+    const body = data.body.trim();
+    let sent = false;
+    let externalMessageId = "";
+    let errorText = "";
+
+    if (ticket.source === "facebook_messenger") {
+      const { sendMessengerText } = await import("@/lib/meta/messenger");
+      const accessToken = resolveMessengerSettingsAccessToken(settings);
+      const pageId = resolveMessengerSettingsPageId(settings) || "me";
+      const recipientId = ticket.customerExternalId || ticket.externalThreadId;
+      if (!accessToken || !recipientId) {
+        errorText =
+          "Messenger is not configured. Set Page ID + access token in Settings → Messenger.";
+      } else {
+        const result = await sendMessengerText({
+          recipientId,
+          body,
+          pageId,
+          accessToken,
+        });
+        if (result.ok) {
+          sent = true;
+          externalMessageId = result.messageId;
+        } else {
+          errorText = result.error;
+        }
+      }
+    } else if (ticket.source === "instagram") {
+      const { sendInstagramText } = await import("@/lib/meta/instagram");
+      const accessToken = resolveInstagramPageAccessToken(settings);
+      const pageId = resolveInstagramPageId(settings) || "me";
+      const recipientId = ticket.customerExternalId || ticket.externalThreadId;
+      if (!accessToken || !recipientId) {
+        errorText =
+          "Instagram is not configured. Set Page ID + access token in Settings → Instagram.";
+      } else {
+        const result = await sendInstagramText({
+          recipientId,
+          body,
+          pageId,
+          accessToken,
+        });
+        if (result.ok) {
+          sent = true;
+          externalMessageId = result.messageId;
+        } else {
+          errorText = result.error;
+        }
+      }
+    } else if (ticket.source === "microsoft365_email") {
+      const { resolveM365GraphConfig, sendM365Reply } = await import("./m365-graph");
+      const config = resolveM365GraphConfig({
+        tenantId: settings?.m365_tenant_id,
+        clientId: settings?.m365_client_id,
+        clientSecret: settings?.m365_client_secret,
+        mailbox: settings?.m365_mailbox,
+        clientState: settings?.m365_webhook_client_state,
+      });
+      const messageId = ticket.externalMessageId || ticket.externalThreadId;
+      if (!config || !messageId) {
+        errorText =
+          "Microsoft 365 is not configured. Set mailbox + Azure AD app credentials in Settings → Microsoft 365.";
+      } else {
+        const result = await sendM365Reply({ config, messageId, body });
+        if (result.ok) {
+          sent = true;
+          externalMessageId = result.id;
+        } else {
+          errorText = result.error;
+        }
+      }
+    } else {
+      errorText = `Replies are not supported for source ${ticket.source}.`;
+    }
+
+    const saved = await insertOmniMessage({
+      ticketId: ticket.id,
+      direction: "outbound",
+      body,
+      subject: ticket.summary,
+      externalMessageId: externalMessageId || `out:${Date.now()}`,
+      status: sent ? "sent" : "failed",
+      errorText,
+      sentBy: context.userId,
+    });
+
+    if (sent && !ticket.assignedAgentId) {
+      await assignOmniTicket(ticket.id, context.userId);
+    }
+
+    return {
+      message: saved.message,
+      sent,
+      error: sent ? null : errorText || "Send failed",
+    };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const syncCallCenterM365Inbox = createSafeAuthenticatedAction(
+  z.object({ limit: z.number().int().min(1).max(50).optional() }),
+  async (data) => {
+    const settings = await loadSettingsRow();
+    const { resolveM365GraphConfig, listRecentM365Messages } = await import("./m365-graph");
+    const { ingestOmniInboundHandoff } = await import("./omni-bridge");
+    const config = resolveM365GraphConfig({
+      tenantId: settings?.m365_tenant_id,
+      clientId: settings?.m365_client_id,
+      clientSecret: settings?.m365_client_secret,
+      mailbox: settings?.m365_mailbox,
+      clientState: settings?.m365_webhook_client_state,
+    });
+    if (!config) {
+      return { synced: 0, error: "Microsoft 365 credentials are not configured." };
+    }
+    const messages = await listRecentM365Messages(config, data.limit ?? 25);
+    let synced = 0;
+    for (const mail of messages) {
+      await ingestOmniInboundHandoff({
+        source: "microsoft365_email",
+        channel: "email",
+        eventTitle: "inbox_sync",
+        externalThreadId: mail.conversationId || mail.id,
+        externalMessageId: mail.id,
+        customerEmail: mail.fromEmail,
+        customerName: mail.fromName || mail.fromEmail.split("@")[0] || mail.fromEmail,
+        summary: mail.subject || "Microsoft 365 inbound",
+        subject: mail.subject,
+        lastMessage: mail.bodyText || mail.bodyPreview,
+        metadata: { sync: true, receivedAt: mail.receivedAt },
+      });
+      synced += 1;
+    }
+    return { synced, error: null as string | null };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const ensureCallCenterM365Subscription = createSafeAuthenticatedAction(
+  z.object({
+    notificationUrl: z.string().url().max(2000).optional(),
+  }),
+  async (data, context) => {
+    const settings = await loadSettingsRow();
+    const { resolveM365GraphConfig, ensureM365MailSubscription } = await import("./m365-graph");
+    const config = resolveM365GraphConfig({
+      tenantId: settings?.m365_tenant_id,
+      clientId: settings?.m365_client_id,
+      clientSecret: settings?.m365_client_secret,
+      mailbox: settings?.m365_mailbox,
+      clientState: settings?.m365_webhook_client_state,
+    });
+    if (!config) throw new Error("Microsoft 365 credentials are not configured.");
+    const origin =
+      data.notificationUrl?.trim() ||
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      process.env.APP_URL?.trim() ||
+      "";
+    if (!origin) {
+      throw new Error("Set notificationUrl or NEXT_PUBLIC_APP_URL / APP_URL for Graph subscriptions.");
+    }
+    const notificationUrl = data.notificationUrl?.trim()
+      ? data.notificationUrl.trim()
+      : `${origin.replace(/\/$/, "")}/api/public/call-center/microsoft365`;
+    const sub = await ensureM365MailSubscription({
+      config,
+      notificationUrl,
+      existingSubscriptionId: settings?.m365_subscription_id,
+    });
+    await saveM365SubscriptionMeta({
+      subscriptionId: sub.id,
+      expiresAt: sub.expirationDateTime,
+      updatedBy: context.userId,
+    });
+    return { subscriptionId: sub.id, expiresAt: sub.expirationDateTime, notificationUrl };
+  },
+  { auth: ADMIN_AUTH },
 );
 
 export const replyCallCenterWhatsappMessage = createSafeAuthenticatedAction(
@@ -1820,7 +2152,7 @@ export const replyCallCenterWhatsappMessage = createSafeAuthenticatedAction(
         waMessageId: "",
         status: "failed",
         errorText:
-          "WhatsApp is not configured. Set Phone number ID + access token in settings (or WHATSAPP_* env).",
+          "FEC agent WhatsApp (Meta) is not configured. Set Phone number ID + access token in Settings → FEC WhatsApp (or WHATSAPP_* env). SendPulse chatbot uses a separate number/bridge.",
         sentBy: context.userId,
       });
       return {

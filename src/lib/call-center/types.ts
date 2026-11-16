@@ -154,6 +154,18 @@ export type CallCenterSettingsRow = {
   instagram_ig_user_id: string;
   instagram_page_access_token: string;
   instagram_verify_token: string;
+  messenger_enabled: boolean;
+  messenger_page_id: string;
+  messenger_page_access_token: string;
+  messenger_verify_token: string;
+  m365_enabled: boolean;
+  m365_mailbox: string;
+  m365_tenant_id: string;
+  m365_client_id: string;
+  m365_client_secret: string;
+  m365_webhook_client_state: string;
+  m365_subscription_id: string;
+  m365_subscription_expires_at: string | null;
 };
 
 export const CALL_CENTER_SECRET_FIELDS = [
@@ -165,6 +177,10 @@ export const CALL_CENTER_SECRET_FIELDS = [
   "whatsapp_verify_token",
   "instagram_page_access_token",
   "instagram_verify_token",
+  "messenger_page_access_token",
+  "messenger_verify_token",
+  "m365_client_secret",
+  "m365_webhook_client_state",
 ] as const;
 
 export type CallCenterSecretField = (typeof CALL_CENTER_SECRET_FIELDS)[number];
@@ -244,6 +260,24 @@ export type CallCenterSettingsPublic = {
   instagramVerifyTokenSet: boolean;
   instagramVerifyTokenLast4: string;
   instagramConfigured: boolean;
+  messengerEnabled: boolean;
+  messengerPageId: string;
+  messengerPageAccessTokenSet: boolean;
+  messengerPageAccessTokenLast4: string;
+  messengerVerifyTokenSet: boolean;
+  messengerVerifyTokenLast4: string;
+  messengerConfigured: boolean;
+  m365Enabled: boolean;
+  m365Mailbox: string;
+  m365TenantId: string;
+  m365ClientId: string;
+  m365ClientSecretSet: boolean;
+  m365ClientSecretLast4: string;
+  m365WebhookClientStateSet: boolean;
+  m365WebhookClientStateLast4: string;
+  m365Configured: boolean;
+  m365SubscriptionId: string;
+  m365SubscriptionExpiresAt: string | null;
 };
 
 export const CALL_CENTER_DISPOSITION_CODES = [
@@ -689,4 +723,45 @@ export type CallCenterSendpulseTicket = {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CallCenterOmniTicket = {
+  id: string;
+  dedupeKey: string;
+  source:
+    | "sendpulse"
+    | "facebook_messenger"
+    | "instagram"
+    | "microsoft365_email"
+    | "whatsapp";
+  channel: string;
+  eventTitle: string;
+  status: "open" | "pending" | "closed";
+  contactId: string | null;
+  externalThreadId: string;
+  externalMessageId: string;
+  customerName: string;
+  customerE164: string;
+  customerEmail: string;
+  customerExternalId: string;
+  summary: string;
+  lastMessage: string;
+  assignedAgentId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CallCenterOmniMessage = {
+  id: string;
+  ticketId: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  subject: string;
+  externalMessageId: string;
+  status: "received" | "sent" | "failed" | "pending";
+  errorText: string;
+  sentBy: string | null;
+  rawPayload: Record<string, unknown>;
+  createdAt: string;
 };

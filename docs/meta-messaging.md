@@ -2,15 +2,19 @@
 
 Official Meta Business APIs only — no personal-account bots, scrapers, or browser automation.
 
-WhatsApp **inbox** lives at Call Center → WhatsApp (`/call-center/whatsapp`). Meta Cloud API credentials, templates, and first-message auto-reply are under **Call Center → Settings**. Instagram credentials (and verify token) are also on Settings; messaging uses `src/lib/meta/` and `/api/public/meta/instagram` (agent inbox UI still pending).
+WhatsApp **inbox** lives at Call Center → WhatsApp (`/call-center/whatsapp`). Meta Cloud API credentials, templates, and first-message auto-reply are under **Call Center → Settings**. Instagram and Facebook Messenger credentials are also on Settings; channel shells live at `/call-center/instagram` and `/call-center/messenger`. **SendPulse chatbot automation** is separate (Settings → SendPulse + status panels on WA/IG/Messenger) — FEC does not host a flow builder.
+
+Microsoft 365 email agent inbox: `/call-center/email` + Settings → Microsoft 365 + `/api/public/call-center/microsoft365` (Graph client-credentials sync/reply + subscription). Instagram / Messenger threaded agent inboxes mirror WhatsApp (`/call-center/instagram`, `/call-center/messenger`) with outbound send when Meta Page tokens are set.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET/POST | `/api/public/call-center/whatsapp` | WhatsApp Cloud API webhook (verify + inbound + call-center inbox) |
-| GET/POST | `/api/public/meta/instagram` | Instagram Messaging webhook (verify + inbound + env auto-reply) |
+| GET/POST | `/api/public/meta/instagram` | Instagram Messaging webhook (verify + inbound tickets + env auto-reply) |
 | GET | `/api/public/meta/instagram?status=1` | Config status flags (no secrets) |
+| GET/POST | `/api/public/meta/messenger` | Facebook Messenger webhook (verify + inbound tickets + optional auto-reply) |
+| GET/POST | `/api/public/call-center/microsoft365` | M365 Graph notification webhook (validation + ticket stubs) |
 | GET/POST | `/api/public/meta/send` | Protected outbound send helper (WhatsApp or Instagram) |
 
 ## Environment variables
@@ -121,9 +125,12 @@ curl -X POST "http://localhost:3000/api/public/meta/send" \
 
 ## Code map
 
-- `src/lib/meta/` — shared config, HMAC verify, WhatsApp/Instagram send helpers, auto-reply
+- `src/lib/meta/` — shared config, HMAC verify, WhatsApp/Instagram/Messenger send helpers, auto-reply
+- `src/lib/call-center/omni.ts` + `omni-bridge.ts` — omnichannel ticket/contact handoffs
 - `app/api/public/call-center/whatsapp/route.ts` — WhatsApp webhook + inbox persistence
-- `app/api/public/meta/instagram/route.ts` — Instagram webhook
+- `app/api/public/meta/instagram/route.ts` — Instagram webhook → tickets
+- `app/api/public/meta/messenger/route.ts` — Messenger webhook → tickets
+- `app/api/public/call-center/microsoft365/route.ts` — M365 Graph notifications → tickets
 - `app/api/public/meta/send/route.ts` — protected outbound test/send
 
 ## Blockers outside the repo

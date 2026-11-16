@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { ingestOmniInboundHandoff } from "@/lib/call-center/omni-bridge";
 import {
   loadSettingsRow,
   resolveInstagramPageAccessToken,
@@ -84,34 +85,48 @@ export async function POST(request: Request) {
   const accessToken = resolveInstagramPageAccessToken(settings);
   const pageId = resolveInstagramPageId(settings) || "me";
 
-  if (isDemo) {
-    const root = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    const senderId = String(root.senderId ?? root.from ?? "demo_igsid").trim();
-    const text = String(root.text ?? root.body ?? "Demo Instagram message").trim();
-    const mid = String(root.mid ?? `ig.DEMO_${Date.now()}`);
-    const auto = await maybeAutoReplyInstagram({
-      recipientId: senderId,
-      mid,
-      isEcho: false,
-      accessToken: accessToken || undefined,
-      pageId,
-    });
-    return NextResponse.json({
-      ok: true,
-      demo: true,
-      inbound: { senderId, text, mid },
-      autoReply: auto,
-    });
-  }
+  const messages = isDemo
+    ? (() => {
+        const root = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+        return [
+          {
+            senderId: String(root.senderId ?? root.from ?? "demo_igsid").trim(),
+            recipientId: pageId,
+            mid: String(root.mid ?? `ig.DEMO_${Date.now()}`),
+            text: String(root.text ?? root.body ?? "Demo Instagram message").trim(),
+            isEcho: false,
+            timestamp: Date.now(),
+          },
+        ];
+      })()
+    : parseInstagramInboundMessages(body);
 
-  const messages = parseInstagramInboundMessages(body);
   let received = 0;
+  let tickets = 0;
   let autoReplies = 0;
   const errors: string[] = [];
 
   for (const msg of messages) {
     received += 1;
     if (msg.isEcho) continue;
+
+    try {
+      await ingestOmniInboundHandoff({
+        source: "instagram",
+        channel: "instagram",
+        eventTitle: "inbound_message",
+        externalThreadId: msg.senderId,
+        externalMessageId: msg.mid || `ig:${msg.senderId}:${msg.timestamp}`,
+        customerExternalId: msg.senderId,
+        lastMessage: msg.text,
+        summary: "Instagram inbound",
+        metadata: { pageId, demo: isDemo },
+      });
+      tickets += 1;
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : "ticket_failed");
+    }
+
     const auto = await maybeAutoReplyInstagram({
       recipientId: msg.senderId,
       mid: msg.mid,
@@ -125,7 +140,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
+    demo: isDemo || undefined,
     received,
+    tickets,
     autoReplies,
     errors: errors.slice(0, 5),
   });
