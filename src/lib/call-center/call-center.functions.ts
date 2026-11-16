@@ -490,18 +490,29 @@ export const revealCallCenterSettingSecret = createSafeAuthenticatedAction(
   }),
   async (data) => {
     const row = await loadSettingsRow();
-    const raw = row?.[data.field]?.trim() ?? "";
-    let value = raw;
-    if (data.field === "sendpulse_webhook_secret" && raw) {
-      try {
-        value = unsealCallCenterSecret(raw);
-      } catch {
-        throw new Error(
-          "Could not decrypt SendPulse webhook secret. Check AI_CREDENTIALS_ENCRYPTION_KEY.",
-        );
-      }
+    if (data.field === "sendpulse_webhook_secret") {
+      const { revealSendPulseWebhookSecretFromSettings } = await import("./sendpulse-secret");
+      const value = revealSendPulseWebhookSecretFromSettings(row);
+      return { field: data.field, value };
     }
+    const value = row?.[data.field]?.trim() ?? "";
     return { field: data.field, value };
+  },
+  { auth: ADMIN_AUTH },
+);
+
+/** Admin-only: webhook path including the effective SendPulse secret (for paste into SendPulse). */
+export const revealSendPulseWebhookUrlWithSecret = createSafeAuthenticatedAction(
+  z.object({}),
+  async () => {
+    const row = await loadSettingsRow();
+    const { revealSendPulseWebhookSecretFromSettings } = await import("./sendpulse-secret");
+    const { sendPulseWebhookPathWithSecret } = await import("./sendpulse");
+    const secret = revealSendPulseWebhookSecretFromSettings(row);
+    if (!secret) {
+      throw new Error("No webhook secret saved.");
+    }
+    return { path: sendPulseWebhookPathWithSecret(secret) };
   },
   { auth: ADMIN_AUTH },
 );

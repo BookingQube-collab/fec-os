@@ -32,6 +32,7 @@ import {
   removeCallCenterHoliday,
   removeCallCenterWebhookEndpoint,
   removeCallCenterWhatsappTemplate,
+  revealSendPulseWebhookUrlWithSecret,
   saveCallCenterHoliday,
   saveCallCenterSettings,
   saveCallCenterWebhookEndpoint,
@@ -1062,14 +1063,14 @@ function CallCenterSettingsPage() {
             <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseWebhookSecretHint")}</p>
             <div className="space-y-1.5">
               <Label>{t("callCenter.sendpulseBridgeUrlLabel")}</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Input
                   readOnly
                   value={
                     bundle.data?.sendpulseBridge?.webhookPath ??
                     "/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>"
                   }
-                  className="font-mono text-xs"
+                  className="min-w-0 flex-1 font-mono text-xs"
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -1091,6 +1092,32 @@ function CallCenterSettingsPage() {
                   <Copy className="size-3.5" aria-hidden />
                   {t("callCenter.copyWebhookUrl")}
                 </Button>
+                {canEdit ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 gap-1.5"
+                    disabled={saving}
+                    onClick={() => {
+                      void (async () => {
+                        const result = await revealSendPulseWebhookUrlWithSecret({});
+                        if (!result.ok) {
+                          toast.error(result.error);
+                          return;
+                        }
+                        const absolute =
+                          typeof window !== "undefined"
+                            ? `${window.location.origin}${result.data.path}`
+                            : result.data.path;
+                        await copyText(absolute);
+                        toast.success(t("callCenter.copyWebhookUrlWithSecretDone"));
+                      })();
+                    }}
+                  >
+                    <Copy className="size-3.5" aria-hidden />
+                    {t("callCenter.copyWebhookUrlWithSecret")}
+                  </Button>
+                ) : null}
               </div>
               <p className="text-xs text-muted-foreground">
                 {bundle.data?.sendpulseBridge?.usesSavedSecret

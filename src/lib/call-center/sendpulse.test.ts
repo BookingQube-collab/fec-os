@@ -10,6 +10,7 @@ import {
   parseSendPulseWebhookBody,
   resolveSendPulseWebhookSecret,
   sendPulsePhoneDigitsEqual,
+  sendPulseWebhookPathWithSecret,
 } from "./sendpulse";
 
 describe("classifySendPulseEvent", () => {
@@ -209,6 +210,18 @@ describe("resolveSendPulseWebhookSecret", () => {
       }),
     ).toBe("admin-secret");
     process.env.SENDPULSE_WEBHOOK_SECRET = prev;
+  });
+});
+
+describe("sendPulseWebhookPathWithSecret", () => {
+  it("embeds an encoded secret for admin copy", () => {
+    expect(sendPulseWebhookPathWithSecret("abc/def")).toBe(
+      "/api/public/call-center/sendpulse?secret=abc%2Fdef",
+    );
+  });
+
+  it("keeps a placeholder when empty", () => {
+    expect(sendPulseWebhookPathWithSecret("")).toContain("<SENDPULSE_WEBHOOK_SECRET>");
   });
 });
 

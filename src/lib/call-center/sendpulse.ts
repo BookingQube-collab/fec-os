@@ -286,6 +286,15 @@ export function resolveSendPulseWebhookSecret(
   );
 }
 
+/** Inbound webhook path with a real secret (admin-only copy helpers). */
+export function sendPulseWebhookPathWithSecret(secret: string): string {
+  const trimmed = secret.trim();
+  if (!trimmed) {
+    return "/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>";
+  }
+  return `/api/public/call-center/sendpulse?secret=${encodeURIComponent(trimmed)}`;
+}
+
 /** Digits-only compare so +974… and 974… match. */
 export function sendPulsePhoneDigitsEqual(a: string, b: string): boolean {
   const left = normalizeSendPulsePhone(a).replace(/\D/g, "");

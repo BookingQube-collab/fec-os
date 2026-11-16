@@ -1,10 +1,16 @@
 import { normalizeSipUriHost, unsealCallCenterSecret } from "./db";
 import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
+import { resolveSendPulseWebhookSecret } from "./sendpulse";
 import type {
   CallCenterAiProvider,
   CallCenterSettingsPublic,
   CallCenterSettingsRow,
 } from "./types";
+
+export {
+  SENDPULSE_WEBHOOK_SECRET_DECRYPT_ERROR,
+  revealSendPulseWebhookSecretFromSettings,
+} from "./sendpulse-secret";
 
 function secretLast4(value: string): string {
   const v = value.trim();
@@ -239,19 +245,28 @@ export function toPublicSettings(
       process.env.SENDPULSE_WHATSAPP_NUMBER?.trim() ||
       process.env.SENDPULSE_WHATSAPP_E164?.trim() ||
       "",
+    // True when Reveal can return a value (admin sealed, env, or shared) — or when ciphertext
+    // exists but cannot decrypt (Reveal then returns an explicit key-mismatch error).
     sendpulseWebhookSecretSet:
       Boolean(row?.sendpulse_webhook_secret?.trim()) ||
-      Boolean(process.env.SENDPULSE_WEBHOOK_SECRET?.trim()) ||
-      Boolean(row?.webhook_shared_secret?.trim()) ||
-      Boolean(process.env.CALL_CENTER_WEBHOOK_SECRET?.trim()),
+      Boolean(
+        resolveSendPulseWebhookSecret({
+          sendpulseWebhookSecret: "",
+          webhookSharedSecret: row?.webhook_shared_secret,
+        }),
+      ),
     sendpulseWebhookSecretLast4: (() => {
       const admin = row?.sendpulse_webhook_secret?.trim() ?? "";
-      if (admin) return safeUnsealLast4(admin);
-      const env = process.env.SENDPULSE_WEBHOOK_SECRET?.trim() ?? "";
-      if (env) return secretLast4(env);
-      const shared = row?.webhook_shared_secret?.trim() ?? "";
-      if (shared) return secretLast4(shared);
-      return secretLast4(process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ?? "");
+      if (admin) {
+        // Prefer admin last4 when decrypt works; on key mismatch do not show env last4 as if it were admin.
+        return safeUnsealLast4(admin);
+      }
+      return secretLast4(
+        resolveSendPulseWebhookSecret({
+          sendpulseWebhookSecret: "",
+          webhookSharedSecret: row?.webhook_shared_secret,
+        }),
+      );
     })(),
   };
 }
