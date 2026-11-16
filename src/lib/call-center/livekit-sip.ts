@@ -40,9 +40,8 @@ import {
 import type { CallCenterSettingsRow } from "./types";
 
 /**
- * Keep Telnyx SIP INVITEs and the agent softphone on the same LiveKit region.
- * Default `us` — Telnyx DIDs originate in the US; global SIP + Qatar WebRTC was
- * leaving INVITEs ringing until we cancelled (Telnyx 487 ORIGINATOR_CANCEL).
+ * Softphone RTC region. Default `sa` (near Dubai Telnyx anchorsite / Qatar agents).
+ * Inbound Answer no longer depends on Telnyx→LiveKit inbound SIP region pinning.
  */
 export function resolveCallCenterLiveKitRegion(
   settings?: CallCenterSettingsRow | null,
@@ -50,12 +49,12 @@ export function resolveCallCenterLiveKitRegion(
   const raw =
     process.env.CALL_CENTER_LIVEKIT_REGION?.trim().toLowerCase() ||
     process.env.LIVEKIT_SIP_REGION?.trim().toLowerCase() ||
-    "us";
+    "sa";
   if ((LIVEKIT_TELEPHONY_REGIONS as readonly string[]).includes(raw)) {
     return raw as LiveKitTelephonyRegion;
   }
   void settings;
-  return "us";
+  return "sa";
 }
 
 /**
@@ -395,6 +394,10 @@ export async function dialOutboundSip(input: {
   toE164: string;
   fromE164: string;
   callId: string;
+  /** Shorter ring window for inbound Answer bridge (default 45s for manual outbound). */
+  ringingTimeoutSecs?: number;
+  playDialtone?: boolean;
+  directionAttr?: string;
 }): Promise<OutboundSipResult> {
   const trunkId = input.settings?.livekit_sip_trunk_id?.trim() ?? "";
   if (!trunkId) {
@@ -404,18 +407,22 @@ export async function dialOutboundSip(input: {
   }
   const identity = `sip-out-${input.callId.replace(/-/g, "").slice(0, 12)}`;
   const from = input.fromE164.startsWith("+") ? input.fromE164 : "";
+  const ringingTimeout = input.ringingTimeoutSecs ?? 45;
   let info;
   try {
     info = await (await sipClient()).createSipParticipant(trunkId, input.toE164, input.roomName, {
       participantIdentity: identity,
       participantName: input.toE164,
       fromNumber: from || undefined,
-      playDialtone: true,
+      playDialtone: input.playDialtone ?? true,
       waitUntilAnswered: true,
-      ringingTimeout: 45,
-      timeout: 60,
+      ringingTimeout,
+      timeout: Math.max(ringingTimeout + 15, 30),
       headers: { "X-FEC-Call-Id": input.callId },
-      participantAttributes: { "fec.callId": input.callId, "fec.direction": "outbound" },
+      participantAttributes: {
+        "fec.callId": input.callId,
+        "fec.direction": input.directionAttr ?? "outbound",
+      },
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";

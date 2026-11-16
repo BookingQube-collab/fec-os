@@ -2,7 +2,7 @@ import "server-only";
 
 import { usesAdminAiGateway } from "./ai-reply-helpers";
 import { handoffAiCallToQueue } from "./ai-session";
-import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
+import { CarrierNotConfiguredError } from "./carrier-errors";
 import {
   findCallByLivekitRoom,
   findCallByProviderCallId,
@@ -16,16 +16,13 @@ import {
   updateCall,
 } from "./db";
 import {
-  buildLiveKitSipUri,
   CALL_CENTER_ROOM_PREFIX,
   deleteLiveKitRoom,
   dialOutboundSip,
   dispatchLiveKitAgent,
-  ensureCallControlBridgeDispatch,
   ensureLiveKitRoom,
   waitForAgentPublishedInRoom,
   waitForAnyPublisherInRoom,
-  waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
@@ -35,15 +32,15 @@ import type { CallCenterCall, CallCenterSettingsRow, InboundRouteResult } from "
 /**
  * Carrier orchestration: Telnyx + LiveKit SIP → FEC routing (routing.ts) → agent softphone.
  *
- * Mode A (recommended / Telnyx SIP Trunking):
- *   Caller → Telnyx SIP origination → LiveKit inbound trunk → dispatch rule → room →
- *   FEC IVR/queue (DTMF via LiveKit SipDTMF + webhook digit API; optional LiveKit Agent for prompts).
+ * Mode A (Telnyx SIP Trunking):
+ *   Caller → Telnyx SIP → LiveKit inbound trunk → dispatch → room → softphone.
  *
- * Mode B (Telnyx Call Control):
- *   call.initiated → route + answer → greeting / IVR gather / hold music →
- *   (agent answers) → Telnyx `transfer` to LiveKit SIP → caller joins the cc-… room.
+ * Mode B (Telnyx Call Control — production E3):
+ *   call.initiated → IVR/hold on Call Control → agent Answer → softphone joins room →
+ *   LiveKit createSipParticipant dials the caller (outbound trunk) into the room, then
+ *   Call Control leg is hung up. (Telnyx→LiveKit inbound transfer never got 200 OK here.)
  *
- * Outbound : softphone → placeOutboundCall → LiveKit createSipParticipant (outbound trunk → Telnyx).
+ * Outbound : softphone → placeOutboundCall → LiveKit createSipParticipant.
  * CDR sync : Telnyx call.hangup + LiveKit participant_left / room_finished webhooks.
  */
 
@@ -180,6 +177,21 @@ export async function finalizeCarrierHangup(
   if (isFinal(call.status)) return call;
   const now = new Date().toISOString();
   const meta = metaOf(call);
+
+  // Outbound-dial bridge hangs up Call Control on purpose while LiveKit dials the caller.
+  // Do not mark the CDR ended/missed or tear down the softphone room.
+  if (
+    meta.bridgeMode === "livekit_outbound_dial" &&
+    meta.bridgeInProgress &&
+    !meta.bridgeVerifiedAt
+  ) {
+    await patchMeta(call.id, {
+      bridgeCallControlHangupIgnored: true,
+      bridgeCallControlHangupReason: reason || "normal_clearing",
+      carrierFinal: true,
+    });
+    return (await getCall(call.id)) ?? call;
+  }
 
   if (meta.pstnState === "dialing") {
     const failed = await updateCall(call.id, {
@@ -577,8 +589,17 @@ export async function handleTelnyxEvent(
       const call = await findCallByProviderCallId(ev.callControlId);
       if (!call) return done(false, "unknown call");
       const reason = ev.hangupCause || ev.hangupSource || "";
+      const before = metaOf(call);
       const updated = await finalizeCarrierHangup(call, reason);
-      if (updated.livekitRoom && metaOf(call).bridgedAt) await deleteLiveKitRoom(updated.livekitRoom);
+      const after = metaOf(updated);
+      // Never delete the LiveKit room during an in-flight outbound dial bridge.
+      if (
+        after.bridgeCallControlHangupIgnored ||
+        (before.bridgeMode === "livekit_outbound_dial" && before.bridgeInProgress)
+      ) {
+        return done(true, "hangup:ignored_outbound_bridge", call.id);
+      }
+      if (updated.livekitRoom && before.bridgedAt) await deleteLiveKitRoom(updated.livekitRoom);
       return done(true, `hangup:${updated.status}`, call.id);
     }
 
@@ -597,9 +618,8 @@ const CONNECTING_PROMPT =
   "Please wait. We are connecting you to an agent.";
 
 /**
- * Phase 1: tell the caller we're connecting and prep LiveKit room/dispatch.
- * Do NOT transfer yet — LiveKit SIP only answers INVITEs after the agent softphone
- * has joined the room and published audio (see LiveKit inbound workflow docs).
+ * Phase 1: tell the caller we're connecting and prep the LiveKit room.
+ * Media bridge uses LiveKit *outbound* dial (not Telnyx→LiveKit inbound transfer).
  */
 export async function prepareCallerBridge(
   call: CallCenterCall,
@@ -617,11 +637,13 @@ export async function prepareCallerBridge(
   if (metaOf(call).carrierAnswered !== true) {
     throw new Error("The caller is still connecting. Try again in a moment.");
   }
-  // Validate SIP URI host early so Answer fails fast with a clear Settings message.
-  try {
-    await buildLiveKitSipUri(roomName, settings);
-  } catch (e) {
-    throw new Error(e instanceof Error ? e.message : "LiveKit SIP is not configured.");
+  if (!settings?.livekit_sip_trunk_id?.trim()) {
+    throw new Error(
+      "Outbound SIP trunk is not set. Add the LiveKit outbound trunk id (ST_…) in Call Center → Settings.",
+    );
+  }
+  if (!call.fromE164?.startsWith("+") || call.fromE164.length < 8) {
+    throw new Error("Caller number is missing — cannot dial them into the softphone room.");
   }
 
   const voice = settings?.tts_voice ?? "";
@@ -630,31 +652,22 @@ export async function prepareCallerBridge(
     bridgeAwaitingAgent: true,
     bridgeError: null,
     bridgePendingSip: false,
+    bridgeMode: "livekit_outbound_dial",
   });
   const promptPromise = telnyx
     .speak(call.providerCallId, CONNECTING_PROMPT, { step: "connecting", callId: call.id }, voice)
     .catch(() => undefined);
-  const prepPromise = Promise.all([
-    ensureCallControlBridgeDispatch(settings).catch((e) => ({
-      ok: false as const,
-      detail: e instanceof Error ? e.message : "dispatch heal failed",
-    })),
-    ensureLiveKitRoom(roomName).catch(() => undefined),
-  ]);
+  const prepPromise = ensureLiveKitRoom(roomName).catch(() => undefined);
 
-  const [, , [dispatchHeal]] = await Promise.all([metaPromise, promptPromise, prepPromise]);
-  if (dispatchHeal && "ok" in dispatchHeal && !dispatchHeal.ok) {
-    console.warn("[call-center/bridge] dispatch heal:", dispatchHeal.detail);
-  }
-  await patchMeta(call.id, {
-    bridgeDispatchHeal:
-      dispatchHeal && "detail" in dispatchHeal ? dispatchHeal.detail : undefined,
-  });
+  await Promise.all([metaPromise, promptPromise, prepPromise]);
 }
 
 /**
- * Phase 2: after the agent softphone is in the room with published audio, transfer
- * the Telnyx PSTN leg into LiveKit SIP (single UDP INVITE — no retry/cancel 487).
+ * Phase 2: softphone is live → LiveKit *outbound* SIP dials the PSTN caller into the room
+ * (same path as manual outbound). Then hang up the Telnyx Call Control IVR/hold leg.
+ *
+ * Why not Telnyx transfer → LiveKit inbound SIP: LiveKit never sent 200 OK (subscribe wait)
+ * across many retries (UDP/TCP/agent-first/US pin); Telnyx showed 487 only after we cancelled.
  */
 export async function transferCallerToLiveKit(
   call: CallCenterCall,
@@ -674,99 +687,101 @@ export async function transferCallerToLiveKit(
     throw new Error("No Telnyx call control id for this leg.");
   }
 
-  let uri: string;
-  try {
-    uri = await buildLiveKitSipUri(roomName, settings);
-  } catch (e) {
-    throw new Error(e instanceof Error ? e.message : "LiveKit SIP is not configured.");
-  }
-
   const voice = settings?.tts_voice ?? "";
-  const from =
+  const callerE164 = call.fromE164?.trim() ?? "";
+  if (!callerE164.startsWith("+")) {
+    throw new Error("Caller number is missing — cannot dial them into the softphone room.");
+  }
+  const fromE164 =
     settings?.outbound_caller_id_e164?.trim() ||
     (call.toE164?.startsWith("+") ? call.toE164 : "") ||
-    undefined;
+    "";
 
   const publisherReady = agentUserId
-    ? await waitForAgentPublishedInRoom(roomName, agentUserId, 12_000)
-    : await waitForAnyPublisherInRoom(roomName, 15_000);
+    ? await waitForAgentPublishedInRoom(roomName, agentUserId, 10_000)
+    : await waitForAnyPublisherInRoom(roomName, 12_000);
   if (!publisherReady) {
     const note = agentUserId
-      ? "Softphone joined but microphone was not ready in time. Allow mic access and try again."
-      : "No LiveKit participant published audio in time for the SIP bridge.";
+      ? "Softphone microphone was not ready in time. Allow mic access and Answer again."
+      : "No LiveKit participant published audio in time for the bridge.";
     await restoreHoldAfterBridgeFailure(telnyx, call, settings, voice, note, "publisher_not_ready");
     throw new Error(note);
   }
 
-  try {
-    console.info(`[call-center/bridge] agent-ready transfer UDP → ${uri}`);
-    await telnyx.transfer(call.providerCallId, uri, {
-      from,
-      headers: [{ name: "X-FEC-Call-Id", value: call.id }],
-      clientState: { step: "bridge", callId: call.id, transport: "UDP" },
-      sipTransport: "UDP",
-      earlyMedia: false,
-      mediaEncryption: "disabled",
-      // Match LiveKit ringing window — do not CANCEL early from our side.
-      timeoutSecs: 60,
-    });
-  } catch (e) {
-    const lastError = e instanceof Error ? e.message : "transfer failed";
-    console.warn("[call-center/bridge] UDP transfer failed:", lastError);
-    if (e instanceof TelnyxApiError && (e.status === 404 || e.status === 422)) {
-      await patchMeta(call.id, {
-        bridgeInProgress: false,
-        bridgeAwaitingAgent: false,
-        bridgePendingSip: false,
-        bridgeError: "The caller is no longer on the line.",
-      });
-      throw new Error("The caller is no longer on the line.");
-    }
-    await restoreHoldAfterBridgeFailure(telnyx, call, settings, voice, lastError, "UDP");
-    throw new Error(
-      "Could not bridge the caller into the softphone room (SIP INVITE not accepted). Check Settings → SIP URI and inbound trunk.",
-    );
-  }
-
+  // Mark bridge in-progress BEFORE hanging up Call Control so call.hangup does not
+  // finalize the CDR or delete the LiveKit room.
   await patchMeta(call.id, {
-    bridgedAt: new Date().toISOString(),
-    bridgeSipUri: uri,
-    bridgeTransport: "UDP",
+    bridgeMode: "livekit_outbound_dial",
     bridgeAwaitingAgent: false,
     bridgePendingSip: true,
     bridgeInProgress: true,
     bridgeError: null,
+    bridgeDialTo: callerE164,
   });
 
-  // Single INVITE. LiveKit answers only after it can subscribe to softphone audio.
-  // Do NOT playback/speak on the Telnyx leg while waiting — that CANCEL's the INVITE
-  // (Telnyx 487 ORIGINATOR_CANCEL / hangup_details send_cancel) and causes the toast.
-  const sipIdentity = await waitForSipParticipantInRoom(roomName, 50_000);
-  if (!sipIdentity) {
-    const note =
-      "Could not bridge the caller into the softphone room (SIP INVITE not accepted). Check Settings → SIP URI and inbound trunk.";
-    await restoreHoldAfterBridgeFailure(
-      telnyx,
-      call,
-      settings,
+  // Release the Call Control IVR/hold leg, then LiveKit outbound-dials the caller into the
+  // room (proven createSipParticipant path). Avoids busy/call-waiting on the same PSTN line.
+  await telnyx
+    .speak(
+      call.providerCallId,
+      "Connecting you now. Please answer when we call you back.",
+      { step: "bridge_callback", callId: call.id },
       voice,
-      "No SIP participant after agent-ready UDP transfer",
-      "UDP",
+    )
+    .catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 1_200));
+  await telnyx.hangup(call.providerCallId).catch(() => undefined);
+  await patchMeta(call.id, {
+    carrierFinal: true,
+    bridgeCallControlHungUpAt: new Date().toISOString(),
+  });
+
+  console.info(
+    `[call-center/bridge] outbound dial → ${callerE164} room=${roomName} (Call Control released)`,
+  );
+
+  let result: { participantIdentity: string; sipCallId: string };
+  try {
+    result = await dialOutboundSip({
+      settings,
+      roomName,
+      toE164: callerE164,
+      fromE164,
+      callId: call.id,
+      ringingTimeoutSecs: 25,
+      playDialtone: true,
+      directionAttr: "inbound_bridge",
+    });
+  } catch (e) {
+    const lastError = e instanceof Error ? e.message : "outbound dial failed";
+    console.warn("[call-center/bridge] outbound dial failed:", lastError);
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeError: lastError,
+      bridgeVerifyNote: lastError,
+      bridgeTransport: "outbound_dial",
+    });
+    throw new Error(
+      `Could not reach the caller on the connect-back dial (${lastError.slice(0, 120)}). Ask them to call again.`,
     );
-    throw new Error(note);
   }
 
   await patchMeta(call.id, {
-    sipParticipantIdentity: sipIdentity,
+    sipParticipantIdentity: result.participantIdentity,
+    sipCallId: result.sipCallId,
+    bridgedAt: new Date().toISOString(),
     bridgeVerifiedAt: new Date().toISOString(),
     bridgePendingSip: false,
     bridgeInProgress: false,
     bridgeAwaitingAgent: false,
     bridgeError: null,
-    bridgeTransport: "UDP",
+    bridgeTransport: "outbound_trunk",
+    bridgeMode: "livekit_outbound_dial",
+    carrierFinal: true,
   });
   console.info(
-    `[call-center/bridge] SIP joined room=${roomName} via UDP identity=${sipIdentity}`,
+    `[call-center/bridge] outbound SIP joined room=${roomName} identity=${result.participantIdentity}`,
   );
 }
 
@@ -779,7 +794,7 @@ async function restoreHoldAfterBridgeFailure(
   transport: string,
 ): Promise<void> {
   const note =
-    "Could not bridge the caller into the softphone room (SIP INVITE not accepted). Check Settings → SIP URI and inbound trunk.";
+    "Could not connect the caller into the softphone room. Stay Available and try Answer again, or ask them to call back.";
   await patchMeta(call.id, {
     bridgePendingSip: false,
     bridgeInProgress: false,
@@ -787,6 +802,7 @@ async function restoreHoldAfterBridgeFailure(
     bridgeError: note,
     bridgeVerifyNote: verifyNote,
     bridgeTransport: transport,
+    bridgeMode: "livekit_outbound_dial",
   });
   if (!call.providerCallId) return;
   const holdUrl = settings?.hold_music_url?.trim() ?? "";

@@ -971,8 +971,8 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
 }
 
 /**
- * Phase 2 of Telnyx Call Control answer: transfer PSTN → LiveKit after softphone is live.
- * On failure: restore hold, exclude this agent via declinedBy, re-queue (no zombie re-offer).
+ * Phase 2 of Telnyx Call Control answer: LiveKit outbound-dials the PSTN caller into the
+ * softphone room (after mic publish). On failure: restore hold, declinedBy, re-queue.
  */
 export async function completePstnBridge(
   callId: string,
