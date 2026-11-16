@@ -668,3 +668,25 @@ export type CallCenterCdrFilters = {
   status?: CallCenterCallStatus | null;
   limit?: number;
 };
+
+/** SendPulse chatbot bridge ticket — agent pickup without rebuilding SendPulse UI. */
+export type CallCenterSendpulseTicket = {
+  id: string;
+  dedupeKey: string;
+  source: "sendpulse";
+  eventTitle: string;
+  service: string;
+  status: "open" | "pending" | "closed";
+  contactId: string | null;
+  sendpulseContactId: string;
+  sendpulseBotId: string;
+  customerName: string;
+  customerE164: string;
+  customerEmail: string;
+  summary: string;
+  lastMessage: string;
+  whatsappConversationId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};

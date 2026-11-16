@@ -65,6 +65,7 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | `POST /api/public/call-center/telnyx` | Telnyx **Call Control** webhook (answer, IVR gather, hold, hangup → CDR). Flat `{from,to}` / `{digit,callId}` demo bodies still work |
 | `POST /api/public/call-center/livekit-sip` | LiveKit server webhook (SIP participant joined/left, room finished → CDR) + manual `{from,to}` dispatch |
 | `GET/POST /api/public/call-center/whatsapp` | Meta webhook verify + inbound message log |
+| `GET/POST /api/public/call-center/sendpulse` | SendPulse chatbot handoff bridge → contacts + tickets (chatbot UI stays in SendPulse) |
 
 ## Migrations
 
@@ -316,8 +317,57 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 | `WHATSAPP_VERIFY_TOKEN` | WhatsApp webhook | Fallback verify token |
 | `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp | Fallback phone number id |
 | `WHATSAPP_WABA_ID` | WhatsApp | Optional WABA id fallback |
+| `SENDPULSE_WEBHOOK_SECRET` | SendPulse bridge | Shared secret for `POST /api/public/call-center/sendpulse` (`Bearer`, `X-SendPulse-Secret`, or `?secret=`). Falls back to call-center webhook secret |
+| `SENDPULSE_WHATSAPP_NUMBER` | SendPulse bridge | E.164 of the **SendPulse chatbot** WhatsApp number (must differ from FEC inbox) |
+| `CALL_CENTER_WHATSAPP_NUMBER` | SendPulse bridge | E.164 of the **FEC call-center** WhatsApp inbox number (alias `WHATSAPP_E164`) |
+| `SENDPULSE_MIRROR_WHATSAPP_INBOX` | SendPulse bridge | Default off. Set `true` only for intentional same-number mirror into `/call-center/whatsapp` |
 
 Do not put Telnyx/LiveKit/WhatsApp secrets in `NEXT_PUBLIC_*`.
+
+## SendPulse chatbot bridge (handoff only)
+
+**Operator note:** Keep chatbot automation in **SendPulse**. Do not rebuild SendPulse flows/UI inside FEC. Use **two WhatsApp numbers**:
+
+| Number | Owner | Job |
+|--------|--------|-----|
+| SendPulse bot WA (`SENDPULSE_WHATSAPP_NUMBER`) | SendPulse | Chatbot first response / flows |
+| FEC inbox WA (`CALL_CENTER_WHATSAPP_NUMBER`) | FEC Meta Cloud | Agent desktop / call-center WhatsApp |
+
+Default bridge behavior (separate numbers): webhook → **contacts + tickets only**. It does **not** mirror into `/call-center/whatsapp` (avoids two systems fighting over the same Meta number / auto-reply).
+
+```
+SendPulse chatbot WA (own number)
+        │  webhook (open_chat / incoming_message / custom Action)
+        ▼
+POST /api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>
+        │
+        ├─ upsert call_center_contacts (tag: sendpulse)
+        ├─ upsert call_center_sendpulse_tickets (source: sendpulse, idempotent dedupe_key)
+        └─ WhatsApp inbox mirror: OFF by default
+           (opt-in SENDPULSE_MIRROR_WHATSAPP_INBOX=true only if sharing one number)
+```
+
+### Configure in SendPulse
+
+1. Set `SENDPULSE_WEBHOOK_SECRET` in the FEC env (or reuse the Call Center webhook shared secret).
+2. Set `SENDPULSE_WHATSAPP_NUMBER` and `CALL_CENTER_WHATSAPP_NUMBER` to **different** E.164 values.
+3. In SendPulse → **Bot Settings → Webhooks**, paste:
+   `https://<your-fec-host>/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>`
+4. Enable at least **Opened live chat** (`open_chat`). Optionally **Incoming messages**.
+5. For flow-specific handoff, add Action → **Send webhook** to the same URL (custom title creates a ticket).
+6. Keep FEC WhatsApp auto-reply on the **FEC** number only; let SendPulse own first response on the chatbot number.
+
+Auth also accepts `Authorization: Bearer <secret>` or `X-SendPulse-Secret` when the sender can set headers.
+
+Local demo:
+
+```bash
+curl -X POST "http://localhost:3000/api/public/call-center/sendpulse?demo=1" \
+  -H "Content-Type: application/json" \
+  -d "{\"event\":\"open_chat\",\"phone\":\"+97455550000\",\"name\":\"Guest\",\"summary\":\"Billing help\",\"channel\":\"whatsapp\"}"
+```
+
+Apply migration `supabase/migrations/20261116170000_call_center_sendpulse_bridge.sql` before production use.
 
 ## Local test without Telnyx
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Plus, Trash2, Volume2 } from "lucide-react";
+import { Bot, Copy, Plus, Trash2, Volume2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -47,6 +47,41 @@ import { CallCenterShell } from "@/views/call-center-section-nav";
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 const TTS_PRESET_IDS = new Set(TTS_VOICE_PRESETS.map((p) => p.id));
+
+type SectionTag = { label: string; variant?: "secondary" | "outline" | "info" | "muted" };
+
+function SettingsSectionHeader({
+  title,
+  hint,
+  tags,
+  trailing,
+}: {
+  title: string;
+  hint?: string;
+  tags?: SectionTag[];
+  trailing?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+          {tags?.map((tag) => (
+            <Badge key={tag.label} variant={tag.variant ?? "outline"} className="font-medium">
+              {tag.label}
+            </Badge>
+          ))}
+        </div>
+        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      </div>
+      {trailing ? <div className="flex flex-wrap items-center gap-2">{trailing}</div> : null}
+    </div>
+  );
+}
+
+async function copyText(value: string) {
+  await navigator.clipboard.writeText(value);
+}
 
 function CallCenterSettingsPage() {
   const { t } = useTranslation();
@@ -358,10 +393,14 @@ function CallCenterSettingsPage() {
       ) : (
         <div className="space-y-5">
           <section className="space-y-4 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.settingsGeneralHeading")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.settingsGeneralHint")}</p>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.settingsGeneralHeading")}
+              hint={t("callCenter.settingsGeneralHint")}
+              tags={[
+                { label: t("callCenter.tagVoice"), variant: "info" },
+                { label: t("callCenter.tagRecording"), variant: "muted" },
+              ]}
+            />
             <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-[var(--surface-2)]/60 px-3 py-2.5">
               <div>
                 <Label htmlFor="cc-enabled">{t("callCenterAdmin.enabled")}</Label>
@@ -437,16 +476,23 @@ function CallCenterSettingsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>{t("callCenter.outboundCallerId")}</Label>
-                <Input value={outboundCallerId} onChange={(e) => setOutboundCallerId(e.target.value)} />
+                <Input
+                  value={outboundCallerId}
+                  onChange={(e) => setOutboundCallerId(e.target.value)}
+                  placeholder="+974XXXXXXXX"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">{t("callCenter.outboundCallerIdHint")}</p>
               </div>
             </div>
           </section>
 
           <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.mediaSettings")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.mediaSettingsHint")}</p>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.mediaSettings")}
+              hint={t("callCenter.mediaSettingsHint")}
+              tags={[{ label: t("callCenter.tagVoice"), variant: "info" }]}
+            />
             <div className="space-y-1.5">
               <Label>{t("callCenter.welcomeGreeting")}</Label>
               <Textarea
@@ -575,10 +621,11 @@ function CallCenterSettingsPage() {
           </section>
 
           <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.businessHours")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.businessHoursSectionHint")}</p>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.businessHours")}
+              hint={t("callCenter.businessHoursSectionHint")}
+              tags={[{ label: t("callCenter.tagVoice"), variant: "info" }]}
+            />
             <div className="space-y-1.5">
               <Label>{t("callCenter.afterHoursGreeting")}</Label>
               <Textarea
@@ -646,10 +693,11 @@ function CallCenterSettingsPage() {
           </section>
 
           <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.holidays")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.holidaysHint")}</p>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.holidays")}
+              hint={t("callCenter.holidaysHint")}
+              tags={[{ label: t("callCenter.tagVoice"), variant: "info" }]}
+            />
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenterAdmin.label")}</Label>
@@ -707,10 +755,16 @@ function CallCenterSettingsPage() {
           </section>
 
           <section className="grid gap-3 rounded-2xl border border-border/50 bg-card p-4 sm:grid-cols-2 sm:p-5">
-            <div className="sm:col-span-2">
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.sipSettings")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.sipSettingsHint")}</p>
-              <ol className="mt-3 list-decimal space-y-1 ps-4 text-xs text-muted-foreground">
+            <div className="sm:col-span-2 space-y-3">
+              <SettingsSectionHeader
+                title={t("callCenter.sipSettings")}
+                hint={t("callCenter.sipSettingsHint")}
+                tags={[
+                  { label: t("callCenter.tagVoice"), variant: "info" },
+                  { label: t("callCenter.tagCalling"), variant: "secondary" },
+                ]}
+              />
+              <ol className="list-decimal space-y-1 ps-4 text-xs text-muted-foreground">
                 <li>{t("callCenter.qatarSetupStep1")}</li>
                 <li>{t("callCenter.qatarSetupStep2")}</li>
                 <li>{t("callCenter.qatarSetupStep3")}</li>
@@ -790,6 +844,7 @@ function CallCenterSettingsPage() {
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">{t("callCenter.qatarDidHint")}</p>
+              <p className="text-xs text-muted-foreground">{t("callCenter.voiceNumberVsWhatsappHint")}</p>
             </div>
             <div className="space-y-1.5">
               <Label>{t("callCenterAdmin.telnyxSipUri")}</Label>
@@ -920,23 +975,126 @@ function CallCenterSettingsPage() {
           </section>
 
           <section
+            id="sendpulse"
+            className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
+          >
+            <SettingsSectionHeader
+              title={t("callCenter.sendpulseBridgeHeading")}
+              hint={t("callCenter.sendpulseBridgeHint")}
+              tags={[
+                { label: t("callCenter.tagSendPulse"), variant: "secondary" },
+                { label: t("callCenter.tagChatbot"), variant: "outline" },
+              ]}
+              trailing={
+                bundle.data?.sendpulseBridge?.secretConfigured ? (
+                  <Badge variant="success">{t("callCenter.sendpulseSecretConfigured")}</Badge>
+                ) : (
+                  <Badge variant="warning">{t("callCenter.sendpulseSecretMissing")}</Badge>
+                )
+              }
+            />
+            <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface-2)]/40 px-3 py-2 text-xs text-muted-foreground">
+              {t("callCenter.sendpulseEnvOnlyNote")}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.sendpulseWhatsappNumberLabel")}</Label>
+                <Input
+                  readOnly
+                  value={
+                    bundle.data?.sendpulseBridge?.sendpulseNumber ||
+                    t("callCenter.sendpulseNumberUnset")
+                  }
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("callCenter.sendpulseWhatsappNumberHint")}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.sendpulseWebhookSecretLabel")}</Label>
+                <Input
+                  readOnly
+                  value={
+                    bundle.data?.sendpulseBridge?.secretConfigured
+                      ? t("callCenter.sendpulseSecretConfigured")
+                      : t("callCenter.sendpulseSecretMissing")
+                  }
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("callCenter.sendpulseWebhookSecretHint")}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.sendpulseBridgeUrlLabel")}</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  readOnly
+                  value={
+                    bundle.data?.sendpulseBridge?.webhookPath ??
+                    "/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>"
+                  }
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => {
+                    const path =
+                      bundle.data?.sendpulseBridge?.webhookPath ??
+                      "/api/public/call-center/sendpulse?secret=<SENDPULSE_WEBHOOK_SECRET>";
+                    const absolute =
+                      typeof window !== "undefined" ? `${window.location.origin}${path}` : path;
+                    void copyText(absolute).then(() =>
+                      toast.success(t("callCenter.settingsCopied")),
+                    );
+                  }}
+                >
+                  <Copy className="size-3.5" aria-hidden />
+                  {t("callCenter.copyWebhookUrl")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseBridgeUrlHint")}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.sendpulseBridgeNumbersHint")}</p>
+            {(bundle.data?.sendpulseBridge?.warnings ?? []).length > 0 ? (
+              <ul className="space-y-1 rounded-xl border border-rag-amber/40 bg-rag-amber/10 px-3 py-2 text-xs text-foreground">
+                {bundle.data?.sendpulseBridge?.warnings.map((warning) => (
+                  <li key={warning}>⚠ {warning}</li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+
+          <section
             id="whatsapp"
             className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.whatsappSettings")}</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.whatsappSettingsHint")}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {bundle.data?.settings.whatsappConfigured ? (
-                  <Badge variant="secondary">{t("callCenter.whatsappConfigured")}</Badge>
-                ) : (
-                  <Badge variant="outline">{t("callCenter.whatsappMissing")}</Badge>
-                )}
-                <Switch checked={whatsappEnabled} onCheckedChange={setWhatsappEnabled} />
-              </div>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.whatsappSettings")}
+              hint={t("callCenter.whatsappSettingsHint")}
+              tags={[
+                { label: t("callCenter.tagFecWhatsapp"), variant: "secondary" },
+                { label: t("callCenter.tagAgentInbox"), variant: "outline" },
+              ]}
+              trailing={
+                <>
+                  {bundle.data?.settings.whatsappConfigured ? (
+                    <Badge variant="success">{t("callCenter.whatsappConfigured")}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t("callCenter.whatsappMissing")}</Badge>
+                  )}
+                  <Switch checked={whatsappEnabled} onCheckedChange={setWhatsappEnabled} />
+                </>
+              }
+            />
+            <p className="text-xs text-muted-foreground">{t("callCenter.whatsappSeparateFromSendpulseHint")}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenter.whatsappPhoneNumberId")}</Label>
@@ -946,6 +1104,7 @@ function CallCenterSettingsPage() {
                   className="font-mono text-xs"
                   autoComplete="off"
                 />
+                <p className="text-xs text-muted-foreground">{t("callCenter.whatsappPhoneNumberIdHint")}</p>
               </div>
               <div className="space-y-1.5">
                 <Label>{t("callCenter.whatsappWabaId")}</Label>
@@ -955,6 +1114,7 @@ function CallCenterSettingsPage() {
                   className="font-mono text-xs"
                   autoComplete="off"
                 />
+                <p className="text-xs text-muted-foreground">{t("callCenter.whatsappWabaIdHint")}</p>
               </div>
               <CallCenterSecretField
                 id="cc-wa-access-token"
@@ -975,9 +1135,26 @@ function CallCenterSettingsPage() {
                 revealField="whatsapp_verify_token"
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.fecWhatsappE164Label")}</Label>
+              <Input
+                readOnly
+                value={
+                  bundle.data?.sendpulseBridge?.callCenterNumber ||
+                  t("callCenter.sendpulseNumberUnset")
+                }
+                className="font-mono text-xs"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">{t("callCenter.fecWhatsappE164Hint")}</p>
+            </div>
             <p className="text-xs text-muted-foreground">{t("callCenter.whatsappEnvHint")}</p>
             <div className="rounded-xl border border-border/40 p-3 space-y-3">
-              <h3 className="text-sm font-medium">{t("callCenter.whatsappTemplates")}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium">{t("callCenter.whatsappTemplates")}</h3>
+                <Badge variant="outline">{t("callCenter.tagFecWhatsapp")}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("callCenter.whatsappTemplatesHint")}</p>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label>{t("callCenterAdmin.label")}</Label>
@@ -1059,20 +1236,21 @@ function CallCenterSettingsPage() {
             id="instagram"
             className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.instagramSettings")}</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.instagramSettingsHint")}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {bundle.data?.settings.instagramConfigured ? (
-                  <Badge variant="secondary">{t("callCenter.instagramConfigured")}</Badge>
-                ) : (
-                  <Badge variant="outline">{t("callCenter.instagramMissing")}</Badge>
-                )}
-                <Switch checked={instagramEnabled} onCheckedChange={setInstagramEnabled} />
-              </div>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.instagramSettings")}
+              hint={t("callCenter.instagramSettingsHint")}
+              tags={[{ label: t("callCenter.tagInstagram"), variant: "secondary" }]}
+              trailing={
+                <>
+                  {bundle.data?.settings.instagramConfigured ? (
+                    <Badge variant="success">{t("callCenter.instagramConfigured")}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t("callCenter.instagramMissing")}</Badge>
+                  )}
+                  <Switch checked={instagramEnabled} onCheckedChange={setInstagramEnabled} />
+                </>
+              }
+            />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenter.instagramPageId")}</Label>
@@ -1121,10 +1299,14 @@ function CallCenterSettingsPage() {
             id="automation"
             className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
           >
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.automationTitle")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.automationHint")}</p>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.automationTitle")}
+              hint={t("callCenter.automationHint")}
+              tags={[
+                { label: t("callCenter.tagFecWhatsapp"), variant: "secondary" },
+                { label: t("callCenter.tagAgentInbox"), variant: "outline" },
+              ]}
+            />
             <div className="rounded-xl border border-border/40 p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -1165,17 +1347,18 @@ function CallCenterSettingsPage() {
           </section>
 
           <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.integrations")}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.integrationsHint")}</p>
-            </div>
+            <SettingsSectionHeader
+              title={t("callCenter.integrations")}
+              hint={t("callCenter.integrationsHint")}
+              tags={[{ label: t("callCenter.tagIntegrations"), variant: "muted" }]}
+            />
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1.5">
                 <Label>{t("callCenterAdmin.label")}</Label>
                 <Input value={webhookName} onChange={(e) => setWebhookName(e.target.value)} />
               </div>
               <div className="min-w-[16rem] flex-1 space-y-1.5">
-                <Label>URL</Label>
+                <Label>{t("callCenter.integrationsWebhookUrl")}</Label>
                 <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
               </div>
               <Button

@@ -45,6 +45,7 @@ import {
   type CallCenterReportSchedule,
   type CallCenterWhatsappTemplate,
   type CallCenterKeywordAlert,
+  type CallCenterSendpulseTicket,
 } from "./types";
 
 type DbError = { message: string } | null;
@@ -2897,4 +2898,187 @@ export async function searchCallsByKeyword(keyword: string, limit = 80): Promise
         c.toE164.includes(q),
     )
     .slice(0, limit);
+}
+
+function mapSendpulseTicket(row: Record<string, unknown>): CallCenterSendpulseTicket {
+  const metadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: String(row.id),
+    dedupeKey: String(row.dedupe_key ?? ""),
+    source: "sendpulse",
+    eventTitle: String(row.event_title ?? ""),
+    service: String(row.service ?? ""),
+    status: (row.status as CallCenterSendpulseTicket["status"]) || "open",
+    contactId: row.contact_id ? String(row.contact_id) : null,
+    sendpulseContactId: String(row.sendpulse_contact_id ?? ""),
+    sendpulseBotId: String(row.sendpulse_bot_id ?? ""),
+    customerName: String(row.customer_name ?? ""),
+    customerE164: String(row.customer_e164 ?? ""),
+    customerEmail: String(row.customer_email ?? ""),
+    summary: String(row.summary ?? ""),
+    lastMessage: String(row.last_message ?? ""),
+    whatsappConversationId: row.whatsapp_conversation_id
+      ? String(row.whatsapp_conversation_id)
+      : null,
+    metadata,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+  };
+}
+
+export async function findPhoneContactByE164(e164: string): Promise<CallCenterPhoneContact | null> {
+  const normalized = normalizeE164(e164);
+  if (!normalized) return null;
+  const result = await table<Record<string, unknown>>("call_center_contacts")
+    .select("*")
+    .eq("e164", normalized)
+    .limit(1)
+    .maybeSingle();
+  if (result.error) return null;
+  return result.data ? mapPhoneContact(result.data) : null;
+}
+
+export async function findPhoneContactByEmail(email: string): Promise<CallCenterPhoneContact | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  const result = (await table<Record<string, unknown>>("call_center_contacts")
+    .select("*")
+    .limit(200)) as ListResult<Record<string, unknown>>;
+  if (result.error) return null;
+  const hit = (result.data ?? []).find(
+    (row) => String(row.email ?? "").trim().toLowerCase() === normalized,
+  );
+  return hit ? mapPhoneContact(hit) : null;
+}
+
+/**
+ * Upsert call-center phonebook contact by E.164 (preferred) or email.
+ * Merges tags and appends a short SendPulse note when new.
+ */
+export async function upsertPhoneContactFromSendPulse(input: {
+  displayName: string;
+  e164?: string;
+  email?: string;
+  notes?: string;
+  tags?: string[];
+  sendpulseContactId?: string;
+}): Promise<CallCenterPhoneContact | null> {
+  const e164 = normalizeE164(input.e164 ?? "");
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (!e164 && !email) return null;
+
+  const existing =
+    (e164 ? await findPhoneContactByE164(e164) : null) ||
+    (email ? await findPhoneContactByEmail(email) : null);
+
+  const tagSet = new Set<string>([
+    ...(existing?.tags ?? []),
+    ...(input.tags ?? []),
+    "sendpulse",
+  ]);
+  if (input.sendpulseContactId) tagSet.add(`sp:${input.sendpulseContactId}`);
+
+  const noteBits = [
+    existing?.notes?.trim() ?? "",
+    input.notes?.trim() ?? "",
+    input.sendpulseContactId ? `SendPulse contact id: ${input.sendpulseContactId}` : "",
+  ].filter(Boolean);
+  const notes = [...new Set(noteBits)].join("\n").slice(0, 2000);
+
+  return upsertPhoneContact({
+    id: existing?.id,
+    displayName: input.displayName.trim() || existing?.displayName || e164 || email,
+    e164: e164 || existing?.e164 || "",
+    email: email || existing?.email || "",
+    company: existing?.company,
+    notes,
+    tags: [...tagSet],
+    isFavorite: existing?.isFavorite,
+    isPriority: existing?.isPriority,
+  });
+}
+
+export async function findSendpulseTicketByDedupeKey(
+  dedupeKey: string,
+): Promise<CallCenterSendpulseTicket | null> {
+  const key = dedupeKey.trim();
+  if (!key) return null;
+  const result = await table<Record<string, unknown>>("call_center_sendpulse_tickets")
+    .select("*")
+    .eq("dedupe_key", key)
+    .maybeSingle();
+  if (result.error || !result.data) return null;
+  return mapSendpulseTicket(result.data);
+}
+
+export async function upsertSendpulseTicket(input: {
+  dedupeKey: string;
+  eventTitle: string;
+  service: string;
+  contactId?: string | null;
+  sendpulseContactId?: string;
+  sendpulseBotId?: string;
+  customerName?: string;
+  customerE164?: string;
+  customerEmail?: string;
+  summary?: string;
+  lastMessage?: string;
+  whatsappConversationId?: string | null;
+  metadata?: Record<string, unknown>;
+  status?: CallCenterSendpulseTicket["status"];
+}): Promise<{ ticket: CallCenterSendpulseTicket; duplicate: boolean }> {
+  const dedupeKey = input.dedupeKey.trim();
+  if (!dedupeKey) throw new Error("SendPulse ticket dedupe key required.");
+
+  const prior = await findSendpulseTicketByDedupeKey(dedupeKey);
+  const now = new Date().toISOString();
+  const payload: Record<string, unknown> = {
+    dedupe_key: dedupeKey,
+    source: "sendpulse",
+    event_title: input.eventTitle.trim(),
+    service: (input.service || "").trim(),
+    status: input.status ?? "open",
+    contact_id: input.contactId ?? null,
+    sendpulse_contact_id: (input.sendpulseContactId ?? "").trim(),
+    sendpulse_bot_id: (input.sendpulseBotId ?? "").trim(),
+    customer_name: (input.customerName ?? "").trim(),
+    customer_e164: normalizeE164(input.customerE164 ?? ""),
+    customer_email: (input.customerEmail ?? "").trim().toLowerCase(),
+    summary: (input.summary ?? "").trim().slice(0, 2000),
+    last_message: (input.lastMessage ?? "").trim().slice(0, 2000),
+    whatsapp_conversation_id: input.whatsappConversationId ?? null,
+    metadata: {
+      source: "sendpulse",
+      ...(input.metadata ?? {}),
+    },
+    updated_at: now,
+  };
+
+  if (prior) {
+    const result = await table<Record<string, unknown>>("call_center_sendpulse_tickets")
+      .update({
+        ...payload,
+        // Keep original created_at; refresh preview fields on replay.
+      })
+      .eq("id", prior.id)
+      .select("*")
+      .maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("SendPulse ticket could not be updated.");
+    return { ticket: mapSendpulseTicket(result.data), duplicate: true };
+  }
+
+  const result = await table<Record<string, unknown>>("call_center_sendpulse_tickets")
+    .insert({
+      ...payload,
+      created_at: now,
+    })
+    .select("*")
+    .maybeSingle();
+  throwIfError(result.error);
+  if (!result.data) throw new Error("SendPulse ticket could not be created.");
+  return { ticket: mapSendpulseTicket(result.data), duplicate: false };
 }

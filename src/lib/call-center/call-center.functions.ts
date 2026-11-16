@@ -1396,8 +1396,10 @@ export const loadCallCenterConfigBundle = createSafeAuthenticatedAction(
       listAgentStatuses(),
     ]);
     const provider = await getCallProvider();
+    const { getSendPulseBridgePublicStatus } = await import("./sendpulse");
     return {
       settings: toPublicSettings(settings, provider.name === "livekit"),
+      sendpulseBridge: getSendPulseBridgePublicStatus(settings?.webhook_shared_secret),
       queues,
       members,
       dids,
