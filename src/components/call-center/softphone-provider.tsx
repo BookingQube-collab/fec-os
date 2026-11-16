@@ -45,6 +45,10 @@ import {
 } from "@/lib/call-center/call-center.functions";
 import { collectOwnedE164s, remotePartyE164 } from "@/lib/call-center/call-party";
 import {
+  canShowIncomingOffer,
+  pickActiveIncomingOffer,
+} from "@/lib/call-center/incoming-offer";
+import {
   stopSoftphoneRingtone,
   unlockSoftphoneAudio,
 } from "@/lib/call-center/softphone-audio";
@@ -60,6 +64,7 @@ import type {
 import { canUserDo } from "@/lib/rbac";
 
 const WORKSPACE_KEY = ["call-center", "workspace"] as const;
+const RINGING_KEY = ["call-center", "ringing"] as const;
 const SPEAKER_MUTE_KEY = "cc-speaker-muted:v1";
 
 type SoftphoneContextValue = {
@@ -236,9 +241,15 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     },
   });
 
+  const allowIncoming = canShowIncomingOffer({
+    workspaceStatus: workspace.data?.status.status,
+    activeCall: Boolean(activeCall),
+    acwRemaining,
+  });
+
   const ringingQuery = useQuery({
-    queryKey: ["call-center", "ringing"],
-    enabled: canUse && workspace.data?.status.status === "available" && !activeCall,
+    queryKey: RINGING_KEY,
+    enabled: canUse && allowIncoming,
     refetchInterval: 2_000,
     queryFn: async () => {
       const result = await pollCallCenterIncoming({});
@@ -247,7 +258,13 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     },
   });
 
-  const incoming = ringingQuery.data?.[0] ?? workspace.data?.ringing[0] ?? null;
+  // Disabled queries keep stale data — never surface Incoming during ACW/busy from cache.
+  const incoming = allowIncoming
+    ? pickActiveIncomingOffer(
+        ringingQuery.data ?? workspace.data?.ringing,
+        workspace.data?.recentCalls ?? [],
+      )
+    : null;
   wrapUpRef.current = workspace.data?.wrapUpSeconds ?? 30;
   const autoAnswerEnabled = Boolean(workspace.data?.status.autoAnswer);
   const defaultCallerId = workspace.data?.settings.outboundCallerIdE164?.trim() || "";
@@ -303,6 +320,16 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     }
   }, [activeCall?.id]);
 
+  const clearIncomingCache = useCallback(() => {
+    queryClient.setQueryData(RINGING_KEY, []);
+    void queryClient.cancelQueries({ queryKey: RINGING_KEY });
+    queryClient.setQueryData(
+      WORKSPACE_KEY,
+      (prev: { ringing?: CallCenterCall[] } | undefined) =>
+        prev ? { ...prev, ringing: [] } : prev,
+    );
+  }, [queryClient]);
+
   const clearAcwTimer = useCallback(() => {
     if (acwTimerRef.current != null) {
       window.clearInterval(acwTimerRef.current);
@@ -314,6 +341,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   const startAcwTimer = useCallback(
     (seconds: number) => {
       clearAcwTimer();
+      clearIncomingCache();
       const total = Math.max(5, Math.min(300, seconds || 30));
       setAcwRemaining(total);
       acwTimerRef.current = window.setInterval(() => {
@@ -337,7 +365,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
         });
       }, 1000);
     },
-    [clearAcwTimer, queryClient, t],
+    [clearAcwTimer, clearIncomingCache, queryClient, t],
   );
 
   useEffect(() => () => clearAcwTimer(), [clearAcwTimer]);
@@ -360,6 +388,15 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     startAcwTimer(wrapUpRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- react to server CDR updates only
   }, [workspace.data?.recentCalls, activeCall?.id]);
+
+  // PSTN cancel while ringing: drop stale Incoming as soon as Recent shows missed/declined.
+  useEffect(() => {
+    if (!incoming) return;
+    const latest = workspace.data?.recentCalls.find((c) => c.id === incoming.id);
+    if (!latest || !["ended", "missed", "failed", "declined"].includes(latest.status)) return;
+    clearIncomingCache();
+    stopSoftphoneRingtone();
+  }, [workspace.data?.recentCalls, incoming?.id, clearIncomingCache]);
 
   const transferTargets = useMemo((): CallCenterTransferTarget[] => {
     const agents = wallboard.data?.agents ?? workspace.data?.agents ?? [];
@@ -513,6 +550,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     stopSoftphoneRingtone();
     void unlockSoftphoneAudio();
     clearAcwTimer();
+    clearIncomingCache();
 
     // Optimistic: leave Incoming modal immediately and show Connecting… while bridge runs.
     const seed =
@@ -589,6 +627,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   async function onDecline() {
     if (!incoming) return;
     stopSoftphoneRingtone();
+    clearIncomingCache();
     setPending(true);
     const result = await declineCallCenterCall({ callId: incoming.id });
     setPending(false);
@@ -884,7 +923,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     setMicMuted,
     speakerMuted,
     setSpeakerMuted: (muted: boolean) => setSpeakerMuted(muted),
-    incoming: activeCall ? null : incoming,
+    incoming,
     recentCalls: workspace.data?.recentCalls ?? [],
     transferTargets,
     agentUserId: user?.id ?? null,

@@ -125,6 +125,8 @@ export function CallCenterSoftphoneRoom({
     attached.clear();
     let cancelled = false;
 
+    const mountedTrackSids = new Set<string>();
+
     const refreshRemoteAudio = () => {
       let hasAudio = false;
       room.remoteParticipants.forEach((participant) => {
@@ -137,6 +139,12 @@ export function CallCenterSoftphoneRoom({
 
     const mountRemoteAudio = (track: Track) => {
       if (track.kind !== Track.Kind.Audio) return;
+      const sid = track.sid ?? "";
+      if (sid && mountedTrackSids.has(sid)) {
+        refreshRemoteAudio();
+        return;
+      }
+      if (sid) mountedTrackSids.add(sid);
       const element = track.attach();
       element.className = "sr-only";
       element.muted = speakerMuted;
@@ -161,10 +169,17 @@ export function CallCenterSoftphoneRoom({
     };
 
     room.on(RoomEvent.ConnectionStateChanged, refresh);
-    room.on(RoomEvent.ParticipantConnected, refresh);
+    room.on(RoomEvent.ParticipantConnected, () => {
+      attachExistingRemotes();
+      refresh();
+    });
     room.on(RoomEvent.ParticipantDisconnected, refresh);
     room.on(RoomEvent.TrackSubscribed, (track) => mountRemoteAudio(track));
-    room.on(RoomEvent.TrackUnsubscribed, refreshRemoteAudio);
+    room.on(RoomEvent.TrackUnsubscribed, (track) => {
+      const sid = track.sid ?? "";
+      if (sid) mountedTrackSids.delete(sid);
+      refreshRemoteAudio();
+    });
     room.on(RoomEvent.TrackMuted, refreshRemoteAudio);
     room.on(RoomEvent.TrackUnmuted, refreshRemoteAudio);
     room.on(RoomEvent.Disconnected, refresh);
@@ -185,13 +200,21 @@ export function CallCenterSoftphoneRoom({
       }
     })();
 
+    // Late SIP join after Answer: periodically re-attach until caller audio appears.
+    const pollId = window.setInterval(() => {
+      if (cancelled) return;
+      attachExistingRemotes();
+    }, 1_500);
+
     return () => {
       cancelled = true;
+      window.clearInterval(pollId);
       for (const element of attached) {
         element.pause();
         element.remove();
       }
       attached.clear();
+      mountedTrackSids.clear();
       room.localParticipant.trackPublications.forEach((publication) => {
         publication.track?.stop();
       });

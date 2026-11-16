@@ -25,6 +25,7 @@ import {
   ensureLiveKitRoom,
   waitForSipParticipantInRoom,
 } from "./livekit-sip";
+import { shouldSkipHoldMusic } from "./incoming-offer";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
 import { createTelnyxClient, resolveTelnyxApiKey, type TelnyxClient, type TelnyxEvent } from "./telnyx";
 import type { CallCenterCall, CallCenterSettingsRow, InboundRouteResult } from "./types";
@@ -275,6 +276,11 @@ async function speakThenHangup(ctx: Ctx, text: string) {
 }
 
 async function startHold(ctx: Ctx) {
+  const call = await findCallByProviderCallId(ctx.ccid).catch(() => null);
+  if (call && shouldSkipHoldMusic(call)) {
+    ctx.actions.push("hold_music:skipped(bridging)");
+    return;
+  }
   const url = ctx.settings?.hold_music_url?.trim() ?? "";
   if (!url) return;
   await exec(ctx, "hold_music", (c) => c.playbackStart(ctx.ccid, url, { step: "hold" }, true));
@@ -462,7 +468,13 @@ export async function handleTelnyxEvent(
     case "call.gather.ended": {
       const call = await findCallByProviderCallId(ev.callControlId);
       if (!call) return done(false, "unknown call");
-      if (ev.gatherStatus === "call_hangup") return done(true, "caller hung up", call.id);
+      if (ev.gatherStatus === "call_hangup") {
+        // Do not wait for a separate call.hangup — leaving status as ivr/queued keeps the
+        // softphone Incoming modal alive (ghost re-offer) until the next poll clears it.
+        const updated = await finalizeCarrierHangup(call, "Caller hung up during IVR gather");
+        if (updated.livekitRoom && metaOf(call).bridgedAt) await deleteLiveKitRoom(updated.livekitRoom);
+        return done(true, `hangup:gather:${updated.status}`, call.id);
+      }
 
       const gatherStep = typeof ev.clientState.step === "string" ? ev.clientState.step : "";
       const meta = metaOf(call);
@@ -547,7 +559,12 @@ export async function handleTelnyxEvent(
         await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
       } else if (step === "welcome") {
         // Agent may have answered (bridge) while the welcome prompt was playing.
+        // Restarting hold after playback_stop races Telnyx transfer → SIP never publishes
+        // and the softphone sits on "Connected — waiting for caller audio".
         const fresh = (await getCall(call.id)) ?? call;
+        if (shouldSkipHoldMusic(fresh)) {
+          return done(true, `${ev.eventType}:skipped_bridge`, call.id);
+        }
         if (WAITING_STATUSES.has(fresh.status)) await startHold(ctx);
       }
       return done(true, `${ev.eventType}:${step || "-"}`, call.id);
@@ -601,6 +618,13 @@ export async function bridgeCallerToLiveKit(
     throw new Error(e instanceof Error ? e.message : "LiveKit SIP is not configured.");
   }
 
+  // Mark bridge before stopping media so welcome playback.ended cannot restart hold mid-transfer.
+  await patchMeta(call.id, {
+    bridgeInProgress: true,
+    bridgeError: null,
+    bridgePendingSip: true,
+  });
+
   try {
     await telnyx.playbackStop(call.providerCallId);
   } catch {
@@ -625,13 +649,20 @@ export async function bridgeCallerToLiveKit(
     (call.toE164?.startsWith("+") ? call.toE164 : "") ||
     undefined;
 
+  const transferOpts = {
+    from,
+    headers: [{ name: "X-FEC-Call-Id", value: call.id }],
+    clientState: { step: "bridge", callId: call.id },
+  };
+
   try {
-    await telnyx.transfer(call.providerCallId, uri, {
-      from,
-      headers: [{ name: "X-FEC-Call-Id", value: call.id }],
-      clientState: { step: "bridge", callId: call.id },
-    });
+    await telnyx.transfer(call.providerCallId, uri, transferOpts);
   } catch (e) {
+    await patchMeta(call.id, {
+      bridgeInProgress: false,
+      bridgePendingSip: false,
+      bridgeError: e instanceof Error ? e.message : "transfer failed",
+    });
     if (e instanceof TelnyxApiError && (e.status === 404 || e.status === 422)) {
       throw new Error("The caller is no longer on the line.");
     }
@@ -643,21 +674,42 @@ export async function bridgeCallerToLiveKit(
     bridgeError: null,
     bridgeDispatchHeal: dispatchHeal.detail,
     bridgePendingSip: true,
+    bridgeInProgress: true,
   });
 
   // Soft-verify in the background — Answer returns as soon as Telnyx transfer is accepted.
   // Softphone shows "Connecting…" / "waiting for caller audio" until SIP publishes.
+  // If the first INVITE was raced by hold/speak, retry transfer once.
   void (async () => {
-    const sipIdentity = await waitForSipParticipantInRoom(roomName, 2_500);
+    let sipIdentity = await waitForSipParticipantInRoom(roomName, 3_500);
+    if (!sipIdentity) {
+      try {
+        await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
+        await telnyx.transfer(call.providerCallId, uri, transferOpts);
+        sipIdentity = await waitForSipParticipantInRoom(roomName, 6_000);
+      } catch (e) {
+        await patchMeta(call.id, {
+          bridgePendingSip: true,
+          bridgeInProgress: false,
+          bridgeVerifyNote:
+            e instanceof Error
+              ? `SIP bridge retry failed: ${e.message}`
+              : "SIP bridge retry failed.",
+        });
+        return;
+      }
+    }
     if (sipIdentity) {
       await patchMeta(call.id, {
         sipParticipantIdentity: sipIdentity,
         bridgeVerifiedAt: new Date().toISOString(),
         bridgePendingSip: false,
+        bridgeInProgress: false,
       });
     } else {
       await patchMeta(call.id, {
         bridgePendingSip: true,
+        bridgeInProgress: false,
         bridgeVerifyNote:
           "SIP participant not listed yet after transfer; softphone will wait for caller audio.",
       });
