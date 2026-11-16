@@ -1,16 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Settings } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { CallCenterSecretField } from "@/components/call-center/secret-field";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -18,68 +16,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import {
   assignCallCenterWhatsappConversation,
-  loadCallCenterConfigBundle,
   loadCallCenterWhatsappInbox,
   loadCallCenterWhatsappTemplates,
-  removeCallCenterWhatsappTemplate,
   replyCallCenterWhatsappMessage,
-  saveCallCenterSettings,
-  saveCallCenterWhatsappTemplate,
   sendCallCenterWhatsappTemplate,
 } from "@/lib/call-center/call-center.functions";
-import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { CallCenterShell } from "@/views/call-center-section-nav";
-
-function baseSettingsPayload(s: CallCenterSettingsPublic) {
-  return {
-    enabled: s.enabled,
-    ivrEnabled: s.ivrEnabled,
-    businessHoursEnabled: s.businessHoursEnabled,
-    businessHoursJson: s.businessHoursJson,
-    timezone: s.timezone,
-    defaultQueueId: s.defaultQueueId,
-    telnyxSipUri: s.telnyxSipUri,
-    telnyxConnectionId: s.telnyxConnectionId,
-    telnyxApiKey: "",
-    telnyxWebhookSecret: "",
-    livekitSipTrunkId: s.livekitSipTrunkId,
-    livekitSipDispatchRuleId: s.livekitSipDispatchRuleId,
-    webhookSharedSecret: "",
-    notes: s.notes,
-    aiFirstAnswerEnabled: s.aiFirstAnswerEnabled,
-    aiHandoffEnabled: s.aiHandoffEnabled,
-    aiNotes: s.aiNotes,
-    aiSystemPromptEn: s.aiSystemPromptEn,
-    aiSystemPromptAr: s.aiSystemPromptAr,
-    aiWelcomeEn: s.aiWelcomeEn,
-    aiWelcomeAr: s.aiWelcomeAr,
-    aiProvider: s.aiProvider,
-    aiModel: s.aiModel,
-    aiApiKey: "",
-    aiBaseUrl: s.aiBaseUrl,
-    aiLanguages: s.aiLanguages,
-    aiHandoffAfterSeconds: s.aiHandoffAfterSeconds,
-    aiHandoffKeywords: s.aiHandoffKeywords,
-    aiHandoffQueueId: s.aiHandoffQueueId,
-    aiLivekitAgentName: s.aiLivekitAgentName,
-    outboundCallerIdE164: s.outboundCallerIdE164,
-    webhookOutboundUrl: s.webhookOutboundUrl,
-    afterHoursGreeting: s.afterHoursGreeting,
-    afterHoursAction: s.afterHoursAction,
-    welcomeGreeting: s.welcomeGreeting,
-    welcomeAudioUrl: s.welcomeAudioUrl,
-    holdMusicUrl: s.holdMusicUrl,
-    ttsEnabled: s.ttsEnabled,
-    ttsVoice: s.ttsVoice,
-    ttsGreetingText: s.ttsGreetingText,
-  };
-}
 
 function CallCenterWhatsappPage() {
   const { t } = useTranslation();
@@ -93,19 +40,6 @@ function CallCenterWhatsappPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
-
-  const [enabled, setEnabled] = useState(false);
-  const [phoneNumberId, setPhoneNumberId] = useState("");
-  const [wabaId, setWabaId] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [verifyToken, setVerifyToken] = useState("");
-  const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
-  const [autoReplyText, setAutoReplyText] = useState("");
-  const [tplName, setTplName] = useState("");
-  const [tplLanguage, setTplLanguage] = useState("en");
-  const [tplBody, setTplBody] = useState("");
   const [tplSendingId, setTplSendingId] = useState<string | null>(null);
 
   const inbox = useQuery({
@@ -117,16 +51,6 @@ function CallCenterWhatsappPage() {
       return result.data;
     },
     refetchInterval: 15_000,
-  });
-
-  const config = useQuery({
-    queryKey: ["call-center", "config"],
-    enabled: canUse && canEdit,
-    queryFn: async () => {
-      const result = await loadCallCenterConfigBundle({});
-      if (!result.ok) throw new Error(result.error);
-      return result.data;
-    },
   });
 
   const templates = useQuery({
@@ -143,44 +67,6 @@ function CallCenterWhatsappPage() {
     if (!inbox.data?.selectedConversationId) return;
     if (!selectedId) setSelectedId(inbox.data.selectedConversationId);
   }, [inbox.data?.selectedConversationId, selectedId]);
-
-  useEffect(() => {
-    const s = config.data?.settings ?? inbox.data?.settings;
-    if (!s || hydrated) return;
-    setEnabled(s.whatsappEnabled);
-    setPhoneNumberId(s.whatsappPhoneNumberId);
-    setWabaId(s.whatsappWabaId);
-    setAutoReplyEnabled(s.whatsappAutoReplyEnabled);
-    setAutoReplyText(s.whatsappAutoReplyText);
-    setHydrated(true);
-  }, [config.data?.settings, inbox.data?.settings, hydrated]);
-
-  async function saveSettings() {
-    const s = config.data?.settings ?? inbox.data?.settings;
-    if (!s) return;
-    setSavingSettings(true);
-    const result = await saveCallCenterSettings({
-      ...baseSettingsPayload(s),
-      whatsappEnabled: enabled,
-      whatsappPhoneNumberId: phoneNumberId,
-      whatsappWabaId: wabaId,
-      whatsappAccessToken: accessToken,
-      whatsappVerifyToken: verifyToken,
-      whatsappAutoReplyEnabled: autoReplyEnabled,
-      whatsappAutoReplyText: autoReplyText,
-    });
-    setSavingSettings(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    setAccessToken("");
-    setVerifyToken("");
-    toast.success(t("callCenter.whatsappSaved"));
-    setHydrated(false);
-    await queryClient.invalidateQueries({ queryKey: ["call-center", "config"] });
-    await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-inbox"] });
-  }
 
   async function sendReply() {
     if (!selectedId || !reply.trim()) return;
@@ -227,10 +113,11 @@ function CallCenterWhatsappPage() {
     );
   }
 
-  const settings = inbox.data?.settings ?? config.data?.settings;
+  const settings = inbox.data?.settings;
   const conversations = inbox.data?.conversations ?? [];
   const messages = inbox.data?.messages ?? [];
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+  const activeTemplates = (templates.data ?? []).filter((tpl) => tpl.isActive !== false);
 
   return (
     <CallCenterShell titleKey="callCenter.whatsappTitle" subtitleKey="callCenter.whatsappSubtitle">
@@ -243,184 +130,15 @@ function CallCenterWhatsappPage() {
         <span className="text-xs text-muted-foreground">
           POST /api/public/call-center/whatsapp
         </span>
-      </div>
-
-      <section className="mb-4 rounded-2xl border border-border/50 bg-card p-4">
-        <h2 className="text-sm font-semibold">{t("callCenter.whatsappTemplates")}</h2>
         {canEdit ? (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label>{t("callCenterAdmin.label")}</Label>
-              <Input value={tplName} onChange={(e) => setTplName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenter.whatsappTemplateLanguage", "Language")}</Label>
-              <Input value={tplLanguage} onChange={(e) => setTplLanguage(e.target.value)} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
-              <Label>{t("callCenter.whatsappTemplateBody", "Body")}</Label>
-              <Textarea rows={2} value={tplBody} onChange={(e) => setTplBody(e.target.value)} />
-            </div>
-            <Button
-              type="button"
-              disabled={!tplName.trim()}
-              onClick={() => {
-                void (async () => {
-                  const result = await saveCallCenterWhatsappTemplate({
-                    name: tplName.trim(),
-                    language: tplLanguage.trim() || "en",
-                    body: tplBody,
-                    isActive: true,
-                  });
-                  if (!result.ok) toast.error(result.error);
-                  else {
-                    toast.success(t("callCenter.whatsappTemplateSaved"));
-                    setTplName("");
-                    setTplBody("");
-                    await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-templates"] });
-                  }
-                })();
-              }}
-            >
-              {t("callCenter.qaSaveTemplate")}
-            </Button>
-          </div>
-        ) : null}
-        <ul className="mt-4 divide-y divide-border/50 rounded-xl border border-border/40">
-          {(templates.data ?? []).map((tpl) => (
-            <li key={tpl.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-              <span className="font-medium">{tpl.name}</span>
-              <span className="text-xs text-muted-foreground">{tpl.language}</span>
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{tpl.body}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={!selectedId || tplSendingId === tpl.id}
-                onClick={() => {
-                  if (!selectedId) return;
-                  void (async () => {
-                    setTplSendingId(tpl.id);
-                    try {
-                      const result = await sendCallCenterWhatsappTemplate({
-                        conversationId: selectedId,
-                        templateId: tpl.id,
-                      });
-                      if (!result.ok) throw new Error(result.error);
-                      if (!result.data.sent) toast.error(result.data.error || t("callCenter.whatsappSendFailed"));
-                      else toast.success(t("callCenter.whatsappTemplateSent"));
-                      await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-inbox"] });
-                    } catch (error) {
-                      toast.error(error instanceof Error ? error.message : t("callCenter.loadError"));
-                    } finally {
-                      setTplSendingId(null);
-                    }
-                  })();
-                }}
-              >
-                {t("callCenter.whatsappSendTemplate")}
-              </Button>
-              {canEdit ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => {
-                    void (async () => {
-                      const result = await removeCallCenterWhatsappTemplate({ id: tpl.id });
-                      if (!result.ok) toast.error(result.error);
-                      else {
-                        toast.success(t("callCenter.whatsappTemplateRemoved"));
-                        await queryClient.invalidateQueries({ queryKey: ["call-center", "whatsapp-templates"] });
-                      }
-                    })();
-                  }}
-                >
-                  ×
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {canEdit ? (
-        <section className="mb-4 space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">{t("callCenter.whatsappSettings")}</h2>
-              <p className="text-xs text-muted-foreground">{t("callCenter.whatsappSettingsHint")}</p>
-            </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>{t("callCenter.whatsappPhoneNumberId")}</Label>
-              <Input
-                value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenter.whatsappWabaId")}</Label>
-              <Input
-                value={wabaId}
-                onChange={(e) => setWabaId(e.target.value)}
-                className="font-mono text-xs"
-              />
-            </div>
-            <CallCenterSecretField
-              id="cc-wa-access-token"
-              label={t("callCenter.whatsappAccessToken")}
-              value={accessToken}
-              onChange={setAccessToken}
-              isSet={Boolean(settings?.whatsappAccessTokenSet)}
-              last4={settings?.whatsappAccessTokenLast4 ?? ""}
-              revealField="whatsapp_access_token"
-            />
-            <CallCenterSecretField
-              id="cc-wa-verify-token"
-              label={t("callCenter.whatsappVerifyToken")}
-              value={verifyToken}
-              onChange={setVerifyToken}
-              isSet={Boolean(settings?.whatsappVerifyTokenSet)}
-              last4={settings?.whatsappVerifyTokenLast4 ?? ""}
-              revealField="whatsapp_verify_token"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">{t("callCenter.whatsappEnvHint")}</p>
-          <div className="rounded-xl border border-border/40 p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">{t("callCenter.whatsappAutoReply")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t("callCenter.whatsappAutoReplyHint")}
-                </p>
-              </div>
-              <Switch checked={autoReplyEnabled} onCheckedChange={setAutoReplyEnabled} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t("callCenter.whatsappAutoReplyText")}</Label>
-              <Textarea
-                rows={3}
-                value={autoReplyText}
-                onChange={(e) => setAutoReplyText(e.target.value)}
-                placeholder={t("callCenter.whatsappAutoReplyPlaceholder")}
-                maxLength={4096}
-              />
-              <p className="text-[11px] text-muted-foreground">{autoReplyText.length}/4096</p>
-            </div>
-          </div>
-          <Button
-            type="button"
-            disabled={savingSettings}
-            onClick={() => void saveSettings()}
-          >
-            {savingSettings ? t("callCenterAdmin.saving") : t("callCenterAdmin.save")}
+          <Button type="button" size="sm" variant="outline" className="ms-auto gap-1.5" asChild>
+            <Link href="/call-center/settings#whatsapp">
+              <Settings className="h-3.5 w-3.5" aria-hidden />
+              {t("callCenter.whatsappOpenSettings")}
+            </Link>
           </Button>
-        </section>
-      ) : null}
+        ) : null}
+      </div>
 
       {inbox.isLoading ? (
         <div className="flex justify-center py-16">
@@ -505,7 +223,7 @@ function CallCenterWhatsappPage() {
                         {(inbox.data?.agents ?? []).map((a) => (
                           <SelectItem key={a.userId} value={a.userId}>
                             {a.displayName}
-                              {a.extension ? ` · Ext ${a.extension}` : ""}
+                            {a.extension ? ` · Ext ${a.extension}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -515,6 +233,50 @@ function CallCenterWhatsappPage() {
                     </Button>
                   </div>
                 </div>
+                {activeTemplates.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 border-b border-border/30 px-4 py-2">
+                    <span className="self-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("callCenter.whatsappSendTemplate")}
+                    </span>
+                    {activeTemplates.map((tpl) => (
+                      <Button
+                        key={tpl.id}
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={tplSendingId === tpl.id}
+                        onClick={() => {
+                          void (async () => {
+                            setTplSendingId(tpl.id);
+                            try {
+                              const result = await sendCallCenterWhatsappTemplate({
+                                conversationId: selected.id,
+                                templateId: tpl.id,
+                              });
+                              if (!result.ok) throw new Error(result.error);
+                              if (!result.data.sent) {
+                                toast.error(result.data.error || t("callCenter.whatsappSendFailed"));
+                              } else {
+                                toast.success(t("callCenter.whatsappTemplateSent"));
+                              }
+                              await queryClient.invalidateQueries({
+                                queryKey: ["call-center", "whatsapp-inbox"],
+                              });
+                            } catch (error) {
+                              toast.error(
+                                error instanceof Error ? error.message : t("callCenter.loadError"),
+                              );
+                            } finally {
+                              setTplSendingId(null);
+                            }
+                          })();
+                        }}
+                      >
+                        {tpl.name}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
                   {messages.map((m) => (
                     <div

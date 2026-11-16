@@ -11,6 +11,7 @@ import {
   upsertWhatsappInboundMessage,
 } from "@/lib/call-center/db";
 import type { CallCenterWhatsappMessage } from "@/lib/call-center/types";
+import { verifyMetaHubSignature, verifyMetaWebhookChallenge } from "@/lib/meta";
 
 /**
  * Meta WhatsApp Cloud API webhook.
@@ -25,13 +26,15 @@ import type { CallCenterWhatsappMessage } from "@/lib/call-center/types";
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const mode = url.searchParams.get("hub.mode");
-  const token = url.searchParams.get("hub.verify_token");
-  const challenge = url.searchParams.get("hub.challenge");
-
   const settings = await loadSettingsRow();
   const expected = resolveWhatsappVerifyToken(settings);
-  if (mode === "subscribe" && challenge && expected && token === expected) {
+  const challenge = verifyMetaWebhookChallenge({
+    mode: url.searchParams.get("hub.mode"),
+    token: url.searchParams.get("hub.verify_token"),
+    challenge: url.searchParams.get("hub.challenge"),
+    expectedToken: expected,
+  });
+  if (challenge !== null) {
     return new NextResponse(challenge, { status: 200 });
   }
   return NextResponse.json({ ok: false, error: "Verification failed" }, { status: 403 });
@@ -98,10 +101,22 @@ async function maybeAutoReplyAndPersist(input: {
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const isDemo = url.searchParams.get("demo") === "1";
+  const rawBody = await request.text();
+
+  if (!isDemo) {
+    const signatureOk = verifyMetaHubSignature({
+      rawBody,
+      signatureHeader: request.headers.get("x-hub-signature-256"),
+      requireSignature: Boolean(process.env.META_REQUIRE_WEBHOOK_SIGNATURE?.trim()),
+    });
+    if (!signatureOk) {
+      return NextResponse.json({ ok: false, error: "Invalid signature" }, { status: 401 });
+    }
+  }
 
   let body: unknown;
   try {
-    body = await request.json();
+    body = rawBody ? JSON.parse(rawBody) : {};
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }

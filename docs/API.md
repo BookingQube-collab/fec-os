@@ -15,6 +15,8 @@ HTTP Request
 
 Public and cron endpoints bypass this wrapper and use dedicated secrets/tokens.
 
+Meta messaging (WhatsApp Cloud + Instagram): see [meta-messaging.md](./meta-messaging.md) — webhooks under `/api/public/call-center/whatsapp` and `/api/public/meta/*`.
+
 ## Auth wrappers
 
 | Export | Use when |

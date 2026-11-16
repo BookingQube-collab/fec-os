@@ -26,7 +26,7 @@ These are **not** created by the Supabase integration. Add them in the Vercel UI
 | `ATTENDANCE_INGEST_API_KEY` | Production (and Preview if testing) | `POST /api/public/attendance-ingest` — see [attendance-ingest.md](./api/attendance-ingest.md). |
 | `ADMS_COMM_KEY` | Production (if BioPro SA40 / ZKTeco ADMS push is used) | Optional. A registered terminal that sends no comm key is accepted when this is unset. If the device sends a key, it must match. Pair with a mapped device SN in Time & Attendance → Settings. Optional `ADMS_IP_ALLOWLIST`. |
 
-Other optional keys (`BOOKINGQUBE_*`, etc.) — see `.env.example` if present.
+Other optional keys (`BOOKINGQUBE_*`, Meta WhatsApp/Instagram `WHATSAPP_*` / `INSTAGRAM_*` / `META_*`, etc.) — see `.env.example` and [meta-messaging.md](./meta-messaging.md).
 
 ### AI drafts (PR, event plan, reports, checklists)
 

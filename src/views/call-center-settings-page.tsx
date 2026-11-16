@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Volume2 } from "lucide-react";
+import { Bot, Plus, Trash2, Volume2 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -9,6 +10,7 @@ import { toast } from "sonner";
 import { CallCenterAudioUrlField } from "@/components/call-center/audio-url-field";
 import { CallCenterSecretField } from "@/components/call-center/secret-field";
 import { FecButton as Button, FecLoader } from "@/components/fec";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -24,12 +26,15 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   checkCallCenterCarrier,
   loadCallCenterConfigBundle,
+  loadCallCenterWhatsappTemplates,
   previewCallCenterTtsVoice,
   removeCallCenterHoliday,
   removeCallCenterWebhookEndpoint,
+  removeCallCenterWhatsappTemplate,
   saveCallCenterHoliday,
   saveCallCenterSettings,
   saveCallCenterWebhookEndpoint,
+  saveCallCenterWhatsappTemplate,
 } from "@/lib/call-center/call-center.functions";
 import {
   DEFAULT_TTS_VOICE,
@@ -118,9 +123,35 @@ function CallCenterSettingsPage() {
   const [ttsVoice, setTtsVoice] = useState(DEFAULT_TTS_VOICE);
   const [ttsGreetingText, setTtsGreetingText] = useState("");
   const [recordAllCalls, setRecordAllCalls] = useState(true);
+  const [recordingStorageBaseUrl, setRecordingStorageBaseUrl] = useState("");
+  const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [whatsappPhoneNumberId, setWhatsappPhoneNumberId] = useState("");
+  const [whatsappWabaId, setWhatsappWabaId] = useState("");
+  const [whatsappAccessToken, setWhatsappAccessToken] = useState("");
+  const [whatsappVerifyToken, setWhatsappVerifyToken] = useState("");
+  const [whatsappAutoReplyEnabled, setWhatsappAutoReplyEnabled] = useState(false);
+  const [whatsappAutoReplyText, setWhatsappAutoReplyText] = useState("");
+  const [instagramEnabled, setInstagramEnabled] = useState(false);
+  const [instagramPageId, setInstagramPageId] = useState("");
+  const [instagramIgUserId, setInstagramIgUserId] = useState("");
+  const [instagramPageAccessToken, setInstagramPageAccessToken] = useState("");
+  const [instagramVerifyToken, setInstagramVerifyToken] = useState("");
+  const [tplName, setTplName] = useState("");
+  const [tplLanguage, setTplLanguage] = useState("en");
+  const [tplBody, setTplBody] = useState("");
   const [previewingTts, setPreviewingTts] = useState(false);
   const ttsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsPreviewUrlRef = useRef<string | null>(null);
+
+  const templates = useQuery({
+    queryKey: ["call-center", "whatsapp-templates"],
+    enabled: canUse && canEdit,
+    queryFn: async () => {
+      const result = await loadCallCenterWhatsappTemplates({});
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
+  });
 
   function applyPublicSettings(s: CallCenterSettingsPublic) {
     setEnabled(s.enabled);
@@ -135,6 +166,15 @@ function CallCenterSettingsPage() {
     setTtsVoice(s.ttsVoice);
     setTtsGreetingText(s.ttsGreetingText);
     setRecordAllCalls(s.recordAllCalls !== false);
+    setRecordingStorageBaseUrl(s.recordingStorageBaseUrl ?? "");
+    setWhatsappEnabled(s.whatsappEnabled);
+    setWhatsappPhoneNumberId(s.whatsappPhoneNumberId);
+    setWhatsappWabaId(s.whatsappWabaId);
+    setWhatsappAutoReplyEnabled(s.whatsappAutoReplyEnabled);
+    setWhatsappAutoReplyText(s.whatsappAutoReplyText);
+    setInstagramEnabled(s.instagramEnabled);
+    setInstagramPageId(s.instagramPageId);
+    setInstagramIgUserId(s.instagramIgUserId);
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
@@ -261,6 +301,19 @@ function CallCenterSettingsPage() {
       ttsVoice,
       ttsGreetingText,
       recordAllCalls,
+      recordingStorageBaseUrl,
+      whatsappEnabled,
+      whatsappPhoneNumberId,
+      whatsappWabaId,
+      whatsappAccessToken,
+      whatsappVerifyToken,
+      whatsappAutoReplyEnabled,
+      whatsappAutoReplyText,
+      instagramEnabled,
+      instagramPageId,
+      instagramIgUserId,
+      instagramPageAccessToken,
+      instagramVerifyToken,
     });
     setSaving(false);
     if (!result.ok) {
@@ -274,6 +327,10 @@ function CallCenterSettingsPage() {
     setTelnyxApiKey("");
     setTelnyxWebhookSecret("");
     setWebhookSharedSecret("");
+    setWhatsappAccessToken("");
+    setWhatsappVerifyToken("");
+    setInstagramPageAccessToken("");
+    setInstagramVerifyToken("");
     queryClient.setQueryData(["call-center", "config"], (prev) =>
       prev ? { ...prev, settings: result.data } : prev,
     );
@@ -340,6 +397,19 @@ function CallCenterSettingsPage() {
                 checked={recordAllCalls}
                 onCheckedChange={setRecordAllCalls}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cc-recording-base">{t("callCenter.recordingStorageBaseUrl")}</Label>
+              <Input
+                id="cc-recording-base"
+                value={recordingStorageBaseUrl}
+                onChange={(e) => setRecordingStorageBaseUrl(e.target.value)}
+                placeholder="https://cdn.example.com/recordings"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="url"
+              />
+              <p className="text-xs text-muted-foreground">{t("callCenter.recordingStorageBaseUrlHint")}</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -846,6 +916,251 @@ function CallCenterSettingsPage() {
               <Button type="button" className="min-h-11 w-full sm:w-auto" disabled={saving} onClick={() => void save()}>
                 {saving ? t("callCenterAdmin.saving") : t("callCenterAdmin.save")}
               </Button>
+            </div>
+          </section>
+
+          <section
+            id="whatsapp"
+            className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.whatsappSettings")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.whatsappSettingsHint")}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {bundle.data?.settings.whatsappConfigured ? (
+                  <Badge variant="secondary">{t("callCenter.whatsappConfigured")}</Badge>
+                ) : (
+                  <Badge variant="outline">{t("callCenter.whatsappMissing")}</Badge>
+                )}
+                <Switch checked={whatsappEnabled} onCheckedChange={setWhatsappEnabled} />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.whatsappPhoneNumberId")}</Label>
+                <Input
+                  value={whatsappPhoneNumberId}
+                  onChange={(e) => setWhatsappPhoneNumberId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.whatsappWabaId")}</Label>
+                <Input
+                  value={whatsappWabaId}
+                  onChange={(e) => setWhatsappWabaId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <CallCenterSecretField
+                id="cc-wa-access-token"
+                label={t("callCenter.whatsappAccessToken")}
+                value={whatsappAccessToken}
+                onChange={setWhatsappAccessToken}
+                isSet={Boolean(bundle.data?.settings.whatsappAccessTokenSet)}
+                last4={bundle.data?.settings.whatsappAccessTokenLast4 ?? ""}
+                revealField="whatsapp_access_token"
+              />
+              <CallCenterSecretField
+                id="cc-wa-verify-token"
+                label={t("callCenter.whatsappVerifyToken")}
+                value={whatsappVerifyToken}
+                onChange={setWhatsappVerifyToken}
+                isSet={Boolean(bundle.data?.settings.whatsappVerifyTokenSet)}
+                last4={bundle.data?.settings.whatsappVerifyTokenLast4 ?? ""}
+                revealField="whatsapp_verify_token"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.whatsappEnvHint")}</p>
+            <div className="rounded-xl border border-border/40 p-3 space-y-3">
+              <h3 className="text-sm font-medium">{t("callCenter.whatsappTemplates")}</h3>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>{t("callCenterAdmin.label")}</Label>
+                  <Input value={tplName} onChange={(e) => setTplName(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t("callCenter.whatsappTemplateLanguage")}</Label>
+                  <Input value={tplLanguage} onChange={(e) => setTplLanguage(e.target.value)} />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
+                  <Label>{t("callCenter.whatsappTemplateBody")}</Label>
+                  <Textarea rows={2} value={tplBody} onChange={(e) => setTplBody(e.target.value)} />
+                </div>
+                <Button
+                  type="button"
+                  disabled={!tplName.trim()}
+                  onClick={() => {
+                    void (async () => {
+                      const result = await saveCallCenterWhatsappTemplate({
+                        name: tplName.trim(),
+                        language: tplLanguage.trim() || "en",
+                        body: tplBody,
+                        isActive: true,
+                      });
+                      if (!result.ok) toast.error(result.error);
+                      else {
+                        toast.success(t("callCenter.whatsappTemplateSaved"));
+                        setTplName("");
+                        setTplBody("");
+                        await queryClient.invalidateQueries({
+                          queryKey: ["call-center", "whatsapp-templates"],
+                        });
+                      }
+                    })();
+                  }}
+                >
+                  {t("callCenter.qaSaveTemplate")}
+                </Button>
+              </div>
+              <ul className="divide-y divide-border/50 rounded-xl border border-border/40">
+                {(templates.data ?? []).map((tpl) => (
+                  <li key={tpl.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                    <span className="font-medium">{tpl.name}</span>
+                    <span className="text-xs text-muted-foreground">{tpl.language}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                      {tpl.body}
+                    </span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        void (async () => {
+                          const result = await removeCallCenterWhatsappTemplate({ id: tpl.id });
+                          if (!result.ok) toast.error(result.error);
+                          else {
+                            toast.success(t("callCenter.whatsappTemplateRemoved"));
+                            await queryClient.invalidateQueries({
+                              queryKey: ["call-center", "whatsapp-templates"],
+                            });
+                          }
+                        })();
+                      }}
+                    >
+                      ×
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                <Link href="/call-center/whatsapp" className="underline underline-offset-2">
+                  {t("callCenter.whatsappOpenInbox")}
+                </Link>
+              </p>
+            </div>
+          </section>
+
+          <section
+            id="instagram"
+            className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.instagramSettings")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.instagramSettingsHint")}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {bundle.data?.settings.instagramConfigured ? (
+                  <Badge variant="secondary">{t("callCenter.instagramConfigured")}</Badge>
+                ) : (
+                  <Badge variant="outline">{t("callCenter.instagramMissing")}</Badge>
+                )}
+                <Switch checked={instagramEnabled} onCheckedChange={setInstagramEnabled} />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.instagramPageId")}</Label>
+                <Input
+                  value={instagramPageId}
+                  onChange={(e) => setInstagramPageId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.instagramIgUserId")}</Label>
+                <Input
+                  value={instagramIgUserId}
+                  onChange={(e) => setInstagramIgUserId(e.target.value)}
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <CallCenterSecretField
+                id="cc-ig-page-token"
+                label={t("callCenter.instagramPageAccessToken")}
+                value={instagramPageAccessToken}
+                onChange={setInstagramPageAccessToken}
+                isSet={Boolean(bundle.data?.settings.instagramPageAccessTokenSet)}
+                last4={bundle.data?.settings.instagramPageAccessTokenLast4 ?? ""}
+                revealField="instagram_page_access_token"
+              />
+              <CallCenterSecretField
+                id="cc-ig-verify-token"
+                label={t("callCenter.instagramVerifyToken")}
+                value={instagramVerifyToken}
+                onChange={setInstagramVerifyToken}
+                isSet={Boolean(bundle.data?.settings.instagramVerifyTokenSet)}
+                last4={bundle.data?.settings.instagramVerifyTokenLast4 ?? ""}
+                revealField="instagram_verify_token"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.instagramEnvHint")}</p>
+            <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface-2)]/40 px-3 py-2 text-xs text-muted-foreground">
+              {t("callCenter.instagramInboxComing")}
+            </p>
+          </section>
+
+          <section
+            id="automation"
+            className="scroll-mt-24 space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5"
+          >
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight">{t("callCenter.automationTitle")}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("callCenter.automationHint")}</p>
+            </div>
+            <div className="rounded-xl border border-border/40 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{t("callCenter.whatsappAutoReply")}</p>
+                  <p className="text-xs text-muted-foreground">{t("callCenter.whatsappAutoReplyHint")}</p>
+                </div>
+                <Switch
+                  checked={whatsappAutoReplyEnabled}
+                  onCheckedChange={setWhatsappAutoReplyEnabled}
+                  disabled={!whatsappEnabled}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("callCenter.whatsappAutoReplyText")}</Label>
+                <Textarea
+                  rows={3}
+                  value={whatsappAutoReplyText}
+                  onChange={(e) => setWhatsappAutoReplyText(e.target.value)}
+                  placeholder={t("callCenter.whatsappAutoReplyPlaceholder")}
+                  maxLength={4096}
+                  disabled={!whatsappEnabled}
+                />
+                <p className="text-[11px] text-muted-foreground">{whatsappAutoReplyText.length}/4096</p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-dashed border-border/60 px-4 py-6 text-center">
+              <Bot className="mx-auto mb-2 h-8 w-8 text-muted-foreground/70" aria-hidden />
+              <p className="text-sm font-medium">{t("callCenter.automationRoadmapTitle")}</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                {t("callCenter.automationRoadmapBody")}
+              </p>
+              <ul className="mx-auto mt-3 max-w-sm space-y-1 text-start text-xs text-muted-foreground">
+                <li>• {t("callCenter.automationRoadmapItem1")}</li>
+                <li>• {t("callCenter.automationRoadmapItem2")}</li>
+                <li>• {t("callCenter.automationRoadmapItem3")}</li>
+              </ul>
             </div>
           </section>
 

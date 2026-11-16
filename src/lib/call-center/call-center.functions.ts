@@ -264,6 +264,12 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     ttsVoice: z.string().max(120).optional(),
     ttsGreetingText: z.string().max(2000).optional(),
     recordAllCalls: z.boolean().optional(),
+    recordingStorageBaseUrl: z.string().trim().max(2000).optional(),
+    instagramEnabled: z.boolean().optional(),
+    instagramPageId: z.string().trim().max(80).optional(),
+    instagramIgUserId: z.string().trim().max(80).optional(),
+    instagramPageAccessToken: z.string().max(500).optional(),
+    instagramVerifyToken: z.string().max(200).optional(),
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
@@ -375,6 +381,19 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           existing?.tts_greeting_text ??
           "Welcome. Press a digit from the menu or stay on the line.",
         record_all_calls: data.recordAllCalls ?? existing?.record_all_calls ?? true,
+        recording_storage_base_url:
+          data.recordingStorageBaseUrl ?? existing?.recording_storage_base_url ?? "",
+        instagram_enabled: data.instagramEnabled ?? existing?.instagram_enabled ?? false,
+        instagram_page_id: data.instagramPageId ?? existing?.instagram_page_id ?? "",
+        instagram_ig_user_id: data.instagramIgUserId ?? existing?.instagram_ig_user_id ?? "",
+        instagram_page_access_token: keepSecret(
+          existing?.instagram_page_access_token ?? "",
+          data.instagramPageAccessToken ?? "",
+        ),
+        instagram_verify_token: keepSecret(
+          existing?.instagram_verify_token ?? "",
+          data.instagramVerifyToken ?? "",
+        ),
       },
       context.userId,
     );
@@ -394,6 +413,8 @@ export const revealCallCenterSettingSecret = createSafeAuthenticatedAction(
       "ai_api_key",
       "whatsapp_access_token",
       "whatsapp_verify_token",
+      "instagram_page_access_token",
+      "instagram_verify_token",
     ]),
   }),
   async (data) => {

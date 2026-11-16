@@ -204,12 +204,14 @@ Status badge: **Configured** for `admin_gateway` (uses Admin keys). Otherwise ne
 
 ## WhatsApp (Meta Cloud API)
 
-Open `/call-center/whatsapp`.
+Inbox: `/call-center/whatsapp`. API keys, templates, and auto-reply: **Call Center → Settings**. Instagram Messaging + shared Meta env setup: [meta-messaging.md](./meta-messaging.md).
 
-1. Set Phone number ID, WABA ID, access token, webhook verify token (or use env below).
+1. In Settings, set Phone number ID, WABA ID, access token, webhook verify token (or use env below).
 2. Point Meta callback to `https://<host>/api/public/call-center/whatsapp` and subscribe to **messages** (includes delivery/read statuses).
 3. Inbox lists conversations/messages; assign an agent and reply — sends via Graph API when token + phone number ID are set (graceful failed log otherwise).
-4. Optional **first-message auto-reply**: enable WhatsApp + auto-reply, set the text (≤4096 chars). Sent once when a *new* conversation is created; inbound webhooks also update `delivered` / `read` / `failed` on outbound rows by `wa_message_id`.
+4. Optional **first-message auto-reply** (Settings → Automation): enable WhatsApp + auto-reply, set the text (≤4096 chars). Sent once when a *new* conversation is created; inbound webhooks also update `delivered` / `read` / `failed` on outbound rows by `wa_message_id`.
+5. Optional HMAC: set `META_APP_SECRET` and `META_REQUIRE_WEBHOOK_SIGNATURE=true` to enforce `X-Hub-Signature-256` on webhook POSTs.
+6. **Recording storage base URL** (Settings, near Record all calls): public CDN/S3 base so CDR `recording_url` is `{base}/call-center/{callId}.mp4` after LiveKit egress.
 
 Local demo ingest:
 

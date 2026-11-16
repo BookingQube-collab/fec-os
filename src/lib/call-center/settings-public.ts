@@ -50,6 +50,23 @@ export function toPublicSettings(
   const whatsappConfigured =
     Boolean(row?.whatsapp_phone_number_id?.trim()) &&
     (whatsappToken.length > 0 || Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()));
+  const igToken =
+    row?.instagram_page_access_token?.trim() ||
+    process.env.INSTAGRAM_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.META_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.META_ACCESS_TOKEN?.trim() ||
+    "";
+  const igPageId =
+    row?.instagram_page_id?.trim() ||
+    process.env.INSTAGRAM_PAGE_ID?.trim() ||
+    process.env.META_PAGE_ID?.trim() ||
+    "";
+  const igVerify =
+    row?.instagram_verify_token?.trim() ||
+    process.env.INSTAGRAM_VERIFY_TOKEN?.trim() ||
+    process.env.META_WEBHOOK_VERIFY_TOKEN?.trim() ||
+    "";
+  const instagramConfigured = Boolean(igPageId) && igToken.length > 0;
 
   return {
     enabled: Boolean(row?.enabled),
@@ -134,5 +151,14 @@ export function toPublicSettings(
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",
     recordAllCalls: row?.record_all_calls !== false,
+    recordingStorageBaseUrl: row?.recording_storage_base_url?.trim() ?? "",
+    instagramEnabled: Boolean(row?.instagram_enabled),
+    instagramPageId: row?.instagram_page_id?.trim() ?? "",
+    instagramIgUserId: row?.instagram_ig_user_id?.trim() ?? "",
+    instagramPageAccessTokenSet: igToken.length > 0,
+    instagramPageAccessTokenLast4: secretLast4(igToken),
+    instagramVerifyTokenSet: igVerify.length > 0,
+    instagramVerifyTokenLast4: secretLast4(igVerify),
+    instagramConfigured,
   };
 }

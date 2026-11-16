@@ -4,6 +4,7 @@ import { getCallProvider } from "@/lib/chat/call-provider";
 
 import { loadSettingsRow, updateCall } from "./db";
 import { resolveLiveKitServerCredentials } from "./livekit-sip";
+import { buildCallRecordingPublicUrl } from "./recording-url";
 import type { CallCenterCall } from "./types";
 
 export type RecordingEgressResult = {
@@ -32,13 +33,21 @@ export async function maybeAutoStartCallRecording(call: CallCenterCall): Promise
 /**
  * Best-effort LiveKit room composite egress. Flags recording on the CDR even when
  * egress cannot start (credentials missing / room empty) so agents see the intent.
+ *
+ * `recording_url` prefers Call Center → Settings → Recording storage base URL
+ * (`{base}/call-center/{id}.mp4`), then LiveKit host `/recordings/...`, else a placeholder.
  */
 export async function startCallRecordingEgress(call: CallCenterCall): Promise<RecordingEgressResult> {
   const provider = await getCallProvider();
+  const settings = await loadSettingsRow().catch(() => null);
+  const storageBase = settings?.recording_storage_base_url?.trim() ?? "";
+
   let recordingUrl =
-    call.recordingUrl.trim() || `https://recordings.example/fec/cc/${call.id}.mp4`;
+    call.recordingUrl.trim() || buildCallRecordingPublicUrl(storageBase, call.id);
   let egressStarted = false;
-  let note = "Recording flagged — LiveKit egress URL fills when media capture is wired.";
+  let note = storageBase
+    ? "Recording flagged — egress uploads should land under your recording storage base URL."
+    : "Recording flagged — set Recording storage base URL in Call Center → Settings (or configure LiveKit Cloud egress) so recording_url points at a real file.";
 
   if (provider.name === "livekit" && call.livekitRoom) {
     try {
@@ -55,9 +64,11 @@ export async function startCallRecordingEgress(call: CallCenterCall): Promise<Re
             filepath: `call-center/${call.id}.mp4`,
           }),
         });
-        recordingUrl = `${host}/recordings/call-center/${call.id}.mp4`;
+        recordingUrl = buildCallRecordingPublicUrl(storageBase, call.id, host);
         egressStarted = true;
-        note = "LiveKit room egress started.";
+        note = storageBase
+          ? "LiveKit room egress started; recording_url uses your storage base URL."
+          : "LiveKit room egress started. Tip: set Recording storage base URL in Settings to match your LiveKit Cloud / S3 / CDN public path.";
       } else {
         note = "LiveKit credentials missing — recording flagged without egress.";
       }
@@ -82,6 +93,7 @@ export async function startCallRecordingEgress(call: CallCenterCall): Promise<Re
       recordingNote: note,
       egressRequestedAt: new Date().toISOString(),
       egressStarted,
+      recordingStorageBaseUrl: storageBase || undefined,
     },
   });
 

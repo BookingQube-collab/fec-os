@@ -386,7 +386,7 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token";
 
 function normalizeInboundMode(value: unknown): CallCenterSettingsRow["inbound_mode"] {
   return value === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk";
@@ -483,6 +483,12 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     ),
     // Default ON for compliance when column is absent / null.
     record_all_calls: row.record_all_calls !== false,
+    recording_storage_base_url: String(row.recording_storage_base_url ?? ""),
+    instagram_enabled: Boolean(row.instagram_enabled),
+    instagram_page_id: String(row.instagram_page_id ?? ""),
+    instagram_ig_user_id: String(row.instagram_ig_user_id ?? ""),
+    instagram_page_access_token: String(row.instagram_page_access_token ?? ""),
+    instagram_verify_token: String(row.instagram_verify_token ?? ""),
   };
 }
 
@@ -495,7 +501,7 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   // Before migration 20261115140000 / 20261116140000 / 20261116150000, newer columns may be missing — fall back.
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_/i.test(
       result.error.message,
     )
   ) {
@@ -572,6 +578,12 @@ export async function saveSettingsRow(
         tts_voice: row.tts_voice,
         tts_greeting_text: row.tts_greeting_text,
         record_all_calls: row.record_all_calls !== false,
+        recording_storage_base_url: row.recording_storage_base_url ?? "",
+        instagram_enabled: row.instagram_enabled ?? false,
+        instagram_page_id: row.instagram_page_id ?? "",
+        instagram_ig_user_id: row.instagram_ig_user_id ?? "",
+        instagram_page_access_token: row.instagram_page_access_token ?? "",
+        instagram_verify_token: row.instagram_verify_token ?? "",
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -581,7 +593,7 @@ export async function saveSettingsRow(
     .maybeSingle();
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_/i.test(
       result.error.message,
     )
   ) {
@@ -2496,6 +2508,43 @@ export function resolveWhatsappPhoneNumberId(settings: CallCenterSettingsRow | n
   return (
     settings?.whatsapp_phone_number_id?.trim() ||
     process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
+    ""
+  );
+}
+
+export function resolveInstagramPageAccessToken(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.instagram_page_access_token?.trim() ||
+    process.env.INSTAGRAM_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.META_PAGE_ACCESS_TOKEN?.trim() ||
+    process.env.META_ACCESS_TOKEN?.trim() ||
+    ""
+  );
+}
+
+export function resolveInstagramPageId(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.instagram_page_id?.trim() ||
+    process.env.INSTAGRAM_PAGE_ID?.trim() ||
+    process.env.META_PAGE_ID?.trim() ||
+    ""
+  );
+}
+
+export function resolveInstagramIgUserId(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.instagram_ig_user_id?.trim() ||
+    process.env.INSTAGRAM_IG_USER_ID?.trim() ||
+    ""
+  );
+}
+
+export function resolveInstagramVerifyToken(settings: CallCenterSettingsRow | null): string {
+  return (
+    settings?.instagram_verify_token?.trim() ||
+    process.env.INSTAGRAM_VERIFY_TOKEN?.trim() ||
+    process.env.META_WEBHOOK_VERIFY_TOKEN?.trim() ||
+    process.env.WHATSAPP_VERIFY_TOKEN?.trim() ||
     ""
   );
 }

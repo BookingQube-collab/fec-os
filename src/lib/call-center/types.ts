@@ -144,6 +144,16 @@ export type CallCenterSettingsRow = {
   tts_greeting_text: string;
   /** When true (default), auto-start LiveKit egress on answer / outbound dial. */
   record_all_calls: boolean;
+  /**
+   * Public HTTPS base (CDN / S3 / LiveKit egress bucket URL) used to compose
+   * `recording_url` as `{base}/call-center/{callId}.mp4`.
+   */
+  recording_storage_base_url: string;
+  instagram_enabled: boolean;
+  instagram_page_id: string;
+  instagram_ig_user_id: string;
+  instagram_page_access_token: string;
+  instagram_verify_token: string;
 };
 
 export const CALL_CENTER_SECRET_FIELDS = [
@@ -153,6 +163,8 @@ export const CALL_CENTER_SECRET_FIELDS = [
   "ai_api_key",
   "whatsapp_access_token",
   "whatsapp_verify_token",
+  "instagram_page_access_token",
+  "instagram_verify_token",
 ] as const;
 
 export type CallCenterSecretField = (typeof CALL_CENTER_SECRET_FIELDS)[number];
@@ -222,6 +234,16 @@ export type CallCenterSettingsPublic = {
   ttsGreetingText: string;
   /** Auto-start LiveKit room recording on every bridged/outbound call. */
   recordAllCalls: boolean;
+  /** Public base URL for egress/CDN recordings (no trailing slash required). */
+  recordingStorageBaseUrl: string;
+  instagramEnabled: boolean;
+  instagramPageId: string;
+  instagramIgUserId: string;
+  instagramPageAccessTokenSet: boolean;
+  instagramPageAccessTokenLast4: string;
+  instagramVerifyTokenSet: boolean;
+  instagramVerifyTokenLast4: string;
+  instagramConfigured: boolean;
 };
 
 export const CALL_CENTER_DISPOSITION_CODES = [
