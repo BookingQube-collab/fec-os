@@ -17,6 +17,9 @@ import {
 
 import { CarrierNotConfiguredError } from "./carrier-errors";
 import { normalizeSipUriHost } from "./db";
+import { looksLikeSipParticipant } from "./sip-participant";
+
+export { isAgentSoftphoneIdentity, looksLikeSipParticipant } from "./sip-participant";
 import {
   looksLikeSipHostNotId,
   sipHostMistakenForIdMessage,
@@ -70,19 +73,6 @@ async function sipClient(): Promise<SipClient> {
 async function roomClient(): Promise<RoomServiceClient> {
   const c = await requireCredentials();
   return new RoomServiceClient(liveKitHttpUrl(c.serverUrl), c.apiKey, c.apiSecret);
-}
-
-function looksLikeSipParticipant(p: {
-  identity?: string;
-  kind?: number | string;
-  attributes?: Record<string, string>;
-}): boolean {
-  const kind = p.kind;
-  // ParticipantInfo.Kind.SIP = 3; SDK may also surface the string name.
-  if (Number(kind) === 3 || String(kind).toUpperCase() === "SIP") return true;
-  const id = (p.identity ?? "").trim();
-  if (/^sip[_+.-]/i.test(id) || /^\+?\d{7,}$/.test(id)) return true;
-  return Object.keys(p.attributes ?? {}).some((k) => k.startsWith("sip."));
 }
 
 /** Ensure the agent/SIP room exists before Telnyx transfers into it (idempotent). */
@@ -205,11 +195,10 @@ export async function waitForSipParticipantInRoom(
   while (Date.now() < deadline) {
     try {
       const participants = await rooms.listParticipants(roomName);
+      // Never treat the FEC softphone (cc-agent-…) as the PSTN caller — that false
+      // positive left Answer "Connected" with dead air while Telnyx kept ringing LiveKit.
       const sip = participants.find((p) => looksLikeSipParticipant(p));
       if (sip?.identity) return sip.identity;
-      // Any remote identity is enough once the room is ours (agent joins as local JWT later).
-      const any = participants.find((p) => (p.identity ?? "").trim().length > 0);
-      if (any?.identity) return any.identity;
     } catch {
       // Room may not exist yet while SIP INVITE is in flight.
     }
@@ -260,7 +249,8 @@ export async function buildLiveKitSipUri(
   }
   const prefix = await resolveDispatchRoomPrefix(settings);
   const user = prefix && roomName.startsWith(prefix) ? roomName.slice(prefix.length) : roomName;
-  return `sip:${user}@${host}`;
+  // Explicit TCP — Telnyx Call Control transfer defaults to UDP; LiveKit+Telnyx docs use TCP.
+  return `sip:${user}@${host};transport=tcp`;
 }
 
 export type OutboundSipResult = {

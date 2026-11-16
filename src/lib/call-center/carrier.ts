@@ -653,10 +653,19 @@ export async function bridgeCallerToLiveKit(
     from,
     headers: [{ name: "X-FEC-Call-Id", value: call.id }],
     clientState: { step: "bridge", callId: call.id },
+    sipTransport: "TCP" as const,
+    earlyMedia: false,
+    mediaEncryption: "disabled" as const,
+    timeoutSecs: 45,
+  };
+
+  const runTransfer = async (label: string) => {
+    console.info(`[call-center/bridge] ${label} → ${uri}`);
+    await telnyx.transfer(call.providerCallId, uri, transferOpts);
   };
 
   try {
-    await telnyx.transfer(call.providerCallId, uri, transferOpts);
+    await runTransfer("transfer");
   } catch (e) {
     await patchMeta(call.id, {
       bridgeInProgress: false,
@@ -675,46 +684,57 @@ export async function bridgeCallerToLiveKit(
     bridgeDispatchHeal: dispatchHeal.detail,
     bridgePendingSip: true,
     bridgeInProgress: true,
+    bridgeTransport: "TCP",
   });
 
-  // Soft-verify in the background — Answer returns as soon as Telnyx transfer is accepted.
-  // Softphone shows "Connecting…" / "waiting for caller audio" until SIP publishes.
-  // If the first INVITE was raced by hold/speak, retry transfer once.
-  void (async () => {
-    let sipIdentity = await waitForSipParticipantInRoom(roomName, 3_500);
-    if (!sipIdentity) {
-      try {
-        await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
-        await telnyx.transfer(call.providerCallId, uri, transferOpts);
-        sipIdentity = await waitForSipParticipantInRoom(roomName, 6_000);
-      } catch (e) {
-        await patchMeta(call.id, {
-          bridgePendingSip: true,
-          bridgeInProgress: false,
-          bridgeVerifyNote:
-            e instanceof Error
-              ? `SIP bridge retry failed: ${e.message}`
-              : "SIP bridge retry failed.",
-        });
-        return;
-      }
-    }
-    if (sipIdentity) {
+  // Await a *real* SIP participant (not the agent softphone). Soft-verify used to fall back to
+  // any identity, mark cc-agent-… as "verified", and leave the PSTN leg ringing into LiveKit.
+  let sipIdentity = await waitForSipParticipantInRoom(roomName, 10_000);
+  if (!sipIdentity) {
+    try {
+      await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
+      await runTransfer("transfer-retry");
+      sipIdentity = await waitForSipParticipantInRoom(roomName, 12_000);
+    } catch (e) {
       await patchMeta(call.id, {
-        sipParticipantIdentity: sipIdentity,
-        bridgeVerifiedAt: new Date().toISOString(),
         bridgePendingSip: false,
         bridgeInProgress: false,
+        bridgeError: e instanceof Error ? e.message : "SIP bridge retry failed",
       });
-    } else {
-      await patchMeta(call.id, {
-        bridgePendingSip: true,
-        bridgeInProgress: false,
-        bridgeVerifyNote:
-          "SIP participant not listed yet after transfer; softphone will wait for caller audio.",
-      });
+      throw new Error(
+        `Could not connect the caller to the softphone (SIP retry failed). ${
+          e instanceof Error ? e.message : ""
+        }`.trim(),
+      );
     }
-  })().catch(() => undefined);
+  }
+
+  if (!sipIdentity) {
+    const note =
+      "LiveKit did not accept the caller SIP INVITE over TCP. Check Call Center → Settings → SIP URI host and inbound trunk (wildcard + callee rule).";
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeError: note,
+      bridgeVerifyNote: note,
+    });
+    try {
+      // Leave the PSTN caller on Call Control (hold) rather than a dead-air "answered" softphone.
+      await telnyx.playbackStop(call.providerCallId).catch(() => undefined);
+    } catch {
+      // ignore
+    }
+    throw new Error(note);
+  }
+
+  await patchMeta(call.id, {
+    sipParticipantIdentity: sipIdentity,
+    bridgeVerifiedAt: new Date().toISOString(),
+    bridgePendingSip: false,
+    bridgeInProgress: false,
+    bridgeError: null,
+  });
+  console.info(`[call-center/bridge] SIP joined room=${roomName} identity=${sipIdentity}`);
 }
 
 /** Tear down the carrier side of a call (agent hangup / decline). Best effort. */

@@ -234,7 +234,11 @@ export function createTelnyxClient(apiKey: string) {
         client_state: encodeClientState(clientState),
       }),
     playbackStop: (id: string) => action(id, "playback_stop"),
-    /** Dial `to` (SIP URI or E.164) and bridge the caller to it once answered. */
+    /**
+     * Dial `to` (SIP URI or E.164) and bridge the caller once answered.
+     * Defaults: TCP transport (LiveKit Cloud + Telnyx recommend TCP; Call Control default is UDP),
+     * early_media off (avoids PSTN hearing ringback while LiveKit INVITE is in flight).
+     */
     transfer: (
       id: string,
       to: string,
@@ -242,11 +246,18 @@ export function createTelnyxClient(apiKey: string) {
         from?: string;
         headers?: Array<{ name: string; value: string }>;
         clientState?: Record<string, unknown>;
+        timeoutSecs?: number;
+        sipTransport?: "UDP" | "TCP" | "TLS";
+        earlyMedia?: boolean;
+        mediaEncryption?: "disabled" | "SRTP" | "DTLS";
       } = {},
     ) =>
       action(id, "transfer", {
         to,
-        timeout_secs: 30,
+        timeout_secs: options.timeoutSecs ?? 45,
+        sip_transport_protocol: options.sipTransport ?? "TCP",
+        early_media: options.earlyMedia ?? false,
+        media_encryption: options.mediaEncryption ?? "disabled",
         ...(options.from ? { from: options.from } : {}),
         ...(options.headers?.length ? { custom_headers: options.headers } : {}),
         ...(options.clientState ? { client_state: encodeClientState(options.clientState) } : {}),

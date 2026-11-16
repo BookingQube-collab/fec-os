@@ -1,0 +1,30 @@
+/**
+ * Pure helpers for distinguishing LiveKit SIP callers from agent softphones.
+ * Kept free of server-only imports so unit tests can cover the Answer false-positive.
+ */
+
+export function isAgentSoftphoneIdentity(identity: string): boolean {
+  const id = identity.trim().toLowerCase();
+  return (
+    id.startsWith("cc-agent-") ||
+    id.startsWith("cc-supervisor-") ||
+    id.startsWith("agent-") ||
+    id.startsWith("supervisor-")
+  );
+}
+
+/** True when a LiveKit room participant is the PSTN/SIP caller (not the FEC softphone). */
+export function looksLikeSipParticipant(p: {
+  identity?: string;
+  kind?: number | string;
+  attributes?: Record<string, string>;
+}): boolean {
+  const id = (p.identity ?? "").trim();
+  if (!id || isAgentSoftphoneIdentity(id)) return false;
+
+  const kind = p.kind;
+  // ParticipantInfo.Kind.SIP = 3; SDK may also surface the string name.
+  if (Number(kind) === 3 || String(kind).toUpperCase() === "SIP") return true;
+  if (/^sip[_+.-]/i.test(id) || /^\+?\d{7,}$/.test(id)) return true;
+  return Object.keys(p.attributes ?? {}).some((k) => k.startsWith("sip."));
+}
