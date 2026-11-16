@@ -1,5 +1,6 @@
 import "server-only";
 
+import { ListUpdate } from "@livekit/protocol";
 import {
   AgentDispatchClient,
   RoomServiceClient,
@@ -144,7 +145,7 @@ export async function ensureCallControlBridgeDispatch(
         if (trunks.includes(trunkId)) {
           try {
             await sip.updateSipDispatchRuleFields(rule.sipDispatchRuleId, {
-              trunkIds: { remove: [trunkId] },
+              trunkIds: new ListUpdate({ remove: [trunkId] }),
             });
             removed.push(`${rule.sipDispatchRuleId}:unbound`);
           } catch {
@@ -178,7 +179,7 @@ export async function ensureCallControlBridgeDispatch(
   const trunks = callee.trunkIds ?? [];
   if (!trunks.includes(trunkId)) {
     await sip.updateSipDispatchRuleFields(ruleId, {
-      trunkIds: { set: [trunkId] },
+      trunkIds: new ListUpdate({ set: [trunkId] }),
       name: callee.name?.includes("callee") ? callee.name : "fec-callee-bridge",
     });
   }
