@@ -20,7 +20,7 @@ export async function sendInstagramText(input: {
   pageId?: string;
   accessToken?: string;
 }): Promise<InstagramSendResult> {
-  const pageId = (input.pageId ?? instagramPageId() || "me").trim() || "me";
+  const pageId = ((input.pageId ?? instagramPageId()) || "me").trim() || "me";
   const accessToken = (input.accessToken ?? instagramPageAccessToken()).trim();
   const recipientId = input.recipientId.trim();
   const body = input.body.trim();
