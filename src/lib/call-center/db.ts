@@ -386,7 +386,7 @@ function mapWebhookEndpoint(row: Record<string, unknown>): CallCenterWebhookEndp
 }
 
 const SETTINGS_COLUMNS =
-  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
+  "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls";
 
 function normalizeInboundMode(value: unknown): CallCenterSettingsRow["inbound_mode"] {
   return value === "telnyx_call_control" ? "telnyx_call_control" : "telnyx_sip_trunk";
@@ -479,6 +479,8 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     tts_greeting_text: String(
       row.tts_greeting_text ?? "Welcome. Press a digit from the menu or stay on the line.",
     ),
+    // Default ON for compliance when column is absent / null.
+    record_all_calls: row.record_all_calls !== false,
   };
 }
 
@@ -488,8 +490,11 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
     .eq("id", CALL_CENTER_SETTINGS_ID)
     .maybeSingle();
 
-  // Before migration 20261115140000, new SIP/Qatar columns may be missing — fall back.
-  if (result.error && /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did/i.test(result.error.message)) {
+  // Before migration 20261115140000 / 20261116140000, newer columns may be missing — fall back.
+  if (
+    result.error &&
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls/i.test(result.error.message)
+  ) {
     const legacy =
       "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_dispatch_rule_id, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text";
     result = await table<Record<string, unknown>>("call_center_settings")
@@ -560,6 +565,7 @@ export async function saveSettingsRow(
         tts_enabled: row.tts_enabled,
         tts_voice: row.tts_voice,
         tts_greeting_text: row.tts_greeting_text,
+        record_all_calls: row.record_all_calls !== false,
         updated_at: new Date().toISOString(),
         updated_by: updatedBy,
       },
@@ -567,9 +573,12 @@ export async function saveSettingsRow(
     )
     .select(SETTINGS_COLUMNS)
     .maybeSingle();
-  if (result.error && /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did/i.test(result.error.message)) {
+  if (
+    result.error &&
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls/i.test(result.error.message)
+  ) {
     throw new Error(
-      "Call Center SIP/Qatar settings columns are missing. Apply migration 20261115140000_call_center_sip_trunk_qatar.sql (supabase db push), then save again.",
+      "Call Center settings columns are missing. Apply pending call_center migrations (supabase db push), then save again.",
     );
   }
   throwIfError(result.error);
@@ -1365,11 +1374,22 @@ export async function listRingingCallsForAgent(userId: string): Promise<CallCent
     simultaneous.push(...(queued.data ?? []).map(mapCall));
   }
 
+  const settings = await loadSettingsRow().catch(() => null);
+  const dids = await listDids().catch(() => []);
+  const { collectOwnedE164s, isPhantomDidInbound } = await import("./call-party");
+  const owned = collectOwnedE164s({
+    outboundCallerIdE164: settings?.outbound_caller_id_e164,
+    qatarDidE164: settings?.qatar_did_e164,
+    didE164s: dids.map((d) => d.e164),
+  });
+
   const byId = new Map<string, CallCenterCall>();
   for (const call of [...(offered.data ?? []).map(mapCall), ...simultaneous]) {
     // Agents who declined a shared (simultaneous) PSTN offer should not be re-rung for it.
     const declinedBy = (call.metadata as Record<string, unknown> | null)?.declinedBy;
     if (Array.isArray(declinedBy) && declinedBy.includes(userId)) continue;
+    // Bridge leftovers (DID-as-caller / cc-_+DID_random) must not ring or show as QUEUED.
+    if (isPhantomDidInbound(call, owned)) continue;
     byId.set(call.id, call);
   }
   return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));

@@ -337,7 +337,6 @@ function CallCenterPage() {
                 <button
                   key={status}
                   type="button"
-                  disabled={phone.pending}
                   onClick={() => void phone.changeStatus(status)}
                   aria-pressed={phone.workspaceStatus === status}
                   className={cn(
@@ -675,6 +674,35 @@ function CallCenterPage() {
                   onTransfer={(type, target) => void phone.onTransfer(type, target)}
                   onConference={() => void phone.onConference()}
                 />
+              ) : phone.activeCall ? (
+                <section className="rounded-[1.75rem] border border-border/50 bg-card p-5 shadow-elevated-xs sm:p-7">
+                  <p className="text-center text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {t("callCenter.inCall")}
+                  </p>
+                  <p className="mt-3 text-center text-2xl font-semibold tracking-tight">
+                    {remotePartyE164(
+                      phone.activeCall,
+                      collectOwnedE164s({
+                        outboundCallerIdE164: phone.outboundCallerId,
+                        didE164s: phone.callerIdOptions,
+                      }),
+                    ) || t("callCenter.unknownCaller")}
+                  </p>
+                  <p className="mt-2 text-center text-sm text-muted-foreground">
+                    {t("callCenter.connecting")}
+                  </p>
+                  <div className="mt-6 flex justify-center">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="min-h-12 rounded-full px-8"
+                      disabled={phone.pending}
+                      onClick={() => void phone.onHangup()}
+                    >
+                      {t("callCenter.hangup")}
+                    </Button>
+                  </div>
+                </section>
               ) : (
                 <section className="rounded-[1.75rem] border border-border/50 bg-card p-5 shadow-elevated-xs sm:p-7">
                   <p className="text-center text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">

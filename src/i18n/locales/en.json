@@ -2182,6 +2182,8 @@
     "recordingOn": "Recording on",
     "recordingOff": "Recording off",
     "toggleRecording": "Toggle recording flag",
+    "recordAllCalls": "Record all calls",
+    "recordAllCallsHint": "Auto-start LiveKit room recording when an agent answers or dials out. Softphone Record remains a manual override. Prefer LiveKit egress (not Telnyx) so one file lands on the CDR for playback and transcripts.",
     "playRecording": "Play recording",
     "dialNext": "Dial next contact",
     "dialNextDone": "Dialed next pending contact.",

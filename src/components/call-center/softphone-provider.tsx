@@ -143,13 +143,17 @@ export function useCallCenterSoftphoneOptional() {
   return useContext(SoftphoneContext);
 }
 
-function ownedNumbersFromWorkspace(settings: {
-  outboundCallerIdE164?: string;
-  qatarDidE164?: string;
-} | null | undefined): string[] {
+function ownedNumbersFromWorkspace(
+  settings: {
+    outboundCallerIdE164?: string;
+    qatarDidE164?: string;
+  } | null | undefined,
+  didE164s: string[] = [],
+): string[] {
   return collectOwnedE164s({
     outboundCallerIdE164: settings?.outboundCallerIdE164,
     qatarDidE164: settings?.qatarDidE164,
+    didE164s,
   });
 }
 
@@ -376,21 +380,69 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     status: CallCenterAgentStatusValue,
     extras?: { awayReason?: string; autoAnswer?: boolean },
   ) {
-    await unlockSoftphoneAudio();
     if (status !== "acw") clearAcwTimer();
-    setPending(true);
+
+    const awayReason =
+      extras?.awayReason ?? (status === "away" ? awayReasonDraft : undefined);
+    const previous = queryClient.getQueryData<NonNullable<typeof workspace.data>>(WORKSPACE_KEY);
+
+    // Optimistic UI: highlight the new status immediately; sync server in the background.
+    if (previous) {
+      const nextAway =
+        status === "away" ? (awayReason ?? previous.status.awayReason ?? "") : "";
+      const nextAutoAnswer = extras?.autoAnswer ?? previous.status.autoAnswer;
+      const nextStatus: CallCenterAgentStatus = {
+        ...previous.status,
+        status,
+        statusSince: new Date().toISOString(),
+        awayReason: nextAway,
+        autoAnswer: nextAutoAnswer,
+      };
+      const agents = previous.agents.map((a) =>
+        a.userId === previous.status.userId ? { ...a, ...nextStatus } : a,
+      );
+      queryClient.setQueryData(WORKSPACE_KEY, {
+        ...previous,
+        status: nextStatus,
+        agents,
+        availableAgents: agents.filter((a) => a.status === "available"),
+      });
+      if (status === "away" && nextAway) setAwayReasonDraft(nextAway);
+    }
+
+    void unlockSoftphoneAudio();
+
     const result = await setCallCenterAgentStatus({
       status,
-      awayReason: extras?.awayReason ?? (status === "away" ? awayReasonDraft : undefined),
+      awayReason,
       autoAnswer: extras?.autoAnswer,
     });
-    setPending(false);
     if (!result.ok) {
+      if (previous) queryClient.setQueryData(WORKSPACE_KEY, previous);
       toast.error(result.error);
       return;
     }
-    await queryClient.invalidateQueries({ queryKey: WORKSPACE_KEY });
+
+    // Prefer server row when available; keep optimistic UI and refresh quietly.
+    if (result.data) {
+      const current =
+        queryClient.getQueryData<NonNullable<typeof workspace.data>>(WORKSPACE_KEY) ?? previous;
+      if (current) {
+        const saved = result.data;
+        const agents = current.agents.map((a) =>
+          a.userId === saved.userId ? { ...a, ...saved } : a,
+        );
+        queryClient.setQueryData(WORKSPACE_KEY, {
+          ...current,
+          status: saved,
+          agents,
+          availableAgents: agents.filter((a) => a.status === "available"),
+        });
+      }
+    }
+
     toast.success(t("callCenter.statusUpdated"));
+    void queryClient.invalidateQueries({ queryKey: WORKSPACE_KEY });
   }
 
   async function setAutoAnswer(enabled: boolean) {
@@ -459,14 +511,36 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
 
   async function bridgeAnsweredCall(callId: string, opts?: { successKey?: string }) {
     stopSoftphoneRingtone();
-    await unlockSoftphoneAudio();
+    void unlockSoftphoneAudio();
     clearAcwTimer();
+
+    // Optimistic: leave Incoming modal immediately and show Connecting… while bridge runs.
+    const seed =
+      (incoming?.id === callId ? incoming : null) ??
+      workspace.data?.recentCalls.find((c) => c.id === callId) ??
+      null;
+    if (seed) {
+      setActiveCall({
+        ...seed,
+        status: "answered",
+        answeredAt: new Date().toISOString(),
+        agentUserId: user?.id ?? seed.agentUserId,
+        recordingEnabled:
+          workspace.data?.settings.recordAllCalls !== false ? true : seed.recordingEnabled,
+      });
+      setMedia(null);
+      setHeld(false);
+      setMicMuted(false);
+    }
+
     setPending(true);
     try {
       const result = await answerCallCenterCall({ callId });
       if (!result.ok) {
+        setActiveCall(null);
+        setMedia(null);
         toast.error(result.error || t("callCenter.answerFailed"));
-        await refresh();
+        void refresh();
         return;
       }
       setActiveCall(result.data.call);
@@ -478,10 +552,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       } else if (opts?.successKey) {
         toast.success(t(opts.successKey));
       }
-      await refresh();
+      void refresh();
     } catch (e) {
+      setActiveCall(null);
+      setMedia(null);
       toast.error(e instanceof Error ? e.message : t("callCenter.answerFailed"));
-      await refresh();
+      void refresh();
     } finally {
       setPending(false);
     }

@@ -117,6 +117,7 @@ function CallCenterSettingsPage() {
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsVoice, setTtsVoice] = useState(DEFAULT_TTS_VOICE);
   const [ttsGreetingText, setTtsGreetingText] = useState("");
+  const [recordAllCalls, setRecordAllCalls] = useState(true);
   const [previewingTts, setPreviewingTts] = useState(false);
   const ttsPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsPreviewUrlRef = useRef<string | null>(null);
@@ -133,6 +134,7 @@ function CallCenterSettingsPage() {
     setTtsEnabled(s.ttsEnabled);
     setTtsVoice(s.ttsVoice);
     setTtsGreetingText(s.ttsGreetingText);
+    setRecordAllCalls(s.recordAllCalls !== false);
     setTimezone(s.timezone);
     setDefaultQueueId(s.defaultQueueId ?? "");
     setOutboundCallerId(s.outboundCallerIdE164);
@@ -258,6 +260,7 @@ function CallCenterSettingsPage() {
       ttsEnabled,
       ttsVoice,
       ttsGreetingText,
+      recordAllCalls,
     });
     setSaving(false);
     if (!result.ok) {
@@ -325,6 +328,17 @@ function CallCenterSettingsPage() {
                 id="cc-bh"
                 checked={businessHoursEnabled}
                 onCheckedChange={setBusinessHoursEnabled}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 px-3 py-2.5">
+              <div>
+                <Label htmlFor="cc-record-all">{t("callCenter.recordAllCalls")}</Label>
+                <p className="text-xs text-muted-foreground">{t("callCenter.recordAllCallsHint")}</p>
+              </div>
+              <Switch
+                id="cc-record-all"
+                checked={recordAllCalls}
+                onCheckedChange={setRecordAllCalls}
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">

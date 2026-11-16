@@ -642,24 +642,27 @@ export async function bridgeCallerToLiveKit(
     bridgeSipUri: uri,
     bridgeError: null,
     bridgeDispatchHeal: dispatchHeal.detail,
+    bridgePendingSip: true,
   });
 
-  // Short soft-verify only — do not block Answer for many seconds. Softphone shows
-  // "waiting for caller audio" until the SIP participant publishes in the agent room.
-  const sipIdentity = await waitForSipParticipantInRoom(roomName, 2_500);
-  if (sipIdentity) {
-    await patchMeta(call.id, {
-      sipParticipantIdentity: sipIdentity,
-      bridgeVerifiedAt: new Date().toISOString(),
-      bridgePendingSip: false,
-    });
-  } else {
-    await patchMeta(call.id, {
-      bridgePendingSip: true,
-      bridgeVerifyNote:
-        "SIP participant not listed yet after transfer; softphone will wait for caller audio.",
-    });
-  }
+  // Soft-verify in the background — Answer returns as soon as Telnyx transfer is accepted.
+  // Softphone shows "Connecting…" / "waiting for caller audio" until SIP publishes.
+  void (async () => {
+    const sipIdentity = await waitForSipParticipantInRoom(roomName, 2_500);
+    if (sipIdentity) {
+      await patchMeta(call.id, {
+        sipParticipantIdentity: sipIdentity,
+        bridgeVerifiedAt: new Date().toISOString(),
+        bridgePendingSip: false,
+      });
+    } else {
+      await patchMeta(call.id, {
+        bridgePendingSip: true,
+        bridgeVerifyNote:
+          "SIP participant not listed yet after transfer; softphone will wait for caller audio.",
+      });
+    }
+  })().catch(() => undefined);
 }
 
 /** Tear down the carrier side of a call (agent hangup / decline). Best effort. */

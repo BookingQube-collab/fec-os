@@ -2,7 +2,7 @@ import "server-only";
 
 import { getCallProvider } from "@/lib/chat/call-provider";
 
-import { updateCall } from "./db";
+import { loadSettingsRow, updateCall } from "./db";
 import { resolveLiveKitServerCredentials } from "./livekit-sip";
 import type { CallCenterCall } from "./types";
 
@@ -11,6 +11,23 @@ export type RecordingEgressResult = {
   egressStarted: boolean;
   note: string;
 };
+
+/**
+ * Start LiveKit egress when "Record all calls" is on (default) and this CDR is not
+ * already flagged. Safe to fire-and-forget from Answer / outbound so media join is not blocked.
+ */
+export async function maybeAutoStartCallRecording(call: CallCenterCall): Promise<CallCenterCall> {
+  if (call.recordingEnabled) return call;
+  const settings = await loadSettingsRow().catch(() => null);
+  // Default ON when the setting row/column is missing (compliance-friendly).
+  if (settings?.record_all_calls === false) return call;
+  try {
+    const result = await startCallRecordingEgress(call);
+    return result.call;
+  } catch {
+    return call;
+  }
+}
 
 /**
  * Best-effort LiveKit room composite egress. Flags recording on the CDR even when

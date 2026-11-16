@@ -139,6 +139,8 @@ export type CallCenterSettingsRow = {
   tts_enabled: boolean;
   tts_voice: string;
   tts_greeting_text: string;
+  /** When true (default), auto-start LiveKit egress on answer / outbound dial. */
+  record_all_calls: boolean;
 };
 
 export const CALL_CENTER_SECRET_FIELDS = [
@@ -213,6 +215,8 @@ export type CallCenterSettingsPublic = {
   ttsEnabled: boolean;
   ttsVoice: string;
   ttsGreetingText: string;
+  /** Auto-start LiveKit room recording on every bridged/outbound call. */
+  recordAllCalls: boolean;
 };
 
 export const CALL_CENTER_DISPOSITION_CODES = [

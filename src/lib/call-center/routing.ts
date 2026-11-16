@@ -896,6 +896,13 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
     throw new Error("Call was answered by another agent.");
   }
 
+  // Issue softphone token while bridging so the agent UI can join immediately.
+  const mediaPromise = issueAgentMediaToken({
+    roomName: livekitRoom,
+    userId: agentUserId,
+    displayName: "Agent",
+  });
+
   // Real PSTN caller waiting on Telnyx Call Control: transfer into the LiveKit room.
   // LiveKit SIP Trunk callers are already in the room — agent just joins.
   if (claimed.provider === "telnyx" && claimed.direction === "inbound" && claimed.providerCallId) {
@@ -929,22 +936,12 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   });
   await setAgentStatus(agentUserId, "busy", { lastCallAt: now });
 
-  // Capture softphone / bridged audio when LiveKit is available (includes internal_test).
-  if (livekitRoom && !call.recordingEnabled) {
-    try {
-      const { startCallRecordingEgress } = await import("./recording-egress");
-      const egress = await startCallRecordingEgress(call);
-      call = egress.call;
-    } catch {
-      // Answering must not fail if egress is unavailable.
-    }
-  }
+  // Auto-record in the background (Record all calls default ON). Do not block Answer.
+  void import("./recording-egress")
+    .then(({ maybeAutoStartCallRecording }) => maybeAutoStartCallRecording(call))
+    .catch(() => undefined);
 
-  const media = await issueAgentMediaToken({
-    roomName: livekitRoom,
-    userId: agentUserId,
-    displayName: "Agent",
-  });
+  const media = await mediaPromise;
   void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
     emitCallCenterOutboundWebhook({ event: "call.answered", call }),
   );
@@ -1126,6 +1123,9 @@ export async function placeOutboundCall(input: {
       userId: input.agentUserId,
       displayName: "Agent",
     });
+    void import("./recording-egress")
+      .then(({ maybeAutoStartCallRecording }) => maybeAutoStartCallRecording(updated))
+      .catch(() => undefined);
     return { call: updated, media };
   }
 
@@ -1179,6 +1179,10 @@ export async function placeOutboundCall(input: {
     userId: input.agentUserId,
     displayName: "Agent",
   });
+  // Record the LiveKit room for outbound (dial tone + conversation) when Record all calls is on.
+  void import("./recording-egress")
+    .then(({ maybeAutoStartCallRecording }) => maybeAutoStartCallRecording(updated))
+    .catch(() => undefined);
   if (pstnReady) {
     const { runOutboundDial } = await import("./carrier");
     // The dial blocks until the callee answers (up to ~60s): run it after the response so the

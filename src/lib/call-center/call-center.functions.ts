@@ -260,6 +260,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     ttsEnabled: z.boolean().optional(),
     ttsVoice: z.string().max(120).optional(),
     ttsGreetingText: z.string().max(2000).optional(),
+    recordAllCalls: z.boolean().optional(),
   }),
   async (data, context) => {
     const existing = await loadSettingsRow();
@@ -366,6 +367,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           data.ttsGreetingText ??
           existing?.tts_greeting_text ??
           "Welcome. Press a digit from the menu or stay on the line.",
+        record_all_calls: data.recordAllCalls ?? existing?.record_all_calls ?? true,
       },
       context.userId,
     );

@@ -92,9 +92,9 @@ export function IncomingCallOverlay({
     }
   }
 
-  async function handleAnswer() {
+  function handleAnswer() {
     stopSoftphoneRingtone();
-    await unlockSoftphoneAudio();
+    void unlockSoftphoneAudio();
     onAnswer();
   }
 
@@ -165,10 +165,10 @@ export function IncomingCallOverlay({
             type="button"
             className="min-h-14 flex-1 rounded-full bg-emerald-600 text-base text-white hover:bg-emerald-700"
             disabled={pending}
-            onClick={() => void handleAnswer()}
+            onClick={handleAnswer}
           >
             <Phone className="me-2 h-5 w-5" aria-hidden />
-            {t("callCenter.answer")}
+            {pending ? t("callCenter.connecting") : t("callCenter.answer")}
           </Button>
           <Button
             type="button"

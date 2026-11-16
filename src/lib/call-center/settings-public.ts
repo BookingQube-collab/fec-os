@@ -131,5 +131,6 @@ export function toPublicSettings(
     ttsGreetingText:
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",
+    recordAllCalls: row?.record_all_calls !== false,
   };
 }
