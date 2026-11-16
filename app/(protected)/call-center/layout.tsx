@@ -1,8 +1,8 @@
 import { CallCenterAudioGate } from "@/components/call-center/call-center-audio-gate";
 import { CallCenterSoftphoneProvider } from "@/components/call-center/softphone-provider";
 
-/** Answer waits for Telnyx→LiveKit SIP join (TCP transfer + verify); allow up to 60s. */
-export const maxDuration = 60;
+/** completePstnBridge: agent publish wait + Telnyx transfer + LiveKit SIP verify (~50s). */
+export const maxDuration = 120;
 
 export default function CallCenterLayout({ children }: { children: React.ReactNode }) {
   return (

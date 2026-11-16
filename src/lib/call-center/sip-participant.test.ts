@@ -4,6 +4,8 @@ import {
   formatLiveKitSipUri,
   isAgentSoftphoneIdentity,
   looksLikeSipParticipant,
+  pinRtcUrlToRegion,
+  pinSipHostToRegion,
 } from "./sip-participant";
 
 describe("formatLiveKitSipUri", () => {
@@ -12,6 +14,23 @@ describe("formatLiveKitSipUri", () => {
       "sip:abc123@k4xpy1vcnur.sip.livekit.cloud",
     );
     expect(formatLiveKitSipUri("cc-abc123", "host", "cc-")).not.toContain("transport=");
+  });
+});
+
+describe("pinSipHostToRegion / pinRtcUrlToRegion", () => {
+  it("pins global SIP host and rewrites an already-pinned host", () => {
+    expect(pinSipHostToRegion("k4xpy1vcnur.sip.livekit.cloud", "us")).toBe(
+      "k4xpy1vcnur.us.sip.livekit.cloud",
+    );
+    expect(pinSipHostToRegion("k4xpy1vcnur.eu.sip.livekit.cloud", "us")).toBe(
+      "k4xpy1vcnur.us.sip.livekit.cloud",
+    );
+  });
+
+  it("pins WebRTC URL to regional rtc endpoint", () => {
+    expect(pinRtcUrlToRegion("wss://fec-solution-q9xchbi6.livekit.cloud", "us")).toBe(
+      "wss://fec-solution-q9xchbi6.us.rtc.livekit.cloud",
+    );
   });
 });
 

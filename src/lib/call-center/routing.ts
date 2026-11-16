@@ -1554,11 +1554,15 @@ export async function issueAgentMediaToken(input: {
     displayName: input.displayName,
     canPublish: true,
   });
+  // Pin softphone to the same LiveKit region as Telnyx SIP INVITEs (default us).
+  const { resolveCallCenterRtcServerUrl } = await import("./livekit-sip");
+  const settings = await loadSettingsRow().catch(() => null);
+  const pinnedUrl = await resolveCallCenterRtcServerUrl(settings);
   return {
     provider: "livekit",
     roomName: session.roomName,
     token: session.token,
-    serverUrl: session.serverUrl ?? "",
+    serverUrl: pinnedUrl || session.serverUrl || "",
     expiresAt: session.expiresAt,
   };
 }

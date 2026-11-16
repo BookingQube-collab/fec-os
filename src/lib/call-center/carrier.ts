@@ -707,7 +707,8 @@ export async function transferCallerToLiveKit(
       sipTransport: "UDP",
       earlyMedia: false,
       mediaEncryption: "disabled",
-      timeoutSecs: 45,
+      // Match LiveKit ringing window — do not CANCEL early from our side.
+      timeoutSecs: 60,
     });
   } catch (e) {
     const lastError = e instanceof Error ? e.message : "transfer failed";
@@ -737,8 +738,10 @@ export async function transferCallerToLiveKit(
     bridgeError: null,
   });
 
-  // Single INVITE — do not cancel/retry (that produced Telnyx 487 ORIGINATOR_CANCEL).
-  const sipIdentity = await waitForSipParticipantInRoom(roomName, 20_000);
+  // Single INVITE. LiveKit answers only after it can subscribe to softphone audio.
+  // Do NOT playback/speak on the Telnyx leg while waiting — that CANCEL's the INVITE
+  // (Telnyx 487 ORIGINATOR_CANCEL / hangup_details send_cancel) and causes the toast.
+  const sipIdentity = await waitForSipParticipantInRoom(roomName, 50_000);
   if (!sipIdentity) {
     const note =
       "Could not bridge the caller into the softphone room (SIP INVITE not accepted). Check Settings → SIP URI and inbound trunk.";

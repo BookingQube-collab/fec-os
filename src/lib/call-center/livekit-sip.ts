@@ -17,18 +17,46 @@ import {
 
 import { CarrierNotConfiguredError } from "./carrier-errors";
 import { normalizeSipUriHost } from "./db";
-import { formatLiveKitSipUri, looksLikeSipParticipant } from "./sip-participant";
+import {
+  formatLiveKitSipUri,
+  looksLikeSipParticipant,
+  pinRtcUrlToRegion,
+  pinSipHostToRegion,
+  LIVEKIT_TELEPHONY_REGIONS,
+  type LiveKitTelephonyRegion,
+} from "./sip-participant";
 
 export {
   formatLiveKitSipUri,
   isAgentSoftphoneIdentity,
   looksLikeSipParticipant,
+  pinRtcUrlToRegion,
+  pinSipHostToRegion,
 } from "./sip-participant";
 import {
   looksLikeSipHostNotId,
   sipHostMistakenForIdMessage,
 } from "./sip-ids";
 import type { CallCenterSettingsRow } from "./types";
+
+/**
+ * Keep Telnyx SIP INVITEs and the agent softphone on the same LiveKit region.
+ * Default `us` — Telnyx DIDs originate in the US; global SIP + Qatar WebRTC was
+ * leaving INVITEs ringing until we cancelled (Telnyx 487 ORIGINATOR_CANCEL).
+ */
+export function resolveCallCenterLiveKitRegion(
+  settings?: CallCenterSettingsRow | null,
+): LiveKitTelephonyRegion {
+  const raw =
+    process.env.CALL_CENTER_LIVEKIT_REGION?.trim().toLowerCase() ||
+    process.env.LIVEKIT_SIP_REGION?.trim().toLowerCase() ||
+    "us";
+  if ((LIVEKIT_TELEPHONY_REGIONS as readonly string[]).includes(raw)) {
+    return raw as LiveKitTelephonyRegion;
+  }
+  void settings;
+  return "us";
+}
 
 /**
  * LiveKit SIP glue.
@@ -229,8 +257,8 @@ export async function waitForAgentPublishedInRoom(
       const agent = participants.find((p) => p.identity === identity);
       if (agent) {
         const tracks = Array.isArray(agent.tracks) ? agent.tracks : [];
-        // TrackType.AUDIO = 1; any published track is enough for LiveKit SIP to answer.
-        if (tracks.length > 0) return true;
+        // LiveKit SIP waitSubscribe needs an unmuted remote audio track.
+        if (tracks.some((t) => !(t as { muted?: boolean }).muted)) return true;
       }
     } catch {
       // Room may not exist until the softphone connects.
@@ -303,8 +331,19 @@ export async function buildLiveKitSipUri(
       "LiveKit SIP host is not set. Put your LiveKit SIP URI host (e.g. xxxx.sip.livekit.cloud) in Call Center → Settings → SIP URI.",
     );
   }
+  const region = resolveCallCenterLiveKitRegion(settings);
+  const pinnedHost = pinSipHostToRegion(host, region);
   const prefix = await resolveDispatchRoomPrefix(settings);
-  return formatLiveKitSipUri(roomName, host, prefix);
+  return formatLiveKitSipUri(roomName, pinnedHost, prefix);
+}
+
+/** Softphone WSS URL pinned to the same region as Telnyx→LiveKit SIP transfers. */
+export async function resolveCallCenterRtcServerUrl(
+  settings?: CallCenterSettingsRow | null,
+): Promise<string> {
+  const creds = await resolveLiveKitServerCredentials();
+  if (!creds?.serverUrl) return "";
+  return pinRtcUrlToRegion(creds.serverUrl, resolveCallCenterLiveKitRegion(settings ?? null));
 }
 
 export type OutboundSipResult = {
