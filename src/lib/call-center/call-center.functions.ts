@@ -111,6 +111,7 @@ import {
 import {
   answerCall,
   applyIvrDigit,
+  completePstnBridge,
   declineCall,
   hangupCall,
   holdCall,
@@ -1046,6 +1047,13 @@ export const testCallCenterRing = createSafeAuthenticatedAction(
 export const answerCallCenterCall = createSafeAuthenticatedAction(
   z.object({ callId: z.string().uuid() }),
   async (data, context) => answerCall(data.callId, context.userId),
+  { auth: AGENT_AUTH },
+);
+
+/** After softphone connects + publishes mic: Telnyx → LiveKit SIP transfer. */
+export const completeCallCenterPstnBridge = createSafeAuthenticatedAction(
+  z.object({ callId: z.string().uuid() }),
+  async (data, context) => completePstnBridge(data.callId, context.userId),
   { auth: AGENT_AUTH },
 );
 

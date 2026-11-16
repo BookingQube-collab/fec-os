@@ -104,7 +104,11 @@ export async function offerCallToQueue(params: {
   queue: CallCenterQueue;
   eventId: string | null;
 }): Promise<InboundRouteResult> {
-  const offeredUserIds = await resolveQueueAgents(params.queue);
+  const declinedRaw = (params.call.metadata as Record<string, unknown> | null)?.declinedBy;
+  const declined = new Set(
+    Array.isArray(declinedRaw) ? declinedRaw.filter((id): id is string => typeof id === "string") : [],
+  );
+  const offeredUserIds = (await resolveQueueAgents(params.queue)).filter((id) => !declined.has(id));
   const now = new Date().toISOString();
   const livekitRoom = params.call.livekitRoom || roomNameForCall(params.call.id);
   const agentUserId =
@@ -876,6 +880,8 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
 export async function answerCall(callId: string, agentUserId: string): Promise<{
   call: CallCenterCall;
   media: CallCenterMediaSession;
+  /** Telnyx Call Control inbound: softphone must publish audio, then call completePstnBridge. */
+  needsPstnBridge: boolean;
 }> {
   const { getCall } = await import("./db");
   const existing = await getCall(callId);
@@ -896,21 +902,25 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
     throw new Error("Call was answered by another agent.");
   }
 
-  // Issue softphone token while bridging so the agent UI can join immediately.
+  // Issue softphone token immediately — agent must join + publish before Telnyx→LiveKit INVITE.
   const mediaPromise = issueAgentMediaToken({
     roomName: livekitRoom,
     userId: agentUserId,
     displayName: "Agent",
   });
 
-  // Real PSTN caller waiting on Telnyx Call Control: transfer into the LiveKit room.
-  // LiveKit SIP Trunk callers are already in the room — agent just joins.
-  if (claimed.provider === "telnyx" && claimed.direction === "inbound" && claimed.providerCallId) {
+  const needsPstnBridge =
+    claimed.provider === "telnyx" &&
+    claimed.direction === "inbound" &&
+    Boolean(claimed.providerCallId);
+
+  // Phase 1 only: connecting prompt + room prep. Transfer happens in completePstnBridge
+  // after the softphone publishes audio (LiveKit will not accept the SIP INVITE otherwise).
+  if (needsPstnBridge) {
     try {
-      const { bridgeCallerToLiveKit } = await import("./carrier");
-      await bridgeCallerToLiveKit(claimed, livekitRoom);
+      const { prepareCallerBridge } = await import("./carrier");
+      await prepareCallerBridge(claimed, livekitRoom);
     } catch (e) {
-      // Merge onto latest metadata so bridgeSipUri / bridgedAt from a partial attempt survive.
       const latest = (await getCall(callId)) ?? claimed;
       await updateCall(callId, {
         status: existing.status,
@@ -920,6 +930,8 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
           ...((latest.metadata as Record<string, unknown> | null) ?? {}),
           answerClaimedBy: null,
           answerClaimedAt: null,
+          bridgeAwaitingAgent: false,
+          bridgeInProgress: false,
           bridgeError: e instanceof Error ? e.message : "bridge failed",
         },
       });
@@ -928,11 +940,21 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   }
 
   const now = new Date().toISOString();
+  // Re-read after prepare so we keep bridgeDispatchHeal / speak flags from patchMeta.
+  const afterPrep = needsPstnBridge ? ((await getCall(callId)) ?? claimed) : claimed;
+  const afterMeta = (afterPrep.metadata as Record<string, unknown> | null) ?? {};
   let call = await updateCall(callId, {
     status: "answered",
     agentUserId,
     livekitRoom,
     answeredAt: now,
+    metadata: needsPstnBridge
+      ? {
+          ...afterMeta,
+          bridgeAwaitingAgent: true,
+          bridgeInProgress: true,
+        }
+      : afterMeta,
   });
   await setAgentStatus(agentUserId, "busy", { lastCallAt: now });
 
@@ -945,7 +967,123 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   void import("./outbound-webhooks").then(({ emitCallCenterOutboundWebhook }) =>
     emitCallCenterOutboundWebhook({ event: "call.answered", call }),
   );
-  return { call, media };
+  return { call, media, needsPstnBridge };
+}
+
+/**
+ * Phase 2 of Telnyx Call Control answer: transfer PSTN → LiveKit after softphone is live.
+ * On failure: restore hold, exclude this agent via declinedBy, re-queue (no zombie re-offer).
+ */
+export async function completePstnBridge(
+  callId: string,
+  agentUserId: string,
+): Promise<CallCenterCall> {
+  const { getCall } = await import("./db");
+  const existing = await getCall(callId);
+  if (!existing) throw new Error("Call not found.");
+  if (existing.agentUserId !== agentUserId) {
+    throw new Error("Call belongs to another agent.");
+  }
+  if (!["answered", "held"].includes(existing.status)) {
+    throw new Error("Call is no longer active.");
+  }
+
+  const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+  if (typeof meta.sipParticipantIdentity === "string" && meta.bridgeVerifiedAt) {
+    return existing;
+  }
+  if (meta.bridgeTransferStartedAt && meta.bridgeInProgress && !meta.bridgeAwaitingAgent) {
+    // Transfer already in flight from a duplicate softphone onReady — wait briefly.
+    const { waitForSipParticipantInRoom } = await import("./livekit-sip");
+    const room = existing.livekitRoom || roomNameForCall(callId);
+    const sip = await waitForSipParticipantInRoom(room, 15_000);
+    if (sip) {
+      return updateCall(callId, {
+        metadata: {
+          ...meta,
+          sipParticipantIdentity: sip,
+          bridgeVerifiedAt: new Date().toISOString(),
+          bridgePendingSip: false,
+          bridgeInProgress: false,
+          bridgeAwaitingAgent: false,
+          bridgeError: null,
+        },
+      });
+    }
+  }
+
+  const needsBridge =
+    existing.provider === "telnyx" &&
+    existing.direction === "inbound" &&
+    Boolean(existing.providerCallId);
+  if (!needsBridge) return existing;
+
+  const livekitRoom = existing.livekitRoom || roomNameForCall(callId);
+  await updateCall(callId, {
+    metadata: {
+      ...meta,
+      bridgeTransferStartedAt: new Date().toISOString(),
+      bridgeAwaitingAgent: false,
+      bridgeInProgress: true,
+    },
+  });
+
+  try {
+    const { transferCallerToLiveKit } = await import("./carrier");
+    await transferCallerToLiveKit(existing, livekitRoom, agentUserId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "bridge failed";
+    const latest = (await getCall(callId)) ?? existing;
+    const latestMeta = (latest.metadata as Record<string, unknown> | null) ?? {};
+    const declinedBy = Array.isArray(latestMeta.declinedBy)
+      ? (latestMeta.declinedBy as string[])
+      : [];
+    const nextDeclined = [...new Set([...declinedBy, agentUserId])];
+
+    // Free this agent and keep the PSTN caller on hold — do NOT restore "offered" to
+    // the same agent (that caused Connect-directly zombie loops after failed bridges).
+    await setAgentStatus(agentUserId, "available");
+    const released = await updateCall(callId, {
+      status: "queued",
+      agentUserId: null,
+      answeredAt: null,
+      metadata: {
+        ...latestMeta,
+        declinedBy: nextDeclined,
+        answerClaimedBy: null,
+        answerClaimedAt: null,
+        bridgeAwaitingAgent: false,
+        bridgeInProgress: false,
+        bridgePendingSip: false,
+        bridgeError: message,
+        bridgeFailedAt: new Date().toISOString(),
+        bridgeFailedBy: agentUserId,
+      },
+    });
+
+    // Re-offer to other available queue agents (declinedBy excludes the failing agent).
+    if (released.queueId) {
+      const queues = await listQueues();
+      const queue = queues.find((q) => q.id === released.queueId);
+      if (queue) {
+        try {
+          await offerCallToQueue({
+            call: released,
+            queue,
+            eventId: released.eventId,
+          });
+        } catch {
+          // Hold music already restored; leave queued.
+        }
+      }
+    }
+
+    throw new Error(message);
+  }
+
+  const bridged = await getCall(callId);
+  if (!bridged) throw new Error("Call not found after bridge.");
+  return bridged;
 }
 
 /**

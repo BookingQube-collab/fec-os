@@ -60,6 +60,7 @@ export function CallCenterSoftphoneRoom({
   onDtmf,
   onTransfer,
   onConference,
+  onReady,
 }: {
   token: string;
   serverUrl: string;
@@ -76,6 +77,8 @@ export function CallCenterSoftphoneRoom({
   onDtmf: (digit: string) => void;
   onTransfer?: (type: "cold" | "warm", target: string) => void;
   onConference?: () => void;
+  /** Fires once after LiveKit connect + local mic publish (needed before Telnyx→LiveKit SIP). */
+  onReady?: () => void;
 }) {
   const { t } = useTranslation();
   const audioRef = useRef<HTMLDivElement>(null);
@@ -114,6 +117,9 @@ export function CallCenterSoftphoneRoom({
     }
   }, [speakerMuted]);
 
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+
   useEffect(() => {
     if (!isLiveKitAccessToken(token) || !serverUrl.startsWith("wss://")) return;
     const room = new Room({
@@ -124,6 +130,7 @@ export function CallCenterSoftphoneRoom({
     const attached = attachedRef.current;
     attached.clear();
     let cancelled = false;
+    let readyFired = false;
 
     const mountedTrackSids = new Set<string>();
 
@@ -190,8 +197,18 @@ export function CallCenterSoftphoneRoom({
         await room.connect(serverUrl, token);
         if (cancelled) return;
         attachExistingRemotes();
-        await room.localParticipant.setMicrophoneEnabled(!micMuted);
-        if (!cancelled) refresh();
+        // Must publish audio before Telnyx→LiveKit SIP INVITE — LiveKit answers only after
+        // another room participant has a published track (inbound workflow docs).
+        await room.localParticipant.setMicrophoneEnabled(true);
+        if (!cancelled) {
+          setMicOn(true);
+          onMicMutedChange?.(false);
+          refresh();
+          if (!readyFired) {
+            readyFired = true;
+            onReadyRef.current?.();
+          }
+        }
       } catch {
         if (!cancelled) {
           setFailed(true);

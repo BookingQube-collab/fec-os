@@ -20,6 +20,7 @@ import { CallCenterSoftphoneRoom } from "@/components/call-center/softphone-room
 import { useAuth } from "@/hooks/use-auth";
 import {
   answerCallCenterCall,
+  completeCallCenterPstnBridge,
   declineCallCenterCall,
   deleteCallCenterSpeedDial,
   hangupCallCenterCall,
@@ -129,6 +130,8 @@ type SoftphoneContextValue = {
   onSaveDisposition: (code: string, notes?: string) => Promise<void>;
   onToggleRecording: () => Promise<void>;
   onConference: (targetUserId?: string) => Promise<void>;
+  /** SoftphoneRoom calls this after connect + mic publish so Telnyx can transfer into LiveKit. */
+  onRoomReady: () => void;
   onAddSpeedDial: (label: string, e164: string) => Promise<void>;
   onDeleteSpeedDial: (id: string) => Promise<void>;
   endAcwEarly: () => Promise<void>;
@@ -199,6 +202,9 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   const missedAlertedRef = useRef<Set<string>>(new Set());
   const acwTimerRef = useRef<number | null>(null);
   const wrapUpRef = useRef(30);
+  /** Call id waiting for softphone onReady → completeCallCenterPstnBridge. */
+  const needsPstnBridgeRef = useRef<string | null>(null);
+  const pstnBridgeInFlightRef = useRef(false);
 
   const workspace = useQuery({
     queryKey: WORKSPACE_KEY,
@@ -546,13 +552,43 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     void onDial(number);
   }
 
+  const onRoomReady = useCallback(() => {
+    const callId = needsPstnBridgeRef.current;
+    if (!callId || pstnBridgeInFlightRef.current) return;
+    pstnBridgeInFlightRef.current = true;
+    void (async () => {
+      try {
+        const result = await completeCallCenterPstnBridge({ callId });
+        if (!result.ok) {
+          needsPstnBridgeRef.current = null;
+          setActiveCall(null);
+          setMedia(null);
+          toast.error(result.error || t("callCenter.answerFailed"));
+          void refresh();
+          return;
+        }
+        needsPstnBridgeRef.current = null;
+        setActiveCall(result.data);
+        void refresh();
+      } catch (e) {
+        needsPstnBridgeRef.current = null;
+        setActiveCall(null);
+        setMedia(null);
+        toast.error(e instanceof Error ? e.message : t("callCenter.answerFailed"));
+        void refresh();
+      } finally {
+        pstnBridgeInFlightRef.current = false;
+      }
+    })();
+  }, [refresh, t]);
+
   async function bridgeAnsweredCall(callId: string, opts?: { successKey?: string }) {
     stopSoftphoneRingtone();
     void unlockSoftphoneAudio();
     clearAcwTimer();
     clearIncomingCache();
 
-    // Optimistic: leave Incoming modal immediately and show Connecting… while bridge runs.
+    // Optimistic: leave Incoming modal immediately and show Connecting… while agent joins room.
     const seed =
       (incoming?.id === callId ? incoming : null) ??
       workspace.data?.recentCalls.find((c) => c.id === callId) ??
@@ -575,12 +611,16 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     try {
       const result = await answerCallCenterCall({ callId });
       if (!result.ok) {
+        needsPstnBridgeRef.current = null;
         setActiveCall(null);
         setMedia(null);
         toast.error(result.error || t("callCenter.answerFailed"));
         void refresh();
         return;
       }
+      // Set bridge intent BEFORE media so SoftphoneRoom onReady can transfer immediately.
+      needsPstnBridgeRef.current = result.data.needsPstnBridge ? result.data.call.id : null;
+      pstnBridgeInFlightRef.current = false;
       setActiveCall(result.data.call);
       setMedia(result.data.media);
       setHeld(false);
@@ -592,6 +632,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       }
       void refresh();
     } catch (e) {
+      needsPstnBridgeRef.current = null;
       setActiveCall(null);
       setMedia(null);
       toast.error(e instanceof Error ? e.message : t("callCenter.answerFailed"));
@@ -958,6 +999,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     onSaveDisposition,
     onToggleRecording,
     onConference,
+    onRoomReady,
     onAddSpeedDial,
     onDeleteSpeedDial,
     endAcwEarly,
@@ -1009,6 +1051,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
             onDtmf={(digit) => void onDtmf(digit)}
             onTransfer={(type, target) => void onTransfer(type, target)}
             onConference={() => void onConference()}
+            onReady={onRoomReady}
           />
         </div>
       ) : null}

@@ -51,6 +51,13 @@ export function shouldSkipHoldMusic(call: {
 }): boolean {
   if (call.status === "answered" || call.status === "held") return true;
   const meta = call.metadata ?? {};
-  if (meta.bridgedAt || meta.bridgeInProgress || meta.answerClaimedBy) return true;
+  if (
+    meta.bridgedAt ||
+    meta.bridgeInProgress ||
+    meta.bridgeAwaitingAgent ||
+    meta.answerClaimedBy
+  ) {
+    return true;
+  }
   return false;
 }

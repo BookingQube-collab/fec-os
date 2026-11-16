@@ -673,6 +673,7 @@ function CallCenterPage() {
                   onDtmf={(digit) => void phone.onDtmf(digit)}
                   onTransfer={(type, target) => void phone.onTransfer(type, target)}
                   onConference={() => void phone.onConference()}
+                  onReady={phone.onRoomReady}
                 />
               ) : phone.activeCall ? (
                 <section className="rounded-[1.75rem] border border-border/50 bg-card p-5 shadow-elevated-xs sm:p-7">

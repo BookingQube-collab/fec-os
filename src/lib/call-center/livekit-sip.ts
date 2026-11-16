@@ -211,6 +211,58 @@ export async function waitForSipParticipantInRoom(
   return null;
 }
 
+/**
+ * LiveKit SIP only answers inbound INVITEs after another room participant has published
+ * audio. Wait until the agent softphone identity is present with at least one track.
+ */
+export async function waitForAgentPublishedInRoom(
+  roomName: string,
+  agentUserId: string,
+  timeoutMs = 12_000,
+): Promise<boolean> {
+  const identity = `cc-agent-${agentUserId}`;
+  const rooms = await roomClient();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const participants = await rooms.listParticipants(roomName);
+      const agent = participants.find((p) => p.identity === identity);
+      if (agent) {
+        const tracks = Array.isArray(agent.tracks) ? agent.tracks : [];
+        // TrackType.AUDIO = 1; any published track is enough for LiveKit SIP to answer.
+        if (tracks.length > 0) return true;
+      }
+    } catch {
+      // Room may not exist until the softphone connects.
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
+/** Wait for any non-SIP room participant with a published track (AI worker / softphone). */
+export async function waitForAnyPublisherInRoom(
+  roomName: string,
+  timeoutMs = 15_000,
+): Promise<boolean> {
+  const rooms = await roomClient();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const participants = await rooms.listParticipants(roomName);
+      for (const p of participants) {
+        if (looksLikeSipParticipant(p)) continue;
+        const tracks = Array.isArray(p.tracks) ? p.tracks : [];
+        if (tracks.length > 0) return true;
+      }
+    } catch {
+      // Room may not exist yet.
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
 let prefixCache: { ruleId: string; prefix: string; at: number } | null = null;
 const PREFIX_CACHE_MS = 60_000;
 
