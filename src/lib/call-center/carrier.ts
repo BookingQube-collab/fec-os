@@ -927,19 +927,16 @@ async function transferTexmlCallerToLiveKit(
     throw new Error(note);
   }
 
-  const secret =
-    settings?.webhook_shared_secret?.trim() ||
-    process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
-    "";
-  const bridgeUrl = new URL("/api/public/call-center/texml/bridge", publicAppOrigin());
-  if (secret) bridgeUrl.searchParams.set("secret", secret);
-
+  // Prefer INLINE TeXML — Update Call Url that returns JSON 401 makes Telnyx play
+  // its default "application error / some bug" apology and hang up the PSTN leg.
   const confXml = texmlConference({
     name: conferenceName,
     voice,
     beep: false,
     startConferenceOnEnter: true,
     endConferenceOnExit: false,
+    maxParticipants: 2,
+    participantLabel: "caller",
   });
 
   await patchMeta(call.id, {
@@ -955,25 +952,34 @@ async function transferTexmlCallerToLiveKit(
     bridgeDialTo: null,
   });
 
-  const viaUrl = await updateTexmlCall({
+  const inline = await updateTexmlCall({
     apiKey,
     accountSid,
     callSid,
-    url: bridgeUrl.toString(),
-    method: "POST",
+    texml: confXml,
   });
-  let updateDetail = viaUrl.ok ? `url:${viaUrl.status || "ok"}` : `url_fail:${viaUrl.detail}`;
-  if (!viaUrl.ok) {
-    const inline = await updateTexmlCall({
+  let updateDetail = inline.ok
+    ? `inline:${inline.status || "ok"}`
+    : `inline_fail:${inline.detail}`;
+  if (!inline.ok) {
+    const secret =
+      settings?.webhook_shared_secret?.trim() ||
+      process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
+      "";
+    const bridgeUrl = new URL("/api/public/call-center/texml/bridge", publicAppOrigin());
+    if (secret) bridgeUrl.searchParams.set("secret", secret);
+    bridgeUrl.searchParams.set("conf", conferenceName);
+    const viaUrl = await updateTexmlCall({
       apiKey,
       accountSid,
       callSid,
-      texml: confXml,
+      url: bridgeUrl.toString(),
+      method: "POST",
     });
-    updateDetail = inline.ok
-      ? `${updateDetail};inline:${inline.status || "ok"}`
-      : `${updateDetail};inline_fail:${inline.detail}`;
-    if (!inline.ok) {
+    updateDetail = viaUrl.ok
+      ? `${updateDetail};url:${viaUrl.status || "ok"}`
+      : `${updateDetail};url_fail:${viaUrl.detail}`;
+    if (!viaUrl.ok) {
       await patchMeta(call.id, {
         bridgePendingSip: false,
         bridgeInProgress: false,
@@ -990,7 +996,7 @@ async function transferTexmlCallerToLiveKit(
     `[call-center/bridge] TeXML Conference (same leg) → ${conferenceName} room=${roomName} update=${updateDetail}`,
   );
 
-  await new Promise((r) => setTimeout(r, 1_200));
+  await new Promise((r) => setTimeout(r, 1_800));
   await patchMeta(call.id, { bridgePhase: "joining_agent_sip" });
 
   let result: { participantIdentity: string; sipCallId: string };
@@ -1007,10 +1013,11 @@ async function transferTexmlCallerToLiveKit(
       headers: {
         "X-FEC-Conference": conferenceName,
         "X-FEC-Bridge": "1",
+        "X-FEC-Call-Id": call.id,
       },
     });
   } catch (e) {
-    const lastError = e instanceof Error ? e.message : "conference join dial failed";
+    const lastError = e instanceof Error ? e.message : "conference join SIP failed";
     console.warn("[call-center/bridge] conference join SIP failed:", lastError);
     await patchMeta(call.id, {
       bridgePendingSip: false,
@@ -1020,7 +1027,6 @@ async function transferTexmlCallerToLiveKit(
       bridgeTransport: "texml_conference",
       bridgeMode: "texml_conference",
       bridgePhase: "failed",
-      bridgeConferenceName: null,
     });
     throw new Error(
       `Could not connect the softphone into the live call (${lastError.slice(0, 120)}). Stay Available and try Answer again.`,

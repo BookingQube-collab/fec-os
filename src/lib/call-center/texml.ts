@@ -66,17 +66,25 @@ export function texmlConference(input: {
   endConferenceOnExit?: boolean;
   waitUrl?: string;
   muted?: boolean;
+  maxParticipants?: number;
+  participantLabel?: string;
 }): string {
   const name = input.name.trim();
   const voice = input.voice?.trim() || "Polly.Joanna";
   if (!name) {
-    return texmlHangup("We could not connect your call.", voice);
+    // Silent hangup — never speak Telnyx/Twilio-style "application error" copy from our side.
+    return texmlHangup("", voice);
   }
+  const max = Math.max(2, Math.min(250, Math.floor(input.maxParticipants ?? 2)));
   const attrs = [
     `beep="${input.beep === true ? "true" : "false"}"`,
     `startConferenceOnEnter="${input.startConferenceOnEnter === false ? "false" : "true"}"`,
     `endConferenceOnExit="${input.endConferenceOnExit === true ? "true" : "false"}"`,
+    `maxParticipants="${max}"`,
     input.muted === true ? 'muted="true"' : "",
+    input.participantLabel?.trim()
+      ? `participantLabel="${escapeTexml(input.participantLabel.trim())}"`
+      : "",
     input.waitUrl?.trim() ? `waitUrl="${escapeTexml(input.waitUrl.trim())}"` : "",
   ]
     .filter(Boolean)

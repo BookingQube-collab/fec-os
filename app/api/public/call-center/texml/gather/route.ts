@@ -33,7 +33,8 @@ function xml(body: string, status = 200) {
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const authError = await assertCallCenterWebhook(request, { rawBody });
-  if (authError) return authError;
+  // TeXML voice must always get XML — JSON 401 triggers Telnyx "application error" TTS.
+  if (authError) return xml(texmlHangup(""));
 
   const form = parseTexmlForm(rawBody, request.headers.get("content-type"));
   const ids = texmlCallIds(form);

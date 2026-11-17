@@ -19,6 +19,7 @@ describe("texmlConference", () => {
     expect(xml).toContain(">fecabc123</Conference>");
     expect(xml).toContain('beep="false"');
     expect(xml).toContain('startConferenceOnEnter="true"');
+    expect(xml).toContain('maxParticipants="2"');
   });
 });
 

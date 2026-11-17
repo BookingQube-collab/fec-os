@@ -60,10 +60,18 @@ async function findAwaitingConferenceBridge(preferredName?: string) {
  * Answer bridge: caller stays on this leg in a TeXML Conference; softphone joins via
  * LiveKit outbound SIP to this DID (no customer callback / second ring).
  */
+function headerValue(form: Record<string, string>, pattern: RegExp): string {
+  for (const [key, value] of Object.entries(form)) {
+    if (pattern.test(key) && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const authError = await assertCallCenterWebhook(request, { rawBody });
-  if (authError) return authError;
+  // TeXML voice must always get XML — JSON 401 triggers Telnyx "application error" TTS.
+  if (authError) return xml(texmlHangup(""));
 
   const form = parseTexmlForm(rawBody, request.headers.get("content-type"));
   const ids = texmlCallIds(form);
@@ -80,10 +88,13 @@ export async function POST(request: Request) {
   try {
     // Softphone join leg: LiveKit dials our DID to enter the pending conference.
     // Do not create a new CDR / IVR for this loopback.
-    const headerConf = conferenceNameFromForm(form);
-    const headerBridge = Object.entries(form).some(
-      ([key, value]) => /x-?fec-?bridge/i.test(key) && String(value).trim(),
+    const headerConf =
+      conferenceNameFromForm(form) || headerValue(form, /sipheader_?x-?fec-?conference/i);
+    const headerBridge = Boolean(
+      headerValue(form, /x-?fec-?bridge/i) || headerValue(form, /sipheader_?x-?fec-?bridge/i),
     );
+    const headerCallId =
+      headerValue(form, /x-?fec-?call-?id/i) || headerValue(form, /sipheader_?x-?fec-?call-?id/i);
     const digits = (value: string) => value.replace(/\D/g, "");
     const dialsOurDid =
       Boolean(outboundDid) &&
@@ -94,13 +105,30 @@ export async function POST(request: Request) {
       (ids.from === outboundDid ||
         digits(ids.from) === digits(outboundDid) ||
         ids.from === ids.to);
+    const pendingEarly =
+      headerConf || headerBridge || headerCallId || (dialsOurDid && fromOurDid)
+        ? await findAwaitingConferenceBridge(headerConf || undefined)
+        : null;
+    const pendingByCallId =
+      headerCallId && !pendingEarly
+        ? (await listActiveCalls()).find((c) => {
+            const m = (c.metadata as Record<string, unknown> | null) ?? {};
+            return (
+              c.id === headerCallId ||
+              (m.bridgeMode === "texml_conference" &&
+                m.bridgePendingSip === true &&
+                typeof m.bridgeConferenceName === "string")
+            );
+          }) ?? null
+        : null;
     // Softphone join = SIP headers and/or DID loopback (from+to = our CLI).
-    // Do NOT treat every inbound to the DID as a join while a bridge is pending —
-    // that would steal a real caller into the conference instead of IVR.
     const looksLikeBridgeJoin =
-      Boolean(headerConf) || headerBridge || (dialsOurDid && fromOurDid);
+      Boolean(headerConf) ||
+      headerBridge ||
+      Boolean(headerCallId) ||
+      (dialsOurDid && fromOurDid);
     if (looksLikeBridgeJoin) {
-      const pending = await findAwaitingConferenceBridge(headerConf || undefined);
+      const pending = pendingEarly ?? pendingByCallId ?? (await findAwaitingConferenceBridge());
       const pendingMeta = (pending?.metadata as Record<string, unknown> | null) ?? {};
       const confName =
         headerConf ||
@@ -118,10 +146,12 @@ export async function POST(request: Request) {
             beep: false,
             startConferenceOnEnter: true,
             endConferenceOnExit: true,
+            maxParticipants: 2,
+            participantLabel: "agent",
           }),
         );
       }
-      // Loopback/join markers with no pending Answer bridge — hang up; never start IVR.
+      // Loopback/join markers with no pending Answer bridge — silent hangup; never IVR / JSON.
       console.warn(
         `[call-center/texml] conference join miss from=${ids.from} to=${ids.to} header=${headerConf || "-"}`,
       );

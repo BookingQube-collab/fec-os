@@ -21,33 +21,36 @@ function xml(body: string) {
 }
 
 /**
- * TeXML Update Call Url target for same-leg Answer bridge.
- * Puts the live inbound PSTN leg into a named conference (no customer redial).
- * Softphone joins the same conference via LiveKit outbound SIP → this DID.
+ * TeXML Update Call Url fallback for same-leg Answer bridge.
+ * Prefer inline `<Dial><Conference>` from carrier.ts — Url fetches that return JSON 401
+ * make Telnyx play its default "application error" apology on the PSTN leg.
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const authError = await assertCallCenterWebhook(request, { rawBody });
-  if (authError) return authError;
+  if (authError) {
+    // Never return JSON to a TeXML voice fetch — that triggers Telnyx's apology TTS.
+    return xml(texmlHangup(""));
+  }
 
   const form = parseTexmlForm(rawBody, request.headers.get("content-type"));
   const ids = texmlCallIds(form);
   const settings = await loadSettingsRow();
   const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
   const holdUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
+  const confFromQuery = new URL(request.url).searchParams.get("conf")?.trim() || "";
 
   const call =
     (ids.callControlId ? await findCallByProviderCallId(ids.callControlId) : null) ||
     (ids.callSid ? await findCallByProviderCallId(ids.callSid) : null);
 
-  if (!call) {
-    return xml(texmlHangup("We could not find your call.", voice));
-  }
-
-  const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+  const meta = (call?.metadata as Record<string, unknown> | null) ?? {};
   const conferenceName =
-    typeof meta.bridgeConferenceName === "string" ? meta.bridgeConferenceName.trim() : "";
+    confFromQuery ||
+    (typeof meta.bridgeConferenceName === "string" ? meta.bridgeConferenceName.trim() : "");
+
   if (!conferenceName) {
+    if (!call) return xml(texmlHangup(""));
     return xml(
       texmlQueueWait({
         holdMusicUrl: settings?.hold_music_url,
@@ -65,6 +68,8 @@ export async function POST(request: Request) {
       beep: false,
       startConferenceOnEnter: true,
       endConferenceOnExit: false,
+      maxParticipants: 2,
+      participantLabel: "caller",
     }),
   );
 }
