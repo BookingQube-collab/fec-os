@@ -644,8 +644,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
 
   async function onConnectDirectly(call: CallCenterCall) {
     if (activeCall || pending) return;
-    if (!["ivr", "queued", "ringing", "offered"].includes(call.status)) {
-      toast.error(t("callCenter.connectDirectUnavailable"));
+    if (!["queued", "ringing", "offered"].includes(call.status)) {
+      toast.error(
+        call.status === "ivr"
+          ? t("callCenter.connectDirectIvrBlocked")
+          : t("callCenter.connectDirectUnavailable"),
+      );
       return;
     }
     await bridgeAnsweredCall(call.id, { successKey: "callCenter.connectDirectSuccess" });

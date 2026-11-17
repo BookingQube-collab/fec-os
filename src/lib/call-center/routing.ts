@@ -886,9 +886,13 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   const { getCall } = await import("./db");
   const existing = await getCall(callId);
   if (!existing) throw new Error("Call not found.");
-  // ringing / offered / queued = normal Accept; ivr = Connect directly while still in menu.
-  if (!["ringing", "offered", "queued", "ivr"].includes(existing.status)) {
-    throw new Error("Call is no longer available.");
+  // ringing / offered / queued only — IVR must finish (digit → queue) before an agent can claim.
+  if (!["ringing", "offered", "queued"].includes(existing.status)) {
+    throw new Error(
+      existing.status === "ivr"
+        ? "Caller is still in the IVR menu. Wait until they select an option."
+        : "Call is no longer available.",
+    );
   }
   if (existing.agentUserId && existing.agentUserId !== agentUserId) {
     throw new Error("Call already offered to another agent.");

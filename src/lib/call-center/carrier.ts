@@ -266,6 +266,76 @@ function voiceOf(ctx: Ctx): string {
   return ctx.settings?.tts_voice ?? "";
 }
 
+/** Telnyx uses `incoming`; some payloads use `inbound`. Empty = unknown (allow). */
+function isInboundTelnyxDirection(direction: string | undefined): boolean {
+  const dir = (direction ?? "").trim().toLowerCase();
+  return !dir || dir === "incoming" || dir === "inbound";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** call.answered can race createCall when we answer before routing finishes. */
+async function findCallByProviderCallIdWithRetry(
+  providerCallId: string,
+  attempts = 10,
+  delayMs = 150,
+): Promise<CallCenterCall | null> {
+  for (let i = 0; i < attempts; i += 1) {
+    const found = await findCallByProviderCallId(providerCallId);
+    if (found) return found;
+    if (i + 1 < attempts) await sleep(delayMs);
+  }
+  return null;
+}
+
+async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promise<void> {
+  const meta = metaOf(call);
+  if (meta.carrierPromptStarted) return;
+
+  const actionsBefore = ctx.actions.length;
+  if (meta.carrierFinal) {
+    await speakThenHangup(ctx, endedPrompt(call));
+  } else if (call.status === "ivr") {
+    const greeting = typeof meta.ivrGreeting === "string" ? meta.ivrGreeting : "";
+    const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
+    await gather(ctx, greeting, audio);
+  } else if (WAITING_STATUSES.has(call.status)) {
+    await startQueueWait(ctx);
+  } else if (call.status === "answered" && !call.agentUserId && (meta.aiSession || meta.ai_answered)) {
+    const adminGateway = usesAdminAiGateway(
+      typeof meta.aiProvider === "string" ? meta.aiProvider : ctx.settings?.ai_provider,
+    );
+    if (adminGateway && call.provider === "telnyx") {
+      await startAdminGatewayAiPrompt(ctx, call);
+    } else if (call.livekitRoom) {
+      try {
+        await maybeDispatchAiAgent(call, ctx.settings, ctx.actions);
+        await bridgeCallerToLiveKit(call, call.livekitRoom, ctx.client);
+        ctx.actions.push("bridge_ai_room");
+      } catch (e) {
+        ctx.actions.push(`bridge_ai_room:error(${e instanceof Error ? e.message : "failed"})`);
+      }
+    }
+  } else if (isFinal(call.status)) {
+    await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
+  } else {
+    return;
+  }
+
+  const started = ctx.actions
+    .slice(actionsBefore)
+    .some((a) => !a.includes(":error(") && !a.includes(":skipped("));
+  if (!started) return;
+
+  await patchMeta(call.id, {
+    carrierPromptStarted: true,
+    carrierPromptStartedAt: new Date().toISOString(),
+    carrierInitActions: ctx.actions.slice(-24),
+  });
+}
+
 async function gather(ctx: Ctx, text: string, audioUrl?: string) {
   const audio = audioUrl?.trim() ?? "";
   if (audio) {
@@ -416,12 +486,33 @@ export async function handleTelnyxEvent(
 
   switch (ev.eventType) {
     case "call.initiated": {
-      if (ev.direction && ev.direction !== "incoming") return done(false, "not an inbound leg");
+      if (!isInboundTelnyxDirection(ev.direction)) return done(false, "not an inbound leg");
       const wanted = settings?.telnyx_connection_id?.trim();
       if (wanted && ev.connectionId && wanted !== ev.connectionId) {
         return done(false, "connection_id does not match configured Telnyx connection");
       }
-      if (await findCallByProviderCallId(ev.callControlId)) return done(true, "duplicate event");
+
+      const existing = await findCallByProviderCallId(ev.callControlId);
+      if (existing) {
+        // Webhook timeout/retry: CDR may exist while Answer never ran — re-answer so IVR can play.
+        if (!isFinal(existing.status) && metaOf(existing).carrierAnswered !== true) {
+          await exec(ctx, "answer", (c) =>
+            c.answer(ctx.ccid, { step: "answered", callId: existing.id }),
+          );
+          await patchMeta(existing.id, {
+            carrierAnswerRetriedAt: new Date().toISOString(),
+            carrierInitActions: actions.slice(-24),
+          });
+          return done(true, "duplicate:reanswer", existing.id);
+        }
+        return done(true, "duplicate event", existing.id);
+      }
+
+      // Answer *before* routing/DB work so the PSTN leg leaves ringback quickly.
+      // call.answered starts IVR gather once the CDR exists (with short retry).
+      const answeredEarly = await exec(ctx, "answer", (c) =>
+        c.answer(ctx.ccid, { step: "answered" }),
+      );
 
       const result = await routeInboundCall({
         fromE164: ev.from || "+00000000000",
@@ -432,51 +523,42 @@ export async function handleTelnyxEvent(
       const call = result.call;
 
       if (call.status === "failed") {
-        await exec(ctx, "reject", (c) => c.reject(ctx.ccid));
+        // Already answered above — hang up instead of reject.
+        await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
         return done(true, result.message, call.id);
       }
       if (result.phase === "ended") {
         await patchMeta(call.id, { carrierFinal: true, carrierPrompt: result.message });
       }
-      await exec(ctx, "answer", (c) => c.answer(ctx.ccid, { step: "answered", callId: call.id }));
+      await patchMeta(call.id, {
+        carrierAnswerEarly: answeredEarly,
+        carrierAnswerCommandAt: new Date().toISOString(),
+        carrierInitActions: actions.slice(-24),
+      });
+
+      // Start IVR/hold as soon as routing knows the phase (do not wait for call.answered).
+      // call.answered is idempotent via carrierPromptStarted.
+      const fresh = (await getCall(call.id)) ?? call;
+      if (
+        answeredEarly &&
+        (fresh.status === "ivr" ||
+          WAITING_STATUSES.has(fresh.status) ||
+          metaOf(fresh).carrierFinal ||
+          (fresh.status === "answered" && metaOf(fresh).aiSession))
+      ) {
+        await startPromptForAnsweredCall(ctx, fresh);
+      }
       return done(true, result.message, call.id);
     }
 
     case "call.answered": {
-      if (ev.direction && ev.direction !== "incoming") return done(false, "not an inbound leg");
-      const found = await findCallByProviderCallId(ev.callControlId);
+      if (!isInboundTelnyxDirection(ev.direction)) return done(false, "not an inbound leg");
+      const found = await findCallByProviderCallIdWithRetry(ev.callControlId);
       if (!found) return done(false, "unknown call");
       const call =
         (await patchMeta(found.id, { carrierAnswered: true, carrierAnsweredAt: new Date().toISOString() })) ??
         found;
-      const meta = metaOf(call);
-
-      if (meta.carrierFinal) {
-        await speakThenHangup(ctx, endedPrompt(call));
-      } else if (call.status === "ivr") {
-        const greeting = typeof meta.ivrGreeting === "string" ? meta.ivrGreeting : "";
-        const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
-        await gather(ctx, greeting, audio);
-      } else if (WAITING_STATUSES.has(call.status)) {
-        await startQueueWait(ctx);
-      } else if (call.status === "answered" && !call.agentUserId && (meta.aiSession || meta.ai_answered)) {
-        const adminGateway = usesAdminAiGateway(
-          typeof meta.aiProvider === "string" ? meta.aiProvider : settings?.ai_provider,
-        );
-        if (adminGateway && call.provider === "telnyx") {
-          await startAdminGatewayAiPrompt(ctx, call);
-        } else if (call.livekitRoom) {
-          try {
-            await maybeDispatchAiAgent(call, settings, actions);
-            await bridgeCallerToLiveKit(call, call.livekitRoom, ctx.client);
-            actions.push("bridge_ai_room");
-          } catch (e) {
-            actions.push(`bridge_ai_room:error(${e instanceof Error ? e.message : "failed"})`);
-          }
-        }
-      } else if (isFinal(call.status)) {
-        await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
-      }
+      await startPromptForAnsweredCall(ctx, call);
       return done(true, "answered", call.id);
     }
 
@@ -916,10 +998,19 @@ type LiveKitParticipantLike = {
   attributes?: Record<string, string>;
 };
 
+type LiveKitEgressLike = {
+  egressId?: string;
+  roomName?: string;
+  status?: number | string;
+  error?: string;
+  fileResults?: Array<{ location?: string }>;
+};
+
 type LiveKitEventLike = {
   event: string;
   room?: { name?: string } | null;
   participant?: LiveKitParticipantLike | null;
+  egressInfo?: LiveKitEgressLike | null;
 };
 
 function isSipParticipant(p: LiveKitParticipantLike): boolean {
@@ -950,9 +1041,33 @@ export async function handleLiveKitSipEvent(event: LiveKitEventLike): Promise<Ca
   });
   const room = event.room?.name ?? "";
 
+  if (
+    event.event === "egress_ended" ||
+    event.event === "egress_updated" ||
+    event.event === "egress_started"
+  ) {
+    const egress = event.egressInfo;
+    if (!egress) return done(false, "egress event missing egressInfo");
+    const { applyLiveKitEgressInfo } = await import("./recording-egress");
+    const result = await applyLiveKitEgressInfo({
+      ...egress,
+      roomName: egress.roomName?.trim() || room || egress.roomName,
+    });
+    actions.push(result.note);
+    return done(result.handled, result.note, result.callId);
+  }
+
   if (event.event === "room_finished") {
     const call = await findCallByLivekitRoom(room);
     if (!call) return done(false, "unknown room");
+    // Capture recording URL before/while tearing down — egress often completes on hangup.
+    try {
+      const { refreshCallRecordingFromEgress } = await import("./recording-egress");
+      await refreshCallRecordingFromEgress(call);
+      actions.push("egress_refresh");
+    } catch {
+      // best-effort
+    }
     const updated = await finalizeCarrierHangup(call, "Room closed");
     return done(true, `room_finished:${updated.status}`, call.id);
   }

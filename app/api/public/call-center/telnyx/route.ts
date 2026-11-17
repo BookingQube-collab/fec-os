@@ -8,6 +8,9 @@ import {
   extractInboundLegs,
 } from "@/lib/call-center/webhook-auth";
 
+/** call.initiated: answer + route + IVR gather; keep under Telnyx webhook patience. */
+export const maxDuration = 60;
+
 /**
  * Telnyx Call Control webhook.
  * POST /api/public/call-center/telnyx

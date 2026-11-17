@@ -1308,8 +1308,8 @@ export async function updateCall(
  * Atomically claim a waiting call for an agent before bridging media.
  * Returns null when another agent already claimed it (simultaneous race).
  */
-/** Inbound legs an agent can still take (Accept / Connect directly), including IVR. */
-const CLAIMABLE_CALL_STATUSES = ["ringing", "offered", "queued", "ivr"] as const;
+/** Inbound legs an agent can Accept / Connect — after IVR digit routes to queue (not during menu). */
+const CLAIMABLE_CALL_STATUSES = ["ringing", "offered", "queued"] as const;
 
 export async function claimCallForAnswer(
   callId: string,
@@ -1326,7 +1326,6 @@ export async function claimCallForAnswer(
     ...((existing.metadata as Record<string, unknown> | null) ?? {}),
     answerClaimedBy: agentUserId,
     answerClaimedAt: now,
-    ...(existing.status === "ivr" ? { connectedDirectFromIvr: true } : {}),
   };
 
   // Prefer unclaimed rows (simultaneous / IVR). Filter agent in a second path for directed offers.

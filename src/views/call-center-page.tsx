@@ -44,9 +44,8 @@ import type {
 import { cn } from "@/lib/utils";
 import { CallCenterShell } from "@/views/call-center-section-nav";
 
-/** Live inbound still waiting — show Connect directly (not Call back). */
+/** Live inbound in queue / ringing — Connect after IVR (not during menu). */
 const LIVE_CONNECTABLE_STATUSES = new Set<CallCenterCallStatus>([
-  "ivr",
   "queued",
   "ringing",
   "offered",

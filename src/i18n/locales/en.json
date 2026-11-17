@@ -2144,7 +2144,7 @@
     "audioUploadFailed": "Audio upload failed.",
     "audioUploadHint": "MP3, WAV, or M4A up to 8 MB. Stored publicly so Telnyx can play it.",
     "ttsEnabled": "TTS greeting",
-    "ttsHint": "When on, queue welcome uses TTS text if no welcome audio URL is set.",
+    "ttsHint": "When on, queue welcome uses TTS text if no welcome audio URL is set. IVR menu prompts always use the voice below.",
     "ttsVoice": "IVR TTS voice",
     "ttsVoiceCustom": "Custom Telnyx voice id…",
     "ttsVoiceHint": "Used for Call Control speak/gather. Default Polly Joanna (EN, clear on phone). Arabic-majority prompts auto-use Polly Hala. Neural Polly ids map to standard for PSTN clarity. Formats: Polly.*, Azure.*, female/male.",
@@ -2535,6 +2535,7 @@
     "connectDirectly": "Connect directly",
     "connectDirectSuccess": "Connected — caller is on your softphone.",
     "connectDirectUnavailable": "That call is no longer waiting.",
+    "connectDirectIvrBlocked": "Caller is still in the IVR menu. Wait until they press a digit.",
     "callStatus": {
       "ringing": "Ringing",
       "queued": "Queued",
