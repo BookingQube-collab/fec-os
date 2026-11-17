@@ -534,12 +534,20 @@ export async function handleTelnyxEvent(
             carrierAnswerRetriedAt: new Date().toISOString(),
             carrierAnswerEarly: reanswered,
             carrierInitActions: actions.slice(-24),
+            ...(reanswered ? {} : { carrierAnswerFailed: true }),
           });
           if (reanswered) {
             const fresh = (await getCall(existing.id)) ?? existing;
             await startPromptForAnsweredCall(ctx, fresh);
+            return done(true, "duplicate:reanswer", existing.id);
           }
-          return done(true, "duplicate:reanswer", existing.id);
+          await exec(ctx, "reject", (c) => c.reject(ctx.ccid));
+          const failed = await updateCall(existing.id, {
+            status: "failed",
+            hangupReason: "Telnyx Answer failed (Call Control 10007) — IVR could not start",
+            endedAt: new Date().toISOString(),
+          });
+          return done(true, "duplicate:answer_failed", failed.id);
         }
         return done(true, "duplicate event", existing.id);
       }
