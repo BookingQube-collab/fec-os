@@ -380,9 +380,19 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   useEffect(() => {
     if (!activeCall) return;
     const latest = workspace.data?.recentCalls.find((c) => c.id === activeCall.id);
-    if (!latest || !["ended", "missed", "failed", "declined"].includes(latest.status)) return;
-    if (latest.status === "failed") {
-      toast.error(latest.hangupReason || t("callCenter.callFailedRemote"));
+    if (!latest) return;
+    const meta = (latest.metadata as Record<string, unknown> | null) ?? {};
+    const bridgeFailed =
+      meta.bridgePhase === "failed" ||
+      (typeof meta.bridgeFailedAt === "string" && meta.bridgeFailedAt.length > 0);
+    const ended = ["ended", "missed", "failed", "declined"].includes(latest.status);
+    if (!ended && !bridgeFailed) return;
+    if (latest.status === "failed" || bridgeFailed) {
+      toast.error(
+        (typeof meta.bridgeError === "string" && meta.bridgeError) ||
+          latest.hangupReason ||
+          t("callCenter.callFailedRemote"),
+      );
     } else {
       toast.message(t("callCenter.callEndedRemote"));
     }
@@ -391,6 +401,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     setMedia(null);
     setHeld(false);
     setMicMuted(false);
+    needsPstnBridgeRef.current = null;
+    pstnBridgeInFlightRef.current = false;
     startAcwTimer(wrapUpRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- react to server CDR updates only
   }, [workspace.data?.recentCalls, activeCall?.id]);
@@ -561,6 +573,15 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     void onDial(number);
   }
 
+  const clearSoftphoneSession = useCallback(() => {
+    needsPstnBridgeRef.current = null;
+    pstnBridgeInFlightRef.current = false;
+    setActiveCall(null);
+    setMedia(null);
+    setHeld(false);
+    setMicMuted(false);
+  }, []);
+
   const onRoomReady = useCallback(() => {
     const callId = needsPstnBridgeRef.current;
     if (!callId || pstnBridgeInFlightRef.current) return;
@@ -569,27 +590,35 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       try {
         const result = await completeCallCenterPstnBridge({ callId });
         if (!result.ok) {
-          needsPstnBridgeRef.current = null;
-          setActiveCall(null);
-          setMedia(null);
+          clearSoftphoneSession();
           toast.error(result.error || t("callCenter.answerFailed"));
           void refresh();
           return;
         }
+        const bridged = result.data;
+        const meta = (bridged.metadata as Record<string, unknown> | null) ?? {};
+        // Never leave ACTIVE on an unverified bridge (zombie "Calling customer back").
+        if (meta.bridgePhase === "failed" || meta.bridgeError) {
+          clearSoftphoneSession();
+          toast.error(
+            (typeof meta.bridgeError === "string" && meta.bridgeError) ||
+              t("callCenter.answerFailed"),
+          );
+          void refresh();
+          return;
+        }
         needsPstnBridgeRef.current = null;
-        setActiveCall(result.data);
+        setActiveCall(bridged);
         void refresh();
       } catch (e) {
-        needsPstnBridgeRef.current = null;
-        setActiveCall(null);
-        setMedia(null);
+        clearSoftphoneSession();
         toast.error(e instanceof Error ? e.message : t("callCenter.answerFailed"));
         void refresh();
       } finally {
         pstnBridgeInFlightRef.current = false;
       }
     })();
-  }, [refresh, t]);
+  }, [clearSoftphoneSession, refresh, t]);
 
   async function bridgeAnsweredCall(callId: string, opts?: { successKey?: string }) {
     stopSoftphoneRingtone();

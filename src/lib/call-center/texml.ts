@@ -145,7 +145,11 @@ export function texmlCallIds(form: Record<string, string>): {
   };
 }
 
-/** Update an in-progress TeXML call with new instructions (interrupts Pause/Play). */
+/**
+ * Update an in-progress TeXML call.
+ * Telnyx expects Twilio-style `application/x-www-form-urlencoded` + CamelCase keys.
+ * JSON bodies can return 200 while Status=completed is ignored (call stays in-progress).
+ */
 export async function updateTexmlCall(input: {
   apiKey: string;
   accountSid: string;
@@ -155,20 +159,20 @@ export async function updateTexmlCall(input: {
   method?: "GET" | "POST";
   /** Set to `completed` to end the TeXML leg (needed before LiveKit outbound redial). */
   status?: "completed";
-}): Promise<{ ok: boolean; detail: string }> {
+}): Promise<{ ok: boolean; detail: string; status?: string }> {
   const accountSid = input.accountSid.trim();
   const callSid = input.callSid.trim();
   if (!accountSid || !callSid) {
     return { ok: false, detail: "missing accountSid or callSid" };
   }
-  const body: Record<string, string> = {};
-  if (input.status) body.Status = input.status;
-  if (input.texml?.trim()) body.Texml = input.texml.trim();
+  const form = new URLSearchParams();
+  if (input.status) form.set("Status", input.status);
+  if (input.texml?.trim()) form.set("Texml", input.texml.trim());
   if (input.url?.trim()) {
-    body.Url = input.url.trim();
-    body.Method = input.method ?? "POST";
+    form.set("Url", input.url.trim());
+    form.set("Method", input.method ?? "POST");
   }
-  if (!body.Texml && !body.Url && !body.Status) {
+  if (![...form.keys()].length) {
     return { ok: false, detail: "need Texml, Url, or Status" };
   }
   try {
@@ -178,9 +182,10 @@ export async function updateTexmlCall(input: {
         method: "POST",
         headers: {
           Authorization: `Bearer ${input.apiKey}`,
-          "Content-Type": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
         },
-        body: JSON.stringify(body),
+        body: form.toString(),
         cache: "no-store",
       },
     );
@@ -191,13 +196,28 @@ export async function updateTexmlCall(input: {
         detail: `HTTP ${response.status}: ${text.slice(0, 200)}`,
       };
     }
-    return { ok: true, detail: "updated" };
+    let status = "";
+    try {
+      const json = JSON.parse(text) as Record<string, unknown>;
+      status = extractTexmlCallStatus(json);
+    } catch {
+      // ignore
+    }
+    return { ok: true, detail: status ? `updated:${status}` : "updated", status };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "update failed" };
   }
 }
 
 const TEXML_ENDED = new Set(["completed", "busy", "failed", "no-answer", "canceled", "cancelled"]);
+
+function extractTexmlCallStatus(json: Record<string, unknown> | null): string {
+  if (!json) return "";
+  const nested =
+    json.data && typeof json.data === "object" ? (json.data as Record<string, unknown>) : null;
+  const raw = json.status ?? json.Status ?? nested?.status ?? nested?.Status ?? "";
+  return String(raw).toLowerCase();
+}
 
 /** Poll TeXML REST until the PSTN leg is fully cleared (avoids 486 on connect-back dial). */
 export async function waitForTexmlCallEnded(input: {
@@ -216,19 +236,105 @@ export async function waitForTexmlCallEnded(input: {
       const response = await fetch(
         `https://api.telnyx.com/v2/texml/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(callSid)}`,
         {
-          headers: { Authorization: `Bearer ${input.apiKey}` },
+          headers: {
+            Authorization: `Bearer ${input.apiKey}`,
+            Accept: "application/json",
+          },
           cache: "no-store",
         },
       );
-      const json = (await response.json().catch(() => null)) as { status?: string } | null;
-      last = String(json?.status ?? "").toLowerCase();
+      const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      last = extractTexmlCallStatus(json);
       if (TEXML_ENDED.has(last)) return { ended: true, status: last };
     } catch {
       // retry
     }
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 350));
   }
   return { ended: false, status: last };
+}
+
+/** Best-effort: end TeXML leg via Status=completed, Hangup TeXML, and Call Control hangup. */
+export async function forceReleaseTexmlLeg(input: {
+  apiKey: string;
+  accountSid: string;
+  callSid: string;
+  callControlId?: string;
+}): Promise<{ ended: boolean; detail: string; status: string }> {
+  const steps: string[] = [];
+
+  // 1) Status=completed first — do NOT queue a Speak that keeps the leg "in-progress".
+  const completed = await updateTexmlCall({
+    apiKey: input.apiKey,
+    accountSid: input.accountSid,
+    callSid: input.callSid,
+    status: "completed",
+  });
+  steps.push(`status=${completed.ok ? completed.status || "ok" : completed.detail}`);
+  if (completed.status && TEXML_ENDED.has(completed.status)) {
+    return { ended: true, detail: steps.join(";"), status: completed.status };
+  }
+
+  // 2) Immediate Hangup verb (no Say).
+  const hangupOnly = await updateTexmlCall({
+    apiKey: input.apiKey,
+    accountSid: input.accountSid,
+    callSid: input.callSid,
+    texml: '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>',
+  });
+  steps.push(`hangup_xml=${hangupOnly.ok ? hangupOnly.status || "ok" : hangupOnly.detail}`);
+
+  // 3) Call Control hangup — TeXML legs also expose call_control_id.
+  const ccid = input.callControlId?.trim() || "";
+  if (ccid) {
+    try {
+      const response = await fetch(
+        `https://api.telnyx.com/v2/calls/${encodeURIComponent(ccid)}/actions/hangup`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: "{}",
+          cache: "no-store",
+        },
+      );
+      steps.push(`cc_hangup=${response.status}`);
+    } catch (e) {
+      steps.push(`cc_hangup=${e instanceof Error ? e.message : "fail"}`);
+    }
+  }
+
+  const waited = await waitForTexmlCallEnded({
+    apiKey: input.apiKey,
+    accountSid: input.accountSid,
+    callSid: input.callSid,
+    timeoutMs: 10_000,
+  });
+  steps.push(`poll=${waited.status || "unknown"}`);
+  if (waited.ended) return { ended: true, detail: steps.join(";"), status: waited.status };
+
+  // Final Status=completed nudge after Hangup/CC.
+  const again = await updateTexmlCall({
+    apiKey: input.apiKey,
+    accountSid: input.accountSid,
+    callSid: input.callSid,
+    status: "completed",
+  });
+  steps.push(`status2=${again.ok ? again.status || "ok" : again.detail}`);
+  const waited2 = await waitForTexmlCallEnded({
+    apiKey: input.apiKey,
+    accountSid: input.accountSid,
+    callSid: input.callSid,
+    timeoutMs: 6_000,
+  });
+  steps.push(`poll2=${waited2.status || "unknown"}`);
+  return {
+    ended: waited2.ended,
+    detail: steps.join(";"),
+    status: waited2.status || again.status || waited.status || "",
+  };
 }
 
 export function publicTexmlUrl(path: string, requestUrl: string): string {

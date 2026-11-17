@@ -27,7 +27,7 @@ import {
 import { shouldSkipHoldMusic } from "./incoming-offer";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
 import { createTelnyxClient, resolveTelnyxApiKey, type TelnyxClient, type TelnyxEvent } from "./telnyx";
-import { texmlHangup, updateTexmlCall, waitForTexmlCallEnded } from "./texml";
+import { forceReleaseTexmlLeg } from "./texml";
 import type { CallCenterCall, CallCenterSettingsRow, InboundRouteResult } from "./types";
 
 /**
@@ -830,10 +830,13 @@ async function transferTexmlCallerToLiveKit(
   agentUserId: string | null,
   settings: CallCenterSettingsRow | null,
 ): Promise<void> {
-  const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
   const meta = metaOf(call);
   const callSid =
     (typeof meta.texmlCallSid === "string" && meta.texmlCallSid) || call.providerCallId || "";
+  const callControlId =
+    (typeof meta.texmlCallControlId === "string" && meta.texmlCallControlId) ||
+    call.providerCallId ||
+    "";
   const accountSid =
     (typeof meta.texmlAccountSid === "string" && meta.texmlAccountSid) ||
     process.env.TELNYX_ACCOUNT_SID?.trim() ||
@@ -862,6 +865,7 @@ async function transferTexmlCallerToLiveKit(
       bridgeError: note,
       bridgeVerifyNote: note,
       bridgeMode: "livekit_outbound_dial",
+      bridgePhase: "failed",
       texmlDialSipUri: null,
     });
     throw new Error(note);
@@ -877,6 +881,7 @@ async function transferTexmlCallerToLiveKit(
     bridgeDialTo: callerE164,
     texmlDialSipUri: null,
     bridgeTransport: "outbound_dial_after_texml",
+    bridgePhase: "releasing_texml",
   });
 
   if (!apiKey || !accountSid || !callSid) {
@@ -887,70 +892,45 @@ async function transferTexmlCallerToLiveKit(
       bridgeInProgress: false,
       bridgeError: note,
       bridgeVerifyNote: note,
+      bridgePhase: "failed",
     });
     throw new Error(note);
   }
 
-  // Short prompt + hangup, then force Status=completed so the PSTN line frees before redial.
-  const hangupXml = texmlHangup(
-    "Please answer when we call you back.",
-    voice,
-  );
-  const prompted = await updateTexmlCall({
+  // Do NOT Speak before hangup — a queued Say kept the leg in-progress while Status=completed
+  // was previously sent as JSON (ignored). Use form-urlencoded Status + Hangup + CC hangup.
+  const released = await forceReleaseTexmlLeg({
     apiKey,
     accountSid,
     callSid,
-    texml: hangupXml,
-  });
-  await new Promise((r) => setTimeout(r, 600));
-  const forced = await updateTexmlCall({
-    apiKey,
-    accountSid,
-    callSid,
-    status: "completed",
+    callControlId,
   });
   await patchMeta(call.id, {
     carrierFinal: true,
     bridgeCallControlHungUpAt: new Date().toISOString(),
-    texmlUpdateDetail: prompted.ok
-      ? `say_hangup_ok;force=${forced.ok ? "ok" : forced.detail}`
-      : `say_hangup_fail;force=${forced.ok ? "ok" : forced.detail}`,
-    bridgePhase: "releasing_texml",
+    texmlUpdateDetail: released.detail,
+    texmlReleaseStatus: released.status || null,
   });
 
-  const ended = await waitForTexmlCallEnded({
-    apiKey,
-    accountSid,
-    callSid,
-    timeoutMs: 20_000,
-  });
-  if (!ended.ended) {
-    await updateTexmlCall({ apiKey, accountSid, callSid, status: "completed" });
-    const again = await waitForTexmlCallEnded({
-      apiKey,
-      accountSid,
-      callSid,
-      timeoutMs: 8_000,
+  if (!released.ended) {
+    const note =
+      "Inbound call did not clear before connect-back dial. Ask the caller to hang up and dial again.";
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeError: note,
+      bridgeVerifyNote: `texml_status=${released.status || "unknown"};${released.detail}`,
+      bridgePhase: "failed",
     });
-    if (!again.ended) {
-      const note =
-        "Inbound call did not clear before connect-back dial. Ask the caller to hang up and dial again.";
-      await patchMeta(call.id, {
-        bridgePendingSip: false,
-        bridgeInProgress: false,
-        bridgeError: note,
-        bridgeVerifyNote: `texml_status=${again.status || ended.status || "unknown"}`,
-        bridgePhase: "failed",
-      });
-      throw new Error(note);
-    }
+    throw new Error(note);
   }
-  // Qatar/mobile networks often keep the line "busy" for a few seconds after hangup.
+
+  // Qatar/mobile networks often keep the line "busy" briefly after hangup.
   await patchMeta(call.id, { bridgePhase: "settling" });
-  await new Promise((r) => setTimeout(r, 5_000));
+  await new Promise((r) => setTimeout(r, 3_500));
 
   console.info(
-    `[call-center/bridge] TeXML cleared (${ended.status || "completed"}) → outbound dial ${callerE164} room=${roomName}`,
+    `[call-center/bridge] TeXML cleared (${released.status}) → outbound dial ${callerE164} room=${roomName}`,
   );
   await patchMeta(call.id, { bridgePhase: "dialing_back" });
 

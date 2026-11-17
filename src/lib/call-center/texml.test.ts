@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
-import { texmlCallIds, texmlDialSip, texmlQueueWait } from "./texml";
+import { texmlCallIds, texmlDialSip, texmlQueueWait, updateTexmlCall } from "./texml";
 
 describe("texmlDialSip", () => {
   it("emits Dial Sip with connecting prompt", () => {
@@ -35,5 +35,38 @@ describe("texmlCallIds", () => {
         To: "+18704772102",
       }).accountSid,
     ).toBe("f5586561-8ff0-4291-a51b-c7dfe4139ff9");
+  });
+});
+
+describe("updateTexmlCall", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts Status=completed as form-urlencoded (not JSON)", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ status: "completed" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await updateTexmlCall({
+      apiKey: "KEY",
+      accountSid: "a6153688-7618-424f-a58c-3d2f97467d1c",
+      callSid: "v3:abc",
+      status: "completed",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe("completed");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.headers).toMatchObject({
+      "Content-Type": "application/x-www-form-urlencoded",
+    });
+    expect(String(init.body)).toBe("Status=completed");
+    expect(String(init.body)).not.toContain("{");
   });
 });
