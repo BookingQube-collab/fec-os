@@ -263,20 +263,25 @@ async function exec(ctx: Ctx, label: string, fn: (client: TelnyxClient) => Promi
 }
 
 /**
- * Telnyx Answer can return 10007 ("unexpected error") right as the inbound leg is
- * still setting up — retry with backoff. Idempotent via command_id per attempt.
+ * Telnyx Answer can return 10007 ("unexpected error") while the inbound leg is still
+ * setting up. Try a bare `{}` answer first (no client_state), then retries with state.
  */
 async function answerInboundLeg(
   ctx: Ctx,
   clientState: Record<string, unknown>,
   label = "answer",
 ): Promise<boolean> {
-  const delays = [0, 300, 800, 1500];
-  for (let i = 0; i < delays.length; i += 1) {
-    if (delays[i] > 0) await sleep(delays[i]);
+  const attempts: Array<{ delayMs: number; state?: Record<string, unknown>; tag: string }> = [
+    { delayMs: 0, tag: label },
+    { delayMs: 400, tag: `${label}:bare2` },
+    { delayMs: 900, state: clientState, tag: `${label}:stated` },
+    { delayMs: 1600, state: clientState, tag: `${label}:stated2` },
+  ];
+  for (const attempt of attempts) {
+    if (attempt.delayMs > 0) await sleep(attempt.delayMs);
     const commandId = crypto.randomUUID();
-    const ok = await exec(ctx, i === 0 ? label : `${label}:retry${i}`, (c) =>
-      c.answer(ctx.ccid, clientState, commandId),
+    const ok = await exec(ctx, attempt.tag, (c) =>
+      c.answer(ctx.ccid, attempt.state, commandId),
     );
     if (ok) return true;
     const last = ctx.actions[ctx.actions.length - 1] ?? "";
@@ -568,17 +573,33 @@ export async function handleTelnyxEvent(
         carrierAnswerEarly: answered,
         carrierAnswerCommandAt: new Date().toISOString(),
         carrierInitActions: actions.slice(-24),
+        ...(answered
+          ? {}
+          : {
+              carrierAnswerFailed: true,
+              carrierAnswerFailDetail: actions.filter((a) => a.includes("answer")).slice(-6),
+            }),
       });
+
+      if (!answered) {
+        // Do not leave the caller in silent ringback / zombie IVR — reject and mark failed.
+        await exec(ctx, "reject", (c) => c.reject(ctx.ccid));
+        const failed = await updateCall(call.id, {
+          status: "failed",
+          hangupReason: "Telnyx Answer failed (Call Control 10007) — IVR could not start",
+          endedAt: new Date().toISOString(),
+        });
+        return done(true, "answer_failed", failed.id);
+      }
 
       // Start IVR/hold as soon as routing knows the phase (do not wait for call.answered).
       // call.answered is idempotent via carrierPromptStarted.
       const fresh = (await getCall(call.id)) ?? call;
       if (
-        answered &&
-        (fresh.status === "ivr" ||
-          WAITING_STATUSES.has(fresh.status) ||
-          metaOf(fresh).carrierFinal ||
-          (fresh.status === "answered" && metaOf(fresh).aiSession))
+        fresh.status === "ivr" ||
+        WAITING_STATUSES.has(fresh.status) ||
+        metaOf(fresh).carrierFinal ||
+        (fresh.status === "answered" && metaOf(fresh).aiSession)
       ) {
         await startPromptForAnsweredCall(ctx, fresh);
       }
