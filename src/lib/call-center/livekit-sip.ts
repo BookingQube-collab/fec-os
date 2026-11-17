@@ -17,6 +17,7 @@ import {
 
 import { CarrierNotConfiguredError } from "./carrier-errors";
 import { normalizeSipUriHost } from "./db";
+import { isTransientPstnBusy } from "./pstn-busy";
 import {
   formatLiveKitSipUri,
   looksLikeSipParticipant,
@@ -435,6 +436,43 @@ export async function dialOutboundSip(input: {
     participantIdentity: info.participantIdentity || identity,
     sipCallId: info.sipCallId || "",
   };
+}
+
+/**
+ * Dial with backoff when the PSTN leg is still clearing (common after TeXML hangup)
+ * or when rapid outbound retries hit carrier capacity (486/503).
+ */
+export async function dialOutboundSipWithBusyRetry(
+  input: Parameters<typeof dialOutboundSip>[0] & {
+    attempts?: number;
+    settleMs?: number[];
+  },
+): Promise<OutboundSipResult> {
+  const attempts = Math.max(1, Math.min(5, input.attempts ?? 3));
+  const settles = input.settleMs?.length
+    ? input.settleMs
+    : [0, 3_000, 5_000, 8_000];
+  let lastError = "SIP dial failed";
+  for (let i = 0; i < attempts; i++) {
+    const wait = settles[Math.min(i, settles.length - 1)] ?? 0;
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await dialOutboundSip({
+        ...input,
+        directionAttr:
+          i === 0
+            ? input.directionAttr
+            : `${input.directionAttr ?? "outbound"}_retry${i}`,
+      });
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : lastError;
+      if (!isTransientPstnBusy(lastError) || i === attempts - 1) throw e;
+      console.warn(
+        `[call-center/sip] dial busy/unavailable (attempt ${i + 1}/${attempts}): ${lastError}`,
+      );
+    }
+  }
+  throw new Error(lastError);
 }
 
 /** Best-effort: drop everyone (including SIP legs) from the call room. */

@@ -18,7 +18,7 @@ import {
 import {
   CALL_CENTER_ROOM_PREFIX,
   deleteLiveKitRoom,
-  dialOutboundSip,
+  dialOutboundSipWithBusyRetry,
   dispatchLiveKitAgent,
   ensureLiveKitRoom,
   waitForAgentPublishedInRoom,
@@ -891,9 +891,9 @@ async function transferTexmlCallerToLiveKit(
     throw new Error(note);
   }
 
-  // Play callback prompt, then hang up the live TeXML leg.
+  // Short prompt + hangup, then force Status=completed so the PSTN line frees before redial.
   const hangupXml = texmlHangup(
-    "Connecting you now. Please answer when we call you back.",
+    "Please answer when we call you back.",
     voice,
   );
   const prompted = await updateTexmlCall({
@@ -902,30 +902,35 @@ async function transferTexmlCallerToLiveKit(
     callSid,
     texml: hangupXml,
   });
-  // Force-complete if Say+Hangup update failed or leg stuck.
-  const forced = prompted.ok
-    ? { ok: true, detail: "say_hangup" }
-    : await updateTexmlCall({ apiKey, accountSid, callSid, status: "completed" });
+  await new Promise((r) => setTimeout(r, 600));
+  const forced = await updateTexmlCall({
+    apiKey,
+    accountSid,
+    callSid,
+    status: "completed",
+  });
   await patchMeta(call.id, {
     carrierFinal: true,
     bridgeCallControlHungUpAt: new Date().toISOString(),
-    texmlUpdateDetail: prompted.ok ? "say_hangup_ok" : `force:${forced.detail}`,
+    texmlUpdateDetail: prompted.ok
+      ? `say_hangup_ok;force=${forced.ok ? "ok" : forced.detail}`
+      : `say_hangup_fail;force=${forced.ok ? "ok" : forced.detail}`,
+    bridgePhase: "releasing_texml",
   });
 
   const ended = await waitForTexmlCallEnded({
     apiKey,
     accountSid,
     callSid,
-    timeoutMs: 12_000,
+    timeoutMs: 20_000,
   });
   if (!ended.ended) {
-    // Last resort: Status=completed then wait a bit more.
     await updateTexmlCall({ apiKey, accountSid, callSid, status: "completed" });
     const again = await waitForTexmlCallEnded({
       apiKey,
       accountSid,
       callSid,
-      timeoutMs: 5_000,
+      timeoutMs: 8_000,
     });
     if (!again.ended) {
       const note =
@@ -935,72 +940,48 @@ async function transferTexmlCallerToLiveKit(
         bridgeInProgress: false,
         bridgeError: note,
         bridgeVerifyNote: `texml_status=${again.status || ended.status || "unknown"}`,
+        bridgePhase: "failed",
       });
       throw new Error(note);
     }
   }
-  // Brief settle after PSTN clear — reduces residual 486 from the same line.
-  await new Promise((r) => setTimeout(r, 1_200));
+  // Qatar/mobile networks often keep the line "busy" for a few seconds after hangup.
+  await patchMeta(call.id, { bridgePhase: "settling" });
+  await new Promise((r) => setTimeout(r, 5_000));
 
   console.info(
     `[call-center/bridge] TeXML cleared (${ended.status || "completed"}) → outbound dial ${callerE164} room=${roomName}`,
   );
+  await patchMeta(call.id, { bridgePhase: "dialing_back" });
 
   let result: { participantIdentity: string; sipCallId: string };
   try {
-    result = await dialOutboundSip({
+    result = await dialOutboundSipWithBusyRetry({
       settings,
       roomName,
       toE164: callerE164,
       fromE164,
       callId: call.id,
-      ringingTimeoutSecs: 30,
+      ringingTimeoutSecs: 35,
       playDialtone: true,
       directionAttr: "inbound_bridge",
+      attempts: 4,
+      settleMs: [0, 4_000, 6_000, 8_000],
     });
   } catch (e) {
     const lastError = e instanceof Error ? e.message : "outbound dial failed";
-    // One retry after extra settle if still busy.
-    if (/486|busy|failed_precondition/i.test(lastError)) {
-      await new Promise((r) => setTimeout(r, 2_500));
-      try {
-        result = await dialOutboundSip({
-          settings,
-          roomName,
-          toE164: callerE164,
-          fromE164,
-          callId: call.id,
-          ringingTimeoutSecs: 30,
-          playDialtone: true,
-          directionAttr: "inbound_bridge_retry",
-        });
-      } catch (e2) {
-        const retryError = e2 instanceof Error ? e2.message : lastError;
-        console.warn("[call-center/bridge] TeXML outbound dial failed:", retryError);
-        await patchMeta(call.id, {
-          bridgePendingSip: false,
-          bridgeInProgress: false,
-          bridgeError: retryError,
-          bridgeVerifyNote: retryError,
-          bridgeTransport: "outbound_dial_after_texml",
-        });
-        throw new Error(
-          `Could not reach the caller on the connect-back dial (${retryError.slice(0, 120)}). Ask them to call again.`,
-        );
-      }
-    } else {
-      console.warn("[call-center/bridge] TeXML outbound dial failed:", lastError);
-      await patchMeta(call.id, {
-        bridgePendingSip: false,
-        bridgeInProgress: false,
-        bridgeError: lastError,
-        bridgeVerifyNote: lastError,
-        bridgeTransport: "outbound_dial_after_texml",
-      });
-      throw new Error(
-        `Could not reach the caller on the connect-back dial (${lastError.slice(0, 120)}). Ask them to call again.`,
-      );
-    }
+    console.warn("[call-center/bridge] TeXML outbound dial failed:", lastError);
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeError: lastError,
+      bridgeVerifyNote: lastError,
+      bridgeTransport: "outbound_dial_after_texml",
+      bridgePhase: "failed",
+    });
+    throw new Error(
+      `Could not reach the caller on the connect-back dial (${lastError.slice(0, 120)}). Ask them to call again.`,
+    );
   }
 
   await patchMeta(call.id, {
@@ -1014,6 +995,7 @@ async function transferTexmlCallerToLiveKit(
     bridgeError: null,
     bridgeTransport: "outbound_trunk",
     bridgeMode: "livekit_outbound_dial",
+    bridgePhase: "bridged",
     carrierFinal: true,
   });
   console.info(
@@ -1082,7 +1064,7 @@ export async function transferCallerToLiveKit(
   await telnyx
     .speak(
       call.providerCallId,
-      "Connecting you now. Please answer when we call you back.",
+      "Please answer when we call you back.",
       { step: "bridge_callback", callId: call.id },
       voice,
     )
@@ -1092,24 +1074,28 @@ export async function transferCallerToLiveKit(
   await patchMeta(call.id, {
     carrierFinal: true,
     bridgeCallControlHungUpAt: new Date().toISOString(),
+    bridgePhase: "settling",
   });
-  await new Promise((r) => setTimeout(r, 3_500));
+  await new Promise((r) => setTimeout(r, 5_000));
 
   console.info(
     `[call-center/bridge] outbound dial → ${callerE164} room=${roomName} (Call Control released)`,
   );
+  await patchMeta(call.id, { bridgePhase: "dialing_back" });
 
   let result: { participantIdentity: string; sipCallId: string };
   try {
-    result = await dialOutboundSip({
+    result = await dialOutboundSipWithBusyRetry({
       settings,
       roomName,
       toE164: callerE164,
       fromE164,
       callId: call.id,
-      ringingTimeoutSecs: 25,
+      ringingTimeoutSecs: 35,
       playDialtone: true,
       directionAttr: "inbound_bridge",
+      attempts: 4,
+      settleMs: [0, 4_000, 6_000, 8_000],
     });
   } catch (e) {
     const lastError = e instanceof Error ? e.message : "outbound dial failed";
@@ -1120,6 +1106,7 @@ export async function transferCallerToLiveKit(
       bridgeError: lastError,
       bridgeVerifyNote: lastError,
       bridgeTransport: "outbound_dial",
+      bridgePhase: "failed",
     });
     throw new Error(
       `Could not reach the caller on the connect-back dial (${lastError.slice(0, 120)}). Ask them to call again.`,
@@ -1226,12 +1213,14 @@ export async function runOutboundDial(callId: string): Promise<void> {
   if (!call || isFinal(call.status)) return;
   const settings = await loadSettingsRow();
   try {
-    const result = await dialOutboundSip({
+    const result = await dialOutboundSipWithBusyRetry({
       settings,
       roomName: call.livekitRoom,
       toE164: call.toE164,
       fromE164: call.fromE164,
       callId,
+      attempts: 3,
+      settleMs: [0, 2_500, 5_000],
     });
     const fresh = await getCall(callId);
     if (!fresh || isFinal(fresh.status)) {
@@ -1255,9 +1244,13 @@ export async function runOutboundDial(callId: string): Promise<void> {
     const fresh = await getCall(callId);
     if (!fresh || isFinal(fresh.status)) return;
     const now = new Date().toISOString();
+    const busy = /486|busy|503|service unavailable|failed_precondition/i.test(message);
     await updateCall(callId, {
       status: "failed",
-      hangupReason: `PSTN dial failed: ${message}`.slice(0, 300),
+      hangupReason: busy
+        ? `PSTN dial failed: number busy or carrier unavailable (${message}). Wait a few seconds and try once.`
+            .slice(0, 300)
+        : `PSTN dial failed: ${message}`.slice(0, 300),
       endedAt: now,
       metadata: { ...metaOf(fresh), pstnState: "failed", pstnError: message, sipOutboundPending: false },
     });

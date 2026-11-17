@@ -517,6 +517,10 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       toast.error(t("callCenter.dialInvalid"));
       return;
     }
+    if (pending || activeCall) {
+      toast.message(t("callCenter.dialInProgress"));
+      return;
+    }
     stopSoftphoneRingtone();
     await unlockSoftphoneAudio();
     clearAcwTimer();
@@ -527,7 +531,12 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     });
     setPending(false);
     if (!result.ok) {
-      toast.error(result.error);
+      const err = result.error || "";
+      toast.error(
+        /486|busy|503|unavailable|failed_precondition/i.test(err)
+          ? t("callCenter.outboundBusy")
+          : err,
+      );
       return;
     }
     setActiveCall(result.data.call);
