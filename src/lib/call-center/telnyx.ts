@@ -140,7 +140,9 @@ function describeError(body: unknown, fallback: string): string {
   const root = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const errors = Array.isArray(root.errors) ? root.errors : [];
   const first = errors[0] && typeof errors[0] === "object" ? (errors[0] as Record<string, unknown>) : {};
-  return str(first.detail) || str(first.title) || fallback;
+  const detail = str(first.detail) || str(first.title) || fallback;
+  const code = str(first.code);
+  return code ? `${detail} [${code}]` : detail;
 }
 
 export type TelnyxClient = ReturnType<typeof createTelnyxClient>;
@@ -176,8 +178,11 @@ export function createTelnyxClient(apiKey: string) {
   }
 
   return {
-    answer: (id: string, clientState?: Record<string, unknown>) =>
-      action(id, "answer", clientState ? { client_state: encodeClientState(clientState) } : {}),
+    answer: (id: string, clientState?: Record<string, unknown>, commandId?: string) =>
+      action(id, "answer", {
+        ...(clientState ? { client_state: encodeClientState(clientState) } : {}),
+        ...(commandId ? { command_id: commandId } : {}),
+      }),
     reject: (id: string, cause = "CALL_REJECTED") => action(id, "reject", { cause }),
     hangup: (id: string) => action(id, "hangup"),
     speak: (

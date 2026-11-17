@@ -262,6 +262,30 @@ async function exec(ctx: Ctx, label: string, fn: (client: TelnyxClient) => Promi
   }
 }
 
+/**
+ * Telnyx Answer can return 10007 ("unexpected error") right as the inbound leg is
+ * still setting up — retry with backoff. Idempotent via command_id per attempt.
+ */
+async function answerInboundLeg(
+  ctx: Ctx,
+  clientState: Record<string, unknown>,
+  label = "answer",
+): Promise<boolean> {
+  const delays = [0, 300, 800, 1500];
+  for (let i = 0; i < delays.length; i += 1) {
+    if (delays[i] > 0) await sleep(delays[i]);
+    const commandId = crypto.randomUUID();
+    const ok = await exec(ctx, i === 0 ? label : `${label}:retry${i}`, (c) =>
+      c.answer(ctx.ccid, clientState, commandId),
+    );
+    if (ok) return true;
+    const last = ctx.actions[ctx.actions.length - 1] ?? "";
+    // Call already gone — further retries are useless.
+    if (/90018|already ended|no longer active/i.test(last)) return false;
+  }
+  return false;
+}
+
 function voiceOf(ctx: Ctx): string {
   return ctx.settings?.tts_voice ?? "";
 }
@@ -374,7 +398,8 @@ async function startHold(ctx: Ctx) {
 async function startQueueWait(ctx: Ctx) {
   const s = ctx.settings;
   const audio = s?.welcome_audio_url?.trim() ?? "";
-  const text = s?.welcome_greeting?.trim() ?? "";
+  // Prefer Welcome greeting text; fall back to TTS greeting text so either field works without MP3s.
+  const text = s?.welcome_greeting?.trim() || s?.tts_greeting_text?.trim() || "";
   if (audio) {
     const ok = await exec(ctx, "welcome_audio", (c) => c.playbackStart(ctx.ccid, audio, { step: "welcome" }, false));
     if (ok) return;
@@ -496,23 +521,26 @@ export async function handleTelnyxEvent(
       if (existing) {
         // Webhook timeout/retry: CDR may exist while Answer never ran — re-answer so IVR can play.
         if (!isFinal(existing.status) && metaOf(existing).carrierAnswered !== true) {
-          await exec(ctx, "answer", (c) =>
-            c.answer(ctx.ccid, { step: "answered", callId: existing.id }),
-          );
+          const reanswered = await answerInboundLeg(ctx, {
+            step: "answered",
+            callId: existing.id,
+          });
           await patchMeta(existing.id, {
             carrierAnswerRetriedAt: new Date().toISOString(),
+            carrierAnswerEarly: reanswered,
             carrierInitActions: actions.slice(-24),
           });
+          if (reanswered) {
+            const fresh = (await getCall(existing.id)) ?? existing;
+            await startPromptForAnsweredCall(ctx, fresh);
+          }
           return done(true, "duplicate:reanswer", existing.id);
         }
         return done(true, "duplicate event", existing.id);
       }
 
-      // Answer *before* routing/DB work so the PSTN leg leaves ringback quickly.
-      // call.answered starts IVR gather once the CDR exists (with short retry).
-      const answeredEarly = await exec(ctx, "answer", (c) =>
-        c.answer(ctx.ccid, { step: "answered" }),
-      );
+      // Answer ASAP (with retries) so the PSTN leg leaves ringback; then route → IVR gather.
+      let answered = await answerInboundLeg(ctx, { step: "answered" });
 
       const result = await routeInboundCall({
         fromE164: ev.from || "+00000000000",
@@ -523,15 +551,21 @@ export async function handleTelnyxEvent(
       const call = result.call;
 
       if (call.status === "failed") {
-        // Already answered above — hang up instead of reject.
-        await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
+        if (answered) await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
+        else await exec(ctx, "reject", (c) => c.reject(ctx.ccid));
         return done(true, result.message, call.id);
       }
       if (result.phase === "ended") {
         await patchMeta(call.id, { carrierFinal: true, carrierPrompt: result.message });
       }
+
+      // Second chance: Answer sometimes 10007's before the leg is fully ready.
+      if (!answered) {
+        answered = await answerInboundLeg(ctx, { step: "answered", callId: call.id }, "answer_late");
+      }
+
       await patchMeta(call.id, {
-        carrierAnswerEarly: answeredEarly,
+        carrierAnswerEarly: answered,
         carrierAnswerCommandAt: new Date().toISOString(),
         carrierInitActions: actions.slice(-24),
       });
@@ -540,7 +574,7 @@ export async function handleTelnyxEvent(
       // call.answered is idempotent via carrierPromptStarted.
       const fresh = (await getCall(call.id)) ?? call;
       if (
-        answeredEarly &&
+        answered &&
         (fresh.status === "ivr" ||
           WAITING_STATUSES.has(fresh.status) ||
           metaOf(fresh).carrierFinal ||

@@ -10,6 +10,7 @@ import {
   claimCallForAnswer,
   createCall,
   createVoicemail,
+  findCallByProviderCallId,
   findDidByE164,
   getAgentStatus,
   listAvailableAgents,
@@ -155,6 +156,25 @@ export async function routeInboundCall(input: {
   forceAgentUserId?: string | null;
   skipIvr?: boolean;
 }): Promise<InboundRouteResult> {
+  // Webhook retries must not create a second CDR for the same Telnyx leg.
+  if (input.providerCallId?.trim()) {
+    const existing = await findCallByProviderCallId(input.providerCallId);
+    if (existing) {
+      const phase =
+        existing.status === "ivr"
+          ? ("ivr" as const)
+          : ["ended", "missed", "declined", "failed", "voicemail"].includes(existing.status)
+            ? ("ended" as const)
+            : ("queue" as const);
+      return {
+        call: existing,
+        offeredUserIds: existing.agentUserId ? [existing.agentUserId] : [],
+        phase,
+        message: "Existing inbound call",
+      };
+    }
+  }
+
   const settings = await loadSettingsRow();
   if (!settings?.enabled && input.provider !== "test") {
     const call = await createCall({
