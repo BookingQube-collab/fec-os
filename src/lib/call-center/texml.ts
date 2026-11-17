@@ -254,16 +254,48 @@ export async function waitForTexmlCallEnded(input: {
   return { ended: false, status: last };
 }
 
-/** Best-effort: end TeXML leg via Status=completed, Hangup TeXML, and Call Control hangup. */
+function publicTexmlHangupUrl(): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    (process.env.VERCEL_URL?.trim() ? `https://${process.env.VERCEL_URL.trim()}` : "");
+  const origin = (fromEnv || "https://e3fec.vercel.app").replace(/\/$/, "");
+  const secret =
+    process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
+    process.env.TELNYX_WEBHOOK_SECRET?.trim() ||
+    "";
+  const url = new URL("/api/public/call-center/texml/hangup", origin);
+  if (secret) url.searchParams.set("secret", secret);
+  return url.toString();
+}
+
+/**
+ * Best-effort end TeXML leg. Production evidence (4:59 CDR): Status=completed returns
+ * command status `accepted` while the call stays `in-progress`; inline Texml Hangup can
+ * 404; Call Control hangup returns 422 on TeXML-only legs. Prefer Url→Hangup endpoint,
+ * then Status=completed, then a short poll. Caller must still dial-back even if poll fails.
+ */
 export async function forceReleaseTexmlLeg(input: {
   apiKey: string;
   accountSid: string;
   callSid: string;
   callControlId?: string;
+  hangupUrl?: string;
 }): Promise<{ ended: boolean; detail: string; status: string }> {
   const steps: string[] = [];
+  const hangupUrl = input.hangupUrl?.trim() || publicTexmlHangupUrl();
 
-  // 1) Status=completed first — do NOT queue a Speak that keeps the leg "in-progress".
+  // 1) Url → Hangup document (interrupts Pause/Play/Redirect hold loop).
+  const viaUrl = await updateTexmlCall({
+    apiKey: input.apiKey,
+    accountSid: input.accountSid,
+    callSid: input.callSid,
+    url: hangupUrl,
+    method: "POST",
+  });
+  steps.push(`url_hangup=${viaUrl.ok ? viaUrl.status || "ok" : viaUrl.detail}`);
+
+  // 2) Status=completed (response `accepted` = command ack, not call ended).
   const completed = await updateTexmlCall({
     apiKey: input.apiKey,
     accountSid: input.accountSid,
@@ -275,7 +307,7 @@ export async function forceReleaseTexmlLeg(input: {
     return { ended: true, detail: steps.join(";"), status: completed.status };
   }
 
-  // 2) Immediate Hangup verb (no Say).
+  // 3) Inline Hangup (may 404 after Status=completed — ignore).
   const hangupOnly = await updateTexmlCall({
     apiKey: input.apiKey,
     accountSid: input.accountSid,
@@ -284,7 +316,7 @@ export async function forceReleaseTexmlLeg(input: {
   });
   steps.push(`hangup_xml=${hangupOnly.ok ? hangupOnly.status || "ok" : hangupOnly.detail}`);
 
-  // 3) Call Control hangup — TeXML legs also expose call_control_id.
+  // 4) Call Control hangup — often 422 on pure TeXML legs; still try.
   const ccid = input.callControlId?.trim() || "";
   if (ccid) {
     try {
@@ -306,34 +338,18 @@ export async function forceReleaseTexmlLeg(input: {
     }
   }
 
+  // Short poll only — do not block dial-back for 20s+ on stuck in-progress.
   const waited = await waitForTexmlCallEnded({
     apiKey: input.apiKey,
     accountSid: input.accountSid,
     callSid: input.callSid,
-    timeoutMs: 10_000,
+    timeoutMs: 4_000,
   });
   steps.push(`poll=${waited.status || "unknown"}`);
-  if (waited.ended) return { ended: true, detail: steps.join(";"), status: waited.status };
-
-  // Final Status=completed nudge after Hangup/CC.
-  const again = await updateTexmlCall({
-    apiKey: input.apiKey,
-    accountSid: input.accountSid,
-    callSid: input.callSid,
-    status: "completed",
-  });
-  steps.push(`status2=${again.ok ? again.status || "ok" : again.detail}`);
-  const waited2 = await waitForTexmlCallEnded({
-    apiKey: input.apiKey,
-    accountSid: input.accountSid,
-    callSid: input.callSid,
-    timeoutMs: 6_000,
-  });
-  steps.push(`poll2=${waited2.status || "unknown"}`);
   return {
-    ended: waited2.ended,
+    ended: waited.ended,
     detail: steps.join(";"),
-    status: waited2.status || again.status || waited.status || "",
+    status: waited.status || completed.status || "",
   };
 }
 

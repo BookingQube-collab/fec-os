@@ -211,7 +211,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     enabled: canUse,
     // Faster while callers are live on IVR / queue so Recent shows Connect promptly.
     refetchInterval: (query) => {
-      if (activeCall) return 3_000;
+      // During Answer→bridge, poll hard so missed/bridgePhase=failed clears ACTIVE fast.
+      if (activeCall || needsPstnBridgeRef.current || pstnBridgeInFlightRef.current) return 1_500;
       const recent = query.state.data?.recentCalls ?? [];
       const hasLiveWaiting = recent.some((c) =>
         ["ivr", "queued", "ringing", "offered"].includes(c.status),
@@ -376,6 +377,23 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
 
   useEffect(() => () => clearAcwTimer(), [clearAcwTimer]);
 
+  const clearSoftphoneSession = useCallback(
+    (opts?: { releaseAgent?: boolean }) => {
+      needsPstnBridgeRef.current = null;
+      pstnBridgeInFlightRef.current = false;
+      setActiveCall(null);
+      setMedia(null);
+      setHeld(false);
+      setMicMuted(false);
+      if (opts?.releaseAgent !== false) {
+        void setCallCenterAgentStatus({ status: "available" }).then(() => {
+          void queryClient.invalidateQueries({ queryKey: WORKSPACE_KEY });
+        });
+      }
+    },
+    [queryClient],
+  );
+
   // Carrier events (caller hung up, PSTN dial failed, …) close the CDR server-side: mirror that here.
   useEffect(() => {
     if (!activeCall) return;
@@ -397,15 +415,30 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       toast.message(t("callCenter.callEndedRemote"));
     }
     setLastEndedCallId(latest.id);
-    setActiveCall(null);
-    setMedia(null);
-    setHeld(false);
-    setMicMuted(false);
-    needsPstnBridgeRef.current = null;
-    pstnBridgeInFlightRef.current = false;
+    clearSoftphoneSession({ releaseAgent: bridgeFailed || ended });
     startAcwTimer(wrapUpRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- react to server CDR updates only
-  }, [workspace.data?.recentCalls, activeCall?.id]);
+  }, [workspace.data?.recentCalls, activeCall?.id, clearSoftphoneSession]);
+
+  // Watchdog: never leave zombie ACTIVE if bridge hangs (TeXML release / dial-back).
+  useEffect(() => {
+    if (!activeCall) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      const latest = workspace.data?.recentCalls.find((c) => c.id === activeCall.id);
+      const meta = (latest?.metadata as Record<string, unknown> | null) ?? {};
+      const verified =
+        typeof meta.bridgeVerifiedAt === "string" ||
+        typeof meta.sipParticipantIdentity === "string" ||
+        meta.bridgePhase === "bridged";
+      if (verified) return;
+      if (Date.now() - started < 40_000) return;
+      toast.error(t("callCenter.answerFailed"));
+      clearSoftphoneSession({ releaseAgent: true });
+      void queryClient.invalidateQueries({ queryKey: ["call-center"] });
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [activeCall?.id, workspace.data?.recentCalls, clearSoftphoneSession, queryClient, t]);
 
   // PSTN cancel while ringing: drop stale Incoming as soon as Recent shows missed/declined.
   useEffect(() => {
@@ -573,15 +606,6 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     void onDial(number);
   }
 
-  const clearSoftphoneSession = useCallback(() => {
-    needsPstnBridgeRef.current = null;
-    pstnBridgeInFlightRef.current = false;
-    setActiveCall(null);
-    setMedia(null);
-    setHeld(false);
-    setMicMuted(false);
-  }, []);
-
   const onRoomReady = useCallback(() => {
     const callId = needsPstnBridgeRef.current;
     if (!callId || pstnBridgeInFlightRef.current) return;
@@ -590,20 +614,27 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       try {
         const result = await completeCallCenterPstnBridge({ callId });
         if (!result.ok) {
-          clearSoftphoneSession();
+          // Hard clear — never leave "Calling customer back" ACTIVE after bridge failure.
+          clearSoftphoneSession({ releaseAgent: true });
           toast.error(result.error || t("callCenter.answerFailed"));
           void refresh();
           return;
         }
         const bridged = result.data;
         const meta = (bridged.metadata as Record<string, unknown> | null) ?? {};
-        // Never leave ACTIVE on an unverified bridge (zombie "Calling customer back").
-        if (meta.bridgePhase === "failed" || meta.bridgeError) {
-          clearSoftphoneSession();
-          toast.error(
-            (typeof meta.bridgeError === "string" && meta.bridgeError) ||
-              t("callCenter.answerFailed"),
-          );
+        const verified =
+          typeof meta.bridgeVerifiedAt === "string" ||
+          typeof meta.sipParticipantIdentity === "string" ||
+          meta.bridgePhase === "bridged";
+        // Never leave ACTIVE on an unverified / failed bridge.
+        if (meta.bridgePhase === "failed" || meta.bridgeError || !verified) {
+          clearSoftphoneSession({ releaseAgent: true });
+          if (meta.bridgePhase === "failed" || meta.bridgeError) {
+            toast.error(
+              (typeof meta.bridgeError === "string" && meta.bridgeError) ||
+                t("callCenter.answerFailed"),
+            );
+          }
           void refresh();
           return;
         }
@@ -611,7 +642,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
         setActiveCall(bridged);
         void refresh();
       } catch (e) {
-        clearSoftphoneSession();
+        clearSoftphoneSession({ releaseAgent: true });
         toast.error(e instanceof Error ? e.message : t("callCenter.answerFailed"));
         void refresh();
       } finally {

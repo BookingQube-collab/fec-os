@@ -897,40 +897,52 @@ async function transferTexmlCallerToLiveKit(
     throw new Error(note);
   }
 
-  // Do NOT Speak before hangup — a queued Say kept the leg in-progress while Status=completed
-  // was previously sent as JSON (ignored). Use form-urlencoded Status + Hangup + CC hangup.
+  // Production 4:59: Status=completed → `accepted` but leg stayed in-progress; Hangup XML 404;
+  // CC hangup 422. Do NOT block dial-back on poll — release best-effort, settle, then dial
+  // with busy retries (proven createSipParticipant path).
+  const hangupUrl = (() => {
+    const origin = (
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      process.env.APP_URL?.trim() ||
+      (process.env.VERCEL_URL?.trim() ? `https://${process.env.VERCEL_URL.trim()}` : "") ||
+      "https://e3fec.vercel.app"
+    ).replace(/\/$/, "");
+    const secret =
+      settings?.webhook_shared_secret?.trim() ||
+      process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
+      "";
+    const url = new URL("/api/public/call-center/texml/hangup", origin);
+    if (secret) url.searchParams.set("secret", secret);
+    return url.toString();
+  })();
+
   const released = await forceReleaseTexmlLeg({
     apiKey,
     accountSid,
     callSid,
     callControlId,
+    hangupUrl,
   });
   await patchMeta(call.id, {
     carrierFinal: true,
     bridgeCallControlHungUpAt: new Date().toISOString(),
     texmlUpdateDetail: released.detail,
     texmlReleaseStatus: released.status || null,
+    texmlReleaseEnded: released.ended,
   });
 
-  if (!released.ended) {
-    const note =
-      "Inbound call did not clear before connect-back dial. Ask the caller to hang up and dial again.";
-    await patchMeta(call.id, {
-      bridgePendingSip: false,
-      bridgeInProgress: false,
-      bridgeError: note,
-      bridgeVerifyNote: `texml_status=${released.status || "unknown"};${released.detail}`,
-      bridgePhase: "failed",
-    });
-    throw new Error(note);
-  }
-
-  // Qatar/mobile networks often keep the line "busy" briefly after hangup.
-  await patchMeta(call.id, { bridgePhase: "settling" });
-  await new Promise((r) => setTimeout(r, 3_500));
+  // Always proceed — waiting for TeXML `completed` left agents on zombie ACTIVE for ~50s.
+  const settleMs = released.ended ? 3_000 : 5_500;
+  await patchMeta(call.id, {
+    bridgePhase: "settling",
+    bridgeVerifyNote: released.ended
+      ? `texml_cleared:${released.status}`
+      : `texml_unclear:${released.status || "unknown"};dialing_anyway`,
+  });
+  await new Promise((r) => setTimeout(r, settleMs));
 
   console.info(
-    `[call-center/bridge] TeXML cleared (${released.status}) → outbound dial ${callerE164} room=${roomName}`,
+    `[call-center/bridge] TeXML release ended=${released.ended} (${released.status}) → outbound dial ${callerE164} room=${roomName} detail=${released.detail}`,
   );
   await patchMeta(call.id, { bridgePhase: "dialing_back" });
 
