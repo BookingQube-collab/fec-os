@@ -45,10 +45,13 @@ function startOfTodayIso() {
 
 /** True when the CDR has a fetchable media URL (not a placeholder egress stub). */
 function hasPlayableRecording(call: CallCenterCall) {
+  // Keep client-side check aligned with server isUsableRecordingUrl (no server-only import).
   const url = call.recordingUrl?.trim() ?? "";
   if (!url) return false;
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+    const host = parsed.hostname.toLowerCase();
     if (
       host === "recordings.example" ||
       host.endsWith(".recordings.example") ||
@@ -57,7 +60,14 @@ function hasPlayableRecording(call: CallCenterCall) {
     ) {
       return false;
     }
-    return url.startsWith("https://") || url.startsWith("http://");
+    // Guessed LiveKit Cloud path — not a real file until egress_ended sets the location.
+    if (
+      (host.endsWith(".livekit.cloud") || host === "livekit.cloud") &&
+      parsed.pathname.includes("/recordings/")
+    ) {
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }

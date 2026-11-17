@@ -13,9 +13,10 @@ import {
  * POST /api/public/call-center/livekit-sip
  *
  * 1. LiveKit server webhook (project Settings → Webhooks): signed JWT in `Authorization`.
- *    Events used: participant_joined / participant_left (SIP) and room_finished keep the CDR
- *    in sync, and calls that arrive straight on a LiveKit SIP trunk (Telnyx SIP Trunking)
- *    are routed (IVR / queue) into FEC.
+ *    Events used: participant_joined / participant_left (SIP), room_finished, and
+ *    egress_started / egress_updated / egress_ended (recording URL → CDR) keep state in sync.
+ *    Calls that arrive straight on a LiveKit SIP trunk (Telnyx SIP Trunking) are routed
+ *    (IVR / queue) into FEC.
  * 2. IVR digit ingest (shared secret): { digit, callId } — for LiveKit Agents or tools that
  *    forward RFC 2833 SipDTMF into FEC routing.
  * 3. Manual / demo: { from, to, callId } with the shared secret (or ?demo=1) creates a CDR +
@@ -111,6 +112,6 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "fec-call-center-livekit-sip",
-    hint: "Point the LiveKit project webhook here (participant_joined / participant_left / room_finished).",
+    hint: "Point the LiveKit project webhook here (participant_*, room_finished, egress_*).",
   });
 }

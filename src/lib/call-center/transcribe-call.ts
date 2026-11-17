@@ -1,6 +1,5 @@
+import { isUsableRecordingUrl } from "./recording-url";
 import type { CallCenterCall } from "./types";
-
-const PLACEHOLDER_HOSTS = ["recordings.example", "example.com", "localhost"];
 
 export type TranscriptGenerateSource = "whisper" | "ai_history" | "cdr_summary";
 
@@ -11,24 +10,10 @@ export type TranscriptGenerateResult = {
   message: string;
 };
 
+export { isUsableRecordingUrl };
+
 function metaOf(call: CallCenterCall): Record<string, unknown> {
   return (call.metadata as Record<string, unknown> | null) ?? {};
-}
-
-/** True when the URL looks like a real media file we can fetch for STT. */
-export function isUsableRecordingUrl(url: string): boolean {
-  const trimmed = url.trim();
-  if (!trimmed) return false;
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-  const host = parsed.hostname.toLowerCase();
-  if (PLACEHOLDER_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return false;
-  return true;
 }
 
 export function formatAiHistoryTranscript(call: CallCenterCall): string | null {

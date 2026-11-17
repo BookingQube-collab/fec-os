@@ -1191,8 +1191,18 @@ export const saveCallCenterTranscript = createSafeAuthenticatedAction(
 export const generateCallCenterTranscriptStub = createSafeAuthenticatedAction(
   z.object({ callId: z.string().uuid() }),
   async (data) => {
-    const call = await getCall(data.callId);
+    let call = await getCall(data.callId);
     if (!call) throw new Error("Call not found.");
+    // If recording was flagged but URL never landed (missed egress webhook), try LiveKit listEgress.
+    try {
+      const { isUsableRecordingUrl } = await import("./recording-url");
+      if (call.recordingEnabled && !isUsableRecordingUrl(call.recordingUrl)) {
+        const { refreshCallRecordingFromEgress } = await import("./recording-egress");
+        call = await refreshCallRecordingFromEgress(call);
+      }
+    } catch {
+      // best-effort; generate still runs with whatever URL we have
+    }
     const { generateCallTranscriptContent } = await import("./transcribe-call");
     const generated = await generateCallTranscriptContent(call);
     const saved = await saveCallTranscript({
