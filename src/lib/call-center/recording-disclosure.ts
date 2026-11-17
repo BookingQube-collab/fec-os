@@ -4,15 +4,18 @@ import { isArabicText } from "./ivr-tts-voice";
 export const RECORDING_DISCLOSURE_EN =
   "Please note that this call may be recorded for quality and training purposes.";
 
-/** Qatar/Gulf-appropriate MSA recording notice (Arabic). */
+/**
+ * Gulf/Qatari-leaning recording notice (Arabic).
+ * Written for spoken IVR with Polly Hala (ar-AE) — not stiff MSA.
+ */
 export const RECORDING_DISCLOSURE_AR =
-  "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.";
+  "للعلم، المكالمة هذي ممكن تنسجل عشان الجودة والتدريب.";
 
 /** Short connecting line after the disclosure (English). */
 export const CONNECTING_TO_AGENT_EN = "Please wait. We are connecting you to an agent.";
 
-/** Short connecting line after the disclosure (Arabic). */
-export const CONNECTING_TO_AGENT_AR = "يرجى الانتظار. جارٍ توصيلك بأحد موظفينا.";
+/** Short connecting line after the disclosure (Gulf Arabic). */
+export const CONNECTING_TO_AGENT_AR = "لحظة من فضلك، بنوصلك بالموظف الحين.";
 
 export type CallerSpeakLang = "en" | "ar";
 

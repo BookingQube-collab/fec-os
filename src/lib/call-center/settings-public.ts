@@ -165,7 +165,7 @@ export function toPublicSettings(
       "Hello, thank you for calling. How can I help you today?",
     aiWelcomeAr:
       row?.ai_welcome_ar?.trim() ||
-      "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
+      "مرحبا، شكراً لاتصالك. كيف نقدر نساعدك؟",
     aiProvider: provider,
     aiModel: row?.ai_model?.trim() || "gemini-flash-latest",
     aiApiKeySet: aiApiKey.length > 0,

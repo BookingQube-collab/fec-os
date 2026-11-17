@@ -36,29 +36,29 @@ export type E3CenterKey = keyof typeof E3_CENTER_LABELS;
 export const E3_LANG_GREETING_EN =
   "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0. للتحدث مع موظف، اضغط 0.";
 
+/** Gulf/Qatari-leaning spoken Arabic — clear for IVR, not stiff MSA. */
 export const E3_LANG_GREETING_AR =
-  "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزية اضغط 1. للعربية اضغط 2. للتحدث مع موظف اضغط 0.";
+  "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزي اضغط 1. للعربي اضغط 2. عشان تتكلم مع موظف اضغط 0.";
 
 /** Step 2 — select entertainment center. */
 export const E3_CENTER_GREETING_EN =
   "Please select the entertainment center you would like assistance with. For Inflata Park, City Center, press 1. For Kids Driving School, City Center, press 2. For Urban Arena, Doha Mall, press 3. For general E3 customer support, press 0.";
 
 export const E3_CENTER_GREETING_AR =
-  "يرجى اختيار مركز الترفيه الذي تريد المساعدة بشأنه. لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال في سيتي سنتر اضغط 2. لأوربان أرينا في دوحة مول اضغط 3. للدعم العام لـ E3 اضغط 0.";
+  "أي مركز تبيه المساعدة فيه؟ لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال في سيتي سنتر اضغط 2. لأوربان أرينا في دوحة مول اضغط 3. للدعم العام لـ E3 اضغط 0.";
 
 /** Step 3 — main service menu. */
 export const E3_SERVICE_GREETING_EN =
   "How can we help you today? For activity bookings and reservations, press 1. For birthday parties and private events, press 2. For school visits and group bookings, press 3. For ticket prices, offers, and payments, press 4. For opening hours, directions, and visit information, press 5. For complaints, lost items, and customer support, press 6. To speak directly with our customer service team, press 0.";
 
 export const E3_SERVICE_GREETING_AR =
-  "كيف يمكننا مساعدتك اليوم؟ لحجوزات الأنشطة اضغط 1. لحفلات أعياد الميلاد والفعاليات الخاصة اضغط 2. لزيارات المدارس والحجوزات الجماعية اضغط 3. لأسعار التذاكر والعروض والمدفوعات اضغط 4. لساعات العمل والاتجاهات ومعلومات الزيارة اضغط 5. للشكاوى والمفقودات ودعم العملاء اضغط 6. للتحدث مباشرة مع فريق خدمة العملاء اضغط 0.";
+  "كيف نقدر نساعدك اليوم؟ لحجز الأنشطة اضغط 1. لحفلات أعياد الميلاد والمناسبات الخاصة اضغط 2. لزيارات المدارس والحجوزات الجماعية اضغط 3. لأسعار التذاكر والعروض والدفع اضغط 4. لساعات العمل والاتجاهات ومعلومات الزيارة اضغط 5. للشكاوى والمفقودات وخدمة العملاء اضغط 6. عشان تتكلم مباشرة مع خدمة العملاء اضغط 0.";
 
 export const E3_AI_WELCOME_EN =
   "Thank you for calling E3. How can I help you today? You can ask about bookings, birthdays, groups, prices, hours, or support. To speak with a person at any time, say agent or press zero.";
 
 export const E3_AI_WELCOME_AR =
-  "شكراً لاتصالك بـ E3. كيف يمكنني مساعدتك اليوم؟ يمكنك السؤال عن الحجوزات أو أعياد الميلاد أو المجموعات أو الأسعار أو ساعات العمل أو الدعم. للتحدث مع موظف في أي وقت، قل موظف أو اضغط صفر.";
-
+  "شكراً لاتصالك بـ E3. كيف نقدر نساعدك اليوم؟ تقدر تسأل عن الحجوزات أو أعياد الميلاد أو المجموعات أو الأسعار أو ساعات العمل أو الدعم. عشان تتكلم مع موظف في أي وقت، قول موظف أو اضغط صفر.";
 /**
  * Full bilingual AI customer-service system prompt for LiveKit / Admin AI gateway.
  * Keep phone answers short; never invent prices/availability; always allow human handoff.
@@ -114,4 +114,4 @@ Operating model: AI-first with human assistance always available on request, sub
 export const E3_AI_SYSTEM_PROMPT_EN = buildE3AiSystemPrompt("general");
 export const E3_AI_SYSTEM_PROMPT_AR = `${buildE3AiSystemPrompt("general")}
 
-أجب بالعربية الفصحى المبسطة المناسبة للمكالمات الهاتفية، بجمل قصيرة وواضحة.`;
+أجب بعربية خليجية مبسّطة واضحة تناسب المكالمات في قطر، بجمل قصيرة وطبيعية. تجنّب العربية الفصحى الجامدة أو نبرة الذكاء الاصطناعي.`;

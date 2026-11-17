@@ -3,15 +3,20 @@
  *
  * Prefer AWS Polly **Neural** voices for more natural, human-sounding PSTN prompts.
  * Call Control and TeXML accept `Polly.Joanna-Neural` / `Polly.Hala-Neural`.
- * Language is ignored for Polly voices, so Arabic-majority prompts must switch to an
- * Arabic Polly voice (Hala / Zayd / Zeina).
+ * Language is ignored for Polly voices on Call Control (voice id selects the model),
+ * but REST TTS / Azure still use language. Hala/Zayd are Gulf Arabic (ar-AE);
+ * Zeina is MSA (arb). Prefer ar-AE for Arabic-majority prompts so previews and
+ * non-Polly paths stay Gulf-leaning.
  */
 
 /** Natural Neural default for English (and mixed EN+AR Language menus). */
 export const DEFAULT_TTS_VOICE = "Polly.Joanna-Neural";
 
-/** Natural Neural default when the prompt is predominantly Arabic. */
+/** Natural Neural default when the prompt is predominantly Arabic (Gulf). */
 export const DEFAULT_AR_TTS_VOICE = "Polly.Hala-Neural";
+
+/** Gulf Arabic locale for Hala / Zayd / Azure ar-AE (not MSA `arb`). */
+export const DEFAULT_AR_TTS_LANGUAGE = "ar-AE";
 
 /** Legacy / invalid values that must not be sent to Telnyx as-is. */
 export const LEGACY_TTS_VOICE_IDS = new Set([
@@ -52,6 +57,9 @@ const PROVIDER_VOICE_RE =
 const ARABIC_CAPABLE_VOICE_RE =
   /^(male|female)$|Polly\.(Hala|Zayd|Zeina)|AWS\.Polly\.(Hala|Zayd|Zeina)|Azure\.ar[-_]|[\u0600-\u06FF]/i;
 
+/** MSA-only Polly voice — keep `arb` when configured. */
+const MSA_ARABIC_VOICE_RE = /Polly\.Zeina|AWS\.Polly\.Zeina/i;
+
 export type TtsVoicePreset = {
   id: string;
   label: string;
@@ -63,11 +71,11 @@ export const TTS_VOICE_PRESETS: TtsVoicePreset[] = [
   { id: "Polly.Matthew-Neural", label: "Polly Matthew Neural (EN male)" },
   { id: "Polly.Amy-Neural", label: "Polly Amy Neural (EN-GB female)" },
   { id: "Polly.Brian-Neural", label: "Polly Brian Neural (EN-GB male)" },
-  { id: "Polly.Hala-Neural", label: "Polly Hala Neural (AR female — Gulf)" },
-  { id: "Polly.Zayd-Neural", label: "Polly Zayd Neural (AR male — Gulf)" },
+  { id: "Polly.Hala-Neural", label: "Polly Hala Neural (AR female — Gulf ar-AE, recommended)" },
+  { id: "Polly.Zayd-Neural", label: "Polly Zayd Neural (AR male — Gulf ar-AE)" },
   { id: "Azure.en-US-JennyNeural", label: "Azure Jenny Neural (EN female)" },
   { id: "Azure.en-US-GuyNeural", label: "Azure Guy Neural (EN male)" },
-  { id: "Azure.ar-AE-FatimaNeural", label: "Azure Fatima Neural (AR female — UAE)" },
+  { id: "Azure.ar-AE-FatimaNeural", label: "Azure Fatima Neural (AR female — UAE Gulf)" },
   { id: "female", label: "Telnyx basic female (legacy)" },
   { id: "male", label: "Telnyx basic male (legacy)" },
 ];
@@ -107,27 +115,32 @@ function isArabicCapableVoice(voice: string): boolean {
   return ARABIC_CAPABLE_VOICE_RE.test(voice);
 }
 
+/** Language code for Arabic TTS: Gulf ar-AE by default; MSA arb only for Zeina. */
+export function arabicTtsLanguageForVoice(voice: string): string {
+  return MSA_ARABIC_VOICE_RE.test(voice) ? "arb" : DEFAULT_AR_TTS_LANGUAGE;
+}
+
 /**
  * Pick Telnyx voice/language for speak / gather_using_speak.
  * Provider-prefixed voices pass through; Arabic-majority text uses Hala Neural
  * unless the configured voice is already Arabic-capable.
+ * Arabic language defaults to Gulf `ar-AE` (Hala/Zayd); Zeina stays `arb`.
  */
 export function pickSpeakVoice(
   text: string,
   configuredVoice?: string,
 ): { voice: string; language: string } {
-  const language = isArabicText(text) ? "arb" : "en-US";
   const configured = normalizeConfiguredTtsVoice(configuredVoice);
 
-  if (language === "arb") {
-    if (configured === "male" || configured === "female") {
-      return { voice: configured, language };
-    }
-    if (isArabicCapableVoice(configured)) {
-      return { voice: configured, language };
-    }
-    return { voice: DEFAULT_AR_TTS_VOICE, language };
+  if (!isArabicText(text)) {
+    return { voice: configured, language: "en-US" };
   }
 
-  return { voice: configured, language };
+  if (configured === "male" || configured === "female") {
+    return { voice: configured, language: DEFAULT_AR_TTS_LANGUAGE };
+  }
+  if (isArabicCapableVoice(configured)) {
+    return { voice: configured, language: arabicTtsLanguageForVoice(configured) };
+  }
+  return { voice: DEFAULT_AR_TTS_VOICE, language: DEFAULT_AR_TTS_LANGUAGE };
 }

@@ -88,7 +88,7 @@ describe("client state + voice", () => {
   it("picks Arabic vs English Neural voices", () => {
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
       voice: "Polly.Hala-Neural",
-      language: "arb",
+      language: "ar-AE",
     });
     expect(pickSpeakVoice("Hello")).toEqual({
       voice: "Polly.Joanna-Neural",
@@ -112,6 +112,11 @@ describe("client state + voice", () => {
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
     ).toBe("Polly.Hala-Neural");
+    // Zeina is MSA — keep arb when explicitly configured.
+    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zeina")).toEqual({
+      voice: "Polly.Zeina",
+      language: "arb",
+    });
   });
 
 

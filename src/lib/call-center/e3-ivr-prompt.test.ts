@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildE3AiSystemPrompt,
+  E3_CENTER_GREETING_AR,
   E3_CENTER_GREETING_EN,
+  E3_LANG_GREETING_AR,
   E3_LANG_GREETING_EN,
+  E3_SERVICE_GREETING_AR,
   E3_SERVICE_GREETING_EN,
 } from "./e3-ivr-prompt";
 import {
@@ -26,6 +29,15 @@ describe("E3 IVR spoken prompts", () => {
     expect(E3_CENTER_GREETING_EN).toMatch(/press 0/i);
     expect(E3_SERVICE_GREETING_EN).toMatch(/birthday/i);
     expect(E3_SERVICE_GREETING_EN).toMatch(/press 0/i);
+  });
+
+  it("uses Gulf-leaning Arabic IVR copy (not stiff MSA)", () => {
+    expect(E3_LANG_GREETING_AR).toMatch(/عشان تتكلم/);
+    expect(E3_LANG_GREETING_AR).toMatch(/للعربي اضغط 2/);
+    expect(E3_CENTER_GREETING_AR).toMatch(/تبيه/);
+    expect(E3_SERVICE_GREETING_AR).toMatch(/كيف نقدر نساعدك/);
+    expect(E3_SERVICE_GREETING_AR).not.toMatch(/كيف يمكننا مساعدتك/);
+    expect(E3_SERVICE_GREETING_AR).toMatch(/عشان تتكلم مباشرة/);
   });
 
   it("builds a center-aware AI system prompt", () => {

@@ -32,6 +32,14 @@ describe("recording disclosure", () => {
     expect(ar).toContain(CONNECTING_TO_AGENT_AR);
   });
 
+  it("uses Gulf-leaning Arabic disclosure / connecting copy", () => {
+    expect(RECORDING_DISCLOSURE_AR).toMatch(/المكالمة هذي/);
+    expect(RECORDING_DISCLOSURE_AR).toMatch(/ممكن تنسجل/);
+    expect(RECORDING_DISCLOSURE_AR).not.toMatch(/يرجى ملاحظة/);
+    expect(CONNECTING_TO_AGENT_AR).toMatch(/بنوصلك/);
+    expect(CONNECTING_TO_AGENT_AR).toMatch(/الحين/);
+  });
+
   it("infers language from Language menu digits", () => {
     expect(languageFromIvrDigit("1", "Language")).toBe("en");
     expect(languageFromIvrDigit("2", "Language")).toBe("ar");

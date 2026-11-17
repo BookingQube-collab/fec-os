@@ -60,7 +60,7 @@ export async function generateCallCenterAiReply(
   if (handoffRequested && input.settings?.ai_handoff_enabled !== false) {
     const text =
       language === "ar"
-        ? "بالتأكيد، سأقوم بتحويلك إلى أحد موظفينا الآن."
+        ? "أكيد، بنوصلك بأحد الموظفين الحين."
         : "Of course — I will connect you to a team member now.";
     return {
       text,

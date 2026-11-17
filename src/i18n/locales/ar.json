@@ -14945,7 +14945,7 @@
     "ttsHint": "عند التفعيل يُستخدم نص الترحيب إذا لم يُحدد رابط صوت ترحيب. قائمة الرد الآلي تستخدم دائماً الصوت أدناه.",
     "ttsVoice": "صوت تحويل النص إلى كلام للقائمة",
     "ttsVoiceCustom": "معرّف صوت Telnyx مخصص…",
-    "ttsVoiceHint": "يُستخدم في speak/gather وTeXML. الافتراضي Polly Joanna Neural (إنجليزي، طبيعي). النصوص العربية غالباً تستخدم Polly Hala Neural.",
+    "ttsVoiceHint": "يُستخدم في speak/gather وTeXML. الافتراضي Polly Joanna Neural (إنجليزي، طبيعي). النصوص العربية غالباً تستخدم Polly Hala Neural (خليجي ar-AE).",
     "ttsPreview": "استماع",
     "ttsPreviewing": "جارٍ التشغيل…",
     "ttsPreviewHint": "يشغّل عينة قصيرة عبر Telnyx بالصوت المحدد ونص الترحيب (يتطلب مفتاح Telnyx).",

@@ -2150,7 +2150,7 @@
     "ttsHint": "When on, queue welcome uses TTS text if no welcome audio URL is set. IVR menu prompts always use the voice below.",
     "ttsVoice": "IVR TTS voice",
     "ttsVoiceCustom": "Custom Telnyx voice id…",
-    "ttsVoiceHint": "Used for Call Control speak/gather and TeXML Say. Default Polly Joanna Neural (EN, natural). Arabic-majority prompts auto-use Polly Hala Neural. Standard Polly ids upgrade to Neural. Formats: Polly.*-Neural, Azure.*, female/male.",
+    "ttsVoiceHint": "Used for Call Control speak/gather and TeXML Say. Default Polly Joanna Neural (EN, natural). Arabic-majority prompts auto-use Polly Hala Neural (Gulf ar-AE). Standard Polly ids upgrade to Neural. Formats: Polly.*-Neural, Azure.*, female/male.",
     "ttsPreview": "Listen",
     "ttsPreviewing": "Playing…",
     "ttsPreviewHint": "Plays a short sample with Telnyx TTS using the selected voice and TTS greeting text (requires Telnyx API key).",

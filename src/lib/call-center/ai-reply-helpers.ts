@@ -103,6 +103,6 @@ export function buildCallCenterAiMessages(input: {
 /** Prompt spoken after welcome on Telnyx Call Control (digit gather — no STT yet). */
 export function adminGatewayGatherPrompt(language: "en" | "ar"): string {
   return language === "ar"
-    ? "لتحويل المكالمة إلى موظف، اضغط صفر. أو انتظر للمساعدة الآلية."
+    ? "عشان تتكلم مع موظف، اضغط صفر. أو انتظر للمساعدة الآلية."
     : "To speak with a human agent, press zero. Otherwise stay on the line for AI assistance.";
 }

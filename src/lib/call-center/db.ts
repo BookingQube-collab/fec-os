@@ -461,7 +461,7 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
       row.ai_welcome_en ?? "Hello, thank you for calling. How can I help you today?",
     ),
     ai_welcome_ar: String(
-      row.ai_welcome_ar ?? "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
+      row.ai_welcome_ar ?? "مرحبا، شكراً لاتصالك. كيف نقدر نساعدك؟",
     ),
     ai_provider: normalizeAiProvider(row.ai_provider),
     ai_model: String(row.ai_model ?? "gemini-flash-latest"),

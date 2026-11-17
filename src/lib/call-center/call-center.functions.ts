@@ -363,7 +363,7 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         ai_welcome_ar:
           data.aiWelcomeAr ??
           existing?.ai_welcome_ar ??
-          "مرحباً، شكراً لاتصالك. كيف يمكنني مساعدتك؟",
+          "مرحبا، شكراً لاتصالك. كيف نقدر نساعدك؟",
         ai_provider: (data.aiProvider ?? existing?.ai_provider ?? "admin_gateway") as CallCenterAiProvider,
         ai_model: data.aiModel ?? existing?.ai_model ?? "gemini-flash-latest",
         ai_api_key: keepSecret(existing?.ai_api_key ?? "", data.aiApiKey ?? ""),

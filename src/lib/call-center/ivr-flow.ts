@@ -232,7 +232,7 @@ export function defaultNodeData(type: IvrNodeType): IvrNodeData {
         label: "Play message",
         messageText: "Please hold.",
         messageEn: "Please hold.",
-        messageAr: "يرجى الانتظار.",
+        messageAr: "لحظة من فضلك.",
       };
     case "queue":
       return { label: "Route to queue", queueId: null };
