@@ -29,10 +29,16 @@ import {
   waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
+import { pickSpeakVoice } from "./ivr-tts-voice";
+import {
+  preAgentConnectAnnouncement,
+  resolveCallerSpeakLang,
+} from "./recording-disclosure";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
 import { createTelnyxClient, resolveTelnyxApiKey, type TelnyxClient, type TelnyxEvent } from "./telnyx";
 import { texmlConference, updateTexmlCall } from "./texml";
 import type { CallCenterCall, CallCenterSettingsRow, InboundRouteResult } from "./types";
+
 
 /**
  * Carrier orchestration: Telnyx + LiveKit SIP → FEC routing (routing.ts) → agent softphone.
@@ -766,12 +772,10 @@ export async function handleTelnyxEvent(
   }
 }
 
-const CONNECTING_PROMPT =
-  "Please wait. We are connecting you to an agent.";
-
 /**
- * Phase 1: tell the caller we're connecting and prep the LiveKit room.
+ * Phase 1: tell the caller we're connecting (with Qatar recording disclosure) and prep LiveKit.
  * TeXML / Call Control Answer keep the inbound PSTN leg live; Phase 2 Dial/transfer into LiveKit.
+ * TeXML legs skip Call Control speak here — disclosure is played in transferTexmlCallerToLiveKit.
  */
 export async function prepareCallerBridge(
   call: CallCenterCall,
@@ -805,6 +809,8 @@ export async function prepareCallerBridge(
     );
   }
 
+  const lang = resolveCallerSpeakLang(meta);
+  const announcement = preAgentConnectAnnouncement(lang);
   const voice = settings?.tts_voice ?? "";
   const metaPromise = patchMeta(call.id, {
     bridgeInProgress: true,
@@ -813,12 +819,14 @@ export async function prepareCallerBridge(
     bridgePendingSip: false,
     bridgeMode: isTexml ? "texml_conference" : "call_control_transfer",
     bridgeDialTo: null,
+    recordingDisclosurePlayed: !isTexml,
+    recordingDisclosureLang: lang,
   });
   // Call Control speak fails on TeXML-only legs (10007 path) — skip it.
   const promptPromise =
     !isTexml && telnyx && call.providerCallId
       ? telnyx
-          .speak(call.providerCallId, CONNECTING_PROMPT, { step: "connecting", callId: call.id }, voice)
+          .speak(call.providerCallId, announcement, { step: "connecting", callId: call.id }, voice)
           .catch(() => undefined)
       : Promise.resolve(undefined);
   const prepPromise = ensureLiveKitRoom(roomName).catch(() => undefined);
@@ -858,7 +866,9 @@ async function transferTexmlCallerToLiveKit(
     process.env.TELNYX_ACCOUNT_SID?.trim() ||
     "";
   const apiKey = resolveTelnyxApiKey(settings);
-  const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
+  const lang = resolveCallerSpeakLang(meta);
+  const announcement = preAgentConnectAnnouncement(lang);
+  const voice = pickSpeakVoice(announcement, settings?.tts_voice).voice;
   const conferenceName = `fec${call.id.replace(/-/g, "").slice(0, 28)}`;
   const joinDid =
     settings?.outbound_caller_id_e164?.trim() ||
@@ -929,6 +939,8 @@ async function transferTexmlCallerToLiveKit(
 
   // Prefer INLINE TeXML — Update Call Url that returns JSON 401 makes Telnyx play
   // its default "application error / some bug" apology and hang up the PSTN leg.
+  // Play Qatar recording disclosure immediately before joining the agent conference.
+  const alreadyDisclosed = meta.recordingDisclosurePlayed === true;
   const confXml = texmlConference({
     name: conferenceName,
     voice,
@@ -937,6 +949,7 @@ async function transferTexmlCallerToLiveKit(
     endConferenceOnExit: false,
     maxParticipants: 2,
     participantLabel: "caller",
+    preSay: alreadyDisclosed ? undefined : announcement,
   });
 
   await patchMeta(call.id, {
@@ -950,6 +963,7 @@ async function transferTexmlCallerToLiveKit(
     bridgeTransport: "texml_conference",
     bridgePhase: "joining_conference",
     bridgeDialTo: null,
+    recordingDisclosureLang: lang,
   });
 
   const inline = await updateTexmlCall({
@@ -961,6 +975,7 @@ async function transferTexmlCallerToLiveKit(
   let updateDetail = inline.ok
     ? `inline:${inline.status || "ok"}`
     : `inline_fail:${inline.detail}`;
+  let disclosurePlayed = alreadyDisclosed || (inline.ok && !alreadyDisclosed);
   if (!inline.ok) {
     const secret =
       settings?.webhook_shared_secret?.trim() ||
@@ -969,6 +984,8 @@ async function transferTexmlCallerToLiveKit(
     const bridgeUrl = new URL("/api/public/call-center/texml/bridge", publicAppOrigin());
     if (secret) bridgeUrl.searchParams.set("secret", secret);
     bridgeUrl.searchParams.set("conf", conferenceName);
+    // Ensure Url fallback still plays the disclosure if inline TeXML failed.
+    if (!alreadyDisclosed) bridgeUrl.searchParams.set("disclose", "1");
     const viaUrl = await updateTexmlCall({
       apiKey,
       accountSid,
@@ -990,8 +1007,14 @@ async function transferTexmlCallerToLiveKit(
       });
       throw new Error(`Could not move the caller into the conference (${updateDetail}).`);
     }
+    disclosurePlayed = true;
   }
-  await patchMeta(call.id, { texmlUpdateDetail: updateDetail });
+  await patchMeta(call.id, {
+    texmlUpdateDetail: updateDetail,
+    ...(disclosurePlayed
+      ? { recordingDisclosurePlayed: true, recordingDisclosureLang: lang }
+      : {}),
+  });
   console.info(
     `[call-center/bridge] TeXML Conference (same leg) → ${conferenceName} room=${roomName} update=${updateDetail}`,
   );

@@ -36,6 +36,8 @@ import {
   type IvrFlowJson,
   type IvrFlowNode,
 } from "./ivr-flow";
+import { isArabicText } from "./ivr-tts-voice";
+import { languageFromIvrDigit } from "./recording-disclosure";
 import type {
   CallCenterCall,
   CallCenterMediaSession,
@@ -485,13 +487,21 @@ async function resolveTerminalIvrNode(params: {
     if (current.type === "menu" || current.type === "start") {
       const greeting =
         current.data.greetingText || current.data.messageText || current.data.label || "IVR menu.";
+      const prevMeta = (call.metadata as Record<string, unknown>) ?? {};
+      const ivrLanguage =
+        prevMeta.ivrLanguage === "ar" || prevMeta.ivrLanguage === "en"
+          ? prevMeta.ivrLanguage
+          : isArabicText(greeting)
+            ? "ar"
+            : "en";
       const updated = await updateCall(call.id, {
         status: "ivr",
         ivrDigit: digit,
         metadata: {
-          ...((call.metadata as Record<string, unknown>) ?? {}),
+          ...prevMeta,
           ivrNodeId: current.id,
           ivrGreeting: greeting,
+          ivrLanguage,
         },
       });
       return { call: updated, offeredUserIds: [], phase: "ivr", message: greeting };
@@ -752,7 +762,14 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
     if (next.id === current.id) {
       return { call, offeredUserIds: [], phase: "ivr", message: "Repeat menu." };
     }
-    return resolveTerminalIvrNode({ call, node: next, digit, flow });
+    const inferredLang = languageFromIvrDigit(digit, current.data.label, current.data.digits);
+    const callForResolve =
+      inferredLang && meta.ivrLanguage !== inferredLang
+        ? ((await updateCall(call.id, {
+            metadata: { ...meta, ivrLanguage: inferredLang },
+          })) ?? call)
+        : call;
+    return resolveTerminalIvrNode({ call: callForResolve, node: next, digit, flow });
   }
 
   // Legacy flattened options path (no canvas graph yet)

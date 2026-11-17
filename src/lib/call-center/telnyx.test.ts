@@ -85,13 +85,13 @@ describe("client state + voice", () => {
     expect(decodeClientState(undefined)).toEqual({});
   });
 
-  it("picks Arabic vs English voices", () => {
+  it("picks Arabic vs English Neural voices", () => {
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
-      voice: "Polly.Hala",
+      voice: "Polly.Hala-Neural",
       language: "arb",
     });
     expect(pickSpeakVoice("Hello")).toEqual({
-      voice: "Polly.Joanna",
+      voice: "Polly.Joanna-Neural",
       language: "en-US",
     });
     // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
@@ -100,18 +100,20 @@ describe("client state + voice", () => {
         "Thank you for calling E3. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0.",
       ).language,
     ).toBe("en-US");
-    // Neural → standard for clearer PSTN IVR.
-    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna");
-    // Legacy Google-style id → clear Polly default (not basic female).
-    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna");
-    // EN Polly on Arabic-majority text → Arabic Polly (Polly ignores language).
+    // Standard Polly ids upgrade to Neural for more natural speech.
+    expect(pickSpeakVoice("Hello", "Polly.Joanna").voice).toBe("Polly.Joanna-Neural");
+    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
+    // Legacy Google-style id → natural Polly Neural default (not basic female).
+    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
+    // EN Polly on Arabic-majority text → Arabic Polly Neural (Polly ignores language).
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
-    ).toBe("Polly.Hala");
+    ).toBe("Polly.Hala-Neural");
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
-    ).toBe("Polly.Hala");
+    ).toBe("Polly.Hala-Neural");
   });
+
 
   it("coerces numeric DTMF digits from Telnyx payloads", () => {
     const ev = parseTelnyxEvent({

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { findCallByProviderCallId, loadSettingsRow } from "@/lib/call-center/db";
+import { findCallByProviderCallId, loadSettingsRow, updateCall } from "@/lib/call-center/db";
+import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "@/lib/call-center/ivr-tts-voice";
+import {
+  preAgentConnectAnnouncement,
+  resolveCallerSpeakLang,
+} from "@/lib/call-center/recording-disclosure";
 import {
   parseTexmlForm,
   publicTexmlUrl,
@@ -36,7 +41,7 @@ export async function POST(request: Request) {
   const form = parseTexmlForm(rawBody, request.headers.get("content-type"));
   const ids = texmlCallIds(form);
   const settings = await loadSettingsRow();
-  const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
+  const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
   const holdUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
   const confFromQuery = new URL(request.url).searchParams.get("conf")?.trim() || "";
 
@@ -51,25 +56,41 @@ export async function POST(request: Request) {
 
   if (!conferenceName) {
     if (!call) return xml(texmlHangup(""));
+    const holdPrompt = "Please hold while we connect you.";
     return xml(
       texmlQueueWait({
         holdMusicUrl: settings?.hold_music_url,
-        voice,
+        voice: pickSpeakVoice(holdPrompt, configuredVoice).voice,
         redirectUrl: holdUrl,
         pauseSeconds: 2,
       }),
     );
   }
 
+  const lang = resolveCallerSpeakLang(meta);
+  const announcement = preAgentConnectAnnouncement(lang);
+  const forceDisclose = new URL(request.url).searchParams.get("disclose") === "1";
+  const alreadyDisclosed = meta.recordingDisclosurePlayed === true && !forceDisclose;
+  const playDisclosure = !alreadyDisclosed;
+  if (call && playDisclosure) {
+    await updateCall(call.id, {
+      metadata: {
+        ...meta,
+        recordingDisclosurePlayed: true,
+        recordingDisclosureLang: lang,
+      },
+    }).catch(() => undefined);
+  }
   return xml(
     texmlConference({
       name: conferenceName,
-      voice,
+      voice: pickSpeakVoice(announcement, configuredVoice).voice,
       beep: false,
       startConferenceOnEnter: true,
       endConferenceOnExit: false,
       maxParticipants: 2,
       participantLabel: "caller",
+      preSay: playDisclosure ? announcement : undefined,
     }),
   );
 }

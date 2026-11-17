@@ -3,6 +3,8 @@
  * Used when Call Control `Answer` returns 10007 — TeXML answers automatically and plays <Say>/<Gather>.
  */
 
+import { DEFAULT_TTS_VOICE } from "./ivr-tts-voice";
+
 export function escapeTexml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -16,6 +18,12 @@ export function texmlResponse(body: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`;
 }
 
+function texmlSay(voice: string, text: string): string {
+  const spoken = text.trim();
+  if (!spoken) return "";
+  return `<Say voice="${escapeTexml(voice)}">${escapeTexml(spoken)}</Say>`;
+}
+
 export function texmlGatherMenu(input: {
   actionUrl: string;
   /** Where to send the caller if gather times out (usually the inbound TeXML URL). */
@@ -23,7 +31,7 @@ export function texmlGatherMenu(input: {
   prompt: string;
   voice?: string;
 }): string {
-  const voice = input.voice?.trim() || "Polly.Joanna";
+  const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
   const prompt = escapeTexml(input.prompt.trim() || "Please choose an option.");
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
@@ -41,7 +49,7 @@ export function texmlQueueWait(input: {
   /** Shorter pause so Answer→Dial picks up faster on the Redirect loop. */
   pauseSeconds?: number;
 }): string {
-  const voice = input.voice?.trim() || "Polly.Joanna";
+  const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
   const hold = input.holdMusicUrl?.trim() ?? "";
   const pause = Math.max(1, Math.min(12, Math.floor(input.pauseSeconds ?? 3)));
   if (hold) {
@@ -68,9 +76,11 @@ export function texmlConference(input: {
   muted?: boolean;
   maxParticipants?: number;
   participantLabel?: string;
+  /** Optional TTS before Dial (e.g. Qatar recording disclosure). */
+  preSay?: string;
 }): string {
   const name = input.name.trim();
-  const voice = input.voice?.trim() || "Polly.Joanna";
+  const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
   if (!name) {
     // Silent hangup — never speak Telnyx/Twilio-style "application error" copy from our side.
     return texmlHangup("", voice);
@@ -89,7 +99,10 @@ export function texmlConference(input: {
   ]
     .filter(Boolean)
     .join(" ");
-  return texmlResponse(`<Dial><Conference ${attrs}>${escapeTexml(name)}</Conference></Dial>`);
+  const preface = texmlSay(voice, input.preSay ?? "");
+  return texmlResponse(
+    `${preface}<Dial><Conference ${attrs}>${escapeTexml(name)}</Conference></Dial>`,
+  );
 }
 
 /**
@@ -109,7 +122,7 @@ export function texmlDialSip(input: {
   password?: string;
   statusCallbackUrl?: string;
 }): string {
-  const voice = input.voice?.trim() || "Polly.Joanna";
+  const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
   const timeout = Math.max(10, Math.min(90, Math.floor(input.timeoutSeconds ?? 55)));
   const callerId = input.callerId?.trim() ?? "";
   const dialAttrs = [
@@ -139,7 +152,7 @@ export function texmlDialSip(input: {
   );
 }
 
-export function texmlHangup(message?: string, voice = "Polly.Joanna"): string {
+export function texmlHangup(message?: string, voice = DEFAULT_TTS_VOICE): string {
   const say = message?.trim()
     ? `<Say voice="${escapeTexml(voice)}">${escapeTexml(message.trim())}</Say>`
     : "";

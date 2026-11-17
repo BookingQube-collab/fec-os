@@ -21,7 +21,20 @@ describe("texmlConference", () => {
     expect(xml).toContain('startConferenceOnEnter="true"');
     expect(xml).toContain('maxParticipants="2"');
   });
+
+  it("prepends recording disclosure Say before Dial when preSay is set", () => {
+    const xml = texmlConference({
+      name: "fecabc123",
+      voice: "Polly.Joanna-Neural",
+      preSay: "Please note that this call may be recorded for quality and training purposes.",
+    });
+    expect(xml).toContain(
+      '<Say voice="Polly.Joanna-Neural">Please note that this call may be recorded for quality and training purposes.</Say>',
+    );
+    expect(xml.indexOf("<Say")).toBeLessThan(xml.indexOf("<Dial>"));
+  });
 });
+
 
 describe("texmlDialSip", () => {
   it("emits Dial Sip with answerOnBridge and no pre-Dial Speak", () => {

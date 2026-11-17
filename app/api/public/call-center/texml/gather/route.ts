@@ -5,6 +5,7 @@ import {
   loadSettingsRow,
   updateCall,
 } from "@/lib/call-center/db";
+import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "@/lib/call-center/ivr-tts-voice";
 import { applyIvrDigit, routeCallToFallbackQueue } from "@/lib/call-center/routing";
 import {
   parseTexmlForm,
@@ -16,6 +17,10 @@ import {
   texmlQueueWait,
 } from "@/lib/call-center/texml";
 import { assertCallCenterWebhook } from "@/lib/call-center/webhook-auth";
+
+function speakVoice(prompt: string, configured?: string | null): string {
+  return pickSpeakVoice(prompt, configured ?? undefined).voice;
+}
 
 export const maxDuration = 30;
 
@@ -39,7 +44,7 @@ export async function POST(request: Request) {
   const form = parseTexmlForm(rawBody, request.headers.get("content-type"));
   const ids = texmlCallIds(form);
   const settings = await loadSettingsRow();
-  const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
+  const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
   const gatherUrl = publicTexmlUrl("/api/public/call-center/texml/gather", request.url);
   const holdUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
 
@@ -48,7 +53,8 @@ export async function POST(request: Request) {
     (ids.callSid ? await findCallByProviderCallId(ids.callSid) : null);
 
   if (!call) {
-    return xml(texmlHangup("We could not find your call. Please try again.", voice));
+    const msg = "We could not find your call. Please try again.";
+    return xml(texmlHangup(msg, speakVoice(msg, configuredVoice)));
   }
 
   const digit = ids.digits.slice(0, 1);
@@ -56,10 +62,11 @@ export async function POST(request: Request) {
     try {
       const result = await routeCallToFallbackQueue(call.id);
       if (result.phase === "queue") {
+        const holdPrompt = "Please hold while we connect you.";
         return xml(
           texmlQueueWait({
             holdMusicUrl: settings?.hold_music_url,
-            voice,
+            voice: speakVoice(holdPrompt, configuredVoice),
             redirectUrl: holdUrl,
           }),
         );
@@ -75,7 +82,7 @@ export async function POST(request: Request) {
         actionUrl: gatherUrl,
         timeoutRedirectUrl: holdUrl,
         prompt: greeting,
-        voice,
+        voice: speakVoice(greeting, configuredVoice),
       }),
     );
   }
@@ -101,7 +108,7 @@ export async function POST(request: Request) {
       return xml(
         texmlConference({
           name: conferenceName,
-          voice,
+          voice: configuredVoice,
           beep: false,
           startConferenceOnEnter: true,
           endConferenceOnExit: false,
@@ -119,22 +126,24 @@ export async function POST(request: Request) {
           actionUrl: gatherUrl,
           timeoutRedirectUrl: holdUrl,
           prompt: greeting,
-          voice,
+          voice: speakVoice(greeting, configuredVoice),
         }),
       );
     }
 
     if (result.phase === "queue") {
+      const holdPrompt = "Please hold while we connect you.";
       return xml(
         texmlQueueWait({
           holdMusicUrl: settings?.hold_music_url,
-          voice,
+          voice: speakVoice(holdPrompt, configuredVoice),
           redirectUrl: holdUrl,
         }),
       );
     }
 
-    return xml(texmlHangup(result.message || "Goodbye.", voice));
+    const bye = result.message || "Goodbye.";
+    return xml(texmlHangup(bye, speakVoice(bye, configuredVoice)));
   } catch (e) {
     console.error("[call-center/texml/gather] failed:", e);
     const meta = (call.metadata as Record<string, unknown> | null) ?? {};
@@ -145,7 +154,7 @@ export async function POST(request: Request) {
         actionUrl: gatherUrl,
         timeoutRedirectUrl: holdUrl,
         prompt: greeting,
-        voice,
+        voice: speakVoice(greeting, configuredVoice),
       }),
     );
   }

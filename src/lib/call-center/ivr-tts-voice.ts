@@ -1,17 +1,17 @@
 /**
- * Telnyx Call Control TTS voice selection for IVR speak / gather_using_speak.
+ * Telnyx Call Control / TeXML TTS voice selection for IVR speak / gather_using_speak.
  *
- * Prefer clear AWS Polly **standard** voices on PSTN. Neural (`*-Neural`) can sound
- * quiet/garbled on phone legs; Call Control docs accept both `Polly.Joanna` and
- * `Polly.Joanna-Neural`. Language is ignored for Polly voices, so Arabic-majority
- * prompts must switch to an Arabic Polly voice (Hala / Zayd / Zeina).
+ * Prefer AWS Polly **Neural** voices for more natural, human-sounding PSTN prompts.
+ * Call Control and TeXML accept `Polly.Joanna-Neural` / `Polly.Hala-Neural`.
+ * Language is ignored for Polly voices, so Arabic-majority prompts must switch to an
+ * Arabic Polly voice (Hala / Zayd / Zeina).
  */
 
-/** Clear professional default for English (and mixed EN+AR Language menus). */
-export const DEFAULT_TTS_VOICE = "Polly.Joanna";
+/** Natural Neural default for English (and mixed EN+AR Language menus). */
+export const DEFAULT_TTS_VOICE = "Polly.Joanna-Neural";
 
-/** Clear professional default when the prompt is predominantly Arabic. */
-export const DEFAULT_AR_TTS_VOICE = "Polly.Hala";
+/** Natural Neural default when the prompt is predominantly Arabic. */
+export const DEFAULT_AR_TTS_VOICE = "Polly.Hala-Neural";
 
 /** Legacy / invalid values that must not be sent to Telnyx as-is. */
 export const LEGACY_TTS_VOICE_IDS = new Set([
@@ -27,20 +27,23 @@ export const LEGACY_TTS_VOICE_IDS = new Set([
   "en-GB-Neural2-B",
 ]);
 
-/** Neural Polly ids that sounded poor on PSTN — map to standard counterparts. */
-const POLLY_NEURAL_TO_STANDARD: Record<string, string> = {
-  "Polly.Joanna-Neural": "Polly.Joanna",
-  "Polly.Matthew-Neural": "Polly.Matthew",
-  "Polly.Amy-Neural": "Polly.Amy",
-  "Polly.Brian-Neural": "Polly.Brian",
-  "Polly.Hala-Neural": "Polly.Hala",
-  "Polly.Zayd-Neural": "Polly.Zayd",
-  "AWS.Polly.Joanna-Neural": "Polly.Joanna",
-  "AWS.Polly.Matthew-Neural": "Polly.Matthew",
-  "AWS.Polly.Amy-Neural": "Polly.Amy",
-  "AWS.Polly.Brian-Neural": "Polly.Brian",
-  "AWS.Polly.Hala-Neural": "Polly.Hala",
-  "AWS.Polly.Zayd-Neural": "Polly.Zayd",
+/**
+ * Upgrade known Polly standard voices to Neural counterparts (more natural on phone).
+ * Already-Neural ids pass through unchanged.
+ */
+const POLLY_STANDARD_TO_NEURAL: Record<string, string> = {
+  "Polly.Joanna": "Polly.Joanna-Neural",
+  "Polly.Matthew": "Polly.Matthew-Neural",
+  "Polly.Amy": "Polly.Amy-Neural",
+  "Polly.Brian": "Polly.Brian-Neural",
+  "Polly.Hala": "Polly.Hala-Neural",
+  "Polly.Zayd": "Polly.Zayd-Neural",
+  "AWS.Polly.Joanna": "Polly.Joanna-Neural",
+  "AWS.Polly.Matthew": "Polly.Matthew-Neural",
+  "AWS.Polly.Amy": "Polly.Amy-Neural",
+  "AWS.Polly.Brian": "Polly.Brian-Neural",
+  "AWS.Polly.Hala": "Polly.Hala-Neural",
+  "AWS.Polly.Zayd": "Polly.Zayd-Neural",
 };
 
 const PROVIDER_VOICE_RE =
@@ -56,14 +59,15 @@ export type TtsVoicePreset = {
 
 /** Presets shown in Call Center → Settings (plus free-text custom). */
 export const TTS_VOICE_PRESETS: TtsVoicePreset[] = [
-  { id: "Polly.Joanna", label: "Polly Joanna (EN female — recommended, clear on phone)" },
-  { id: "Polly.Matthew", label: "Polly Matthew (EN male)" },
-  { id: "Polly.Amy", label: "Polly Amy (EN-GB female)" },
-  { id: "Polly.Brian", label: "Polly Brian (EN-GB male)" },
-  { id: "Polly.Hala", label: "Polly Hala (AR female)" },
+  { id: "Polly.Joanna-Neural", label: "Polly Joanna Neural (EN female — recommended, natural)" },
+  { id: "Polly.Matthew-Neural", label: "Polly Matthew Neural (EN male)" },
+  { id: "Polly.Amy-Neural", label: "Polly Amy Neural (EN-GB female)" },
+  { id: "Polly.Brian-Neural", label: "Polly Brian Neural (EN-GB male)" },
+  { id: "Polly.Hala-Neural", label: "Polly Hala Neural (AR female — Gulf)" },
+  { id: "Polly.Zayd-Neural", label: "Polly Zayd Neural (AR male — Gulf)" },
   { id: "Azure.en-US-JennyNeural", label: "Azure Jenny Neural (EN female)" },
   { id: "Azure.en-US-GuyNeural", label: "Azure Guy Neural (EN male)" },
-  { id: "Polly.Joanna-Neural", label: "Polly Joanna Neural (EN — may be quieter on PSTN)" },
+  { id: "Azure.ar-AE-FatimaNeural", label: "Azure Fatima Neural (AR female — UAE)" },
   { id: "female", label: "Telnyx basic female (legacy)" },
   { id: "male", label: "Telnyx basic male (legacy)" },
 ];
@@ -81,10 +85,11 @@ export function normalizeConfiguredTtsVoice(configuredVoice?: string | null): st
   if (!raw || LEGACY_TTS_VOICE_IDS.has(raw)) return DEFAULT_TTS_VOICE;
   if (raw === "male" || raw === "female") return raw;
   const configured = toCallControlVoiceId(raw);
-  if (POLLY_NEURAL_TO_STANDARD[configured]) return POLLY_NEURAL_TO_STANDARD[configured];
-  if (POLLY_NEURAL_TO_STANDARD[raw]) return POLLY_NEURAL_TO_STANDARD[raw];
+  // Prefer Neural when a standard Polly id is stored (old defaults / presets).
+  if (POLLY_STANDARD_TO_NEURAL[configured]) return POLLY_STANDARD_TO_NEURAL[configured];
+  if (POLLY_STANDARD_TO_NEURAL[raw]) return POLLY_STANDARD_TO_NEURAL[raw];
   if (PROVIDER_VOICE_RE.test(configured)) return configured;
-  // Unknown bare ids (e.g. old Google-style) → clear Polly default.
+  // Unknown bare ids (e.g. old Google-style) → natural Polly Neural default.
   return DEFAULT_TTS_VOICE;
 }
 
@@ -104,7 +109,7 @@ function isArabicCapableVoice(voice: string): boolean {
 
 /**
  * Pick Telnyx voice/language for speak / gather_using_speak.
- * Provider-prefixed voices pass through; Arabic-majority text uses Hala
+ * Provider-prefixed voices pass through; Arabic-majority text uses Hala Neural
  * unless the configured voice is already Arabic-capable.
  */
 export function pickSpeakVoice(

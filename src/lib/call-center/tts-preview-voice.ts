@@ -6,7 +6,7 @@ export const TTS_PREVIEW_FALLBACK_TEXT =
 
 /**
  * Map Call Control speak voice ids to Telnyx REST TTS voice ids.
- * Call Control uses `Polly.Joanna`; REST accepts `AWS.Polly.Joanna` / `AWS.Polly.Joanna-Neural`
+ * Call Control uses `Polly.Joanna-Neural`; REST accepts `AWS.Polly.Joanna-Neural`
  * (capital AWS). Lowercase `aws.Polly.Joanna-Neural` returns HTTP 500 from Telnyx.
  */
 export function toRestTtsVoiceId(callControlVoice: string): string {

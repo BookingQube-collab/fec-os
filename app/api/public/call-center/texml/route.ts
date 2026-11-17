@@ -6,6 +6,7 @@ import {
   loadSettingsRow,
   updateCall,
 } from "@/lib/call-center/db";
+import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "@/lib/call-center/ivr-tts-voice";
 import { routeInboundCall } from "@/lib/call-center/routing";
 import {
   parseTexmlForm,
@@ -17,6 +18,10 @@ import {
   texmlQueueWait,
 } from "@/lib/call-center/texml";
 import { assertCallCenterWebhook } from "@/lib/call-center/webhook-auth";
+
+function speakVoice(prompt: string, configured?: string | null): string {
+  return pickSpeakVoice(prompt, configured ?? undefined).voice;
+}
 
 export const maxDuration = 30;
 
@@ -76,13 +81,14 @@ export async function POST(request: Request) {
   const form = parseTexmlForm(rawBody, request.headers.get("content-type"));
   const ids = texmlCallIds(form);
   const settings = await loadSettingsRow();
-  const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
+  const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
   const gatherUrl = publicTexmlUrl("/api/public/call-center/texml/gather", request.url);
   const selfUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
   const outboundDid = settings?.outbound_caller_id_e164?.trim() || "";
 
   if (!ids.from && !ids.to) {
-    return xml(texmlHangup("We are unable to take your call right now.", voice));
+    const msg = "We are unable to take your call right now.";
+    return xml(texmlHangup(msg, speakVoice(msg, configuredVoice)));
   }
 
   try {
@@ -142,7 +148,7 @@ export async function POST(request: Request) {
         return xml(
           texmlConference({
             name: confName,
-            voice,
+            voice: configuredVoice,
             beep: false,
             startConferenceOnEnter: true,
             endConferenceOnExit: true,
@@ -155,7 +161,7 @@ export async function POST(request: Request) {
       console.warn(
         `[call-center/texml] conference join miss from=${ids.from} to=${ids.to} header=${headerConf || "-"}`,
       );
-      return xml(texmlHangup("", voice));
+      return xml(texmlHangup("", configuredVoice));
     }
 
     let call =
@@ -194,7 +200,8 @@ export async function POST(request: Request) {
     call = (await updateCall(call.id, { metadata: meta })) ?? call;
 
     if (call.status === "failed" || ["ended", "missed", "declined", "voicemail"].includes(call.status)) {
-      return xml(texmlHangup(call.hangupReason || "Goodbye.", voice));
+      const bye = call.hangupReason || "Goodbye.";
+      return xml(texmlHangup(bye, speakVoice(bye, configuredVoice)));
     }
 
     // Agent Answer moved this caller into a conference — keep them there on Redirect/Update.
@@ -205,7 +212,7 @@ export async function POST(request: Request) {
       return xml(
         texmlConference({
           name: conferenceName,
-          voice,
+          voice: configuredVoice,
           beep: false,
           startConferenceOnEnter: true,
           endConferenceOnExit: false,
@@ -223,23 +230,25 @@ export async function POST(request: Request) {
           actionUrl: gatherUrl,
           timeoutRedirectUrl: selfUrl,
           prompt: greeting,
-          voice,
+          voice: speakVoice(greeting, configuredVoice),
         }),
       );
     }
 
     // queued / ringing / offered / connecting — hold until agent Answers.
+    const holdPrompt = "Please hold while we connect you.";
     return xml(
       texmlQueueWait({
         holdMusicUrl: settings?.hold_music_url,
-        voice,
+        voice: speakVoice(holdPrompt, configuredVoice),
         redirectUrl: selfUrl,
         pauseSeconds: call.status === "answered" || call.status === "held" ? 2 : 3,
       }),
     );
   } catch (e) {
     console.error("[call-center/texml] inbound failed:", e);
-    return xml(texmlHangup("We are unable to take your call right now.", voice));
+    const msg = "We are unable to take your call right now.";
+    return xml(texmlHangup(msg, speakVoice(msg, configuredVoice)));
   }
 }
 
