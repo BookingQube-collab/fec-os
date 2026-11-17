@@ -8,10 +8,13 @@ import {
   E3_LANG_GREETING_EN,
   E3_SERVICE_GREETING_AR,
   E3_SERVICE_GREETING_EN,
+  refreshStaleE3ArabicPrompt,
 } from "./e3-ivr-prompt";
 import {
   buildFecVenuesTemplate,
   followDigitEdge,
+  nodeSpokenText,
+  parseIvrFlowJson,
   recoverDigitZeroAgentNode,
   simulateDigitPath,
 } from "./ivr-flow";
@@ -38,6 +41,34 @@ describe("E3 IVR spoken prompts", () => {
     expect(E3_SERVICE_GREETING_AR).toMatch(/كيف نقدر نساعدك/);
     expect(E3_SERVICE_GREETING_AR).not.toMatch(/كيف يمكننا مساعدتك/);
     expect(E3_SERVICE_GREETING_AR).toMatch(/عشان تتكلم مباشرة/);
+  });
+
+  it("rewrites known stale MSA defaults to Gulf without re-applying the template", () => {
+    const staleCenter =
+      "يرجى اختيار مركز الترفيه الذي تريد المساعدة بشأنه. لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال في سيتي سنتر اضغط 2. لأوربان أرينا في دوحة مول اضغط 3. للدعم العام لـ E3 اضغط 0.";
+    expect(refreshStaleE3ArabicPrompt(staleCenter)).toBe(E3_CENTER_GREETING_AR);
+    expect(refreshStaleE3ArabicPrompt(E3_CENTER_GREETING_AR)).toBe(E3_CENTER_GREETING_AR);
+    expect(refreshStaleE3ArabicPrompt("نص مخصص من المحرر")).toBe("نص مخصص من المحرر");
+  });
+
+  it("refreshes MSA greetingAr when loading a saved graph", () => {
+    const stale =
+      "كيف يمكننا مساعدتك اليوم؟ لحجوزات الأنشطة اضغط 1. لحفلات أعياد الميلاد والفعاليات الخاصة اضغط 2. لزيارات المدارس والحجوزات الجماعية اضغط 3. لأسعار التذاكر والعروض والمدفوعات اضغط 4. لساعات العمل والاتجاهات ومعلومات الزيارة اضغط 5. للشكاوى والمفقودات ودعم العملاء اضغط 6. للتحدث مباشرة مع فريق خدمة العملاء اضغط 0.";
+    const flow = parseIvrFlowJson({
+      version: 1,
+      nodes: [
+        {
+          id: "m1",
+          type: "menu",
+          position: { x: 0, y: 0 },
+          data: { label: "Services", greetingAr: stale, greetingText: stale },
+        },
+      ],
+      edges: [],
+    });
+    const node = flow.nodes[0]!;
+    expect(node.data.greetingAr).toBe(E3_SERVICE_GREETING_AR);
+    expect(nodeSpokenText(node, "ar")).toMatch(/كيف نقدر نساعدك/);
   });
 
   it("builds a center-aware AI system prompt", () => {

@@ -139,6 +139,10 @@ export function pickSpeakVoice(
   if (configured === "male" || configured === "female") {
     return { voice: configured, language: DEFAULT_AR_TTS_LANGUAGE };
   }
+  // Zeina is MSA-only — never keep it for live Arabic IVR in Qatar (use Gulf Hala).
+  if (MSA_ARABIC_VOICE_RE.test(configured)) {
+    return { voice: DEFAULT_AR_TTS_VOICE, language: DEFAULT_AR_TTS_LANGUAGE };
+  }
   if (isArabicCapableVoice(configured)) {
     return { voice: configured, language: arabicTtsLanguageForVoice(configured) };
   }

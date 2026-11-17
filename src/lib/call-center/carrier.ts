@@ -29,6 +29,7 @@ import {
   waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
+import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
 import { pickSpeakVoice } from "./ivr-tts-voice";
 import {
   preAgentConnectAnnouncement,
@@ -386,13 +387,15 @@ async function gather(ctx: Ctx, text: string, audioUrl?: string) {
     );
     if (ok) return;
   }
+  // Rewrite known MSA defaults still sitting in call metadata / saved graphs.
+  const spoken = clip(refreshStaleE3ArabicPrompt(text)) || DEFAULT_IVR_PROMPT;
   await exec(ctx, "gather", (c) =>
-    c.gatherUsingSpeak(ctx.ccid, clip(text) || DEFAULT_IVR_PROMPT, { step: "ivr" }, voiceOf(ctx)),
+    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ivr" }, voiceOf(ctx)),
   );
 }
 
 async function speakThenHangup(ctx: Ctx, text: string) {
-  const prompt = clip(text);
+  const prompt = clip(refreshStaleE3ArabicPrompt(text));
   if (!prompt) {
     await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
     return;

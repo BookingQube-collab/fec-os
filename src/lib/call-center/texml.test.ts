@@ -28,10 +28,23 @@ describe("texmlConference", () => {
       voice: "Polly.Joanna-Neural",
       preSay: "Please note that this call may be recorded for quality and training purposes.",
     });
+    expect(xml).toContain('voice="Polly.Joanna-Neural"');
+    expect(xml).toContain("language=");
     expect(xml).toContain(
-      '<Say voice="Polly.Joanna-Neural">Please note that this call may be recorded for quality and training purposes.</Say>',
+      "Please note that this call may be recorded for quality and training purposes.",
     );
     expect(xml.indexOf("<Say")).toBeLessThan(xml.indexOf("<Dial>"));
+  });
+
+  it("rewrites stale MSA Arabic preSay to Gulf copy and picks Hala", () => {
+    const xml = texmlConference({
+      name: "fecabc123",
+      voice: "Polly.Joanna-Neural",
+      preSay: "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.",
+    });
+    expect(xml).toContain("المكالمة هذي ممكن تنسجل");
+    expect(xml).toContain('voice="Polly.Hala-Neural"');
+    expect(xml).toContain('language="ar-AE"');
   });
 });
 

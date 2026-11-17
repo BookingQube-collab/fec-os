@@ -7,6 +7,7 @@ import {
   E3_LANG_GREETING_EN,
   E3_SERVICE_GREETING_AR,
   E3_SERVICE_GREETING_EN,
+  refreshStaleE3ArabicPrompt,
   type E3CenterKey,
 } from "./e3-ivr-prompt";
 import type { CallCenterIvrAction, CallCenterIvrMenu, CallCenterIvrOption } from "./types";
@@ -133,12 +134,24 @@ export function parseIvrFlowJson(raw: unknown): IvrFlowJson {
       position: { x: Number(pos.x ?? 0), y: Number(pos.y ?? 0) },
       data: {
         label: String(dataRaw.label ?? type),
-        greetingText: dataRaw.greetingText != null ? String(dataRaw.greetingText) : undefined,
-        messageText: dataRaw.messageText != null ? String(dataRaw.messageText) : undefined,
+        greetingText:
+          dataRaw.greetingText != null
+            ? refreshStaleE3ArabicPrompt(String(dataRaw.greetingText))
+            : undefined,
+        messageText:
+          dataRaw.messageText != null
+            ? refreshStaleE3ArabicPrompt(String(dataRaw.messageText))
+            : undefined,
         greetingEn: dataRaw.greetingEn != null ? String(dataRaw.greetingEn) : undefined,
-        greetingAr: dataRaw.greetingAr != null ? String(dataRaw.greetingAr) : undefined,
+        greetingAr:
+          dataRaw.greetingAr != null
+            ? refreshStaleE3ArabicPrompt(String(dataRaw.greetingAr))
+            : undefined,
         messageEn: dataRaw.messageEn != null ? String(dataRaw.messageEn) : undefined,
-        messageAr: dataRaw.messageAr != null ? String(dataRaw.messageAr) : undefined,
+        messageAr:
+          dataRaw.messageAr != null
+            ? refreshStaleE3ArabicPrompt(String(dataRaw.messageAr))
+            : undefined,
         audioUrl: dataRaw.audioUrl != null ? String(dataRaw.audioUrl) : undefined,
         digits: digitsRaw
           ?.filter((d): d is Record<string, unknown> => Boolean(d) && typeof d === "object")
@@ -266,14 +279,15 @@ export type IvrSpeakLang = "en" | "ar";
 /** Resolve the spoken prompt for a node (EN/AR with legacy fallbacks). */
 export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): string {
   if (lang === "ar") {
-    return (
+    const raw =
       node.data.greetingAr ||
       node.data.messageAr ||
       node.data.greetingText ||
       node.data.messageText ||
       node.data.label ||
-      ""
-    );
+      "";
+    // Saved graphs often still hold pre-Gulf MSA defaults — refresh at speak time.
+    return refreshStaleE3ArabicPrompt(raw);
   }
   return (
     node.data.greetingEn ||

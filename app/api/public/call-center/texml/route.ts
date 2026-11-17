@@ -6,6 +6,7 @@ import {
   loadSettingsRow,
   updateCall,
 } from "@/lib/call-center/db";
+import { refreshStaleE3ArabicPrompt } from "@/lib/call-center/e3-ivr-prompt";
 import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "@/lib/call-center/ivr-tts-voice";
 import { routeInboundCall } from "@/lib/call-center/routing";
 import {
@@ -20,7 +21,7 @@ import {
 import { assertCallCenterWebhook } from "@/lib/call-center/webhook-auth";
 
 function speakVoice(prompt: string, configured?: string | null): string {
-  return pickSpeakVoice(prompt, configured ?? undefined).voice;
+  return pickSpeakVoice(refreshStaleE3ArabicPrompt(prompt), configured ?? undefined).voice;
 }
 
 export const maxDuration = 30;
@@ -221,16 +222,17 @@ export async function POST(request: Request) {
     }
 
     if (call.status === "ivr") {
-      const greeting =
+      const greeting = refreshStaleE3ArabicPrompt(
         (typeof meta.ivrGreeting === "string" && meta.ivrGreeting) ||
-        settings?.tts_greeting_text ||
-        "Please choose an option.";
+          settings?.tts_greeting_text ||
+          "Please choose an option.",
+      );
       return xml(
         texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: selfUrl,
           prompt: greeting,
-          voice: speakVoice(greeting, configuredVoice),
+          voice: configuredVoice,
         }),
       );
     }

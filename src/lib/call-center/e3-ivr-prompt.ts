@@ -59,6 +59,42 @@ export const E3_AI_WELCOME_EN =
 
 export const E3_AI_WELCOME_AR =
   "شكراً لاتصالك بـ E3. كيف نقدر نساعدك اليوم؟ تقدر تسأل عن الحجوزات أو أعياد الميلاد أو المجموعات أو الأسعار أو ساعات العمل أو الدعم. عشان تتكلم مع موظف في أي وقت، قول موظف أو اضغط صفر.";
+
+/**
+ * Exact MSA defaults previously seeded into saved IVR graphs / settings.
+ * Live speak must rewrite these even when the DB still has the old copy —
+ * callers should not need to manually re-apply the E3 template.
+ */
+const STALE_E3_ARABIC_PROMPTS: Record<string, string> = {
+  "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزية اضغط 1. للعربية اضغط 2. للتحدث مع موظف اضغط 0.":
+    E3_LANG_GREETING_AR,
+  "يرجى اختيار مركز الترفيه الذي تريد المساعدة بشأنه. لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال في سيتي سنتر اضغط 2. لأوربان أرينا في دوحة مول اضغط 3. للدعم العام لـ E3 اضغط 0.":
+    E3_CENTER_GREETING_AR,
+  "كيف يمكننا مساعدتك اليوم؟ لحجوزات الأنشطة اضغط 1. لحفلات أعياد الميلاد والفعاليات الخاصة اضغط 2. لزيارات المدارس والحجوزات الجماعية اضغط 3. لأسعار التذاكر والعروض والمدفوعات اضغط 4. لساعات العمل والاتجاهات ومعلومات الزيارة اضغط 5. للشكاوى والمفقودات ودعم العملاء اضغط 6. للتحدث مباشرة مع فريق خدمة العملاء اضغط 0.":
+    E3_SERVICE_GREETING_AR,
+  "شكراً لاتصالك بـ E3. كيف يمكنني مساعدتك اليوم؟ يمكنك السؤال عن الحجوزات أو أعياد الميلاد أو المجموعات أو الأسعار أو ساعات العمل أو الدعم. للتحدث مع موظف في أي وقت، قل موظف أو اضغط صفر.":
+    E3_AI_WELCOME_AR,
+  "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.":
+    "للعلم، المكالمة هذي ممكن تنسجل عشان الجودة والتدريب.",
+  "يرجى الانتظار. جارٍ توصيلك بأحد موظفينا.":
+    "لحظة من فضلك، بنوصلك بالموظف الحين.",
+};
+
+/** Normalize whitespace so DB/UI copies still match known MSA defaults. */
+function normalizeArabicPromptKey(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Rewrite known stale MSA E3 defaults to current Gulf/Qatari-leaning copy.
+ * Custom edited prompts that do not match a known default are left unchanged.
+ */
+export function refreshStaleE3ArabicPrompt(text: string): string {
+  if (!text) return text;
+  const key = normalizeArabicPromptKey(text);
+  return STALE_E3_ARABIC_PROMPTS[key] ?? text;
+}
+
 /**
  * Full bilingual AI customer-service system prompt for LiveKit / Admin AI gateway.
  * Keep phone answers short; never invent prices/availability; always allow human handoff.

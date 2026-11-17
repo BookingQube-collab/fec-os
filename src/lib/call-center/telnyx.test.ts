@@ -112,10 +112,10 @@ describe("client state + voice", () => {
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
     ).toBe("Polly.Hala-Neural");
-    // Zeina is MSA — keep arb when explicitly configured.
+    // Zeina is MSA — upgrade to Gulf Hala for live Arabic IVR (Qatar).
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zeina")).toEqual({
-      voice: "Polly.Zeina",
-      language: "arb",
+      voice: "Polly.Hala-Neural",
+      language: "ar-AE",
     });
   });
 

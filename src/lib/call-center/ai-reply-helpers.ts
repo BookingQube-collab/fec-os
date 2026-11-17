@@ -5,6 +5,7 @@ import {
   E3_AI_SYSTEM_PROMPT_EN,
   E3_AI_WELCOME_AR,
   E3_AI_WELCOME_EN,
+  refreshStaleE3ArabicPrompt,
 } from "./e3-ivr-prompt";
 import type { CallCenterAiProvider, CallCenterSettingsRow } from "./types";
 
@@ -57,9 +58,13 @@ export function resolveCallCenterAiWelcome(input: {
   nodeWelcome?: string | null;
 }): string {
   const node = input.nodeWelcome?.trim() ?? "";
-  if (node) return node;
+  if (node) {
+    return input.language === "ar" ? refreshStaleE3ArabicPrompt(node) : node;
+  }
   if (input.language === "ar") {
-    return input.settings?.ai_welcome_ar?.trim() || E3_AI_WELCOME_AR;
+    return refreshStaleE3ArabicPrompt(
+      input.settings?.ai_welcome_ar?.trim() || E3_AI_WELCOME_AR,
+    );
   }
   return input.settings?.ai_welcome_en?.trim() || E3_AI_WELCOME_EN;
 }

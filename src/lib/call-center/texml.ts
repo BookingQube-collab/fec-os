@@ -3,7 +3,8 @@
  * Used when Call Control `Answer` returns 10007 — TeXML answers automatically and plays <Say>/<Gather>.
  */
 
-import { DEFAULT_TTS_VOICE } from "./ivr-tts-voice";
+import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "./ivr-tts-voice";
+import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
 
 export function escapeTexml(text: string): string {
   return text
@@ -18,10 +19,14 @@ export function texmlResponse(body: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`;
 }
 
-function texmlSay(voice: string, text: string): string {
-  const spoken = text.trim();
+/** Build `<Say>` with voice (+ language when useful for Azure/alice; Polly ignores language). */
+function texmlSay(voice: string, text: string, language?: string): string {
+  const spoken = refreshStaleE3ArabicPrompt(text).trim();
   if (!spoken) return "";
-  return `<Say voice="${escapeTexml(voice)}">${escapeTexml(spoken)}</Say>`;
+  const picked = pickSpeakVoice(spoken, voice);
+  const lang = language?.trim() || picked.language;
+  const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
+  return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}>${escapeTexml(spoken)}</Say>`;
 }
 
 export function texmlGatherMenu(input: {
@@ -30,14 +35,19 @@ export function texmlGatherMenu(input: {
   timeoutRedirectUrl: string;
   prompt: string;
   voice?: string;
+  language?: string;
 }): string {
-  const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
-  const prompt = escapeTexml(input.prompt.trim() || "Please choose an option.");
+  const promptRaw = refreshStaleE3ArabicPrompt(input.prompt.trim() || "Please choose an option.");
+  const picked = pickSpeakVoice(promptRaw, input.voice);
+  const voice = picked.voice;
+  const lang = input.language?.trim() || picked.language;
+  const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
+  const prompt = escapeTexml(promptRaw);
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
-      `<Say voice="${escapeTexml(voice)}">${prompt}</Say>` +
+      `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>` +
       `</Gather>` +
-      `<Say voice="${escapeTexml(voice)}">We did not receive any input.</Say>` +
+      `<Say voice="${escapeTexml(voice)}" language="en-US">We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
   );
 }
@@ -49,7 +59,6 @@ export function texmlQueueWait(input: {
   /** Shorter pause so Answer→Dial picks up faster on the Redirect loop. */
   pauseSeconds?: number;
 }): string {
-  const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
   const hold = input.holdMusicUrl?.trim() ?? "";
   const pause = Math.max(1, Math.min(12, Math.floor(input.pauseSeconds ?? 3)));
   if (hold) {
@@ -58,8 +67,9 @@ export function texmlQueueWait(input: {
         `<Redirect method="POST">${escapeTexml(input.redirectUrl)}</Redirect>`,
     );
   }
+  const holdPrompt = "Please hold while we connect you.";
   return texmlResponse(
-    `<Say voice="${escapeTexml(voice)}">Please hold while we connect you.</Say>` +
+    texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, holdPrompt) +
       `<Pause length="${pause}"/>` +
       `<Redirect method="POST">${escapeTexml(input.redirectUrl)}</Redirect>`,
   );
@@ -142,9 +152,9 @@ export function texmlDialSip(input: {
     .filter(Boolean)
     .join(" ");
   const afterFail = input.failureRedirectUrl?.trim()
-    ? `<Say voice="${escapeTexml(voice)}">We could not connect you just now. Please hold.</Say>` +
+    ? texmlSay(voice, "We could not connect you just now. Please hold.") +
       `<Redirect method="POST">${escapeTexml(input.failureRedirectUrl.trim())}</Redirect>`
-    : `<Say voice="${escapeTexml(voice)}">We could not connect you. Goodbye.</Say><Hangup/>`;
+    : `${texmlSay(voice, "We could not connect you. Goodbye.")}<Hangup/>`;
   // No Speak before Dial — keeps the PSTN leg free to bridge immediately.
   const sipOpen = sipAttrs ? `<Sip ${sipAttrs}>` : "<Sip>";
   return texmlResponse(
@@ -153,9 +163,7 @@ export function texmlDialSip(input: {
 }
 
 export function texmlHangup(message?: string, voice = DEFAULT_TTS_VOICE): string {
-  const say = message?.trim()
-    ? `<Say voice="${escapeTexml(voice)}">${escapeTexml(message.trim())}</Say>`
-    : "";
+  const say = message?.trim() ? texmlSay(voice, message) : "";
   return texmlResponse(`${say}<Hangup/>`);
 }
 

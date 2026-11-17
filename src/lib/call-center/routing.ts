@@ -25,6 +25,7 @@ import {
   setAgentStatus,
   updateCall,
 } from "./db";
+import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
 import {
   findEntryInteractiveNode,
   findStartNode,
@@ -32,9 +33,11 @@ import {
   followDefaultEdge,
   followDigitEdge,
   followHandleEdge,
+  nodeSpokenText,
   recoverDigitZeroAgentNode,
   type IvrFlowJson,
   type IvrFlowNode,
+  type IvrSpeakLang,
 } from "./ivr-flow";
 import { isArabicText } from "./ivr-tts-voice";
 import { languageFromIvrDigit } from "./recording-disclosure";
@@ -351,11 +354,13 @@ export async function routeInboundCall(input: {
       const flow = menu.flowJson;
       const entry = flowHasGraph(flow) ? findEntryInteractiveNode(flow) : null;
       const start = flowHasGraph(flow) ? findStartNode(flow) : null;
-      const greeting =
-        start?.data.greetingText ||
-        entry?.data.greetingText ||
-        menu.greetingText ||
-        "IVR menu active.";
+      // First prompt is the Language menu (bilingual EN) until digit 1/2 is pressed.
+      const speakNode = entry ?? start ?? null;
+      const greeting = refreshStaleE3ArabicPrompt(
+        speakNode
+          ? nodeSpokenText(speakNode, "en")
+          : menu.greetingText || "IVR menu active.",
+      );
       const audioUrl =
         start?.data.audioUrl?.trim() ||
         entry?.data.audioUrl?.trim() ||
@@ -379,6 +384,7 @@ export async function routeInboundCall(input: {
         metadata: {
           ivrNodeId: entry?.id ?? start?.id ?? null,
           ivrGreeting: greeting,
+          ivrLanguage: "en" as IvrSpeakLang,
           ...(audioUrl ? { ivrAudioUrl: audioUrl } : {}),
         },
       });
@@ -485,15 +491,20 @@ async function resolveTerminalIvrNode(params: {
       continue;
     }
     if (current.type === "menu" || current.type === "start") {
-      const greeting =
-        current.data.greetingText || current.data.messageText || current.data.label || "IVR menu.";
       const prevMeta = (call.metadata as Record<string, unknown>) ?? {};
-      const ivrLanguage =
+      const ivrLanguage: IvrSpeakLang =
         prevMeta.ivrLanguage === "ar" || prevMeta.ivrLanguage === "en"
           ? prevMeta.ivrLanguage
-          : isArabicText(greeting)
+          : isArabicText(
+                current.data.greetingAr ||
+                  current.data.greetingText ||
+                  current.data.messageText ||
+                  "",
+              )
             ? "ar"
             : "en";
+      // Must use language-aware fields (greetingAr), not English-only greetingText.
+      const greeting = refreshStaleE3ArabicPrompt(nodeSpokenText(current, ivrLanguage));
       const updated = await updateCall(call.id, {
         status: "ivr",
         ivrDigit: digit,
@@ -794,13 +805,21 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
     const nextStart = findStartNode(nextMenu.flowJson);
     const nextAudio =
       nextStart?.data.audioUrl?.trim() || nextEntry?.data.audioUrl?.trim() || "";
+    const nextLang: IvrSpeakLang =
+      meta.ivrLanguage === "ar" || meta.ivrLanguage === "en" ? meta.ivrLanguage : "en";
+    const nextGreeting = refreshStaleE3ArabicPrompt(
+      nextEntry
+        ? nodeSpokenText(nextEntry, nextLang)
+        : nextMenu.greetingText || "Next menu.",
+    );
     const updated = await updateCall(call.id, {
       ivrDigit: digit,
       ivrMenuId: nextMenu.id,
       metadata: {
         ...meta,
         ivrNodeId: nextEntry?.id ?? null,
-        ivrGreeting: nextMenu.greetingText,
+        ivrGreeting: nextGreeting,
+        ivrLanguage: nextLang,
         ivrAudioUrl: nextAudio || null,
       },
     });
@@ -808,7 +827,7 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
       call: updated,
       offeredUserIds: [],
       phase: "ivr",
-      message: nextMenu.greetingText || "Next menu.",
+      message: nextGreeting,
     };
   }
   if (option.action === "hangup") {
