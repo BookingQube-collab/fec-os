@@ -238,6 +238,16 @@
     letter-spacing: -0.011em;
   }
 
+  /* Phone / tablet ops shell — single scroll region inside AppShell (no document rubber-banding). */
+  @media (max-width: 1023px) {
+    html:has([data-fec-app-shell]),
+    body:has([data-fec-app-shell]) {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+  }
+
   h1,
   h2,
   h3,
