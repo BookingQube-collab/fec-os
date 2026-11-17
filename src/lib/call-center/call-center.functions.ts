@@ -417,8 +417,12 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           existing?.tts_greeting_text ??
           "Welcome. Press a digit from the menu or stay on the line.",
         record_all_calls: data.recordAllCalls ?? existing?.record_all_calls ?? true,
-        recording_storage_base_url:
-          data.recordingStorageBaseUrl ?? existing?.recording_storage_base_url ?? "",
+        recording_storage_base_url: await (async () => {
+          const incoming =
+            data.recordingStorageBaseUrl ?? existing?.recording_storage_base_url ?? "";
+          const { assertPublicRecordingStorageBaseUrl } = await import("./recording-url");
+          return assertPublicRecordingStorageBaseUrl(incoming);
+        })(),
         instagram_enabled: data.instagramEnabled ?? existing?.instagram_enabled ?? false,
         instagram_page_id: data.instagramPageId ?? existing?.instagram_page_id ?? "",
         instagram_ig_user_id: data.instagramIgUserId ?? existing?.instagram_ig_user_id ?? "",
@@ -1193,10 +1197,13 @@ export const generateCallCenterTranscriptStub = createSafeAuthenticatedAction(
   async (data) => {
     let call = await getCall(data.callId);
     if (!call) throw new Error("Call not found.");
-    // If recording was flagged but URL never landed (missed egress webhook), try LiveKit listEgress.
+    // Rewrite private R2/S3 API URLs and/or refresh from LiveKit listEgress when needed.
     try {
-      const { isUsableRecordingUrl } = await import("./recording-url");
-      if (call.recordingEnabled && !isUsableRecordingUrl(call.recordingUrl)) {
+      const { isUsableRecordingUrl, isPrivateObjectStoreApiUrl } = await import("./recording-url");
+      if (
+        call.recordingEnabled &&
+        (!isUsableRecordingUrl(call.recordingUrl) || isPrivateObjectStoreApiUrl(call.recordingUrl))
+      ) {
         const { refreshCallRecordingFromEgress } = await import("./recording-egress");
         call = await refreshCallRecordingFromEgress(call);
       }

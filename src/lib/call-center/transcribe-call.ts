@@ -113,7 +113,22 @@ async function resolveTranscriptionEndpoint(): Promise<{ url: string; key: strin
  * Throws with a clear message when STT is configured but fails.
  */
 export async function transcribeRecordingUrl(recordingUrl: string): Promise<string> {
-  if (!isUsableRecordingUrl(recordingUrl)) {
+  let mediaUrl = recordingUrl.trim();
+  if (!isUsableRecordingUrl(mediaUrl)) {
+    // Last-chance rewrite when CDR still has a private R2/S3 API host.
+    try {
+      const { loadSettingsRow } = await import("./db");
+      const { rewriteRecordingUrlToPublicBase } = await import("./recording-url");
+      const settings = await loadSettingsRow();
+      mediaUrl = rewriteRecordingUrlToPublicBase(
+        mediaUrl,
+        settings?.recording_storage_base_url ?? "",
+      );
+    } catch {
+      // keep original
+    }
+  }
+  if (!isUsableRecordingUrl(mediaUrl)) {
     throw new Error("Recording URL is missing or not playable.");
   }
   const endpoint = await resolveTranscriptionEndpoint();
@@ -123,7 +138,7 @@ export async function transcribeRecordingUrl(recordingUrl: string): Promise<stri
     );
   }
 
-  const audioRes = await fetch(recordingUrl, { redirect: "follow" });
+  const audioRes = await fetch(mediaUrl, { redirect: "follow" });
   if (!audioRes.ok) {
     throw new Error(`Could not download recording (${audioRes.status}).`);
   }

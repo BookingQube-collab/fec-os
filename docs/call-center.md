@@ -213,6 +213,34 @@ Inbox: `/call-center/whatsapp`. API keys, templates, and auto-reply: **Call Cent
 4. Optional **first-message auto-reply** (Settings → Automation): enable WhatsApp + auto-reply, set the text (≤4096 chars). Sent once when a *new* conversation is created; inbound webhooks also update `delivered` / `read` / `failed` on outbound rows by `wa_message_id`.
 5. Optional HMAC: set `META_APP_SECRET` and `META_REQUIRE_WEBHOOK_SIGNATURE=true` to enforce `X-Hub-Signature-256` on webhook POSTs.
 6. **Recording storage base URL** (Settings, near Record all calls): public CDN/S3 base so CDR `recording_url` is `{base}/call-center/{callId}.mp4` after LiveKit egress.
+7. **Recording playback / transcripts:** LiveKit room composite egress starts on Answer / outbound when Record all calls is on. Point the LiveKit project webhook at `/api/public/call-center/livekit-sip` (include `egress_*` events). Either enable LiveKit Cloud egress storage **or** set `LIVEKIT_EGRESS_S3_*` (see `.env.example`) so files land in a bucket whose public URL matches Recording storage base URL. Without storage + webhook, the Calls UI stays on “URL pending egress” and Whisper cannot run.
+
+#### Cloudflare R2 (recommended for FEC)
+
+FEC starts egress with `EncodedFileOutput` + optional `S3Upload` from `LIVEKIT_EGRESS_S3_*` (`recording-egress.ts`). You do **not** need a separate LiveKit Cloud dashboard S3 destination when those env vars are set; if they are unset, LiveKit Cloud default egress storage must point at the same public base.
+
+1. Cloudflare → R2 → **Create bucket** (e.g. `fec-call-recordings`).
+2. **Allow public access**: enable R2.dev subdomain for the bucket, **or** attach a custom domain (preferred in production). Note the public origin with **no trailing slash**, e.g. `https://pub-xxxxxxxx.r2.dev` or `https://recordings.example.com`.
+3. R2 → Manage R2 API Tokens → create a token with **Object Read & Write** on that bucket. Copy Access Key ID + Secret.
+4. Vercel (Production) env — same names as `.env.example`:
+
+```bash
+LIVEKIT_EGRESS_S3_ACCESS_KEY=<r2_access_key_id>
+LIVEKIT_EGRESS_S3_SECRET=<r2_secret_access_key>
+LIVEKIT_EGRESS_S3_BUCKET=fec-call-recordings
+LIVEKIT_EGRESS_S3_REGION=auto
+LIVEKIT_EGRESS_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+LIVEKIT_EGRESS_S3_FORCE_PATH_STYLE=true
+```
+
+5. Call Center → Settings → **Recording storage base URL** = the public origin from step 2 (not the `r2.cloudflarestorage.com` API endpoint). Pasting the API endpoint makes the Calls player show `0:00 / 0:00` (browser gets an XML auth error). FEC rejects that host on save.
+6. R2 bucket CORS: allow your app origin (e.g. `https://e3fec.vercel.app`) with methods `GET`, `HEAD` and header `Range` (needed for `<audio>` seeking).
+7. LiveKit Cloud → project Webhooks → `https://<host>/api/public/call-center/livekit-sip` with `egress_*` (plus `participant_*` / `room_finished` as already required).
+8. Redeploy after env changes; place a short test call with Record all calls on; confirm `recording_url` becomes `{base}/call-center/{callId}.mp4` and plays in Calls.
+
+**Troubleshooting `0:00 / 0:00`:** open the audio `src` in a new tab. `404` → object missing (call before S3 env/redeploy, or egress failed). XML/`InvalidArgument` on `*.r2.cloudflarestorage.com` → CDR has the private API URL; set Settings to `pub-….r2.dev`, redeploy if needed, then open the call again (UI rewrites) or click **Generate transcript** (persists the rewrite). CORS missing → Network tab shows opaque/blocked Range requests.
+
+**Welcome / hold without uploads:** leave Welcome audio URL and Hold music URL blank; turn **TTS greeting** on; keep Welcome greeting text filled. Queue welcome uses Telnyx TTS; hold music stays silent until you upload a public MP3 later.
 
 Local demo ingest:
 
@@ -282,7 +310,7 @@ curl -X POST "http://localhost:3000/api/public/call-center/whatsapp?demo=1" \
 
 ### Later (vendor-deep / not full Maqsam clone)
 
-- LiveKit egress file storage destination (S3/R2) so recording URLs are permanent CDN links (egress start is wired)
+- LiveKit egress permanent CDN (wired: S3 env + `egress_*` webhook → CDR `recording_url`; still needs Cloud/S3 credentials in each environment)
 - Full provider-side hold music / TTS for SIP-only trunks without Call Control
 - Voice cloning / dialect-tuned Maqsam AI (FEC uses configured LLM + LiveKit agent)
 - Meta WhatsApp template approval sync (local template library + send is wired)
@@ -470,8 +498,8 @@ Then: enable **Call Center**, map each DID on `/call-center/numbers` to a queue 
 
 - Queue `max_wait_seconds` is enforced on softphone poll / workspace load (missed + hangup carrier leg); a dedicated cron is still optional for quieter periods.
 - Voicemail: after-hours / IVR voicemail speaks the prompt (Call Control) and creates the voicemail row, but does not record the caller's message yet.
-- PSTN transfers (SIP REFER / Telnyx transfer from the softphone) and recording egress are not fully wired (`transferPendingSip` is still only a flag). Softphone DTMF now uses LiveKit `publishDtmf` (RFC 2833 toward SIP).
+- PSTN transfers (SIP REFER / Telnyx transfer from the softphone) are not fully wired (`transferPendingSip` is still only a flag). Softphone DTMF now uses LiveKit `publishDtmf` (RFC 2833 toward SIP). Recording egress start + `egress_*` webhook URL sync are wired; storage credentials remain an ops requirement.
 - Whisper/barge on SIP legs needs LiveKit TrackPermissions; SIP-trunk IVR prompts need a LiveKit Agents worker (dispatch is wired when agent name is set; worker not shipped in-repo).
 - Outbound "answered" is only known after the dial resolves; CDR is created already `answered` (with a `dialing` state in metadata) for UI compatibility.
 - Power dialer pacing / AMD, Telnyx number provisioning in-app, and Telnyx → LiveKit failure recovery after transfer remain manual.
-- Transcripts: pluggable `transcript_text` / Generate stub on `/call-center/calls`; wire STT later.
+- Transcripts: Generate uses Whisper when a playable `recording_url` exists (OPENAI_API_KEY / Call Center AI OpenAI key); otherwise AI history or CDR summary.

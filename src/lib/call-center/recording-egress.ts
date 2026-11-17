@@ -15,6 +15,7 @@ import {
   buildCallRecordingPublicUrl,
   isGuessedLiveKitRecordingUrl,
   isUsableRecordingUrl,
+  preferPlayableRecordingUrl,
 } from "./recording-url";
 import type { CallCenterCall } from "./types";
 
@@ -61,11 +62,13 @@ export async function startCallRecordingEgress(call: CallCenterCall): Promise<Re
   const storageBase = settings?.recording_storage_base_url?.trim() ?? "";
   const s3 = resolveEgressS3FromEnv();
 
-  let recordingUrl = "";
-  if (isUsableRecordingUrl(call.recordingUrl) && !isGuessedLiveKitRecordingUrl(call.recordingUrl)) {
-    recordingUrl = call.recordingUrl.trim();
-  } else if (storageBase) {
-    recordingUrl = buildCallRecordingPublicUrl(storageBase, call.id);
+  let recordingUrl = preferPlayableRecordingUrl({
+    callId: call.id,
+    storageBaseUrl: storageBase,
+    existingUrl: call.recordingUrl,
+  });
+  if (!isUsableRecordingUrl(recordingUrl)) {
+    recordingUrl = storageBase ? buildCallRecordingPublicUrl(storageBase, call.id) : "";
   }
 
   let egressStarted = false;
@@ -116,14 +119,18 @@ export async function startCallRecordingEgress(call: CallCenterCall): Promise<Re
         egressStarted = true;
         egressId = typeof info.egressId === "string" ? info.egressId : "";
         const immediate = extractEgressRecordingLocation(info as EgressInfoLike);
-        if (immediate && (immediate.startsWith("https://") || immediate.startsWith("http://"))) {
-          recordingUrl = immediate;
-          note = "LiveKit room egress started; media URL available.";
-        } else if (storageBase) {
-          recordingUrl = buildCallRecordingPublicUrl(storageBase, call.id);
-          note = s3
-            ? "LiveKit room egress started; recording_url uses your storage base URL (S3 upload)."
-            : "LiveKit room egress started; recording_url uses your storage base URL.";
+        recordingUrl = preferPlayableRecordingUrl({
+          callId: call.id,
+          storageBaseUrl: storageBase,
+          location: immediate,
+          existingUrl: recordingUrl,
+        });
+        if (isUsableRecordingUrl(recordingUrl)) {
+          note = storageBase
+            ? s3
+              ? "LiveKit room egress started; recording_url uses your storage base URL (S3 upload)."
+              : "LiveKit room egress started; recording_url uses your storage base URL."
+            : "LiveKit room egress started; media URL available.";
         } else {
           recordingUrl = "";
           note =
@@ -223,18 +230,17 @@ export async function applyLiveKitEgressInfo(egress: EgressInfoLike): Promise<{
     return { handled: true, note: `egress_progress:${updated.id}`, callId: updated.id };
   }
 
-  let recordingUrl = call.recordingUrl;
-  if (location && (location.startsWith("https://") || location.startsWith("http://"))) {
-    recordingUrl = location;
-  } else {
-    const settings = await loadSettingsRow().catch(() => null);
-    const storageBase = settings?.recording_storage_base_url?.trim() ?? "";
-    if (storageBase) {
-      recordingUrl = buildCallRecordingPublicUrl(storageBase, call.id);
-    } else if (location?.startsWith("s3://")) {
-      meta.egressS3Location = location;
-    }
+  const settings = await loadSettingsRow().catch(() => null);
+  const storageBase = settings?.recording_storage_base_url?.trim() ?? "";
+  if (location?.startsWith("s3://")) {
+    meta.egressS3Location = location;
   }
+  const recordingUrl = preferPlayableRecordingUrl({
+    callId: call.id,
+    storageBaseUrl: storageBase,
+    location,
+    existingUrl: call.recordingUrl,
+  });
 
   const playable = isUsableRecordingUrl(recordingUrl) && !isGuessedLiveKitRecordingUrl(recordingUrl);
   const updated = await updateCall(call.id, {
@@ -264,6 +270,32 @@ export async function applyLiveKitEgressInfo(egress: EgressInfoLike): Promise<{
  * Used before transcript generation and on room_finished.
  */
 export async function refreshCallRecordingFromEgress(call: CallCenterCall): Promise<CallCenterCall> {
+  // Repair CDRs that stored a private R2/S3 API URL after Settings gained a public base.
+  const settings = await loadSettingsRow().catch(() => null);
+  const storageBase = settings?.recording_storage_base_url?.trim() ?? "";
+  if (storageBase) {
+    const rewritten = preferPlayableRecordingUrl({
+      callId: call.id,
+      storageBaseUrl: storageBase,
+      existingUrl: call.recordingUrl,
+    });
+    if (
+      rewritten !== call.recordingUrl.trim() &&
+      isUsableRecordingUrl(rewritten) &&
+      !isGuessedLiveKitRecordingUrl(rewritten)
+    ) {
+      call = await updateCall(call.id, {
+        recordingEnabled: true,
+        recordingUrl: rewritten,
+        metadata: {
+          ...((call.metadata as Record<string, unknown> | null) ?? {}),
+          recordingNote: "Recording URL rewritten to public storage base (was private object-store API).",
+          recordingUrlRewrittenAt: new Date().toISOString(),
+        },
+      });
+    }
+  }
+
   if (isUsableRecordingUrl(call.recordingUrl) && !isGuessedLiveKitRecordingUrl(call.recordingUrl)) {
     return call;
   }

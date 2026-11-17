@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+
 import { useCallCenterSoftphoneOptional } from "@/components/call-center/softphone-provider";
 import { FecButton as Button, FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,10 @@ import {
   saveCallCenterCallTags,
   saveCallCenterTranscript,
 } from "@/lib/call-center/call-center.functions";
+import {
+  isUsableRecordingUrl,
+  rewriteRecordingUrlToPublicBase,
+} from "@/lib/call-center/recording-url";
 import type { CallCenterCall } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
@@ -43,34 +48,18 @@ function startOfTodayIso() {
   return d.toISOString();
 }
 
-/** True when the CDR has a fetchable media URL (not a placeholder egress stub). */
-function hasPlayableRecording(call: CallCenterCall) {
-  // Keep client-side check aligned with server isUsableRecordingUrl (no server-only import).
-  const url = call.recordingUrl?.trim() ?? "";
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-    const host = parsed.hostname.toLowerCase();
-    if (
-      host === "recordings.example" ||
-      host.endsWith(".recordings.example") ||
-      host === "example.com" ||
-      host === "localhost"
-    ) {
-      return false;
-    }
-    // Guessed LiveKit Cloud path — not a real file until egress_ended sets the location.
-    if (
-      (host.endsWith(".livekit.cloud") || host === "livekit.cloud") &&
-      parsed.pathname.includes("/recordings/")
-    ) {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
+/** Resolve a browser-playable media URL (rewrites private R2/S3 API hosts onto the public base). */
+function resolveCallRecordingSrc(call: CallCenterCall, storageBaseUrl: string | undefined) {
+  const rewritten = rewriteRecordingUrlToPublicBase(
+    call.recordingUrl ?? "",
+    storageBaseUrl,
+    call.id,
+  );
+  return isUsableRecordingUrl(rewritten) ? rewritten : "";
+}
+
+function hasPlayableRecording(call: CallCenterCall, storageBaseUrl?: string) {
+  return Boolean(resolveCallRecordingSrc(call, storageBaseUrl));
 }
 
 function CallCenterCallsPage() {
@@ -101,6 +90,7 @@ function CallCenterCallsPage() {
   const [draftNotes, setDraftNotes] = useState("");
   const [draftTags, setDraftTags] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
+  const [recordingLoadError, setRecordingLoadError] = useState<string | null>(null);
 
   const config = useQuery({
     queryKey: ["call-center", "config"],
@@ -111,6 +101,7 @@ function CallCenterCallsPage() {
       return result.data;
     },
   });
+  const recordingStorageBaseUrl = config.data?.settings?.recordingStorageBaseUrl ?? "";
 
   const tagsCatalog = useQuery({
     queryKey: ["call-center", "tags"],
@@ -209,6 +200,7 @@ function CallCenterCallsPage() {
   }
 
   function openDetail(call: CallCenterCall) {
+    setRecordingLoadError(null);
     setExpandedId((id) => (id === call.id ? null : call.id));
     setDraftTranscript(call.transcriptText || "");
     setDraftNotes(call.agentNotes || "");
@@ -461,18 +453,45 @@ function CallCenterCallsPage() {
                 </div>
                 {expandedId === call.id ? (
                   <div className="mt-3 grid gap-3 rounded-xl border border-border/60 p-3 lg:grid-cols-2">
-                    {(hasPlayableRecording(call) || call.recordingEnabled) && (
+                    {(hasPlayableRecording(call, recordingStorageBaseUrl) ||
+                      call.recordingEnabled) && (
                       <div className="space-y-2 lg:col-span-2">
                         <p className="text-xs font-medium text-foreground">
                           {t("callCenter.playRecording")}
-                          {call.recordingEnabled && !hasPlayableRecording(call)
+                          {call.recordingEnabled &&
+                          !hasPlayableRecording(call, recordingStorageBaseUrl)
                             ? " (flagged — URL pending egress)"
                             : ""}
                         </p>
-                        {hasPlayableRecording(call) ? (
-                          <audio controls className="w-full max-w-xl" src={call.recordingUrl}>
-                            <track kind="captions" />
-                          </audio>
+                        {hasPlayableRecording(call, recordingStorageBaseUrl) ? (
+                          <div className="space-y-1.5">
+                            <audio
+                              key={resolveCallRecordingSrc(call, recordingStorageBaseUrl)}
+                              controls
+                              className="w-full max-w-xl"
+                              preload="metadata"
+                              src={resolveCallRecordingSrc(call, recordingStorageBaseUrl)}
+                              onError={() =>
+                                setRecordingLoadError(t("callCenter.recordingLoadFailed"))
+                              }
+                              onLoadedMetadata={() => setRecordingLoadError(null)}
+                            >
+                              <track kind="captions" />
+                            </audio>
+                            {recordingLoadError ? (
+                              <p className="text-xs text-destructive">
+                                {recordingLoadError}{" "}
+                                <a
+                                  className="underline underline-offset-2"
+                                  href={resolveCallRecordingSrc(call, recordingStorageBaseUrl)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {t("callCenter.openRecordingUrl")}
+                                </a>
+                              </p>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
                     )}
@@ -548,14 +567,16 @@ function CallCenterCallsPage() {
                       <p className="text-xs font-medium text-foreground">
                         {t("callCenter.transcript")} · {call.transcriptStatus}
                       </p>
-                      {!hasPlayableRecording(call) && !call.recordingEnabled ? (
+                      {!hasPlayableRecording(call, recordingStorageBaseUrl) &&
+                      !call.recordingEnabled ? (
                         <p className="rounded-lg border border-border/60 bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
                           {call.direction === "internal_test"
                             ? t("callCenter.transcriptNoRecordingTest")
                             : t("callCenter.transcriptNoRecording")}
                         </p>
                       ) : null}
-                      {!hasPlayableRecording(call) && call.recordingEnabled ? (
+                      {!hasPlayableRecording(call, recordingStorageBaseUrl) &&
+                      call.recordingEnabled ? (
                         <p className="rounded-lg border border-border/60 bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
                           {t("callCenter.transcriptRecordingPending")}
                         </p>
