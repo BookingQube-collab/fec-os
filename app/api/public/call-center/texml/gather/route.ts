@@ -81,7 +81,7 @@ export async function POST(request: Request) {
   try {
     const result = await applyIvrDigit(call.id, digit);
     const next = result.call;
-    const meta = {
+    const meta: Record<string, unknown> = {
       ...((next.metadata as Record<string, unknown> | null) ?? {}),
       carrierAnswered: true,
       texml: true,

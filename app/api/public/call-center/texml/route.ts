@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     }
 
     // TeXML answers automatically — mark answered so agent bridge can hang up this leg later.
-    const meta = {
+    const meta: Record<string, unknown> = {
       ...((call.metadata as Record<string, unknown> | null) ?? {}),
       carrierAnswered: true,
       carrierAnsweredAt: new Date().toISOString(),
