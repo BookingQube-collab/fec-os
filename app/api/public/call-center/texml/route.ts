@@ -10,6 +10,7 @@ import {
   parseTexmlForm,
   publicTexmlUrl,
   texmlCallIds,
+  texmlDialSip,
   texmlGatherMenu,
   texmlHangup,
   texmlQueueWait,
@@ -28,6 +29,10 @@ function xml(body: string, status = 200) {
 /**
  * Telnyx TeXML voice webhook — inbound IVR without Call Control Answer.
  * POST /api/public/call-center/texml
+ *
+ * When an agent Answers, carrier sets `texmlDialSipUri` and (optionally) Updates this
+ * call so the next instruction set is `<Dial><Sip>…LiveKit…</Sip></Dial>` on the
+ * *same* PSTN leg — no hangup + connect-back dial (which got 486 User Busy).
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -60,20 +65,46 @@ export async function POST(request: Request) {
       call = result.call;
     }
 
-    // TeXML answers automatically — mark answered so agent bridge can hang up this leg later.
+    const prev = (call.metadata as Record<string, unknown> | null) ?? {};
+    const dialUri =
+      typeof prev.texmlDialSipUri === "string" ? prev.texmlDialSipUri.trim() : "";
     const meta: Record<string, unknown> = {
-      ...((call.metadata as Record<string, unknown> | null) ?? {}),
+      ...prev,
       carrierAnswered: true,
-      carrierAnsweredAt: new Date().toISOString(),
+      carrierAnsweredAt:
+        typeof prev.carrierAnsweredAt === "string"
+          ? prev.carrierAnsweredAt
+          : new Date().toISOString(),
       texml: true,
-      texmlCallSid: ids.callSid,
-      texmlCallControlId: ids.callControlId,
-      bridgeMode: "livekit_outbound_dial",
+      texmlCallSid: ids.callSid || prev.texmlCallSid,
+      texmlCallControlId: ids.callControlId || prev.texmlCallControlId,
+      ...(ids.accountSid ? { texmlAccountSid: ids.accountSid } : {}),
     };
+    if (!dialUri) {
+      meta.bridgeMode = prev.bridgeMode === "texml_dial_sip" ? "texml_dial_sip" : "texml_hold";
+    }
     call = (await updateCall(call.id, { metadata: meta })) ?? call;
 
     if (call.status === "failed" || ["ended", "missed", "declined", "voicemail"].includes(call.status)) {
       return xml(texmlHangup(call.hangupReason || "Goodbye.", voice));
+    }
+
+    // Agent Answer requested a LiveKit SIP bridge — Dial on the live inbound leg.
+    if (dialUri && (call.status === "answered" || call.status === "held" || prev.bridgePendingSip)) {
+      const callerId =
+        settings?.outbound_caller_id_e164?.trim() ||
+        (call.toE164?.startsWith("+") ? call.toE164 : "") ||
+        ids.to ||
+        "";
+      return xml(
+        texmlDialSip({
+          sipUri: dialUri,
+          callerId,
+          voice,
+          timeoutSeconds: 35,
+          failureRedirectUrl: selfUrl,
+        }),
+      );
     }
 
     if (call.status === "ivr") {
@@ -91,12 +122,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // queued / ringing / offered — hold until an agent answers (callback bridge).
+    // queued / ringing / offered / connecting — hold until agent Answers.
     return xml(
       texmlQueueWait({
         holdMusicUrl: settings?.hold_music_url,
         voice,
         redirectUrl: selfUrl,
+        pauseSeconds: call.status === "answered" || call.status === "held" ? 2 : 3,
       }),
     );
   } catch (e) {

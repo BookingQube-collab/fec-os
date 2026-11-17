@@ -17,16 +17,20 @@ import {
 } from "./db";
 import {
   CALL_CENTER_ROOM_PREFIX,
+  buildLiveKitSipUri,
   deleteLiveKitRoom,
   dialOutboundSip,
   dispatchLiveKitAgent,
+  ensureCallControlBridgeDispatch,
   ensureLiveKitRoom,
   waitForAgentPublishedInRoom,
   waitForAnyPublisherInRoom,
+  waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
 import { applyIvrDigit, routeCallToFallbackQueue, routeInboundCall } from "./routing";
 import { createTelnyxClient, resolveTelnyxApiKey, type TelnyxClient, type TelnyxEvent } from "./telnyx";
+import { texmlDialSip, updateTexmlCall } from "./texml";
 import type { CallCenterCall, CallCenterSettingsRow, InboundRouteResult } from "./types";
 
 /**
@@ -179,9 +183,10 @@ export async function finalizeCarrierHangup(
   const meta = metaOf(call);
 
   // Outbound-dial bridge hangs up Call Control on purpose while LiveKit dials the caller.
+  // TeXML Dial→LiveKit may also clear the TeXML leg after SIP joins — ignore until verified.
   // Do not mark the CDR ended/missed or tear down the softphone room.
   if (
-    meta.bridgeMode === "livekit_outbound_dial" &&
+    (meta.bridgeMode === "livekit_outbound_dial" || meta.bridgeMode === "texml_dial_sip") &&
     meta.bridgeInProgress &&
     !meta.bridgeVerifiedAt
   ) {
@@ -762,9 +767,36 @@ export async function handleTelnyxEvent(
 const CONNECTING_PROMPT =
   "Please wait. We are connecting you to an agent.";
 
+function resolvePublicAppOrigin(): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    (process.env.VERCEL_URL?.trim() ? `https://${process.env.VERCEL_URL.trim()}` : "");
+  return (fromEnv || "https://e3fec.vercel.app").replace(/\/$/, "");
+}
+
+function resolveWebhookSecretQuery(settings: CallCenterSettingsRow | null): string {
+  const storedWebhookSecret = settings?.telnyx_webhook_secret?.trim() ?? "";
+  const publicKey = process.env.TELNYX_PUBLIC_KEY?.trim() ?? "";
+  const secret =
+    settings?.webhook_shared_secret?.trim() ||
+    (storedWebhookSecret && storedWebhookSecret !== publicKey ? storedWebhookSecret : "") ||
+    process.env.CALL_CENTER_WEBHOOK_SECRET?.trim() ||
+    process.env.TELNYX_WEBHOOK_SECRET?.trim() ||
+    "";
+  return secret;
+}
+
+function texmlVoiceWebhookUrl(settings: CallCenterSettingsRow | null): string {
+  const secret = resolveWebhookSecretQuery(settings);
+  const url = new URL("/api/public/call-center/texml", resolvePublicAppOrigin());
+  if (secret) url.searchParams.set("secret", secret);
+  return url.toString();
+}
+
 /**
  * Phase 1: tell the caller we're connecting and prep the LiveKit room.
- * Media bridge uses LiveKit *outbound* dial (not Telnyx→LiveKit inbound transfer).
+ * TeXML legs stay on the Redirect hold loop until Phase 2 Dial Sip / fallback dial.
  */
 export async function prepareCallerBridge(
   call: CallCenterCall,
@@ -772,17 +804,32 @@ export async function prepareCallerBridge(
   client?: TelnyxClient | null,
 ): Promise<void> {
   const settings = await loadSettingsRow();
+  const meta = metaOf(call);
+  const isTexml = meta.texml === true;
   let telnyx = client ?? null;
-  try {
-    telnyx = telnyx ?? createTelnyxClient(resolveTelnyxApiKey(settings));
-  } catch (e) {
-    if (e instanceof CarrierNotConfiguredError) throw new Error(e.message);
-    throw e;
+  if (!isTexml) {
+    try {
+      telnyx = telnyx ?? createTelnyxClient(resolveTelnyxApiKey(settings));
+    } catch (e) {
+      if (e instanceof CarrierNotConfiguredError) throw new Error(e.message);
+      throw e;
+    }
   }
-  if (metaOf(call).carrierAnswered !== true) {
+  if (meta.carrierAnswered !== true) {
     throw new Error("The caller is still connecting. Try again in a moment.");
   }
-  if (!settings?.livekit_sip_trunk_id?.trim()) {
+  if (isTexml) {
+    if (!settings?.telnyx_sip_uri?.trim()) {
+      throw new Error(
+        "LiveKit SIP host is not set. Put your LiveKit SIP URI host in Call Center → Settings.",
+      );
+    }
+    if (!settings?.livekit_sip_inbound_trunk_id?.trim() || !settings?.livekit_sip_dispatch_rule_id?.trim()) {
+      throw new Error(
+        "Inbound SIP trunk / callee dispatch rule missing — needed to Dial the caller into LiveKit.",
+      );
+    }
+  } else if (!settings?.livekit_sip_trunk_id?.trim()) {
     throw new Error(
       "Outbound SIP trunk is not set. Add the LiveKit outbound trunk id (ST_…) in Call Center → Settings.",
     );
@@ -797,22 +844,167 @@ export async function prepareCallerBridge(
     bridgeAwaitingAgent: true,
     bridgeError: null,
     bridgePendingSip: false,
-    bridgeMode: "livekit_outbound_dial",
+    bridgeMode: isTexml ? "texml_dial_sip" : "livekit_outbound_dial",
   });
-  const promptPromise = telnyx
-    .speak(call.providerCallId, CONNECTING_PROMPT, { step: "connecting", callId: call.id }, voice)
-    .catch(() => undefined);
+  // Call Control speak fails on TeXML-only legs (10007 path) — skip it.
+  const promptPromise =
+    !isTexml && telnyx && call.providerCallId
+      ? telnyx
+          .speak(call.providerCallId, CONNECTING_PROMPT, { step: "connecting", callId: call.id }, voice)
+          .catch(() => undefined)
+      : Promise.resolve(undefined);
   const prepPromise = ensureLiveKitRoom(roomName).catch(() => undefined);
 
   await Promise.all([metaPromise, promptPromise, prepPromise]);
 }
 
 /**
- * Phase 2: softphone is live → LiveKit *outbound* SIP dials the PSTN caller into the room
- * (same path as manual outbound). Then hang up the Telnyx Call Control IVR/hold leg.
- *
- * Why not Telnyx transfer → LiveKit inbound SIP: LiveKit never sent 200 OK (subscribe wait)
- * across many retries (UDP/TCP/agent-first/US pin); Telnyx showed 487 only after we cancelled.
+ * TeXML Answer bridge: keep the live inbound PSTN leg and `<Dial><Sip>` into LiveKit.
+ * Avoids hangup + createSipParticipant redial (486 User Busy while the first leg is still up).
+ */
+async function transferTexmlCallerToLiveKit(
+  call: CallCenterCall,
+  roomName: string,
+  agentUserId: string | null,
+  settings: CallCenterSettingsRow | null,
+): Promise<void> {
+  const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
+  const meta = metaOf(call);
+  const callSid =
+    (typeof meta.texmlCallSid === "string" && meta.texmlCallSid) || call.providerCallId || "";
+  const accountSid =
+    (typeof meta.texmlAccountSid === "string" && meta.texmlAccountSid) ||
+    process.env.TELNYX_ACCOUNT_SID?.trim() ||
+    "";
+
+  const publisherReady = agentUserId
+    ? await waitForAgentPublishedInRoom(roomName, agentUserId, 10_000)
+    : await waitForAnyPublisherInRoom(roomName, 12_000);
+  if (!publisherReady) {
+    const note = agentUserId
+      ? "Softphone microphone was not ready in time. Allow mic access and Answer again."
+      : "No LiveKit participant published audio in time for the bridge.";
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeAwaitingAgent: false,
+      bridgeError: note,
+      bridgeVerifyNote: note,
+      bridgeMode: "texml_dial_sip",
+      texmlDialSipUri: null,
+    });
+    throw new Error(note);
+  }
+
+  const dispatch = await ensureCallControlBridgeDispatch(settings);
+  if (!dispatch.ok) {
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeError: dispatch.detail,
+      bridgeVerifyNote: dispatch.detail,
+      texmlDialSipUri: null,
+    });
+    throw new Error(dispatch.detail);
+  }
+
+  let sipUri: string;
+  try {
+    sipUri = await buildLiveKitSipUri(roomName, settings);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "SIP URI build failed";
+    throw new Error(msg);
+  }
+
+  const callerId =
+    settings?.outbound_caller_id_e164?.trim() ||
+    (call.toE164?.startsWith("+") ? call.toE164 : "") ||
+    "";
+  const voiceUrl = texmlVoiceWebhookUrl(settings);
+  const dialXml = texmlDialSip({
+    sipUri,
+    callerId,
+    voice,
+    timeoutSeconds: 35,
+    failureRedirectUrl: voiceUrl,
+  });
+
+  await patchMeta(call.id, {
+    bridgeMode: "texml_dial_sip",
+    bridgeAwaitingAgent: false,
+    bridgePendingSip: true,
+    bridgeInProgress: true,
+    bridgeError: null,
+    texmlDialSipUri: sipUri,
+    bridgeTransport: "texml_dial_sip",
+    bridgeDispatchNote: dispatch.detail,
+  });
+
+  const apiKey = resolveTelnyxApiKey(settings);
+  let updateDetail = "skipped_no_account_sid";
+  if (apiKey && accountSid && callSid) {
+    // Prefer Url so TeXML re-fetches our webhook (which returns Dial once dial URI is set).
+    const updated = await updateTexmlCall({
+      apiKey,
+      accountSid,
+      callSid,
+      url: voiceUrl,
+      method: "POST",
+    });
+    updateDetail = updated.ok ? "url_ok" : `url_fail:${updated.detail}`;
+    if (!updated.ok) {
+      const inline = await updateTexmlCall({
+        apiKey,
+        accountSid,
+        callSid,
+        texml: dialXml,
+      });
+      updateDetail = inline.ok ? `inline_ok_after_${updateDetail}` : `${updateDetail};inline_fail:${inline.detail}`;
+    }
+  }
+  await patchMeta(call.id, { texmlUpdateDetail: updateDetail });
+  console.info(
+    `[call-center/bridge] TeXML Dial Sip → ${sipUri} room=${roomName} update=${updateDetail}`,
+  );
+
+  // Redirect loop (Pause ~2–3s) or Update Call should Dial; wait for SIP join.
+  const identity = await waitForSipParticipantInRoom(roomName, 28_000);
+  if (identity) {
+    await patchMeta(call.id, {
+      sipParticipantIdentity: identity,
+      bridgedAt: new Date().toISOString(),
+      bridgeVerifiedAt: new Date().toISOString(),
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeAwaitingAgent: false,
+      bridgeError: null,
+      bridgeTransport: "texml_dial_sip",
+      bridgeMode: "texml_dial_sip",
+      texmlDialSipUri: null,
+    });
+    console.info(`[call-center/bridge] TeXML SIP joined room=${roomName} identity=${identity}`);
+    return;
+  }
+
+  // Dial Sip did not join — clear dial flag so hold loop resumes; do NOT busy-callback.
+  const note =
+    "Could not bridge the live caller into the softphone (TeXML Dial to LiveKit timed out). Stay Available and try Answer again, or ask them to call back.";
+  await patchMeta(call.id, {
+    bridgePendingSip: false,
+    bridgeInProgress: false,
+    bridgeAwaitingAgent: false,
+    bridgeError: note,
+    bridgeVerifyNote: note,
+    bridgeTransport: "texml_dial_sip",
+    bridgeMode: "texml_dial_sip",
+    texmlDialSipUri: null,
+  });
+  throw new Error(note);
+}
+
+/**
+ * Phase 2: softphone is live → bridge PSTN into the room.
+ * TeXML: Dial Sip on the live leg. Call Control: hangup then LiveKit outbound dial.
  */
 export async function transferCallerToLiveKit(
   call: CallCenterCall,
@@ -821,6 +1013,12 @@ export async function transferCallerToLiveKit(
   client?: TelnyxClient | null,
 ): Promise<void> {
   const settings = await loadSettingsRow();
+  const meta = metaOf(call);
+  if (meta.texml === true) {
+    await transferTexmlCallerToLiveKit(call, roomName, agentUserId, settings);
+    return;
+  }
+
   let telnyx = client ?? null;
   try {
     telnyx = telnyx ?? createTelnyxClient(resolveTelnyxApiKey(settings));
@@ -864,8 +1062,7 @@ export async function transferCallerToLiveKit(
     bridgeDialTo: callerE164,
   });
 
-  // Release the Call Control IVR/hold leg, then LiveKit outbound-dials the caller into the
-  // room (proven createSipParticipant path). Avoids busy/call-waiting on the same PSTN line.
+  // Wait for confirmed hangup before redial — 486 User Busy if the PSTN leg is still up.
   await telnyx
     .speak(
       call.providerCallId,
@@ -874,12 +1071,14 @@ export async function transferCallerToLiveKit(
       voice,
     )
     .catch(() => undefined);
-  await new Promise((r) => setTimeout(r, 1_200));
+  await new Promise((r) => setTimeout(r, 800));
   await telnyx.hangup(call.providerCallId).catch(() => undefined);
   await patchMeta(call.id, {
     carrierFinal: true,
     bridgeCallControlHungUpAt: new Date().toISOString(),
   });
+  // Give the carrier time to free the line before LiveKit outbound dials the same E.164.
+  await new Promise((r) => setTimeout(r, 3_500));
 
   console.info(
     `[call-center/bridge] outbound dial → ${callerE164} room=${roomName} (Call Control released)`,
@@ -940,6 +1139,7 @@ async function restoreHoldAfterBridgeFailure(
 ): Promise<void> {
   const note =
     "Could not connect the caller into the softphone room. Stay Available and try Answer again, or ask them to call back.";
+  const isTexml = metaOf(call).texml === true;
   await patchMeta(call.id, {
     bridgePendingSip: false,
     bridgeInProgress: false,
@@ -947,8 +1147,10 @@ async function restoreHoldAfterBridgeFailure(
     bridgeError: note,
     bridgeVerifyNote: verifyNote,
     bridgeTransport: transport,
-    bridgeMode: "livekit_outbound_dial",
+    bridgeMode: isTexml ? "texml_dial_sip" : "livekit_outbound_dial",
+    ...(isTexml ? { texmlDialSipUri: null } : {}),
   });
+  if (isTexml) return;
   if (!call.providerCallId) return;
   const holdUrl = settings?.hold_music_url?.trim() ?? "";
   if (holdUrl) {

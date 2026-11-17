@@ -10,6 +10,7 @@ import {
   parseTexmlForm,
   publicTexmlUrl,
   texmlCallIds,
+  texmlDialSip,
   texmlGatherMenu,
   texmlHangup,
   texmlQueueWait,
@@ -81,15 +82,36 @@ export async function POST(request: Request) {
   try {
     const result = await applyIvrDigit(call.id, digit);
     const next = result.call;
+    const prev = (next.metadata as Record<string, unknown> | null) ?? {};
+    const dialUri =
+      typeof prev.texmlDialSipUri === "string" ? prev.texmlDialSipUri.trim() : "";
     const meta: Record<string, unknown> = {
-      ...((next.metadata as Record<string, unknown> | null) ?? {}),
+      ...prev,
       carrierAnswered: true,
       texml: true,
       texmlCallSid: ids.callSid,
       texmlCallControlId: ids.callControlId,
+      ...(ids.accountSid ? { texmlAccountSid: ids.accountSid } : {}),
       lastTexmlDigit: digit,
     };
     await updateCall(next.id, { metadata: meta });
+
+    if (dialUri) {
+      const callerId =
+        settings?.outbound_caller_id_e164?.trim() ||
+        (next.toE164?.startsWith("+") ? next.toE164 : "") ||
+        ids.to ||
+        "";
+      return xml(
+        texmlDialSip({
+          sipUri: dialUri,
+          callerId,
+          voice,
+          timeoutSeconds: 35,
+          failureRedirectUrl: holdUrl,
+        }),
+      );
+    }
 
     if (result.phase === "ivr") {
       const greeting =

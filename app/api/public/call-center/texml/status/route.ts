@@ -20,13 +20,24 @@ export async function POST(request: Request) {
   const ids = texmlCallIds(form);
   const status = ids.callStatus;
 
-  if (!["completed", "busy", "failed", "no-answer", "canceled", "cancelled"].includes(status)) {
-    return NextResponse.json({ ok: true, ignored: status || "unknown" });
-  }
-
   const call =
     (ids.callControlId ? await findCallByProviderCallId(ids.callControlId) : null) ||
     (ids.callSid ? await findCallByProviderCallId(ids.callSid) : null);
+
+  // Persist AccountSid early so Answer can Update Call → Dial Sip immediately.
+  if (call && ids.accountSid) {
+    const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+    if (meta.texmlAccountSid !== ids.accountSid) {
+      const { updateCall } = await import("@/lib/call-center/db");
+      await updateCall(call.id, {
+        metadata: { ...meta, texml: true, texmlAccountSid: ids.accountSid, texmlCallSid: ids.callSid },
+      });
+    }
+  }
+
+  if (!["completed", "busy", "failed", "no-answer", "canceled", "cancelled"].includes(status)) {
+    return NextResponse.json({ ok: true, ignored: status || "unknown" });
+  }
 
   if (!call) return NextResponse.json({ ok: true, note: "unknown call" });
 
