@@ -281,8 +281,8 @@ export function CallCenterSoftphoneRoom({
         : connected
           ? remoteAudio
             ? t("callCenter.connected")
-            : // Inbound same-leg bridge still joining conference / SIP — not Connected yet.
-              t("callCenter.waitingCallerAudio")
+            : // Same-leg bridge only — never "calling customer back" / dial-back copy.
+              t("callCenter.bridgingSameLine")
           : t("callCenter.connecting");
 
   return (

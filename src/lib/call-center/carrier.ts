@@ -840,6 +840,9 @@ function publicAppOrigin(): string {
  * 2) TeXML `<Dial><Conference>` keeps the caller on this leg
  * 3) LiveKit createSipParticipant dials our DID; TeXML joins the same conference
  *    (outbound SIP direction that already works — Telnyx→LiveKit inbound SIP timed out).
+ *
+ * HARD RULE: never dial `call.fromE164` / never set bridgeDialTo to the customer.
+ * Fail closed if conference join fails — do not fall back to hangup+redial.
  */
 async function transferTexmlCallerToLiveKit(
   call: CallCenterCall,
@@ -905,6 +908,21 @@ async function transferTexmlCallerToLiveKit(
       bridgeVerifyNote: note,
       bridgeMode: "texml_conference",
       bridgePhase: "failed",
+    });
+    throw new Error(note);
+  }
+  const customerE164 = call.fromE164?.trim() ?? "";
+  if (customerE164.startsWith("+") && joinDid === customerE164) {
+    const note =
+      "Bridge misconfigured: join DID equals the customer number. Set outbound caller ID to the FEC DID.";
+    await patchMeta(call.id, {
+      bridgePendingSip: false,
+      bridgeInProgress: false,
+      bridgeError: note,
+      bridgeVerifyNote: note,
+      bridgeMode: "texml_conference",
+      bridgePhase: "failed",
+      bridgeDialTo: null,
     });
     throw new Error(note);
   }

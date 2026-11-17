@@ -1105,7 +1105,7 @@ export async function completePstnBridge(
       status: "queued",
       agentUserId: null,
       answeredAt: null,
-      livekitRoom: null,
+      livekitRoom: "",
       metadata: {
         ...latestMeta,
         declinedBy: nextDeclined,
@@ -1113,12 +1113,17 @@ export async function completePstnBridge(
         answerClaimedAt: null,
         bridgeAwaitingAgent: false,
         bridgePhase: "failed",
+        bridgeMode: latestMeta.texml === true ? "texml_conference" : latestMeta.bridgeMode,
+        bridgeDialTo: null,
+        bridgeConferenceName: null,
         texmlDialSipUri: null,
         bridgeInProgress: false,
         bridgePendingSip: false,
         bridgeError: message,
         bridgeFailedAt: now,
         bridgeFailedBy: agentUserId,
+        // Never leave a dial-back marker after a same-leg failure.
+        carrierFinal: false,
       },
     });
 

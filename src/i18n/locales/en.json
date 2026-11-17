@@ -2040,6 +2040,7 @@
     "onHold": "On hold (best-effort)",
     "connected": "Connected",
     "waitingCallerAudio": "Connecting you to the caller on this line…",
+    "bridgingSameLine": "Connecting you to the caller on this line…",
     "dialInProgress": "A call is already in progress. Wait for it to finish.",
     "outboundBusy": "Number busy or carrier unavailable. Wait a few seconds, then dial once.",
     "connecting": "Connecting…",
