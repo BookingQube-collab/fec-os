@@ -1063,6 +1063,36 @@ export async function completePstnBridge(
       ? (latestMeta.declinedBy as string[])
       : [];
     const nextDeclined = [...new Set([...declinedBy, agentUserId])];
+    const now = new Date().toISOString();
+    const texml = latestMeta.texml === true;
+    // TeXML connect-back already released the PSTN leg — do not leave a zombie answered/ACTIVE call.
+    // Tear down the softphone room and mark missed so the portal clears.
+    if (texml || latestMeta.carrierFinal === true) {
+      await setAgentStatus(agentUserId, "available");
+      const { deleteLiveKitRoom } = await import("./livekit-sip");
+      if (latest.livekitRoom) await deleteLiveKitRoom(latest.livekitRoom);
+      await updateCall(callId, {
+        status: "missed",
+        agentUserId: null,
+        answeredAt: null,
+        endedAt: now,
+        hangupReason: `Bridge failed: ${message}`.slice(0, 300),
+        metadata: {
+          ...latestMeta,
+          declinedBy: nextDeclined,
+          answerClaimedBy: null,
+          answerClaimedAt: null,
+          bridgeAwaitingAgent: false,
+          bridgeInProgress: false,
+          bridgePendingSip: false,
+          bridgeError: message,
+          bridgeFailedAt: now,
+          bridgeFailedBy: agentUserId,
+          texmlDialSipUri: null,
+        },
+      });
+      throw new Error(message);
+    }
 
     // Free this agent and keep the PSTN caller on hold — do NOT restore "offered" to
     // the same agent (that caused Connect-directly zombie loops after failed bridges).
@@ -1080,7 +1110,7 @@ export async function completePstnBridge(
         bridgeInProgress: false,
         bridgePendingSip: false,
         bridgeError: message,
-        bridgeFailedAt: new Date().toISOString(),
+        bridgeFailedAt: now,
         bridgeFailedBy: agentUserId,
       },
     });

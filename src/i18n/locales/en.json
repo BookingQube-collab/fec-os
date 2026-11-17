@@ -2039,7 +2039,7 @@
     "mediaFailed": "Could not connect to LiveKit.",
     "onHold": "On hold (best-effort)",
     "connected": "Connected",
-    "waitingCallerAudio": "Connected — waiting for caller audio…",
+    "waitingCallerAudio": "Calling customer back — answer on their phone…",
     "connecting": "Connecting…",
     "mute": "Mute",
     "unmute": "Unmute",

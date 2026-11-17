@@ -153,6 +153,8 @@ export async function updateTexmlCall(input: {
   texml?: string;
   url?: string;
   method?: "GET" | "POST";
+  /** Set to `completed` to end the TeXML leg (needed before LiveKit outbound redial). */
+  status?: "completed";
 }): Promise<{ ok: boolean; detail: string }> {
   const accountSid = input.accountSid.trim();
   const callSid = input.callSid.trim();
@@ -160,13 +162,14 @@ export async function updateTexmlCall(input: {
     return { ok: false, detail: "missing accountSid or callSid" };
   }
   const body: Record<string, string> = {};
+  if (input.status) body.Status = input.status;
   if (input.texml?.trim()) body.Texml = input.texml.trim();
   if (input.url?.trim()) {
     body.Url = input.url.trim();
     body.Method = input.method ?? "POST";
   }
-  if (!body.Texml && !body.Url) {
-    return { ok: false, detail: "need Texml or Url" };
+  if (!body.Texml && !body.Url && !body.Status) {
+    return { ok: false, detail: "need Texml, Url, or Status" };
   }
   try {
     const response = await fetch(
@@ -192,6 +195,40 @@ export async function updateTexmlCall(input: {
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "update failed" };
   }
+}
+
+const TEXML_ENDED = new Set(["completed", "busy", "failed", "no-answer", "canceled", "cancelled"]);
+
+/** Poll TeXML REST until the PSTN leg is fully cleared (avoids 486 on connect-back dial). */
+export async function waitForTexmlCallEnded(input: {
+  apiKey: string;
+  accountSid: string;
+  callSid: string;
+  timeoutMs?: number;
+}): Promise<{ ended: boolean; status: string }> {
+  const accountSid = input.accountSid.trim();
+  const callSid = input.callSid.trim();
+  if (!accountSid || !callSid) return { ended: false, status: "" };
+  const deadline = Date.now() + (input.timeoutMs ?? 12_000);
+  let last = "";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(
+        `https://api.telnyx.com/v2/texml/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(callSid)}`,
+        {
+          headers: { Authorization: `Bearer ${input.apiKey}` },
+          cache: "no-store",
+        },
+      );
+      const json = (await response.json().catch(() => null)) as { status?: string } | null;
+      last = String(json?.status ?? "").toLowerCase();
+      if (TEXML_ENDED.has(last)) return { ended: true, status: last };
+    } catch {
+      // retry
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return { ended: false, status: last };
 }
 
 export function publicTexmlUrl(path: string, requestUrl: string): string {
