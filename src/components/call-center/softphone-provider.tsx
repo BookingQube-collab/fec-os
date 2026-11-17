@@ -420,7 +420,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- react to server CDR updates only
   }, [workspace.data?.recentCalls, activeCall?.id, clearSoftphoneSession]);
 
-  // Watchdog: never leave zombie ACTIVE if bridge hangs (TeXML release / dial-back).
+  // Watchdog: never leave zombie ACTIVE if same-leg Dial/transfer hangs.
   useEffect(() => {
     if (!activeCall) return;
     const started = Date.now();
@@ -614,7 +614,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
       try {
         const result = await completeCallCenterPstnBridge({ callId });
         if (!result.ok) {
-          // Hard clear — never leave "Calling customer back" ACTIVE after bridge failure.
+          // Hard clear — never leave ACTIVE after a failed same-leg bridge.
           clearSoftphoneSession({ releaseAgent: true });
           toast.error(result.error || t("callCenter.answerFailed"));
           void refresh();

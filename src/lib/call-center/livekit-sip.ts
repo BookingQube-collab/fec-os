@@ -47,15 +47,21 @@ import type { CallCenterSettingsRow } from "./types";
 export function resolveCallCenterLiveKitRegion(
   settings?: CallCenterSettingsRow | null,
 ): LiveKitTelephonyRegion {
+  const fromHost = settings?.telnyx_sip_uri?.trim().toLowerCase() ?? "";
+  const hostMatch = fromHost.match(
+    new RegExp(`\\.(${LIVEKIT_TELEPHONY_REGIONS.join("|")})\\.sip\\.livekit\\.cloud$`, "i"),
+  );
+  if (hostMatch?.[1] && (LIVEKIT_TELEPHONY_REGIONS as readonly string[]).includes(hostMatch[1])) {
+    return hostMatch[1] as LiveKitTelephonyRegion;
+  }
   const raw =
     process.env.CALL_CENTER_LIVEKIT_REGION?.trim().toLowerCase() ||
     process.env.LIVEKIT_SIP_REGION?.trim().toLowerCase() ||
-    "sa";
+    "us";
   if ((LIVEKIT_TELEPHONY_REGIONS as readonly string[]).includes(raw)) {
     return raw as LiveKitTelephonyRegion;
   }
-  void settings;
-  return "sa";
+  return "us";
 }
 
 /**
@@ -204,6 +210,15 @@ export async function ensureCallControlBridgeDispatch(
       trunkIds: new ListUpdate({ set: [trunkId] }),
       name: callee.name?.includes("callee") ? callee.name : "fec-callee-bridge",
     });
+  }
+
+  // Give TeXML Dial→LiveKit time to land after the agent softphone publishes.
+  try {
+    await sip.updateSipInboundTrunkFields(trunkId, {
+      ringingTimeout: 90,
+    } as Parameters<SipClient["updateSipInboundTrunkFields"]>[1]);
+  } catch {
+    // Older SDKs / projects may reject unknown fields — bridge still works with default.
   }
 
   const detail =
@@ -399,6 +414,8 @@ export async function dialOutboundSip(input: {
   ringingTimeoutSecs?: number;
   playDialtone?: boolean;
   directionAttr?: string;
+  /** Extra SIP X-* headers (e.g. X-FEC-Conference for TeXML join). */
+  headers?: Record<string, string>;
 }): Promise<OutboundSipResult> {
   const trunkId = input.settings?.livekit_sip_trunk_id?.trim() ?? "";
   if (!trunkId) {
@@ -419,7 +436,7 @@ export async function dialOutboundSip(input: {
       waitUntilAnswered: true,
       ringingTimeout,
       timeout: Math.max(ringingTimeout + 15, 30),
-      headers: { "X-FEC-Call-Id": input.callId },
+      headers: { "X-FEC-Call-Id": input.callId, ...(input.headers ?? {}) },
       participantAttributes: {
         "fec.callId": input.callId,
         "fec.direction": input.directionAttr ?? "outbound",

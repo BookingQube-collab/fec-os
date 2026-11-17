@@ -1064,10 +1064,9 @@ export async function completePstnBridge(
       : [];
     const nextDeclined = [...new Set([...declinedBy, agentUserId])];
     const now = new Date().toISOString();
-    const texml = latestMeta.texml === true;
-    // TeXML connect-back already released the PSTN leg — do not leave a zombie answered/ACTIVE call.
-    // Tear down the softphone room and mark missed so the portal clears.
-    if (texml || latestMeta.carrierFinal === true) {
+    // Same-leg bridge keeps the PSTN caller on hold (TeXML Conference / CC transfer).
+    // Only treat as terminal if we already hung up the carrier leg (legacy callback path).
+    if (latestMeta.carrierFinal === true && latestMeta.bridgeMode === "livekit_outbound_dial") {
       await setAgentStatus(agentUserId, "available");
       const { deleteLiveKitRoom } = await import("./livekit-sip");
       if (latest.livekitRoom) await deleteLiveKitRoom(latest.livekitRoom);
@@ -1088,6 +1087,7 @@ export async function completePstnBridge(
           bridgeError: message,
           bridgeFailedAt: now,
           bridgeFailedBy: agentUserId,
+          bridgePhase: "failed",
           texmlDialSipUri: null,
         },
       });
@@ -1097,16 +1097,23 @@ export async function completePstnBridge(
     // Free this agent and keep the PSTN caller on hold — do NOT restore "offered" to
     // the same agent (that caused Connect-directly zombie loops after failed bridges).
     await setAgentStatus(agentUserId, "available");
+    if (latest.livekitRoom) {
+      const { deleteLiveKitRoom } = await import("./livekit-sip");
+      await deleteLiveKitRoom(latest.livekitRoom);
+    }
     const released = await updateCall(callId, {
       status: "queued",
       agentUserId: null,
       answeredAt: null,
+      livekitRoom: null,
       metadata: {
         ...latestMeta,
         declinedBy: nextDeclined,
         answerClaimedBy: null,
         answerClaimedAt: null,
         bridgeAwaitingAgent: false,
+        bridgePhase: "failed",
+        texmlDialSipUri: null,
         bridgeInProgress: false,
         bridgePendingSip: false,
         bridgeError: message,

@@ -10,7 +10,7 @@ import {
   parseTexmlForm,
   publicTexmlUrl,
   texmlCallIds,
-  texmlDialSip,
+  texmlConference,
   texmlGatherMenu,
   texmlHangup,
   texmlQueueWait,
@@ -83,8 +83,8 @@ export async function POST(request: Request) {
     const result = await applyIvrDigit(call.id, digit);
     const next = result.call;
     const prev = (next.metadata as Record<string, unknown> | null) ?? {};
-    const dialUri =
-      typeof prev.texmlDialSipUri === "string" ? prev.texmlDialSipUri.trim() : "";
+    const conferenceName =
+      typeof prev.bridgeConferenceName === "string" ? prev.bridgeConferenceName.trim() : "";
     const meta: Record<string, unknown> = {
       ...prev,
       carrierAnswered: true,
@@ -96,19 +96,14 @@ export async function POST(request: Request) {
     };
     await updateCall(next.id, { metadata: meta });
 
-    if (dialUri) {
-      const callerId =
-        settings?.outbound_caller_id_e164?.trim() ||
-        (next.toE164?.startsWith("+") ? next.toE164 : "") ||
-        ids.to ||
-        "";
+    if (conferenceName) {
       return xml(
-        texmlDialSip({
-          sipUri: dialUri,
-          callerId,
+        texmlConference({
+          name: conferenceName,
           voice,
-          timeoutSeconds: 35,
-          failureRedirectUrl: holdUrl,
+          beep: false,
+          startConferenceOnEnter: true,
+          endConferenceOnExit: false,
         }),
       );
     }

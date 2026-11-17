@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   findCallByProviderCallId,
+  listActiveCalls,
   loadSettingsRow,
   updateCall,
 } from "@/lib/call-center/db";
@@ -10,7 +11,7 @@ import {
   parseTexmlForm,
   publicTexmlUrl,
   texmlCallIds,
-  texmlDialSip,
+  texmlConference,
   texmlGatherMenu,
   texmlHangup,
   texmlQueueWait,
@@ -26,13 +27,38 @@ function xml(body: string, status = 200) {
   });
 }
 
+function conferenceNameFromForm(form: Record<string, string>): string {
+  for (const [key, value] of Object.entries(form)) {
+    if (/x-?fec-?conference/i.test(key) && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+async function findAwaitingConferenceBridge(preferredName?: string) {
+  const active = await listActiveCalls();
+  const pending = active.filter((c) => {
+    const m = (c.metadata as Record<string, unknown> | null) ?? {};
+    const phase = typeof m.bridgePhase === "string" ? m.bridgePhase : "";
+    const name = typeof m.bridgeConferenceName === "string" ? m.bridgeConferenceName.trim() : "";
+    if (!name) return false;
+    if (m.bridgeMode !== "texml_conference") return false;
+    if (!["joining_conference", "joining_agent_sip"].includes(phase) && m.bridgePendingSip !== true) {
+      return false;
+    }
+    if (preferredName && name !== preferredName) return false;
+    return true;
+  });
+  if (preferredName) return pending.find((c) => {
+    const m = (c.metadata as Record<string, unknown> | null) ?? {};
+    return m.bridgeConferenceName === preferredName;
+  }) ?? null;
+  return pending[0] ?? null;
+}
+
 /**
  * Telnyx TeXML voice webhook — inbound IVR without Call Control Answer.
- * POST /api/public/call-center/texml
- *
- * When an agent Answers, carrier sets `texmlDialSipUri` and (optionally) Updates this
- * call so the next instruction set is `<Dial><Sip>…LiveKit…</Sip></Dial>` on the
- * *same* PSTN leg — no hangup + connect-back dial (which got 486 User Busy).
+ * Answer bridge: caller stays on this leg in a TeXML Conference; softphone joins via
+ * LiveKit outbound SIP to this DID (no customer callback / second ring).
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -45,12 +71,63 @@ export async function POST(request: Request) {
   const voice = settings?.tts_voice?.trim() || "Polly.Joanna";
   const gatherUrl = publicTexmlUrl("/api/public/call-center/texml/gather", request.url);
   const selfUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
+  const outboundDid = settings?.outbound_caller_id_e164?.trim() || "";
 
   if (!ids.from && !ids.to) {
     return xml(texmlHangup("We are unable to take your call right now.", voice));
   }
 
   try {
+    // Softphone join leg: LiveKit dials our DID to enter the pending conference.
+    // Do not create a new CDR / IVR for this loopback.
+    const headerConf = conferenceNameFromForm(form);
+    const headerBridge = Object.entries(form).some(
+      ([key, value]) => /x-?fec-?bridge/i.test(key) && String(value).trim(),
+    );
+    const digits = (value: string) => value.replace(/\D/g, "");
+    const dialsOurDid =
+      Boolean(outboundDid) &&
+      Boolean(ids.to) &&
+      (ids.to === outboundDid || digits(ids.to) === digits(outboundDid));
+    const fromOurDid =
+      Boolean(outboundDid) &&
+      (ids.from === outboundDid ||
+        digits(ids.from) === digits(outboundDid) ||
+        ids.from === ids.to);
+    // Softphone join = SIP headers and/or DID loopback (from+to = our CLI).
+    // Do NOT treat every inbound to the DID as a join while a bridge is pending —
+    // that would steal a real caller into the conference instead of IVR.
+    const looksLikeBridgeJoin =
+      Boolean(headerConf) || headerBridge || (dialsOurDid && fromOurDid);
+    if (looksLikeBridgeJoin) {
+      const pending = await findAwaitingConferenceBridge(headerConf || undefined);
+      const pendingMeta = (pending?.metadata as Record<string, unknown> | null) ?? {};
+      const confName =
+        headerConf ||
+        (typeof pendingMeta.bridgeConferenceName === "string"
+          ? pendingMeta.bridgeConferenceName.trim()
+          : "");
+      if (confName && pending) {
+        console.info(
+          `[call-center/texml] conference join leg from=${ids.from} to=${ids.to} conf=${confName}`,
+        );
+        return xml(
+          texmlConference({
+            name: confName,
+            voice,
+            beep: false,
+            startConferenceOnEnter: true,
+            endConferenceOnExit: true,
+          }),
+        );
+      }
+      // Loopback/join markers with no pending Answer bridge — hang up; never start IVR.
+      console.warn(
+        `[call-center/texml] conference join miss from=${ids.from} to=${ids.to} header=${headerConf || "-"}`,
+      );
+      return xml(texmlHangup("", voice));
+    }
+
     let call =
       (ids.callControlId ? await findCallByProviderCallId(ids.callControlId) : null) ||
       (ids.callSid ? await findCallByProviderCallId(ids.callSid) : null);
@@ -66,8 +143,8 @@ export async function POST(request: Request) {
     }
 
     const prev = (call.metadata as Record<string, unknown> | null) ?? {};
-    const dialUri =
-      typeof prev.texmlDialSipUri === "string" ? prev.texmlDialSipUri.trim() : "";
+    const conferenceName =
+      typeof prev.bridgeConferenceName === "string" ? prev.bridgeConferenceName.trim() : "";
     const meta: Record<string, unknown> = {
       ...prev,
       carrierAnswered: true,
@@ -80,8 +157,9 @@ export async function POST(request: Request) {
       texmlCallControlId: ids.callControlId || prev.texmlCallControlId,
       ...(ids.accountSid ? { texmlAccountSid: ids.accountSid } : {}),
     };
-    if (!dialUri) {
-      meta.bridgeMode = prev.bridgeMode === "texml_dial_sip" ? "texml_dial_sip" : "texml_hold";
+    if (!conferenceName) {
+      meta.bridgeMode =
+        prev.bridgeMode === "texml_conference" ? "texml_conference" : "texml_hold";
     }
     call = (await updateCall(call.id, { metadata: meta })) ?? call;
 
@@ -89,20 +167,18 @@ export async function POST(request: Request) {
       return xml(texmlHangup(call.hangupReason || "Goodbye.", voice));
     }
 
-    // Agent Answer requested a LiveKit SIP bridge — Dial on the live inbound leg.
-    if (dialUri && (call.status === "answered" || call.status === "held" || prev.bridgePendingSip)) {
-      const callerId =
-        settings?.outbound_caller_id_e164?.trim() ||
-        (call.toE164?.startsWith("+") ? call.toE164 : "") ||
-        ids.to ||
-        "";
+    // Agent Answer moved this caller into a conference — keep them there on Redirect/Update.
+    if (
+      conferenceName &&
+      (call.status === "answered" || call.status === "held" || prev.bridgePendingSip)
+    ) {
       return xml(
-        texmlDialSip({
-          sipUri: dialUri,
-          callerId,
+        texmlConference({
+          name: conferenceName,
           voice,
-          timeoutSeconds: 35,
-          failureRedirectUrl: selfUrl,
+          beep: false,
+          startConferenceOnEnter: true,
+          endConferenceOnExit: false,
         }),
       );
     }
@@ -138,6 +214,5 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  // Telnyx may probe with GET when voice_method is get; keep POST as primary.
   return POST(request);
 }

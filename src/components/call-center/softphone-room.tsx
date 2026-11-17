@@ -281,7 +281,7 @@ export function CallCenterSoftphoneRoom({
         : connected
           ? remoteAudio
             ? t("callCenter.connected")
-            : // Inbound TeXML Answer hangs up then redials — not true Connected yet.
+            : // Inbound same-leg bridge still joining conference / SIP — not Connected yet.
               t("callCenter.waitingCallerAudio")
           : t("callCenter.connecting");
 

@@ -1,17 +1,39 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
-import { texmlCallIds, texmlDialSip, texmlQueueWait, updateTexmlCall } from "./texml";
+import {
+  texmlCallIds,
+  texmlConference,
+  texmlDialSip,
+  texmlQueueWait,
+  updateTexmlCall,
+} from "./texml";
+
+describe("texmlConference", () => {
+  it("puts the live leg into a named conference without redial", () => {
+    const xml = texmlConference({
+      name: "fecabc123",
+      beep: false,
+      endConferenceOnExit: false,
+    });
+    expect(xml).toContain("<Conference");
+    expect(xml).toContain(">fecabc123</Conference>");
+    expect(xml).toContain('beep="false"');
+    expect(xml).toContain('startConferenceOnEnter="true"');
+  });
+});
 
 describe("texmlDialSip", () => {
-  it("emits Dial Sip with connecting prompt", () => {
+  it("emits Dial Sip with answerOnBridge and no pre-Dial Speak", () => {
     const xml = texmlDialSip({
       sipUri: "sip:abc123@k4xpy1vcnur.us.sip.livekit.cloud",
       callerId: "+18704772102",
       failureRedirectUrl: "https://example.com/texml",
     });
-    expect(xml).toContain('<Dial timeout="30" callerId="+18704772102">');
+    expect(xml).toContain(
+      '<Dial timeout="55" callerId="+18704772102" answerOnBridge="true">',
+    );
     expect(xml).toContain("<Sip>sip:abc123@k4xpy1vcnur.us.sip.livekit.cloud</Sip>");
-    expect(xml).toContain("Connecting you now.");
+    expect(xml).not.toContain("Connecting you now.");
     expect(xml).toContain("<Redirect method=\"POST\">https://example.com/texml</Redirect>");
   });
 });

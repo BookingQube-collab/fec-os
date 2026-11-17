@@ -57,9 +57,37 @@ export function texmlQueueWait(input: {
   );
 }
 
+/** Put the live TeXML PSTN leg into a named conference (same call — no customer redial). */
+export function texmlConference(input: {
+  name: string;
+  voice?: string;
+  beep?: boolean;
+  startConferenceOnEnter?: boolean;
+  endConferenceOnExit?: boolean;
+  waitUrl?: string;
+  muted?: boolean;
+}): string {
+  const name = input.name.trim();
+  const voice = input.voice?.trim() || "Polly.Joanna";
+  if (!name) {
+    return texmlHangup("We could not connect your call.", voice);
+  }
+  const attrs = [
+    `beep="${input.beep === true ? "true" : "false"}"`,
+    `startConferenceOnEnter="${input.startConferenceOnEnter === false ? "false" : "true"}"`,
+    `endConferenceOnExit="${input.endConferenceOnExit === true ? "true" : "false"}"`,
+    input.muted === true ? 'muted="true"' : "",
+    input.waitUrl?.trim() ? `waitUrl="${escapeTexml(input.waitUrl.trim())}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return texmlResponse(`<Dial><Conference ${attrs}>${escapeTexml(name)}</Conference></Dial>`);
+}
+
 /**
  * Bridge the live TeXML PSTN leg into LiveKit via SIP (no hangup + redial).
  * `sipUri` must be `sip:<room-user>@<livekit-sip-host>` for a callee dispatch rule.
+ * Prefer {@link texmlConference} + LiveKit outbound join when Telnyx→LiveKit inbound SIP times out.
  */
 export function texmlDialSip(input: {
   sipUri: string;
@@ -68,13 +96,27 @@ export function texmlDialSip(input: {
   timeoutSeconds?: number;
   /** After Dial fails / ends, redirect here (hold or hangup). */
   failureRedirectUrl?: string;
+  /** Optional SIP digest auth for LiveKit inbound trunks that require it. */
+  username?: string;
+  password?: string;
+  statusCallbackUrl?: string;
 }): string {
   const voice = input.voice?.trim() || "Polly.Joanna";
-  const timeout = Math.max(10, Math.min(60, Math.floor(input.timeoutSeconds ?? 30)));
+  const timeout = Math.max(10, Math.min(90, Math.floor(input.timeoutSeconds ?? 55)));
   const callerId = input.callerId?.trim() ?? "";
   const dialAttrs = [
     `timeout="${timeout}"`,
     callerId ? `callerId="${escapeTexml(callerId)}"` : "",
+    'answerOnBridge="true"',
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const sipAttrs = [
+    input.username?.trim() ? `username="${escapeTexml(input.username.trim())}"` : "",
+    input.password?.trim() ? `password="${escapeTexml(input.password.trim())}"` : "",
+    input.statusCallbackUrl?.trim()
+      ? `statusCallback="${escapeTexml(input.statusCallbackUrl.trim())}" statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST"`
+      : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -82,10 +124,10 @@ export function texmlDialSip(input: {
     ? `<Say voice="${escapeTexml(voice)}">We could not connect you just now. Please hold.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.failureRedirectUrl.trim())}</Redirect>`
     : `<Say voice="${escapeTexml(voice)}">We could not connect you. Goodbye.</Say><Hangup/>`;
+  // No Speak before Dial — keeps the PSTN leg free to bridge immediately.
+  const sipOpen = sipAttrs ? `<Sip ${sipAttrs}>` : "<Sip>";
   return texmlResponse(
-    `<Say voice="${escapeTexml(voice)}">Connecting you now.</Say>` +
-      `<Dial ${dialAttrs}><Sip>${escapeTexml(input.sipUri.trim())}</Sip></Dial>` +
-      afterFail,
+    `<Dial ${dialAttrs}>${sipOpen}${escapeTexml(input.sipUri.trim())}</Sip></Dial>` + afterFail,
   );
 }
 
@@ -270,10 +312,10 @@ function publicTexmlHangupUrl(): string {
 }
 
 /**
- * Best-effort end TeXML leg. Production evidence (4:59 CDR): Status=completed returns
- * command status `accepted` while the call stays `in-progress`; inline Texml Hangup can
- * 404; Call Control hangup returns 422 on TeXML-only legs. Prefer Url→Hangup endpoint,
- * then Status=completed, then a short poll. Caller must still dial-back even if poll fails.
+ * Best-effort end TeXML leg (agent Hangup / decline). Production: Status=completed may
+ * return `accepted` while the call stays `in-progress`; inline Hangup can 404; Call
+ * Control hangup often 422 on TeXML-only legs. Prefer Url→Hangup, then Status=completed,
+ * then a short poll. Answer bridge no longer uses this — it keeps the PSTN leg alive.
  */
 export async function forceReleaseTexmlLeg(input: {
   apiKey: string;
@@ -338,7 +380,7 @@ export async function forceReleaseTexmlLeg(input: {
     }
   }
 
-  // Short poll only — do not block dial-back for 20s+ on stuck in-progress.
+  // Short poll only — do not block hangup UX for 20s+ on stuck in-progress.
   const waited = await waitForTexmlCallEnded({
     apiKey: input.apiKey,
     accountSid: input.accountSid,
