@@ -324,7 +324,10 @@ describe("registration and server health", () => {
   it("flags incomplete device rows and the real iclock paths", () => {
     expect(
       registrationIssues({ exists: true, serialNumber: "  ", locationId: null, active: false }),
-    ).toEqual(["missing_serial", "missing_site", "disabled"]);
+    ).toEqual(["missing_serial", "disabled"]);
+    expect(registrationIssues({ exists: true, serialNumber: "SN-1", locationId: null, active: true })).toEqual(
+      [],
+    );
     expect(registrationFailureMessage(["missing_site", "disabled"])).toBe(
       "Device is not assigned to a site. Device is disabled.",
     );

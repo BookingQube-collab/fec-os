@@ -44,7 +44,7 @@ export type AdmsConnectionTestEvent = {
 export type AdmsConnectionTestView = {
   testId: string;
   deviceId: string;
-  locationId: string;
+  locationId: string | null;
   status: AdmsTestStatus;
   diagnosis: AdmsDiagnosis | null;
   stages: AdmsTestStage[];
@@ -69,7 +69,7 @@ export type AdmsConnectionTestView = {
 type TestRow = {
   id: string;
   device_id: string;
-  location_id: string;
+  location_id: string | null;
   serial_number: string | null;
   status: string;
   diagnosis: string | null;
@@ -137,7 +137,7 @@ function asTest(row: unknown): TestRow | null {
   return {
     id: String(src.id),
     device_id: String(src.device_id),
-    location_id: String(src.location_id ?? ""),
+    location_id: src.location_id == null || src.location_id === "" ? null : String(src.location_id),
     serial_number: src.serial_number == null ? null : String(src.serial_number),
     status: String(src.status ?? "queued"),
     diagnosis: src.diagnosis == null ? null : String(src.diagnosis),
@@ -481,7 +481,6 @@ export async function startAdmsConnectionTest(
 ): Promise<AdmsConnectionTestView> {
   const device = await loadDevice(sb, input.deviceId);
   if (!device) throw new Error("Device not found");
-  if (!device.location_id) throw new Error("Device is not assigned to a site.");
   const active = await findActiveTest(sb, input.deviceId);
   if (active) {
     await evaluateStoredTest(sb, active, input.serverHealthy);

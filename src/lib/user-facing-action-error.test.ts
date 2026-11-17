@@ -24,6 +24,22 @@ describe("userFacingActionError", () => {
     ).toBe(fallback);
   });
 
+  it("maps missing Server Action IDs to a reload hint", () => {
+    expect(
+      userFacingActionError(
+        new Error(
+          '"7f5053dd420dc5e095611a7ccab08946c8cf8d25cc" was not found on the server. Read more: https://nextjs.org/docs/messages/failed-to-find-server-action',
+        ),
+        fallback,
+      ),
+    ).toBe("This page is out of date after a deploy. Refresh the page, then try again.");
+    expect(
+      userFacingActionError(new Error("Failed to find Server Action"), fallback, {
+        staleActionReload: "Please reload and save again.",
+      }),
+    ).toBe("Please reload and save again.");
+  });
+
   it("keeps short plain English messages", () => {
     expect(userFacingActionError(new Error("You can only request OT for people on your team."), fallback)).toBe(
       "You can only request OT for people on your team.",

@@ -47,6 +47,7 @@ export type RegistrationIssue = "missing_device" | "missing_serial" | "missing_s
 export const REGISTRATION_ISSUE_MESSAGES: Record<RegistrationIssue, string> = {
   missing_device: "Device was not found.",
   missing_serial: "Serial number is missing.",
+  /** Kept for older stored tests; null site is valid for the event pool. */
   missing_site: "Device is not assigned to a site.",
   disabled: "Device is disabled.",
 };
@@ -123,13 +124,13 @@ export function classifyAdmsContact(
 export function registrationIssues(input: {
   exists: boolean;
   serialNumber?: string | null;
+  /** Ignored — null location is valid for event-pool devices. */
   locationId?: string | null;
   active?: boolean | null;
 }): RegistrationIssue[] {
   const issues: RegistrationIssue[] = [];
   if (!input.exists) issues.push("missing_device");
   if (!input.serialNumber?.trim()) issues.push("missing_serial");
-  if (!input.locationId) issues.push("missing_site");
   if (input.active === false) issues.push("disabled");
   return issues;
 }

@@ -3,7 +3,7 @@
 import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, Loader2, RefreshCw, Search, Settings, Wifi } from "lucide-react";
+import { Copy, Download, Loader2, RefreshCw, Search, Settings, Wifi, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -27,15 +27,19 @@ import {
   checkAttendancePunchGaps,
   clearAttendanceDeviceStuckConnectionTest,
   getAttendanceHrBootstrap,
+  listAttendanceDeviceEventLinks,
+  listAttendanceEventLinkOptions,
   requestAttendanceDeviceFetch,
   resyncAttendancePunches,
   saveAttendanceDevice,
   saveAttendanceShiftTemplate,
+  setAttendanceDeviceEventLinks,
   type ResyncFetchSkipReason,
 } from "@/lib/attendance-hr.functions";
 import { invalidateAttendanceBootstrap } from "@/lib/people-query-invalidate";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 import Link from "next/link";
 
 const UNASSIGNED_SITE = "__unassigned__";
@@ -115,6 +119,16 @@ export default function AttendanceHrSettingsPage() {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+  const eventOptionsQ = useQuery({
+    queryKey: ["attendance-event-link-options"],
+    queryFn: () => listAttendanceEventLinkOptions({}),
+    staleTime: STALE.peopleCatalog,
+  });
+  const deviceEventLinksQ = useQuery({
+    queryKey: ["attendance-device-event-links"],
+    queryFn: () => listAttendanceDeviceEventLinks({}),
+    staleTime: STALE.peopleCatalog,
+  });
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const host = hostFromOrigin(origin);
   const admsHost = isLocalDevHost(host) ? "e3fec.vercel.app" : host;
@@ -127,6 +141,8 @@ export default function AttendanceHrSettingsPage() {
   const [snDrafts, setSnDrafts] = useState<Record<string, string>>({});
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const [siteDrafts, setSiteDrafts] = useState<Record<string, string>>({});
+  const [eventLinkDrafts, setEventLinkDrafts] = useState<Record<string, string[]>>({});
+  const [eventPickDrafts, setEventPickDrafts] = useState<Record<string, string>>({});
   const [testDevice, setTestDevice] = useState<DeviceRow | null>(null);
   const [testBusy, setTestBusy] = useState(false);
 
@@ -177,6 +193,26 @@ export default function AttendanceHrSettingsPage() {
     () => allDevices.filter((d) => !d.location_id).length,
     [allDevices],
   );
+
+  const eventOptions = useMemo(
+    () =>
+      (eventOptionsQ.data ?? []).map((row) => ({
+        value: row.id,
+        label: row.label,
+        keywords: `${row.label} ${row.status ?? ""}`,
+      })),
+    [eventOptionsQ.data],
+  );
+
+  const linkedEventsByDevice = useMemo(() => {
+    const map = new Map<string, Array<{ eventId: string; label: string }>>();
+    for (const row of deviceEventLinksQ.data ?? []) {
+      const list = map.get(row.deviceId) ?? [];
+      list.push({ eventId: row.eventId, label: row.label });
+      map.set(row.deviceId, list);
+    }
+    return map;
+  }, [deviceEventLinksQ.data]);
 
   const resyncDevices = useMemo(
     () => allDevices.filter((d) => !resyncLocationId || d.location_id === resyncLocationId),
@@ -271,7 +307,11 @@ export default function AttendanceHrSettingsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
   const clearStuck = useMutation({
-    mutationFn: (device: DeviceRow) => clearAttendanceDeviceStuckConnectionTest({ deviceId: device.id }),
+    mutationFn: async (device: DeviceRow) => {
+      const result = await clearAttendanceDeviceStuckConnectionTest({ deviceId: device.id });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (result) => {
       toast.success(
         result.cleared > 0
@@ -280,7 +320,29 @@ export default function AttendanceHrSettingsPage() {
       );
       invalidateAttendanceBootstrap(qc);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, t("attendanceHr.settings.testFailed"))),
+  });
+  const saveEventLinks = useMutation({
+    mutationFn: (input: { deviceId: string; eventIds: string[] }) =>
+      setAttendanceDeviceEventLinks({ deviceId: input.deviceId, eventIds: input.eventIds }),
+    onSuccess: (_result, input) => {
+      toast.success(t("attendanceHr.settings.eventLinksSaved"));
+      setEventLinkDrafts((prev) => {
+        const next = { ...prev };
+        delete next[input.deviceId];
+        return next;
+      });
+      setEventPickDrafts((prev) => {
+        const next = { ...prev };
+        delete next[input.deviceId];
+        return next;
+      });
+      void deviceEventLinksQ.refetch();
+      invalidateAttendanceBootstrap(qc);
+    },
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, t("attendanceHr.settings.eventLinksFailed"))),
   });
   const fetchDev = useMutation({
     mutationFn: (device: DeviceRow) => requestAttendanceDeviceFetch({ deviceId: device.id, hours: 48 }),
@@ -847,6 +909,90 @@ export default function AttendanceHrSettingsPage() {
                     </Button>
                   </div>
                 </div>
+                {!d.location_id ? (
+                  (() => {
+                    const savedLinks = linkedEventsByDevice.get(d.id) ?? [];
+                    const savedIds = savedLinks.map((row) => row.eventId);
+                    const draftIds = eventLinkDrafts[d.id] ?? savedIds;
+                    const labelById = new Map([
+                      ...savedLinks.map((row) => [row.eventId, row.label] as const),
+                      ...eventOptions.map((opt) => [opt.value, String(opt.label)] as const),
+                    ]);
+                    const pickValue = eventPickDrafts[d.id] ?? "";
+                    const linkDirty =
+                      draftIds.length !== savedIds.length ||
+                      draftIds.some((id) => !savedIds.includes(id));
+                    const addableOptions = eventOptions.filter((opt) => !draftIds.includes(opt.value));
+                    return (
+                      <div className="space-y-2 rounded-xl border border-dashed border-border/70 bg-muted/20 px-3 py-2">
+                        <Label htmlFor={`device-event-${d.id}`}>{t("attendanceHr.settings.eventLinks")}</Label>
+                        <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.eventLinksHint")}</p>
+                        {draftIds.length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {draftIds.map((eventId) => (
+                              <span
+                                key={eventId}
+                                className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 bg-background px-2.5 py-1 text-xs"
+                              >
+                                <span className="truncate">{labelById.get(eventId) ?? eventId}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  aria-label={t("attendanceHr.settings.eventLinksRemove")}
+                                  onClick={() =>
+                                    setEventLinkDrafts((prev) => ({
+                                      ...prev,
+                                      [d.id]: draftIds.filter((id) => id !== eventId),
+                                    }))
+                                  }
+                                >
+                                  <X className="h-3 w-3" aria-hidden />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.eventLinksEmpty")}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <SearchableSelect
+                            id={`device-event-${d.id}`}
+                            className="min-w-0 flex-1"
+                            value={pickValue}
+                            onValueChange={(value) => {
+                              if (!value) {
+                                setEventPickDrafts((prev) => ({ ...prev, [d.id]: "" }));
+                                return;
+                              }
+                              setEventLinkDrafts((prev) => ({
+                                ...prev,
+                                [d.id]: draftIds.includes(value) ? draftIds : [...draftIds, value],
+                              }));
+                              setEventPickDrafts((prev) => ({ ...prev, [d.id]: "" }));
+                            }}
+                            placeholder={t("attendanceHr.settings.selectEvent")}
+                            emptyOption={{ value: "", label: t("attendanceHr.settings.selectEvent") }}
+                            options={addableOptions}
+                          />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="shrink-0"
+                            disabled={saveEventLinks.isPending || !linkDirty}
+                            onClick={() =>
+                              saveEventLinks.mutate({ deviceId: d.id, eventIds: draftIds })
+                            }
+                          >
+                            {saveEventLinks.isPending ? (
+                              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                            ) : null}
+                            {t("attendanceHr.settings.saveEventLinks")}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()
+                ) : null}
                 <p className="text-xs text-muted-foreground">
                   {t("attendanceHr.settings.lastAdmsContact")}:{" "}
                   {lastContact ?? t("attendanceHr.settings.never")}

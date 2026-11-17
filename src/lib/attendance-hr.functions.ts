@@ -1962,6 +1962,16 @@ export const saveAttendanceDevice = createAuthenticatedAction(
     if (data.id) {
       const { error } = await context.supabase.from("attendance_devices").update(payload).eq("id", data.id);
       if (error) throw error;
+      // Site-linked devices leave the event pool — drop dedicated event links.
+      if (data.locationId) {
+        const { error: unlinkErr } = await supabaseAdmin
+          .from("event_attendance_devices")
+          .delete()
+          .eq("device_id", data.id);
+        if (unlinkErr && !/event_attendance_devices|schema cache/i.test(unlinkErr.message)) {
+          throw unlinkErr;
+        }
+      }
       return { id: data.id };
     }
     const { data: row, error } = await context.supabase.from("attendance_devices").insert(payload).select("id").single();
@@ -2026,7 +2036,16 @@ function inspectAdmsServerHealth(): { ok: boolean; detail: string | null } {
   return { ok: true, detail: null };
 }
 
-export const startAttendanceDeviceConnectionTest = createAuthenticatedAction(
+/** Skip location assert for event-pool devices (location_id NULL). */
+async function assertDeviceLocationAccess(context: AuthContext, locationId: string | null) {
+  if (locationId) await assertLocationAccess(context, locationId);
+}
+
+/**
+ * Safe envelope avoids production React #441 digests when the device is in the event pool
+ * or registration is incomplete.
+ */
+export const startAttendanceDeviceConnectionTest = createSafeAuthenticatedAction(
   z.object({
     deviceId: z.string().uuid(),
   }),
@@ -2038,7 +2057,8 @@ export const startAttendanceDeviceConnectionTest = createAuthenticatedAction(
       .maybeSingle();
     if (error) throw error;
     if (!device) throw new Error("Device not found");
-    await assertLocationAccess(context, device.location_id as string);
+    const locationId = (device.location_id as string | null) ?? null;
+    await assertDeviceLocationAccess(context, locationId);
     const health = inspectAdmsServerHealth();
     const result = await startAdmsConnectionTest(supabaseAdmin, {
       deviceId: device.id as string,
@@ -2046,7 +2066,7 @@ export const startAttendanceDeviceConnectionTest = createAuthenticatedAction(
       serverHealthy: health.ok,
       serverDetail: health.detail,
     });
-    await audit(context, "adms_connection_test", "attendance_device", device.id as string, device.location_id as string, {
+    await audit(context, "adms_connection_test", "attendance_device", device.id as string, locationId, {
       testId: result.testId,
       status: result.status,
       diagnosis: result.diagnosis?.code ?? null,
@@ -2056,7 +2076,7 @@ export const startAttendanceDeviceConnectionTest = createAuthenticatedAction(
   { auth: { capability: "attendance.manage_devices" } },
 );
 
-export const clearAttendanceDeviceStuckConnectionTest = createAuthenticatedAction(
+export const clearAttendanceDeviceStuckConnectionTest = createSafeAuthenticatedAction(
   z.object({
     deviceId: z.string().uuid(),
   }),
@@ -2068,9 +2088,10 @@ export const clearAttendanceDeviceStuckConnectionTest = createAuthenticatedActio
       .maybeSingle();
     if (error) throw error;
     if (!device) throw new Error("Device not found");
-    await assertLocationAccess(context, device.location_id as string);
+    const locationId = (device.location_id as string | null) ?? null;
+    await assertDeviceLocationAccess(context, locationId);
     const result = await clearStuckAdmsConnectionTests(supabaseAdmin, device.id as string);
-    await audit(context, "adms_connection_test_cleared", "attendance_device", device.id as string, device.location_id as string, {
+    await audit(context, "adms_connection_test_cleared", "attendance_device", device.id as string, locationId, {
       cleared: result.cleared,
       contactClass: result.contactClass,
     });
@@ -2079,7 +2100,7 @@ export const clearAttendanceDeviceStuckConnectionTest = createAuthenticatedActio
   { auth: { capability: "attendance.manage_devices" } },
 );
 
-export const getAttendanceDeviceConnectionTest = createAuthenticatedAction(
+export const getAttendanceDeviceConnectionTest = createSafeAuthenticatedAction(
   z.object({
     testId: z.string().uuid(),
   }),
@@ -2090,12 +2111,141 @@ export const getAttendanceDeviceConnectionTest = createAuthenticatedAction(
       .eq("id", data.testId)
       .maybeSingle();
     if (error) throw error;
-    if (!row?.location_id) throw new Error("Connection test not found");
-    await assertLocationAccess(context, String(row.location_id));
+    if (!row) throw new Error("Connection test not found");
+    const locationId = row.location_id == null ? null : String(row.location_id);
+    await assertDeviceLocationAccess(context, locationId);
     const health = inspectAdmsServerHealth();
     const result = await readAdmsConnectionTest(supabaseAdmin, data.testId, health.ok);
     if (!result) throw new Error("Connection test not found");
     return result;
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
+function formatAttendanceEventLinkLabel(row: {
+  event_number?: string | null;
+  event_name?: string | null;
+  name?: string | null;
+}): string {
+  const title = (row.event_name ?? row.name ?? "").trim();
+  const number = (row.event_number ?? "").trim();
+  if (number && title) return `${number} · ${title}`;
+  return number || title || "Event";
+}
+
+/** Events an HR admin can dedicate an event-pool device to. */
+export const listAttendanceEventLinkOptions = createAuthenticatedAction(
+  z.object({}).default({}),
+  async () => {
+    const { data: rows, error } = await supabaseAdmin
+      .from("events")
+      .select("id, event_number, name, event_name, event_start, event_end, status")
+      .is("deleted_at", null)
+      .order("event_start", { ascending: false, nullsFirst: false })
+      .limit(200);
+    if (error) throw error;
+    return (rows ?? []).map((row) => ({
+      id: row.id as string,
+      label: formatAttendanceEventLinkLabel(row),
+      status: (row.status as string | null) ?? null,
+      eventStart: (row.event_start as string | null) ?? null,
+      eventEnd: (row.event_end as string | null) ?? null,
+    }));
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
+/** Current event links for attendance devices (used on settings for event-pool rows). */
+export const listAttendanceDeviceEventLinks = createAuthenticatedAction(
+  z.object({}).default({}),
+  async () => {
+    const { data: links, error } = await supabaseAdmin
+      .from("event_attendance_devices")
+      .select("device_id, event_id")
+      .limit(2000);
+    if (error) {
+      if (/event_attendance_devices|schema cache/i.test(error.message)) {
+        return [] as Array<{
+          deviceId: string;
+          eventId: string;
+          label: string;
+        }>;
+      }
+      throw error;
+    }
+    const eventIds = [...new Set((links ?? []).map((row) => row.event_id as string))];
+    const { data: events, error: eventErr } = eventIds.length
+      ? await supabaseAdmin
+          .from("events")
+          .select("id, event_number, name, event_name")
+          .in("id", eventIds)
+      : { data: [] as Array<Record<string, unknown>>, error: null };
+    if (eventErr) throw eventErr;
+    const labelById = new Map(
+      (events ?? []).map((row) => [row.id as string, formatAttendanceEventLinkLabel(row)]),
+    );
+    return (links ?? []).map((row) => ({
+      deviceId: row.device_id as string,
+      eventId: row.event_id as string,
+      label: labelById.get(row.event_id as string) ?? String(row.event_id),
+    }));
+  },
+  { auth: { capability: "attendance.view" } },
+);
+
+/** Replace the event set dedicated to one event-pool device. */
+export const setAttendanceDeviceEventLinks = createAuthenticatedAction(
+  z.object({
+    deviceId: z.string().uuid(),
+    eventIds: z.array(z.string().uuid()).max(40),
+  }),
+  async (data, context) => {
+    const { data: device, error } = await context.supabase
+      .from("attendance_devices")
+      .select("id, location_id")
+      .eq("id", data.deviceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!device) throw new Error("Device not found");
+    if (device.location_id) {
+      throw new Error("Only event-pool devices (no site) can be linked to events. Clear the site first.");
+    }
+    const unique = [...new Set(data.eventIds)];
+    if (unique.length) {
+      const { data: events, error: eventErr } = await supabaseAdmin
+        .from("events")
+        .select("id")
+        .in("id", unique)
+        .is("deleted_at", null);
+      if (eventErr) throw eventErr;
+      if ((events ?? []).length !== unique.length) {
+        throw new Error("One or more events were not found.");
+      }
+    }
+    const { error: delErr } = await supabaseAdmin
+      .from("event_attendance_devices")
+      .delete()
+      .eq("device_id", data.deviceId);
+    if (delErr) {
+      if (/event_attendance_devices|schema cache/i.test(delErr.message)) {
+        throw new Error("Event device linking is not applied yet — run migrations.");
+      }
+      throw delErr;
+    }
+    if (unique.length) {
+      const { error: insErr } = await supabaseAdmin.from("event_attendance_devices").insert(
+        unique.map((event_id) => ({
+          event_id,
+          device_id: data.deviceId,
+          created_by: context.userId,
+        })),
+      );
+      if (insErr) throw insErr;
+    }
+    await audit(context, "device_event_links_set", "attendance_device", data.deviceId, null, {
+      eventIds: unique,
+    });
+    return { deviceId: data.deviceId, eventIds: unique };
   },
   { auth: { capability: "attendance.manage_devices" } },
 );

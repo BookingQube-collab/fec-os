@@ -26,7 +26,7 @@ import {
   startAttendanceDeviceConnectionTest,
 } from "@/lib/attendance-hr.functions";
 import { invalidateAttendanceBootstrap } from "@/lib/people-query-invalidate";
-import { queryKeys } from "@/lib/query-keys";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 import { cn } from "@/lib/utils";
 
 type DeviceTarget = {
@@ -36,7 +36,7 @@ type DeviceTarget = {
   serial_number?: string | null;
 };
 
-type TestView = Awaited<ReturnType<typeof getAttendanceDeviceConnectionTest>>;
+type TestView = Extract<Awaited<ReturnType<typeof getAttendanceDeviceConnectionTest>>, { ok: true }>["data"];
 
 const STAGE_LABEL: Record<string, string> = {
   device_registered: "attendanceHr.settings.testStageRegistered",
@@ -109,18 +109,27 @@ export function ZktecoConnectionTestDialog({
   const qc = useQueryClient();
   const [testId, setTestId] = useState<string | null>(null);
   const [seed, setSeed] = useState<TestView | null>(null);
+  const fallbackError = t("attendanceHr.settings.testFailed");
 
   const start = useMutation({
-    mutationFn: (deviceId: string) => startAttendanceDeviceConnectionTest({ deviceId }),
+    mutationFn: async (deviceId: string) => {
+      const result = await startAttendanceDeviceConnectionTest({ deviceId });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (data) => {
       setSeed(data);
       setTestId(data.testId);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(userFacingActionError(e, fallbackError)),
   });
 
   const clearStuck = useMutation({
-    mutationFn: (deviceId: string) => clearAttendanceDeviceStuckConnectionTest({ deviceId }),
+    mutationFn: async (deviceId: string) => {
+      const result = await clearAttendanceDeviceStuckConnectionTest({ deviceId });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (result) => {
       toast.success(
         result.cleared > 0
@@ -130,7 +139,7 @@ export function ZktecoConnectionTestDialog({
       invalidateAttendanceBootstrap(qc);
       if (device) start.mutate(device.id);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(userFacingActionError(e, fallbackError)),
   });
 
   useEffect(() => {
@@ -144,7 +153,11 @@ export function ZktecoConnectionTestDialog({
 
   const statusQuery = useQuery({
     queryKey: ["adms-connection-test", testId],
-    queryFn: () => getAttendanceDeviceConnectionTest({ testId: testId as string }),
+    queryFn: async () => {
+      const result = await getAttendanceDeviceConnectionTest({ testId: testId as string });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     enabled: open && Boolean(testId),
     refetchIntervalInBackground: false,
     refetchInterval: (query) => {

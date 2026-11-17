@@ -1,9 +1,34 @@
+const DEFAULT_STALE_SERVER_ACTION_RELOAD =
+  "This page is out of date after a deploy. Refresh the page, then try again.";
+
+/** Next.js action IDs rotate between builds; stale tabs POST unknown IDs. */
+export function isStaleServerActionError(error: unknown): boolean {
+  const msg =
+    error instanceof Error
+      ? error.message.trim()
+      : typeof error === "string"
+        ? error.trim()
+        : "";
+  if (!msg) return false;
+  return (
+    /was not found on the server/i.test(msg) ||
+    /Failed to find Server Action/i.test(msg) ||
+    /failed-to-find-server-action/i.test(msg)
+  );
+}
+
 /**
  * Map server-action / React Query failures to copy safe for the UI.
  * Production Next.js digests thrown Server Action errors as React #441 —
  * never show that minified string to users.
+ *
+ * Also remaps deploy-skew "action ID not found" errors to a reload hint.
  */
-export function userFacingActionError(error: unknown, fallback: string): string {
+export function userFacingActionError(
+  error: unknown,
+  fallback: string,
+  options?: { staleActionReload?: string },
+): string {
   const msg =
     error instanceof Error
       ? error.message.trim()
@@ -11,6 +36,9 @@ export function userFacingActionError(error: unknown, fallback: string): string 
         ? error.trim()
         : "";
   if (!msg) return fallback;
+  if (isStaleServerActionError(error)) {
+    return options?.staleActionReload?.trim() || DEFAULT_STALE_SERVER_ACTION_RELOAD;
+  }
   if (
     /Minified React error|#441|Server Components render|omitted in production|digest/i.test(
       msg,

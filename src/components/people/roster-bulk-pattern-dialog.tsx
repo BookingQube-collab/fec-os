@@ -28,6 +28,7 @@ import {
   type RosterMatrixStaff,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 
 const WEEKDAY_ORDER = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -231,7 +232,12 @@ export function RosterBulkPatternDialog({
       onOpenChange(false);
       onApplied();
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) =>
+      toast.error(
+        userFacingActionError(error, t("people.roster.registerSaveFailed"), {
+          staleActionReload: t("people.roster.staleActionReload"),
+        }),
+      ),
   });
 
   const toggleWeekday = (day: number, checked: boolean) => {

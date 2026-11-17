@@ -83,6 +83,7 @@ import {
   updateRosterAssignment,
   type RosterRegisterRow,
 } from "@/lib/attendance-hr/roster-register.functions";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 import { excludeEventOnlyLocationsFromMonthlyRoster } from "@/lib/attendance-hr/roster-location-coverage";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import {
@@ -717,7 +718,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         setDraft(null);
         invalidateRosterCaches(qc);
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e: Error) =>
+        toast.error(
+          userFacingActionError(e, t("people.roster.registerSaveFailed"), {
+            staleActionReload: t("people.roster.staleActionReload"),
+          }),
+        ),
     });
 
     const createMut = useMutation({
@@ -754,7 +760,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         setDraft(null);
         invalidateRosterCaches(qc);
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e: Error) =>
+        toast.error(
+          userFacingActionError(e, t("people.roster.registerSaveFailed"), {
+            staleActionReload: t("people.roster.staleActionReload"),
+          }),
+        ),
     });
 
     const invalidateRosterRegister = useCallback(() => {
@@ -783,7 +794,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         });
         invalidateRosterRegister();
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e: Error) =>
+        toast.error(
+          userFacingActionError(e, t("people.roster.registerDeleteFailed"), {
+            staleActionReload: t("people.roster.staleActionReload"),
+          }),
+        ),
     });
 
     const deleteAllMut = useMutation({
@@ -809,7 +825,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         setSelectedIds(new Set());
         invalidateRosterRegister();
       },
-      onError: (e: Error) => toast.error(e.message),
+      onError: (e: Error) =>
+        toast.error(
+          userFacingActionError(e, t("people.roster.registerDeleteFailed"), {
+            staleActionReload: t("people.roster.staleActionReload"),
+          }),
+        ),
     });
 
     const uploadedLocationIds = useMemo(
