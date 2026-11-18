@@ -18,6 +18,7 @@ describe("ivr-oss-prompts", () => {
   const prevApp2 = process.env.APP_URL;
   const prevVercel = process.env.VERCEL_URL;
   const prevOss = process.env.IVR_OSS_PLAY_ENABLED;
+  const prevVerified = process.env.IVR_OSS_PLAY_VERIFIED;
 
   afterEach(() => {
     if (prevApp === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
@@ -28,6 +29,8 @@ describe("ivr-oss-prompts", () => {
     else process.env.VERCEL_URL = prevVercel;
     if (prevOss === undefined) delete process.env.IVR_OSS_PLAY_ENABLED;
     else process.env.IVR_OSS_PLAY_ENABLED = prevOss;
+    if (prevVerified === undefined) delete process.env.IVR_OSS_PLAY_VERIFIED;
+    else process.env.IVR_OSS_PLAY_VERIFIED = prevVerified;
     vi.unstubAllGlobals();
   });
 
@@ -44,52 +47,67 @@ describe("ivr-oss-prompts", () => {
     expect(isIvrOssMediaPath("https://cdn.example/custom.mp3")).toBe(false);
   });
 
-  it("keeps OSS Play enabled by default", () => {
+  it("keeps OSS Play disabled by default", () => {
     delete process.env.IVR_OSS_PLAY_ENABLED;
+    delete process.env.IVR_OSS_PLAY_VERIFIED;
+    expect(ivrOssPlayEnabled()).toBe(false);
+  });
+
+  it("requires both ENABLED and VERIFIED flags", () => {
+    process.env.IVR_OSS_PLAY_ENABLED = "1";
+    delete process.env.IVR_OSS_PLAY_VERIFIED;
+    expect(ivrOssPlayEnabled()).toBe(false);
+
+    delete process.env.IVR_OSS_PLAY_ENABLED;
+    process.env.IVR_OSS_PLAY_VERIFIED = "1";
+    expect(ivrOssPlayEnabled()).toBe(false);
+
+    process.env.IVR_OSS_PLAY_ENABLED = "1";
+    process.env.IVR_OSS_PLAY_VERIFIED = "1";
     expect(ivrOssPlayEnabled()).toBe(true);
   });
 
-  it("allows opting out of OSS Play", () => {
-    process.env.IVR_OSS_PLAY_ENABLED = "0";
-    expect(ivrOssPlayEnabled()).toBe(false);
-    process.env.IVR_OSS_PLAY_ENABLED = "false";
-    expect(ivrOssPlayEnabled()).toBe(false);
-  });
-
-  it("resolves Piper /ivr URLs when OSS Play is on (default)", () => {
+  it("blocks Piper /ivr URLs by default (TTS path)", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://e3fec.vercel.app";
     delete process.env.IVR_OSS_PLAY_ENABLED;
-    expect(resolvePublicMediaUrl("/ivr/en/language-menu.mp3")).toBe(
-      "https://e3fec.vercel.app/ivr/en/language-menu.mp3",
-    );
-    expect(resolvePublicMediaUrl("https://cdn.example/x.mp3")).toBe("https://cdn.example/x.mp3");
-    expect(resolvePublicMediaUrl("")).toBe("");
-
-    process.env.IVR_OSS_PLAY_ENABLED = "0";
+    delete process.env.IVR_OSS_PLAY_VERIFIED;
     expect(resolvePublicMediaUrl("/ivr/en/language-menu.mp3")).toBe("");
     expect(resolvePublicMediaUrl("https://e3fec.vercel.app/ivr/en/language-menu.mp3")).toBe("");
+    expect(resolvePublicMediaUrl("https://cdn.example/x.mp3")).toBe("https://cdn.example/x.mp3");
+    expect(resolvePublicMediaUrl("")).toBe("");
   });
 
-  it("falls back to Piper OSS bridge clips when enabled and settings empty", () => {
+  it("resolves Piper /ivr URLs only when dual-verified", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://e3fec.vercel.app";
-    delete process.env.IVR_OSS_PLAY_ENABLED;
-    expect(resolveBridgePromptAudioUrl("en", "", "")).toBe(
-      "https://e3fec.vercel.app/ivr/en/bridge-connecting.mp3",
-    );
-    expect(resolveBridgePromptAudioUrl("ar", null, "  ")).toBe(
-      "https://e3fec.vercel.app/ivr/ar/bridge-connecting.mp3",
+    process.env.IVR_OSS_PLAY_ENABLED = "1";
+    process.env.IVR_OSS_PLAY_VERIFIED = "1";
+    expect(resolvePublicMediaUrl("/ivr/en/language-menu.mp3")).toBe(
+      "https://e3fec.vercel.app/ivr/en/language-menu.mp3",
     );
   });
 
   it("does not force Piper bridge clips when OSS Play is off", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://e3fec.vercel.app";
-    process.env.IVR_OSS_PLAY_ENABLED = "0";
+    delete process.env.IVR_OSS_PLAY_ENABLED;
+    delete process.env.IVR_OSS_PLAY_VERIFIED;
     expect(resolveBridgePromptAudioUrl("en", "", "")).toBe("");
     expect(resolveBridgePromptAudioUrl("ar", null, "  ")).toBe("");
     expect(resolveBridgePromptAudioUrl("en", "https://cdn.example/custom-en.mp3", "")).toBe(
       "https://cdn.example/custom-en.mp3",
     );
     expect(resolveBridgePromptAudioUrl("en", "/ivr/en/bridge-connecting.mp3", "")).toBe("");
+  });
+
+  it("falls back to Piper OSS bridge clips when dual-verified and settings empty", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://e3fec.vercel.app";
+    process.env.IVR_OSS_PLAY_ENABLED = "1";
+    process.env.IVR_OSS_PLAY_VERIFIED = "1";
+    expect(resolveBridgePromptAudioUrl("en", "", "")).toBe(
+      "https://e3fec.vercel.app/ivr/en/bridge-connecting.mp3",
+    );
+    expect(resolveBridgePromptAudioUrl("ar", null, "  ")).toBe(
+      "https://e3fec.vercel.app/ivr/ar/bridge-connecting.mp3",
+    );
   });
 
   it("picks OSS menu clips from node labels", () => {
@@ -114,5 +132,16 @@ describe("ivr-oss-prompts", () => {
       vi.fn(async () => new Response(null, { status: 404 })),
     );
     expect(await resolvePlayableMediaUrl("https://cdn.example/missing.mp3")).toBe("");
+  });
+
+  it("never resolves /ivr/ as playable without dual flags even if HEAD would succeed", async () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://e3fec.vercel.app";
+    delete process.env.IVR_OSS_PLAY_ENABLED;
+    delete process.env.IVR_OSS_PLAY_VERIFIED;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
+    expect(await resolvePlayableMediaUrl("/ivr/en/language-menu.mp3")).toBe("");
+    expect(
+      await resolvePlayableMediaUrl("https://e3fec.vercel.app/ivr/en/language-menu.mp3"),
+    ).toBe("");
   });
 });

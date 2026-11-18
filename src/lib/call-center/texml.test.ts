@@ -137,6 +137,30 @@ describe("texmlGatherMenu", () => {
     expect(xml).not.toContain("<Play>");
     expect(xml).toContain("For English press 1.");
   });
+
+  it("uses Say for Piper /ivr/ language menu when OSS Play is off (default)", async () => {
+    const prevOss = process.env.IVR_OSS_PLAY_ENABLED;
+    const prevVerified = process.env.IVR_OSS_PLAY_VERIFIED;
+    delete process.env.IVR_OSS_PLAY_ENABLED;
+    delete process.env.IVR_OSS_PLAY_VERIFIED;
+    try {
+      const xml = await texmlGatherMenu({
+        actionUrl: "https://example.com/gather",
+        timeoutRedirectUrl: "https://example.com/texml",
+        prompt: "Thank you for calling E3. For English press 1. For Arabic press 2.",
+        voice: "Polly.Joanna-Neural",
+        audioUrl: "https://e3fec.vercel.app/ivr/en/language-menu.mp3",
+      });
+      expect(xml).not.toContain("<Play>");
+      expect(xml).toContain("<Say");
+      expect(xml).toContain("For English press 1");
+    } finally {
+      if (prevOss === undefined) delete process.env.IVR_OSS_PLAY_ENABLED;
+      else process.env.IVR_OSS_PLAY_ENABLED = prevOss;
+      if (prevVerified === undefined) delete process.env.IVR_OSS_PLAY_VERIFIED;
+      else process.env.IVR_OSS_PLAY_VERIFIED = prevVerified;
+    }
+  });
 });
 
 describe("texmlDialSip", () => {

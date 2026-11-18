@@ -31,6 +31,8 @@ import {
 import { shouldSkipHoldMusic } from "./incoming-offer";
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
 import {
+  isIvrOssMediaPath,
+  ivrOssPlayEnabled,
   publicAppOrigin,
   resolveBridgePromptAudioUrl,
   resolvePlayableMediaUrl,
@@ -389,8 +391,11 @@ async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promi
 }
 
 async function gather(ctx: Ctx, text: string, audioUrl?: string) {
-  // Prefer OSS/human Play when the clip is reachable; API failure → TTS Speak (never silent).
-  const audio = await resolvePlayableMediaUrl(audioUrl);
+  // Hard safety: never gather_using_audio for Piper /ivr/ unless dual-flag verified.
+  // Successful Telnyx gather_using_audio can still play silence — TTS Speak is safer.
+  const raw = (audioUrl ?? "").trim();
+  const allowPlay = raw && !(isIvrOssMediaPath(raw) && !ivrOssPlayEnabled());
+  const audio = allowPlay ? await resolvePlayableMediaUrl(raw) : "";
   if (audio) {
     const ok = await exec(ctx, "gather_audio", (c) =>
       c.gatherUsingAudio(ctx.ccid, audio, { step: "ivr" }),

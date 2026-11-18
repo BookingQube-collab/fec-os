@@ -309,7 +309,7 @@ export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): st
 /**
  * Resolve a pre-recorded prompt URL for a node.
  * Prefers language-specific clips; falls back to shared audioUrl;
- * then Piper OSS defaults for known E3 menus **only when IVR_OSS_PLAY_ENABLED**.
+ * then Piper OSS defaults for known E3 menus **only when dual OSS flags are set**.
  * Relative `/ivr/...` paths are absolutized for Telnyx Play (or cleared when OSS Play is off).
  * When empty, Call Control / TeXML use TTS so the IVR is never silent.
  * Call sites should still run {@link resolvePlayableMediaUrl} before Play.
@@ -322,7 +322,7 @@ export function nodePromptAudioUrl(node: IvrFlowNode | null | undefined, lang: I
       ? node.data.audioUrlAr?.trim() || shared
       : node.data.audioUrlEn?.trim() || shared;
   const fallback = defaultOssAudioForNodeLabel(node.data.label, lang);
-  // resolvePublicMediaUrl strips /ivr/ when OSS Play is explicitly disabled → TTS path.
+  // resolvePublicMediaUrl strips /ivr/ unless dual-verified → TTS path.
   return resolvePublicMediaUrl(configured || fallback);
 }
 

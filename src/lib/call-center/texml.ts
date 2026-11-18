@@ -67,7 +67,8 @@ export async function texmlGatherMenu(input: {
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
-  // Reachable Play URL → Piper/human clip. Unreachable / OSS-off → Say (never silent).
+  // Usable non-/ivr/ (or dual-verified OSS) Play URL → clip.
+  // Empty / OSS-off / unreachable → always <Say> with prompt (never silent Gather).
   // Do not nest Say after Play: Telnyx continues after successful Play and would double-speak.
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
   const gatherBody = audio

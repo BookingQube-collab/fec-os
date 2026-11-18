@@ -5,9 +5,13 @@
  * `npm run ivr:generate-audio` (Piper en_US-lessac + ar_JO-kareem) as
  * **8 kHz mono MP3** for Telnyx telephony Play.
  *
- * OSS Play is **on by default**. Set `IVR_OSS_PLAY_ENABLED=0` to force TTS-only.
- * Call Control / TeXML fall back to Speak/Say when a clip URL is missing,
- * unreachable (HEAD/GET), or when `gather_using_audio` / Play API fails.
+ * IMPORTANT: Piper `/ivr/` Play is **OFF by default**. Silence regression:
+ * TeXML emits Play-only (no Say) when a clip HEAD-checks OK; Call Control
+ * treats successful `gather_using_audio` as done even when Telnyx plays
+ * silence. Re-enable only with BOTH:
+ *   IVR_OSS_PLAY_ENABLED=1
+ *   IVR_OSS_PLAY_VERIFIED=1
+ * After a real inbound call proves audible Play.
  *
  * Arabic is Jordanian (ar_JO), the best CPU Piper dialect available —
  * clearer than raw Azure/Polly AI tone, not true Qatari. Human uploads still win.
@@ -107,14 +111,17 @@ export function ivrOssPromptPath(id: IvrOssPromptId, lang: IvrOssLang): string {
   return hit?.path ?? "";
 }
 
+function envFlagOn(name: string): boolean {
+  const v = process.env[name]?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
 /**
- * Piper `/ivr/*` Play URLs. Default **on** (8 kHz mono clips + TTS fallback).
- * Set `IVR_OSS_PLAY_ENABLED=0` (or false/no/off) to force Joanna/Fatima TTS-only.
+ * Opt-in for Piper `/ivr/*` Play URLs. Default **off** — TTS must never go silent.
+ * Requires BOTH `IVR_OSS_PLAY_ENABLED=1` and `IVR_OSS_PLAY_VERIFIED=1`.
  */
 export function ivrOssPlayEnabled(): boolean {
-  const v = process.env.IVR_OSS_PLAY_ENABLED?.trim().toLowerCase();
-  if (!v) return true;
-  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+  return envFlagOn("IVR_OSS_PLAY_ENABLED") && envFlagOn("IVR_OSS_PLAY_VERIFIED");
 }
 
 /** True for app-relative or absolute URLs under `/ivr/` (Piper OSS clips). */
@@ -144,8 +151,8 @@ export function publicAppOrigin(): string {
  * Turn a relative `/ivr/...` (or any app-relative) path into an absolute HTTPS URL.
  * Absolute http(s) URLs are returned unchanged. Empty stays empty.
  *
- * When {@link ivrOssPlayEnabled} is false, `/ivr/` Piper paths resolve to empty
- * so callers fall back to TTS instead of silent Play.
+ * Hard safety: app-hosted `/ivr/` Piper paths resolve to empty unless
+ * {@link ivrOssPlayEnabled} (dual flags). Callers then use TTS Say/Speak.
  */
 export function resolvePublicMediaUrl(
   url: string | null | undefined,
@@ -153,8 +160,8 @@ export function resolvePublicMediaUrl(
 ): string {
   const raw = (url ?? "").trim();
   if (!raw) return "";
-  // Block Piper OSS clips when explicitly disabled.
-  if (!ivrOssPlayEnabled() && isIvrOssMediaPath(raw)) return "";
+  // Block Piper OSS clips unless dual-flag verified (silence risk on TeXML Play).
+  if (isIvrOssMediaPath(raw) && !ivrOssPlayEnabled()) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   const base = origin.replace(/\/$/, "") || publicAppOrigin();
   return raw.startsWith("/") ? `${base}${raw}` : `${base}/${raw}`;
@@ -206,6 +213,8 @@ export async function resolvePlayableMediaUrl(
 ): Promise<string> {
   const absolute = resolvePublicMediaUrl(url, origin);
   if (!absolute) return "";
+  // Second hard gate: never hand Telnyx an app /ivr/ URL unless dual-verified.
+  if (isIvrOssMediaPath(absolute) && !ivrOssPlayEnabled()) return "";
   if (await mediaUrlReachable(absolute)) return absolute;
   return "";
 }
