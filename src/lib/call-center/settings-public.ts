@@ -1,8 +1,4 @@
 import { normalizeSipUriHost, unsealCallCenterSecret } from "./db";
-import {
-  DEFAULT_IVR_OSS_BRIDGE_AR,
-  DEFAULT_IVR_OSS_BRIDGE_EN,
-} from "./ivr-oss-prompts";
 import { normalizeConfiguredTtsVoice } from "./ivr-tts-voice";
 import { resolveSendPulseWebhookSecret } from "./sendpulse";
 import type {
@@ -215,10 +211,10 @@ export function toPublicSettings(
     ttsGreetingText:
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",
-    bridgePromptAudioUrlEn:
-      row?.bridge_prompt_audio_url_en?.trim() || DEFAULT_IVR_OSS_BRIDGE_EN,
-    bridgePromptAudioUrlAr:
-      row?.bridge_prompt_audio_url_ar?.trim() || DEFAULT_IVR_OSS_BRIDGE_AR,
+    // Do not inject Piper /ivr/ defaults into the admin UI when OSS Play is off —
+    // empty means TTS (Joanna / Fatima) for bridge disclosure.
+    bridgePromptAudioUrlEn: row?.bridge_prompt_audio_url_en?.trim() ?? "",
+    bridgePromptAudioUrlAr: row?.bridge_prompt_audio_url_ar?.trim() ?? "",
     recordAllCalls: row?.record_all_calls !== false,
     recordingStorageBaseUrl: row?.recording_storage_base_url?.trim() ?? "",
     instagramEnabled: Boolean(row?.instagram_enabled),

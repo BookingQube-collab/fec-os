@@ -37,6 +37,8 @@ function texmlPlayOrSay(input: {
   text?: string;
   audioUrl?: string;
 }): string {
+  // Play-only has no automatic TTS fallback in TeXML. resolvePublicMediaUrl
+  // clears unreliable Piper /ivr/ URLs unless IVR_OSS_PLAY_ENABLED=1.
   const audio = resolvePublicMediaUrl(input.audioUrl);
   if (audio) return `<Play>${escapeTexml(audio)}</Play>`;
   return texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, input.text ?? "", undefined, input.voiceAr);

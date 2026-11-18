@@ -18,12 +18,36 @@ import {
   listQueueMembers,
   upsertQueueMember,
   listAgentStatuses,
+  loadSettingsRow,
+  saveSettingsRow,
 } from "../src/lib/call-center/db";
-import { buildFecVenuesTemplate, followDigitEdge } from "../src/lib/call-center/ivr-flow";
+import { buildFecVenuesTemplate, followDigitEdge, type IvrFlowJson } from "../src/lib/call-center/ivr-flow";
+import { isIvrOssMediaPath } from "../src/lib/call-center/ivr-oss-prompts";
 import {
   CALL_CENTER_DEFAULT_IVR_MENU_ID,
   CALL_CENTER_VENUE_QUEUE_IDS,
 } from "../src/lib/call-center/types";
+
+/** Strip Piper /ivr/ Play URLs so TeXML/Call Control use TTS (never silent Play). */
+function stripOssPlayUrls(flow: IvrFlowJson): { flow: IvrFlowJson; clearedNodes: number } {
+  let clearedNodes = 0;
+  const nodes = flow.nodes.map((n) => {
+    const d = n.data;
+    const keys = ["audioUrl", "audioUrlEn", "audioUrlAr"] as const;
+    let changed = false;
+    const next = { ...d };
+    for (const k of keys) {
+      const v = typeof next[k] === "string" ? next[k]!.trim() : "";
+      if (v && isIvrOssMediaPath(v)) {
+        next[k] = undefined;
+        changed = true;
+      }
+    }
+    if (changed) clearedNodes += 1;
+    return changed ? { ...n, data: next } : n;
+  });
+  return { flow: { ...flow, nodes }, clearedNodes };
+}
 
 const DID = process.env.CALL_CENTER_SETUP_DID?.trim() || "+18704772102";
 /** Prefer joining this agent to E3 General Support when identifiable. */
@@ -129,13 +153,33 @@ async function main() {
   }
 
   const generalQueueId = resolved[CALL_CENTER_VENUE_QUEUE_IDS.general]!;
-  const flow = buildFecVenuesTemplate({
+  const built = buildFecVenuesTemplate({
     inflatapark: resolved[CALL_CENTER_VENUE_QUEUE_IDS.inflatapark]!,
     urbanArena: resolved[CALL_CENTER_VENUE_QUEUE_IDS.urbanArena]!,
     kidsDriving: resolved[CALL_CENTER_VENUE_QUEUE_IDS.kidsDriving]!,
     birthday: resolved[CALL_CENTER_VENUE_QUEUE_IDS.birthday]!,
     general: generalQueueId,
   });
+  const { flow, clearedNodes } = stripOssPlayUrls(built);
+
+  // Clear bridge Piper defaults so disclosure uses TTS until OSS Play is re-enabled.
+  const settings = await loadSettingsRow();
+  let bridgeCleared = false;
+  if (settings) {
+    const en = settings.bridge_prompt_audio_url_en?.trim() ?? "";
+    const ar = settings.bridge_prompt_audio_url_ar?.trim() ?? "";
+    if (isIvrOssMediaPath(en) || isIvrOssMediaPath(ar)) {
+      await saveSettingsRow(
+        {
+          ...settings,
+          bridge_prompt_audio_url_en: isIvrOssMediaPath(en) ? "" : en,
+          bridge_prompt_audio_url_ar: isIvrOssMediaPath(ar) ? "" : ar,
+        },
+        "apply-e3-ivr-lang-agent",
+      );
+      bridgeCleared = true;
+    }
+  }
 
   const lang = flow.nodes.find((n) => n.id === "node-menu-lang");
   const agent = flow.nodes.find((n) => n.id === "node-agent-lang");
@@ -205,6 +249,9 @@ async function main() {
         agentNodeQueueId: agent.data.queueId,
         optionCount: saved.options.length,
         generalQueueMembership: membership,
+        ossPlayUrlsClearedFromNodes: clearedNodes,
+        bridgeOssUrlsCleared: bridgeCleared,
+        audioMode: "tts",
       },
       null,
       2,

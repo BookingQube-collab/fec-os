@@ -5,6 +5,12 @@
  * `npm run ivr:generate-audio` (Piper en_US-lessac + ar_JO-kareem).
  * Telnyx Play requires absolute HTTPS — use {@link resolvePublicMediaUrl}.
  *
+ * IMPORTANT: Piper `/ivr/` Play is **off by default** (`IVR_OSS_PLAY_ENABLED`).
+ * TeXML emits Play-only (no Say fallback); Call Control treats a successful
+ * gather_using_audio as done even when the clip is silent/unplayable.
+ * Until clips are proven Telnyx-safe (prefer 8 kHz mono WAV/MP3), keep the
+ * flag off so Joanna / Fatima TTS always speaks.
+ *
  * Arabic is Jordanian (ar_JO), the best CPU Piper dialect available —
  * clearer than silent/manual-only, not true Qatari. Human uploads still win.
  */
@@ -103,6 +109,29 @@ export function ivrOssPromptPath(id: IvrOssPromptId, lang: IvrOssLang): string {
   return hit?.path ?? "";
 }
 
+/**
+ * Opt-in for Piper `/ivr/*` Play URLs. Default off — TTS must never go silent.
+ * Set `IVR_OSS_PLAY_ENABLED=1` only after Telnyx Play is verified on a test call.
+ */
+export function ivrOssPlayEnabled(): boolean {
+  const v = process.env.IVR_OSS_PLAY_ENABLED?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** True for app-relative or absolute URLs under `/ivr/` (Piper OSS clips). */
+export function isIvrOssMediaPath(url: string | null | undefined): boolean {
+  const raw = (url ?? "").trim();
+  if (!raw) return false;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      return /^\/ivr\//i.test(new URL(raw).pathname);
+    } catch {
+      return /\/ivr\//i.test(raw);
+    }
+  }
+  return /^\/?ivr\//i.test(raw);
+}
+
 /** App origin used for Telnyx absolute Play URLs. */
 export function publicAppOrigin(): string {
   const fromEnv =
@@ -115,6 +144,9 @@ export function publicAppOrigin(): string {
 /**
  * Turn a relative `/ivr/...` (or any app-relative) path into an absolute HTTPS URL.
  * Absolute http(s) URLs are returned unchanged. Empty stays empty.
+ *
+ * When {@link ivrOssPlayEnabled} is false, `/ivr/` Piper paths resolve to empty
+ * so callers fall back to TTS instead of silent Play.
  */
 export function resolvePublicMediaUrl(
   url: string | null | undefined,
@@ -122,13 +154,17 @@ export function resolvePublicMediaUrl(
 ): string {
   const raw = (url ?? "").trim();
   if (!raw) return "";
+  // Block Piper OSS clips unless explicitly re-enabled (silence risk on TeXML Play).
+  if (!ivrOssPlayEnabled() && isIvrOssMediaPath(raw)) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   const base = origin.replace(/\/$/, "") || publicAppOrigin();
-  if (raw.startsWith("/")) return `${base}${raw}`;
-  return `${base}/${raw}`;
+  return raw.startsWith("/") ? `${base}${raw}` : `${base}/${raw}`;
 }
 
-/** Bridge disclosure+connecting clip; falls back to Piper OSS defaults when unset. */
+/**
+ * Bridge disclosure+connecting clip.
+ * Piper OSS defaults only apply when {@link ivrOssPlayEnabled}; otherwise TTS speaks.
+ */
 export function resolveBridgePromptAudioUrl(
   lang: IvrOssLang,
   configuredEn?: string | null,
@@ -136,8 +172,10 @@ export function resolveBridgePromptAudioUrl(
 ): string {
   const configured =
     lang === "ar" ? (configuredAr ?? "").trim() : (configuredEn ?? "").trim();
+  if (configured) return resolvePublicMediaUrl(configured);
+  if (!ivrOssPlayEnabled()) return "";
   const fallback = lang === "ar" ? DEFAULT_IVR_OSS_BRIDGE_AR : DEFAULT_IVR_OSS_BRIDGE_EN;
-  return resolvePublicMediaUrl(configured || fallback);
+  return resolvePublicMediaUrl(fallback);
 }
 
 /**

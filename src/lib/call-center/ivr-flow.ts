@@ -10,11 +10,7 @@ import {
   refreshStaleE3ArabicPrompt,
   type E3CenterKey,
 } from "./e3-ivr-prompt";
-import {
-  defaultOssAudioForNodeLabel,
-  ivrOssPromptPath,
-  resolvePublicMediaUrl,
-} from "./ivr-oss-prompts";
+import { defaultOssAudioForNodeLabel, resolvePublicMediaUrl } from "./ivr-oss-prompts";
 import type { CallCenterIvrAction, CallCenterIvrMenu, CallCenterIvrOption } from "./types";
 import { CALL_CENTER_VENUE_QUEUE_IDS } from "./types";
 
@@ -313,9 +309,9 @@ export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): st
 /**
  * Resolve a pre-recorded prompt URL for a node.
  * Prefers language-specific clips; falls back to shared audioUrl;
- * then Piper OSS defaults for known E3 Language / Center / Service menus.
- * Relative `/ivr/...` paths are absolutized for Telnyx Play.
- * When set, Call Control uses gather_using_audio / playback instead of TTS.
+ * then Piper OSS defaults for known E3 menus **only when IVR_OSS_PLAY_ENABLED**.
+ * Relative `/ivr/...` paths are absolutized for Telnyx Play (or cleared when OSS Play is off).
+ * When empty, Call Control / TeXML use TTS so the IVR is never silent.
  */
 export function nodePromptAudioUrl(node: IvrFlowNode | null | undefined, lang: IvrSpeakLang = "en"): string {
   if (!node) return "";
@@ -325,6 +321,7 @@ export function nodePromptAudioUrl(node: IvrFlowNode | null | undefined, lang: I
       ? node.data.audioUrlAr?.trim() || shared
       : node.data.audioUrlEn?.trim() || shared;
   const fallback = defaultOssAudioForNodeLabel(node.data.label, lang);
+  // resolvePublicMediaUrl strips /ivr/ when OSS Play is disabled → TTS path.
   return resolvePublicMediaUrl(configured || fallback);
 }
 
@@ -395,8 +392,7 @@ export function buildFecVenuesTemplate(
         greetingText: E3_LANG_GREETING_EN,
         greetingEn: E3_LANG_GREETING_EN,
         greetingAr: E3_LANG_GREETING_AR,
-        audioUrlEn: ivrOssPromptPath("language-menu", "en"),
-        audioUrlAr: ivrOssPromptPath("language-menu", "ar"),
+        // No Piper Play URLs — TeXML Play-only has no TTS fallback; use Polly/Azure.
       },
     },
     {
@@ -408,8 +404,6 @@ export function buildFecVenuesTemplate(
         greetingText: E3_LANG_GREETING_EN,
         greetingEn: E3_LANG_GREETING_EN,
         greetingAr: E3_LANG_GREETING_AR,
-        audioUrlEn: ivrOssPromptPath("language-menu", "en"),
-        audioUrlAr: ivrOssPromptPath("language-menu", "ar"),
         digits: [
           { digit: "1", label: "English" },
           { digit: "2", label: "العربية" },
@@ -439,8 +433,6 @@ export function buildFecVenuesTemplate(
         greetingText: E3_CENTER_GREETING_EN,
         greetingEn: E3_CENTER_GREETING_EN,
         greetingAr: E3_CENTER_GREETING_AR,
-        audioUrlEn: ivrOssPromptPath("center-menu", "en"),
-        audioUrlAr: ivrOssPromptPath("center-menu", "ar"),
         digits: centers.map((c) => ({
           digit: c.digit,
           label: E3_CENTER_LABELS[c.key].shortEn,
@@ -458,8 +450,6 @@ export function buildFecVenuesTemplate(
         greetingText: E3_CENTER_GREETING_AR,
         greetingEn: E3_CENTER_GREETING_EN,
         greetingAr: E3_CENTER_GREETING_AR,
-        audioUrlEn: ivrOssPromptPath("center-menu", "en"),
-        audioUrlAr: ivrOssPromptPath("center-menu", "ar"),
         digits: centers.map((c) => ({
           digit: c.digit,
           label: E3_CENTER_LABELS[c.key].shortAr,
@@ -510,8 +500,6 @@ export function buildFecVenuesTemplate(
           greetingText: E3_SERVICE_GREETING_EN,
           greetingEn: E3_SERVICE_GREETING_EN,
           greetingAr: E3_SERVICE_GREETING_AR,
-          audioUrlEn: ivrOssPromptPath("service-menu", "en"),
-          audioUrlAr: ivrOssPromptPath("service-menu", "ar"),
           digits: serviceDigits.map((d) => ({ digit: d.digit, label: d.labelEn })),
           timeoutSeconds: 15,
           maxRetries: 2,
@@ -527,8 +515,6 @@ export function buildFecVenuesTemplate(
           greetingText: E3_SERVICE_GREETING_AR,
           greetingEn: E3_SERVICE_GREETING_EN,
           greetingAr: E3_SERVICE_GREETING_AR,
-          audioUrlEn: ivrOssPromptPath("service-menu", "en"),
-          audioUrlAr: ivrOssPromptPath("service-menu", "ar"),
           digits: serviceDigits.map((d) => ({ digit: d.digit, label: d.labelAr })),
           timeoutSeconds: 15,
           maxRetries: 2,

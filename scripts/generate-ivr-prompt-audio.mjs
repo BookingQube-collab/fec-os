@@ -237,6 +237,8 @@ function synthesize(piperBin, voiceOnnx, text, wavOut) {
 
 function wavToMp3(wavPath, mp3Path) {
   mkdirSync(dirname(mp3Path), { recursive: true });
+  // Telnyx call audio is 8 kHz — encode mono 8 kHz MP3 for Play compatibility.
+  // Keep IVR_OSS_PLAY_ENABLED off until a live test call confirms playback.
   run("ffmpeg", [
     "-y",
     "-i",
@@ -244,9 +246,9 @@ function wavToMp3(wavPath, mp3Path) {
     "-codec:a",
     "libmp3lame",
     "-b:a",
-    "64k",
+    "48k",
     "-ar",
-    "22050",
+    "8000",
     "-ac",
     "1",
     mp3Path,
