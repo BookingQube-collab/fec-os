@@ -161,6 +161,25 @@ describe("texmlGatherMenu", () => {
       else process.env.IVR_OSS_PLAY_VERIFIED = prevVerified;
     }
   });
+
+  it("emits ElevenLabs Say + api_key_ref when TELNYX_ELEVENLABS_API_KEY_REF is set", async () => {
+    const prevEleven = process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+    process.env.TELNYX_ELEVENLABS_API_KEY_REF = "elevenlabs_secret_id";
+    try {
+      const xml = await texmlGatherMenu({
+        actionUrl: "https://example.com/gather",
+        timeoutRedirectUrl: "https://example.com/texml",
+        prompt: "For English press 1.",
+        voice: "Polly.Joanna-Neural",
+      });
+      expect(xml).toContain('voice="ElevenLabs.eleven_multilingual_v2.21m00Tcm4TlvDq8ikWAM"');
+      expect(xml).toContain('api_key_ref="elevenlabs_secret_id"');
+      expect(xml).not.toContain("<Play>");
+    } finally {
+      if (prevEleven === undefined) delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+      else process.env.TELNYX_ELEVENLABS_API_KEY_REF = prevEleven;
+    }
+  });
 });
 
 describe("texmlDialSip", () => {

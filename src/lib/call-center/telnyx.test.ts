@@ -87,76 +87,126 @@ describe("client state + voice", () => {
   });
 
   it("picks Arabic Azure Fatima vs English Polly Joanna", () => {
-    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
-      voice: "Azure.ar-AE-FatimaNeural",
-      language: "ar-AE",
-    });
-    expect(pickSpeakVoice("Hello")).toEqual({
-      voice: "Polly.Joanna-Neural",
-      language: "en-US",
-    });
-    // Explicit Settings AR voice wins over EN Joanna for Arabic text.
-    expect(
-      pickSpeakVoice(
-        "مرحباً بكم في إي ثري اختر اللغة",
+    const prevEleven = process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+    delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+    try {
+      expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
+        voice: "Azure.ar-AE-FatimaNeural",
+        language: "ar-AE",
+      });
+      expect(pickSpeakVoice("Hello")).toEqual({
+        voice: "Polly.Joanna-Neural",
+        language: "en-US",
+      });
+      // Explicit Settings AR ElevenLabs without secret → Fatima (avoid failed Speak).
+      expect(
+        pickSpeakVoice(
+          "مرحباً بكم في إي ثري اختر اللغة",
+          "Polly.Joanna-Neural",
+          "ElevenLabs.eleven_multilingual_v2.abc123",
+        ).voice,
+      ).toBe("Azure.ar-AE-FatimaNeural");
+      // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
+      expect(
+        pickSpeakVoice(
+          "Thank you for calling E3. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0.",
+        ),
+      ).toEqual({
+        voice: "Polly.Joanna-Neural",
+        language: "en-US",
+      });
+      // Polly Neural stays; Multilingual Azure EN remapped to proven Polly.
+      expect(pickSpeakVoice("Hello", "Polly.Joanna").voice).toBe("Polly.Joanna-Neural");
+      expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
+      expect(pickSpeakVoice("Hello", "Azure.en-US-JennyNeural").voice).toBe(
+        "Azure.en-US-JennyNeural",
+      );
+      expect(pickSpeakVoice("Hello", "Azure.en-US-AvaMultilingualNeural").voice).toBe(
         "Polly.Joanna-Neural",
-        "ElevenLabs.eleven_multilingual_v2.abc123",
-      ).voice,
-    ).toBe("ElevenLabs.eleven_multilingual_v2.abc123");
-    // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
-    expect(
-      pickSpeakVoice(
-        "Thank you for calling E3. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0.",
-      ),
-    ).toEqual({
-      voice: "Polly.Joanna-Neural",
-      language: "en-US",
-    });
-    // Polly Neural stays; Multilingual Azure EN remapped to proven Polly.
-    expect(pickSpeakVoice("Hello", "Polly.Joanna").voice).toBe("Polly.Joanna-Neural");
-    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
-    expect(pickSpeakVoice("Hello", "Azure.en-US-JennyNeural").voice).toBe(
-      "Azure.en-US-JennyNeural",
-    );
-    expect(pickSpeakVoice("Hello", "Azure.en-US-AvaMultilingualNeural").voice).toBe(
-      "Polly.Joanna-Neural",
-    );
-    expect(pickSpeakVoice("Hello", "Polly.Matthew-Neural").voice).toBe("Polly.Matthew-Neural");
-    expect(pickSpeakVoice("Hello", "Azure.en-US-AndrewMultilingualNeural").voice).toBe(
-      "Polly.Matthew-Neural",
-    );
-    // Legacy Google-style id → Polly Joanna Neural default.
-    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
-    // EN Polly/Azure on Arabic-majority text → Azure Fatima (Gulf), not Polly Hala.
-    expect(
-      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
-    ).toBe("Azure.ar-AE-FatimaNeural");
-    expect(
-      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.en-US-JennyNeural").voice,
-    ).toBe("Azure.ar-AE-FatimaNeural");
-    // Saved Polly.Hala (from prior Gulf push) auto-upgrades to Azure Fatima.
-    expect(
-      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
-    ).toBe("Azure.ar-AE-FatimaNeural");
-    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zayd")).toEqual({
-      voice: "Azure.ar-AE-HamdanNeural",
-      language: "ar-AE",
-    });
-    // Zeina MSA → Azure Fatima Gulf (not Polly Hala).
-    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zeina")).toEqual({
-      voice: "Azure.ar-AE-FatimaNeural",
-      language: "ar-AE",
-    });
-    // Arabic-only saved voice must not speak English prompts.
-    expect(pickSpeakVoice("Hello", "Polly.Hala-Neural").voice).toBe("Polly.Joanna-Neural");
-    expect(pickSpeakVoice("Hello", "Azure.ar-AE-FatimaNeural").voice).toBe("Polly.Joanna-Neural");
-    // Explicit Azure Fatima on Arabic stays Fatima.
-    expect(
-      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.ar-AE-FatimaNeural"),
-    ).toEqual({
-      voice: "Azure.ar-AE-FatimaNeural",
-      language: "ar-AE",
-    });
+      );
+      expect(pickSpeakVoice("Hello", "Polly.Matthew-Neural").voice).toBe("Polly.Matthew-Neural");
+      expect(pickSpeakVoice("Hello", "Azure.en-US-AndrewMultilingualNeural").voice).toBe(
+        "Polly.Matthew-Neural",
+      );
+      // Legacy Google-style id → Polly Joanna Neural default.
+      expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
+      // EN Polly/Azure on Arabic-majority text → Azure Fatima (Gulf), not Polly Hala.
+      expect(
+        pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
+      ).toBe("Azure.ar-AE-FatimaNeural");
+      expect(
+        pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.en-US-JennyNeural").voice,
+      ).toBe("Azure.ar-AE-FatimaNeural");
+      // Saved Polly.Hala (from prior Gulf push) auto-upgrades to Azure Fatima.
+      expect(
+        pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
+      ).toBe("Azure.ar-AE-FatimaNeural");
+      expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zayd")).toEqual({
+        voice: "Azure.ar-AE-HamdanNeural",
+        language: "ar-AE",
+      });
+      // Zeina MSA → Azure Fatima Gulf (not Polly Hala).
+      expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zeina")).toEqual({
+        voice: "Azure.ar-AE-FatimaNeural",
+        language: "ar-AE",
+      });
+      // Arabic-only saved voice must not speak English prompts.
+      expect(pickSpeakVoice("Hello", "Polly.Hala-Neural").voice).toBe("Polly.Joanna-Neural");
+      expect(pickSpeakVoice("Hello", "Azure.ar-AE-FatimaNeural").voice).toBe("Polly.Joanna-Neural");
+      // Explicit Azure Fatima on Arabic stays Fatima (no ElevenLabs secret).
+      expect(
+        pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.ar-AE-FatimaNeural"),
+      ).toEqual({
+        voice: "Azure.ar-AE-FatimaNeural",
+        language: "ar-AE",
+      });
+    } finally {
+      if (prevEleven === undefined) delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+      else process.env.TELNYX_ELEVENLABS_API_KEY_REF = prevEleven;
+    }
+  });
+
+  it("auto-upgrades Joanna/Fatima to ElevenLabs when TELNYX_ELEVENLABS_API_KEY_REF is set", () => {
+    const prevEleven = process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+    process.env.TELNYX_ELEVENLABS_API_KEY_REF = "elevenlabs_secret_id";
+    try {
+      expect(pickSpeakVoice("Hello").voice).toBe(
+        "ElevenLabs.eleven_multilingual_v2.21m00Tcm4TlvDq8ikWAM",
+      );
+      expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe(
+        "ElevenLabs.eleven_multilingual_v2.21m00Tcm4TlvDq8ikWAM",
+      );
+      expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة").voice).toBe(
+        "ElevenLabs.eleven_multilingual_v2.XB0fDUnXU5powFXDhCwa",
+      );
+      expect(
+        pickSpeakVoice(
+          "مرحباً بكم في إي ثري اختر اللغة",
+          "Polly.Joanna-Neural",
+          "Azure.ar-AE-FatimaNeural",
+        ).voice,
+      ).toBe("ElevenLabs.eleven_multilingual_v2.XB0fDUnXU5powFXDhCwa");
+      // Explicit custom ElevenLabs AR wins.
+      expect(
+        pickSpeakVoice(
+          "مرحباً بكم في إي ثري اختر اللغة",
+          "Polly.Joanna-Neural",
+          "ElevenLabs.eleven_multilingual_v2.abc123",
+        ).voice,
+      ).toBe("ElevenLabs.eleven_multilingual_v2.abc123");
+      // Non-default EN Azure Jenny is left alone (not auto-upgraded).
+      expect(pickSpeakVoice("Hello", "Azure.en-US-JennyNeural").voice).toBe(
+        "Azure.en-US-JennyNeural",
+      );
+      // Male Gulf Hamdan left alone.
+      expect(
+        pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", undefined, "Azure.ar-AE-HamdanNeural")
+          .voice,
+      ).toBe("Azure.ar-AE-HamdanNeural");
+    } finally {
+      if (prevEleven === undefined) delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+      else process.env.TELNYX_ELEVENLABS_API_KEY_REF = prevEleven;
+    }
   });
 
   it("keeps speak payload as plain text (no SSML) for Azure and Polly", () => {

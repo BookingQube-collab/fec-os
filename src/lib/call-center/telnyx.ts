@@ -5,7 +5,9 @@ import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:c
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
 import {
   buildSpeakPayload,
+  elevenLabsApiKeyRef,
   fallbackSpeakVoice,
+  isElevenLabsTtsVoice,
   pickSpeakVoice,
 } from "./ivr-tts-voice";
 import type { CallCenterSettingsRow } from "./types";
@@ -35,8 +37,8 @@ export function resolveTelnyxApiKey(settings: CallCenterSettingsRow | null): str
 function elevenLabsSpeakVoiceSettings(
   voice: string,
 ): { type: "elevenlabs"; api_key_ref: string } | undefined {
-  if (!/^ElevenLabs\./i.test(voice)) return undefined;
-  const apiKeyRef = process.env.TELNYX_ELEVENLABS_API_KEY_REF?.trim();
+  if (!isElevenLabsTtsVoice(voice)) return undefined;
+  const apiKeyRef = elevenLabsApiKeyRef();
   if (!apiKeyRef) return undefined;
   return { type: "elevenlabs", api_key_ref: apiKeyRef };
 }
@@ -223,7 +225,8 @@ export function createTelnyxClient(apiKey: string) {
       try {
         return await action(id, "speak", body);
       } catch (err) {
-        // Never leave the caller in total silence — retry with known-good Polly Neural.
+        // Never leave the caller in total silence — retry Joanna (EN) / Fatima (AR).
+        // Covers ElevenLabs BYOK failures and other premium voice rejects.
         if (!(err instanceof TelnyxApiError)) throw err;
         const fallback = fallbackSpeakVoice(text);
         if (fallback.voice === picked.voice) throw err;

@@ -5,7 +5,11 @@
 
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
 import { resolvePlayableMediaUrl } from "./ivr-oss-prompts";
-import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "./ivr-tts-voice";
+import {
+  DEFAULT_TTS_VOICE,
+  pickSpeakVoice,
+  texmlElevenLabsSayAttrs,
+} from "./ivr-tts-voice";
 
 export function escapeTexml(text: string): string {
   return text
@@ -27,8 +31,9 @@ function texmlSay(voice: string, text: string, language?: string, voiceAr?: stri
   const picked = pickSpeakVoice(spoken, voice, voiceAr);
   const lang = language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
+  const elevenAttr = texmlElevenLabsSayAttrs(picked.voice);
   // Always escape plain text — never nest SSML inside TeXML <Say> (caused silence).
-  return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}>${escapeTexml(spoken)}</Say>`;
+  return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}${elevenAttr}>${escapeTexml(spoken)}</Say>`;
 }
 
 /**
@@ -71,16 +76,18 @@ export async function texmlGatherMenu(input: {
   // Empty / OSS-off / unreachable → always <Say> with prompt (never silent Gather).
   // Do not nest Say after Play: Telnyx continues after successful Play and would double-speak.
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
+  const elevenAttr = texmlElevenLabsSayAttrs(voice);
   const gatherBody = audio
     ? `<Play continueOnError="true">${escapeTexml(audio)}</Play>`
-    : `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>`;
-  // Timeout line is English — use Polly Joanna (not Arabic Fatima).
-  const timeoutVoice = DEFAULT_TTS_VOICE;
+    : `<Say voice="${escapeTexml(voice)}"${langAttr}${elevenAttr}>${prompt}</Say>`;
+  // Timeout line is English — same EN speak path (ElevenLabs when keyed, else Joanna).
+  const timeoutPicked = pickSpeakVoice("We did not receive any input.", input.voice, input.voiceAr);
+  const timeoutEleven = texmlElevenLabsSayAttrs(timeoutPicked.voice);
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
       gatherBody +
       `</Gather>` +
-      `<Say voice="${escapeTexml(timeoutVoice)}" language="en-US">We did not receive any input.</Say>` +
+      `<Say voice="${escapeTexml(timeoutPicked.voice)}" language="en-US"${timeoutEleven}>We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
   );
 }
