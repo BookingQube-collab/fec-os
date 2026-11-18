@@ -1022,6 +1022,8 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   await setAgentStatus(agentUserId, "busy", { lastCallAt: now });
 
   // Auto-record in the background (Record all calls default ON). Do not block Answer.
+  // Telnyx inbound PSTN bridge may delete this room on failure — maybeAutoStart retries
+  // after a successful completePstnBridge when egress was aborted.
   void import("./recording-egress")
     .then(({ maybeAutoStartCallRecording }) => maybeAutoStartCallRecording(call))
     .catch(() => undefined);
@@ -1128,6 +1130,10 @@ export async function completePstnBridge(
           bridgeFailedBy: agentUserId,
           bridgePhase: "failed",
           texmlDialSipUri: null,
+          // Room is gone — allow maybeAutoStart to start a fresh egress on re-answer.
+          egressStarted: false,
+          egressId: null,
+          egressRoom: null,
         },
       });
       throw new Error(message);
@@ -1157,6 +1163,10 @@ export async function completePstnBridge(
         bridgeConferenceName: null,
         texmlDialSipUri: null,
         bridgeInProgress: false,
+        // Room deleted — clear egress so the next answer can record the real conversation.
+        egressStarted: false,
+        egressId: null,
+        egressRoom: null,
         bridgePendingSip: false,
         bridgeError: message,
         bridgeFailedAt: now,
@@ -1188,6 +1198,11 @@ export async function completePstnBridge(
 
   const bridged = await getCall(callId);
   if (!bridged) throw new Error("Call not found after bridge.");
+  // Ensure egress is running on the live softphone room after the PSTN caller joins.
+  // Covers: answer-time start raced ahead of room delete, or first start never ran.
+  void import("./recording-egress")
+    .then(({ maybeAutoStartCallRecording }) => maybeAutoStartCallRecording(bridged))
+    .catch(() => undefined);
   return bridged;
 }
 

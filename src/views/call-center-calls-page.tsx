@@ -27,11 +27,13 @@ import {
   loadCallCenterCdr,
   loadCallCenterConfigBundle,
   loadCallCenterTagCatalog,
+  refreshCallCenterRecording,
   saveCallCenterAgentNotes,
   saveCallCenterCallTags,
   saveCallCenterTranscript,
 } from "@/lib/call-center/call-center.functions";
 import {
+  isCallRecordingPlaybackReady,
   isUsableRecordingUrl,
   rewriteRecordingUrlToPublicBase,
 } from "@/lib/call-center/recording-url";
@@ -59,7 +61,12 @@ function resolveCallRecordingSrc(call: CallCenterCall, storageBaseUrl: string | 
 }
 
 function hasPlayableRecording(call: CallCenterCall, storageBaseUrl?: string) {
-  return Boolean(resolveCallRecordingSrc(call, storageBaseUrl));
+  return isCallRecordingPlaybackReady({
+    recordingUrl: call.recordingUrl,
+    callId: call.id,
+    metadata: call.metadata,
+    storageBaseUrl,
+  });
 }
 
 function CallCenterCallsPage() {
@@ -201,10 +208,19 @@ function CallCenterCallsPage() {
 
   function openDetail(call: CallCenterCall) {
     setRecordingLoadError(null);
+    const closing = expandedId === call.id;
     setExpandedId((id) => (id === call.id ? null : call.id));
     setDraftTranscript(call.transcriptText || "");
     setDraftNotes(call.agentNotes || "");
     setDraftTags(call.tags ?? []);
+    if (closing) return;
+    // Pull completed egress / rewrite private R2 URLs when expanding a recorded CDR.
+    if (call.recordingEnabled || call.recordingUrl) {
+      void refreshCallCenterRecording({ callId: call.id }).then((result) => {
+        if (!result.ok) return;
+        void queryClient.invalidateQueries({ queryKey: ["call-center", "cdr"] });
+      });
+    }
   }
 
   async function onExportCsv() {

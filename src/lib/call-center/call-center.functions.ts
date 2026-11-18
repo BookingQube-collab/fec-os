@@ -2778,3 +2778,16 @@ export const startCallCenterRecordingEgress = createSafeAuthenticatedAction(
   },
   { auth: AGENT_AUTH },
 );
+
+/** Best-effort: rewrite private R2 URLs and/or pull completed LiveKit egress file location. */
+export const refreshCallCenterRecording = createSafeAuthenticatedAction(
+  z.object({ callId: z.string().uuid() }),
+  async (data) => {
+    const call = await getCall(data.callId);
+    if (!call) throw new Error("Call not found.");
+    if (!call.recordingEnabled && !call.recordingUrl) return call;
+    const { refreshCallRecordingFromEgress } = await import("./recording-egress");
+    return refreshCallRecordingFromEgress(call);
+  },
+  { auth: AGENT_AUTH },
+);

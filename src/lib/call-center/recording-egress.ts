@@ -13,6 +13,7 @@ import {
 } from "./recording-egress-shared";
 import {
   buildCallRecordingPublicUrl,
+  hasFinishedRecordingEgress,
   isGuessedLiveKitRecordingUrl,
   isUsableRecordingUrl,
   preferPlayableRecordingUrl,
@@ -31,15 +32,38 @@ export {
   type EgressInfoLike,
 } from "./recording-egress-shared";
 
+function callMeta(call: CallCenterCall): Record<string, unknown> {
+  return { ...((call.metadata as Record<string, unknown> | null) ?? {}) };
+}
+
 /**
- * Start LiveKit egress when "Record all calls" is on (default) and this CDR is not
- * already flagged. Safe to fire-and-forget from Answer / outbound so media join is not blocked.
+ * True when egress already finished, or an in-flight egress is tied to the current room.
+ * Inbound Telnyx PSTN bridge can delete the LiveKit room on failure while leaving
+ * `recordingEnabled` + a predicted URL — those calls must be allowed to restart egress.
+ */
+export function hasActiveOrFinishedRecordingEgress(call: CallCenterCall): boolean {
+  const meta = callMeta(call);
+  if (hasFinishedRecordingEgress(meta)) return true;
+  if (meta.egressStarted !== true) return false;
+  const room = call.livekitRoom?.trim() ?? "";
+  if (!room) return false;
+  const egressRoom = typeof meta.egressRoom === "string" ? meta.egressRoom.trim() : "";
+  // Legacy rows (no egressRoom) that still have a live room: treat as active to avoid
+  // double-start mid-call. Bridge-failure clears livekitRoom, so re-answer retries.
+  if (!egressRoom) return true;
+  return egressRoom === room;
+}
+
+/**
+ * Start LiveKit egress when "Record all calls" is on (default) and this CDR does not
+ * already have an active/finished egress for the current room. Safe to fire-and-forget
+ * from Answer / outbound / post-PSTN-bridge so media join is not blocked.
  */
 export async function maybeAutoStartCallRecording(call: CallCenterCall): Promise<CallCenterCall> {
-  if (call.recordingEnabled) return call;
   const settings = await loadSettingsRow().catch(() => null);
   // Default ON when the setting row/column is missing (compliance-friendly).
   if (settings?.record_all_calls === false) return call;
+  if (hasActiveOrFinishedRecordingEgress(call)) return call;
   try {
     const result = await startCallRecordingEgress(call);
     return result.call;
@@ -160,12 +184,16 @@ export async function startCallRecordingEgress(call: CallCenterCall): Promise<Re
     recordingEnabled: true,
     recordingUrl,
     metadata: {
-      ...((call.metadata as Record<string, unknown> | null) ?? {}),
+      ...callMeta(call),
       recordingRequested: true,
       recordingNote: note,
       egressRequestedAt: new Date().toISOString(),
       egressStarted,
       egressId: egressId || undefined,
+      egressRoom: call.livekitRoom || undefined,
+      // Clear stale finished markers when restarting after a failed inbound bridge.
+      egressFinishedAt: egressStarted ? null : undefined,
+      egressFileLocation: egressStarted ? null : undefined,
       recordingStorageBaseUrl: storageBase || undefined,
       egressS3Configured: Boolean(s3),
     },
@@ -284,19 +312,31 @@ export async function refreshCallRecordingFromEgress(call: CallCenterCall): Prom
       isUsableRecordingUrl(rewritten) &&
       !isGuessedLiveKitRecordingUrl(rewritten)
     ) {
+      const prior = callMeta(call);
       call = await updateCall(call.id, {
         recordingEnabled: true,
         recordingUrl: rewritten,
         metadata: {
-          ...((call.metadata as Record<string, unknown> | null) ?? {}),
+          ...prior,
           recordingNote: "Recording URL rewritten to public storage base (was private object-store API).",
           recordingUrlRewrittenAt: new Date().toISOString(),
+          // Private API locations only appear after LiveKit uploaded the object.
+          egressFinishedAt:
+            typeof prior.egressFinishedAt === "string" && prior.egressFinishedAt
+              ? prior.egressFinishedAt
+              : new Date().toISOString(),
         },
       });
     }
   }
 
-  if (isUsableRecordingUrl(call.recordingUrl) && !isGuessedLiveKitRecordingUrl(call.recordingUrl)) {
+  // Predicted public URLs look "usable" at egress start — still listEgress until finished,
+  // otherwise inbound hangup can miss egress_ended and leave a 404 in the Calls player.
+  if (
+    isUsableRecordingUrl(call.recordingUrl) &&
+    !isGuessedLiveKitRecordingUrl(call.recordingUrl) &&
+    hasFinishedRecordingEgress(callMeta(call))
+  ) {
     return call;
   }
   if (!call.livekitRoom) return call;

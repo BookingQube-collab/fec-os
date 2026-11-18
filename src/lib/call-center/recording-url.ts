@@ -164,3 +164,45 @@ export function isUsableRecordingUrl(url: string): boolean {
   if (isPrivateObjectStoreApiUrl(trimmed)) return false;
   return true;
 }
+
+/**
+ * True when CDR metadata indicates LiveKit egress finished writing a file.
+ * Predicted `{base}/call-center/{id}.mp4` URLs are set at egress *start* and are not
+ * safe to treat as playable until this (or an explicit file location) is present.
+ */
+export function hasFinishedRecordingEgress(metadata: Record<string, unknown> | null | undefined): boolean {
+  const meta = metadata ?? {};
+  if (typeof meta.egressFinishedAt === "string" && meta.egressFinishedAt.trim()) return true;
+  if (typeof meta.egressFileLocation === "string" && meta.egressFileLocation.trim()) return true;
+  // Legacy: private→public rewrite after a real object-store location was stored.
+  if (typeof meta.recordingUrlRewrittenAt === "string" && meta.recordingUrlRewrittenAt.trim()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Browser `<audio>` should only mount when the URL is public HTTPS *and* egress has
+ * finished (or the URL is not merely our storage-base prediction).
+ */
+export function isCallRecordingPlaybackReady(opts: {
+  recordingUrl: string | null | undefined;
+  callId: string;
+  metadata?: Record<string, unknown> | null;
+  storageBaseUrl?: string | null;
+}): boolean {
+  const rewritten = rewriteRecordingUrlToPublicBase(
+    opts.recordingUrl ?? "",
+    opts.storageBaseUrl,
+    opts.callId,
+  );
+  if (!isUsableRecordingUrl(rewritten)) return false;
+  if (hasFinishedRecordingEgress(opts.metadata)) return true;
+  const predicted = opts.storageBaseUrl
+    ? buildCallRecordingPublicUrl(opts.storageBaseUrl, opts.callId)
+    : "";
+  // Predicted path written at egress start — file may not exist yet (common on inbound
+  // PSTN bridge before egress_ended, or when egress was aborted after a failed bridge).
+  if (predicted && rewritten === predicted) return false;
+  return true;
+}

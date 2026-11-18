@@ -4,6 +4,8 @@ import {
   assertPublicRecordingStorageBaseUrl,
   buildCallRecordingPublicUrl,
   extractCallCenterRecordingObjectKey,
+  hasFinishedRecordingEgress,
+  isCallRecordingPlaybackReady,
   isGuessedLiveKitRecordingUrl,
   isPrivateObjectStoreApiUrl,
   isUsableRecordingUrl,
@@ -128,6 +130,60 @@ describe("isUsableRecordingUrl", () => {
     expect(isUsableRecordingUrl("https://cdn.example.org/calls/a.mp4")).toBe(true);
     expect(
       isUsableRecordingUrl("https://pub-xxxx.r2.dev/call-center/a.mp4"),
+    ).toBe(true);
+  });
+});
+
+describe("isCallRecordingPlaybackReady", () => {
+  const callId = "563d1df7-ca64-46ce-a681-2764d3f33290";
+  const base = "https://pub-xxxx.r2.dev";
+  const predicted = `${base}/call-center/${callId}.mp4`;
+
+  it("rejects predicted storage-base URLs until egress finishes", () => {
+    expect(
+      isCallRecordingPlaybackReady({
+        recordingUrl: predicted,
+        callId,
+        storageBaseUrl: base,
+        metadata: { egressStarted: true },
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts predicted URLs after egressFinishedAt", () => {
+    expect(
+      isCallRecordingPlaybackReady({
+        recordingUrl: predicted,
+        callId,
+        storageBaseUrl: base,
+        metadata: { egressFinishedAt: "2026-11-18T10:00:00.000Z" },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts non-predicted public media URLs", () => {
+    expect(
+      isCallRecordingPlaybackReady({
+        recordingUrl: "https://cdn.example.org/calls/a.mp4",
+        callId,
+        storageBaseUrl: base,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("hasFinishedRecordingEgress", () => {
+  it("requires finished timestamp, file location, or legacy rewrite marker", () => {
+    expect(hasFinishedRecordingEgress({})).toBe(false);
+    expect(hasFinishedRecordingEgress({ egressStarted: true })).toBe(false);
+    expect(hasFinishedRecordingEgress({ egressFinishedAt: "2026-11-18T10:00:00.000Z" })).toBe(
+      true,
+    );
+    expect(
+      hasFinishedRecordingEgress({ egressFileLocation: "s3://bucket/call-center/x.mp4" }),
+    ).toBe(true);
+    expect(
+      hasFinishedRecordingEgress({ recordingUrlRewrittenAt: "2026-11-18T10:00:00.000Z" }),
     ).toBe(true);
   });
 });
