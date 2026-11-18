@@ -162,25 +162,6 @@ async function main() {
   });
   const { flow, clearedNodes } = stripOssPlayUrls(built);
 
-  // Clear bridge Piper defaults so disclosure uses TTS until OSS Play is re-enabled.
-  const settings = await loadSettingsRow();
-  let bridgeCleared = false;
-  if (settings) {
-    const en = settings.bridge_prompt_audio_url_en?.trim() ?? "";
-    const ar = settings.bridge_prompt_audio_url_ar?.trim() ?? "";
-    if (isIvrOssMediaPath(en) || isIvrOssMediaPath(ar)) {
-      await saveSettingsRow(
-        {
-          ...settings,
-          bridge_prompt_audio_url_en: isIvrOssMediaPath(en) ? "" : en,
-          bridge_prompt_audio_url_ar: isIvrOssMediaPath(ar) ? "" : ar,
-        },
-        "apply-e3-ivr-lang-agent",
-      );
-      bridgeCleared = true;
-    }
-  }
-
   const lang = flow.nodes.find((n) => n.id === "node-menu-lang");
   const agent = flow.nodes.find((n) => n.id === "node-agent-lang");
   const langAgentEdge = flow.edges.find(
@@ -224,6 +205,35 @@ async function main() {
   }
 
   const membership = await ensureGeneralQueueMembership(generalQueueId);
+
+  // Clear bridge Piper defaults so disclosure uses TTS until OSS Play is re-enabled.
+  // updated_by must be a real user UUID (FK).
+  const settings = await loadSettingsRow();
+  let bridgeCleared = false;
+  if (settings) {
+    const en = settings.bridge_prompt_audio_url_en?.trim() ?? "";
+    const ar = settings.bridge_prompt_audio_url_ar?.trim() ?? "";
+    if (isIvrOssMediaPath(en) || isIvrOssMediaPath(ar)) {
+      const actors = await listAgentStatuses();
+      const actorId =
+        membership.joined[0]?.userId ||
+        actors.find((a) => a.isActive !== false)?.userId ||
+        actors[0]?.userId;
+      if (!actorId) {
+        console.warn("Could not clear bridge OSS URLs: no agent user id for updated_by.");
+      } else {
+        await saveSettingsRow(
+          {
+            ...settings,
+            bridge_prompt_audio_url_en: isIvrOssMediaPath(en) ? "" : en,
+            bridge_prompt_audio_url_ar: isIvrOssMediaPath(ar) ? "" : ar,
+          },
+          actorId,
+        );
+        bridgeCleared = true;
+      }
+    }
+  }
 
   const langOptions = saved.options.filter((o) => ["0", "1", "2"].includes(o.digit));
   console.log(
