@@ -105,6 +105,7 @@ export async function POST(request: Request) {
       participantLabel: "caller",
       preSay: playDisclosure && !bridgeAudio ? announcement : undefined,
       prePlayUrl: playDisclosure && bridgeAudio ? bridgeAudio : undefined,
+      preferLang: lang,
     }),
   );
 }

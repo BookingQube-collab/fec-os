@@ -9,6 +9,7 @@ import {
   DEFAULT_TTS_VOICE,
   pickSpeakVoice,
   texmlElevenLabsSayAttrs,
+  texmlSayLanguage,
 } from "./ivr-tts-voice";
 
 export function escapeTexml(text: string): string {
@@ -24,20 +25,22 @@ export function texmlResponse(body: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`;
 }
 
-/** Build `<Say>` with voice (+ language when useful for Azure/alice; Polly ignores language). */
+/** Build `<Say>` with voice (+ language when useful for alice; Polly/Azure omit language). */
 function texmlSay(
   voice: string,
   text: string,
   language?: string,
   voiceAr?: string,
   elevenLabsKeyRef?: string | null,
+  preferLang?: "en" | "ar",
 ): string {
   const spoken = refreshStaleE3ArabicPrompt(text).trim();
   if (!spoken) return "";
   const picked = pickSpeakVoice(spoken, voice, voiceAr, {
     elevenLabsApiKeyRef: elevenLabsKeyRef,
+    preferLang,
   });
-  const lang = language?.trim() || picked.language;
+  const lang = texmlSayLanguage(picked.voice, language?.trim() || picked.language);
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const elevenAttr = texmlElevenLabsSayAttrs(picked.voice, elevenLabsKeyRef);
   // Always escape plain text — never nest SSML inside TeXML <Say> (caused silence).
@@ -56,6 +59,7 @@ async function texmlPlayOrSay(input: {
   text?: string;
   audioUrl?: string;
   elevenLabsApiKeyRef?: string | null;
+  preferLang?: "en" | "ar";
 }): Promise<string> {
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
   if (audio) {
@@ -67,6 +71,7 @@ async function texmlPlayOrSay(input: {
     undefined,
     input.voiceAr,
     input.elevenLabsApiKeyRef,
+    input.preferLang,
   );
 }
 
@@ -82,12 +87,17 @@ export async function texmlGatherMenu(input: {
   /** When set, Play this clip inside Gather instead of TTS Say (after reachability check). */
   audioUrl?: string;
   language?: string;
+  /** Force EN/AR voice from call metadata `ivrLanguage` after digit 1/2. */
+  preferLang?: "en" | "ar";
 }): Promise<string> {
   const promptRaw = refreshStaleE3ArabicPrompt(input.prompt.trim() || "Please choose an option.");
-  const pickOpts = { elevenLabsApiKeyRef: input.elevenLabsApiKeyRef };
+  const pickOpts = {
+    elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+    preferLang: input.preferLang,
+  };
   const picked = pickSpeakVoice(promptRaw, input.voice, input.voiceAr, pickOpts);
   const voice = picked.voice;
-  const lang = input.language?.trim() || picked.language;
+  const lang = texmlSayLanguage(voice, input.language?.trim() || picked.language);
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
   // Usable non-/ivr/ (or dual-verified OSS) Play URL → clip.
@@ -103,14 +113,16 @@ export async function texmlGatherMenu(input: {
     "We did not receive any input.",
     input.voice,
     input.voiceAr,
-    pickOpts,
+    { elevenLabsApiKeyRef: input.elevenLabsApiKeyRef, preferLang: "en" },
   );
+  const timeoutLang = texmlSayLanguage(timeoutPicked.voice, "en-US");
+  const timeoutLangAttr = timeoutLang ? ` language="${escapeTexml(timeoutLang)}"` : "";
   const timeoutEleven = texmlElevenLabsSayAttrs(timeoutPicked.voice, input.elevenLabsApiKeyRef);
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
       gatherBody +
       `</Gather>` +
-      `<Say voice="${escapeTexml(timeoutPicked.voice)}" language="en-US"${timeoutEleven}>We did not receive any input.</Say>` +
+      `<Say voice="${escapeTexml(timeoutPicked.voice)}"${timeoutLangAttr}${timeoutEleven}>We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
   );
 }
@@ -158,6 +170,8 @@ export async function texmlConference(input: {
   elevenLabsApiKeyRef?: string | null;
   /** When set, Play this clip before Dial instead of TTS preSay. */
   prePlayUrl?: string;
+  /** Force EN/AR voice from call metadata `ivrLanguage`. */
+  preferLang?: "en" | "ar";
 }): Promise<string> {
   const name = input.name.trim();
   const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
@@ -185,6 +199,7 @@ export async function texmlConference(input: {
     text: input.preSay ?? "",
     audioUrl: input.prePlayUrl,
     elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+    preferLang: input.preferLang,
   });
   return texmlResponse(
     `${preface}<Dial><Conference ${attrs}>${escapeTexml(name)}</Conference></Dial>`,

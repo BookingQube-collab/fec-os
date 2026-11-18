@@ -218,10 +218,13 @@ export function createTelnyxClient(apiKey: string) {
       configuredVoice?: string,
       configuredVoiceAr?: string,
       elevenLabsKeyRef?: string | null,
+      preferLang?: "en" | "ar",
     ) => {
-      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr, {
+      const pickOpts = {
         elevenLabsApiKeyRef: elevenLabsKeyRef,
-      });
+        preferLang,
+      };
+      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr, pickOpts);
       const spoken = buildSpeakPayload(text, picked.voice);
       const language = callControlSpeakLanguage(picked.voice, picked.language);
       const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice, elevenLabsKeyRef);
@@ -241,7 +244,7 @@ export function createTelnyxClient(apiKey: string) {
         // Never leave the caller in total silence — retry Joanna (EN) / Fatima (AR).
         // Covers ElevenLabs BYOK failures and other premium voice rejects.
         if (!(err instanceof TelnyxApiError)) throw err;
-        const fallback = fallbackSpeakVoice(text);
+        const fallback = fallbackSpeakVoice(text, preferLang);
         if (fallback.voice === picked.voice) throw err;
         const fallbackLang = callControlSpeakLanguage(fallback.voice, fallback.language);
         return action(id, "speak", {
@@ -261,10 +264,13 @@ export function createTelnyxClient(apiKey: string) {
       configuredVoice?: string,
       configuredVoiceAr?: string,
       elevenLabsKeyRef?: string | null,
+      preferLang?: "en" | "ar",
     ) => {
-      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr, {
+      const pickOpts = {
         elevenLabsApiKeyRef: elevenLabsKeyRef,
-      });
+        preferLang,
+      };
+      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr, pickOpts);
       const spoken = buildSpeakPayload(text, picked.voice);
       const language = callControlSpeakLanguage(picked.voice, picked.language);
       const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice, elevenLabsKeyRef);
@@ -284,7 +290,7 @@ export function createTelnyxClient(apiKey: string) {
         return await action(id, "gather_using_speak", body);
       } catch (err) {
         if (!(err instanceof TelnyxApiError)) throw err;
-        const fallback = fallbackSpeakVoice(text);
+        const fallback = fallbackSpeakVoice(text, preferLang);
         if (fallback.voice === picked.voice) throw err;
         const fallbackLang = callControlSpeakLanguage(fallback.voice, fallback.language);
         return action(id, "gather_using_speak", {

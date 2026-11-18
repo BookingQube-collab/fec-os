@@ -51,7 +51,8 @@ describe("texmlConference", () => {
     expect(xml).not.toContain("voiceSpeed=");
     expect(xml).not.toContain("<prosody");
     expect(xml).not.toContain("<speak>");
-    expect(xml).toContain("language=");
+    // Polly ignores language — omit attr (voice id is enough).
+    expect(xml).not.toContain("language=");
     expect(xml).toContain(
       "Please note that this call may be recorded for quality and training purposes.",
     );
@@ -62,11 +63,14 @@ describe("texmlConference", () => {
     const xml = await texmlConference({
       name: "fecabc123",
       voice: "Polly.Joanna-Neural",
+      voiceAr: "Azure.ar-AE-FatimaNeural",
       preSay: "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.",
+      preferLang: "ar",
     });
     expect(xml).toContain("المكالمة هذي ممكن تنسجل");
     expect(xml).toContain('voice="Azure.ar-AE-FatimaNeural"');
-    expect(xml).toContain('language="ar-AE"');
+    // Azure embeds locale in the voice id — omit language (same Fatima silence fix as Call Control).
+    expect(xml).not.toContain('language="ar-AE"');
     expect(xml).not.toContain("effect=");
     expect(xml).not.toContain("<prosody");
   });
@@ -179,6 +183,37 @@ describe("texmlGatherMenu", () => {
       if (prevEleven === undefined) delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
       else process.env.TELNYX_ELEVENLABS_API_KEY_REF = prevEleven;
     }
+  });
+
+  it("digit1 preferLang=en uses admin EN voice; digit2 preferLang=ar uses admin AR Fatima without ar-AE language", async () => {
+    const enXml = await texmlGatherMenu({
+      actionUrl: "https://example.com/gather",
+      timeoutRedirectUrl: "https://example.com/texml",
+      prompt:
+        "Please select the entertainment center you would like assistance with. For Inflata Park, press 1.",
+      voice: "Polly.Matthew-Neural",
+      voiceAr: "Azure.ar-AE-FatimaNeural",
+      preferLang: "en",
+    });
+    expect(enXml).toContain('voice="Polly.Matthew-Neural"');
+    expect(enXml).toContain("Inflata Park");
+    expect(enXml).not.toContain("Azure.ar-AE-FatimaNeural");
+
+    const arPrompt =
+      "أي مركز تبيه المساعدة فيه؟ لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال اضغط 2.";
+    const arXml = await texmlGatherMenu({
+      actionUrl: "https://example.com/gather",
+      timeoutRedirectUrl: "https://example.com/texml",
+      prompt: arPrompt,
+      voice: "Polly.Matthew-Neural",
+      voiceAr: "Azure.ar-AE-FatimaNeural",
+      preferLang: "ar",
+    });
+    expect(arXml).toContain('voice="Azure.ar-AE-FatimaNeural"');
+    expect(arXml).toContain("إنفلاتا بارك");
+    expect(arXml).not.toContain('language="ar-AE"');
+    expect(arXml).not.toContain("<Play>");
+    expect(arXml).toContain("<Gather");
   });
 });
 

@@ -161,6 +161,8 @@ const WAITING_STATUSES = new Set(["ringing", "queued", "offered"]);
 const DEFAULT_VOICEMAIL_PROMPT =
   "Thank you for calling. We are unable to take your call right now. Please call back later.";
 const DEFAULT_IVR_PROMPT = "Please choose an option.";
+/** Soft-fail Arabic gather when greetingAr is missing — never silent after digit 2. */
+const DEFAULT_IVR_PROMPT_AR = "من فضلك اختر خياراً.";
 const MAX_SPEAK_CHARS = 1500;
 
 export type CarrierEventResult = {
@@ -331,6 +333,16 @@ function elevenLabsRefOf(ctx: Ctx): string {
   return ctx.settings?.telnyx_elevenlabs_api_key_ref?.trim() || "";
 }
 
+/** Call metadata `ivrLanguage` after Language-menu digit 1/2 — forces EN/AR admin voice. */
+function preferLangOf(callOrMeta?: CallCenterCall | Record<string, unknown> | null): "en" | "ar" | undefined {
+  if (!callOrMeta) return undefined;
+  const meta =
+    "metadata" in callOrMeta
+      ? ((callOrMeta.metadata as Record<string, unknown> | null) ?? {})
+      : callOrMeta;
+  return meta.ivrLanguage === "ar" || meta.ivrLanguage === "en" ? meta.ivrLanguage : undefined;
+}
+
 /** Telnyx uses `incoming`; some payloads use `inbound`. Empty = unknown (allow). */
 function isInboundTelnyxDirection(direction: string | undefined): boolean {
   const dir = (direction ?? "").trim().toLowerCase();
@@ -360,12 +372,13 @@ async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promi
   if (meta.carrierPromptStarted) return;
 
   const actionsBefore = ctx.actions.length;
+  const preferLang = preferLangOf(meta);
   if (meta.carrierFinal) {
-    await speakThenHangup(ctx, endedPrompt(call));
+    await speakThenHangup(ctx, endedPrompt(call), preferLang);
   } else if (call.status === "ivr") {
     const greeting = typeof meta.ivrGreeting === "string" ? meta.ivrGreeting : "";
     const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
-    await gather(ctx, greeting, audio);
+    await gather(ctx, greeting, audio, preferLang);
   } else if (WAITING_STATUSES.has(call.status)) {
     await startQueueWait(ctx);
   } else if (call.status === "answered" && !call.agentUserId && (meta.aiSession || meta.ai_answered)) {
@@ -401,7 +414,12 @@ async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promi
   });
 }
 
-async function gather(ctx: Ctx, text: string, audioUrl?: string) {
+async function gather(
+  ctx: Ctx,
+  text: string,
+  audioUrl?: string,
+  preferLang?: "en" | "ar",
+) {
   // Hard safety: never gather_using_audio for Piper /ivr/ unless dual-flag verified.
   // Successful Telnyx gather_using_audio can still play silence — TTS Speak is safer.
   const raw = (audioUrl ?? "").trim();
@@ -414,7 +432,9 @@ async function gather(ctx: Ctx, text: string, audioUrl?: string) {
     if (ok) return;
   }
   // Rewrite known MSA defaults still sitting in call metadata / saved graphs.
-  const spoken = clip(refreshStaleE3ArabicPrompt(text)) || DEFAULT_IVR_PROMPT;
+  // Soft-fail: never speak empty after digit 2 — Arabic default + preferLang → Fatima.
+  const fallback = preferLang === "ar" ? DEFAULT_IVR_PROMPT_AR : DEFAULT_IVR_PROMPT;
+  const spoken = clip(refreshStaleE3ArabicPrompt(text)) || fallback;
   await exec(ctx, "gather", (c) =>
     c.gatherUsingSpeak(
       ctx.ccid,
@@ -423,18 +443,27 @@ async function gather(ctx: Ctx, text: string, audioUrl?: string) {
       voiceOf(ctx),
       voiceArOf(ctx),
       elevenLabsRefOf(ctx),
+      preferLang,
     ),
   );
 }
 
-async function speakThenHangup(ctx: Ctx, text: string) {
+async function speakThenHangup(ctx: Ctx, text: string, preferLang?: "en" | "ar") {
   const prompt = clip(refreshStaleE3ArabicPrompt(text));
   if (!prompt) {
     await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
     return;
   }
   const ok = await exec(ctx, "speak", (c) =>
-    c.speak(ctx.ccid, prompt, { step: "final" }, voiceOf(ctx), voiceArOf(ctx), elevenLabsRefOf(ctx)),
+    c.speak(
+      ctx.ccid,
+      prompt,
+      { step: "final" },
+      voiceOf(ctx),
+      voiceArOf(ctx),
+      elevenLabsRefOf(ctx),
+      preferLang,
+    ),
   );
   if (!ok) await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
 }
@@ -490,7 +519,8 @@ async function applyRouteResult(ctx: Ctx, result: InboundRouteResult) {
   if (result.phase === "ivr") {
     const greeting = typeof meta.ivrGreeting === "string" && meta.ivrGreeting ? meta.ivrGreeting : result.message;
     const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
-    await gather(ctx, greeting, audio);
+    // After digit 1/2, ivrLanguage forces admin EN/AR voice for the next menu (never silence).
+    await gather(ctx, greeting, audio, preferLangOf(meta));
     return;
   }
 
@@ -768,7 +798,7 @@ export async function handleTelnyxEvent(
         const nextMeta = metaOf(updated);
         const greeting = typeof nextMeta.ivrGreeting === "string" ? String(nextMeta.ivrGreeting) : "";
         const audio = typeof nextMeta.ivrAudioUrl === "string" ? String(nextMeta.ivrAudioUrl) : "";
-        await gather(ctx, greeting, audio);
+        await gather(ctx, greeting, audio, preferLangOf(nextMeta));
         return done(true, "IVR retry", call.id);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "IVR failed";
@@ -905,6 +935,7 @@ export async function prepareCallerBridge(
                   voice,
                   voiceAr,
                   settings?.telnyx_elevenlabs_api_key_ref,
+                  lang,
                 ),
               )
           : telnyx
@@ -915,6 +946,7 @@ export async function prepareCallerBridge(
                 voice,
                 voiceAr,
                 settings?.telnyx_elevenlabs_api_key_ref,
+                lang,
               )
         ).catch(() => undefined)
       : Promise.resolve(undefined);
@@ -1046,6 +1078,7 @@ async function transferTexmlCallerToLiveKit(
     participantLabel: "caller",
     preSay: alreadyDisclosed ? undefined : announcement,
     prePlayUrl: bridgeClip || undefined,
+    preferLang: lang,
   });
 
   await patchMeta(call.id, {

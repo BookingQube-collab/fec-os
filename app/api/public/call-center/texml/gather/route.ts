@@ -7,6 +7,7 @@ import {
 } from "@/lib/call-center/db";
 import { refreshStaleE3ArabicPrompt } from "@/lib/call-center/e3-ivr-prompt";
 import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "@/lib/call-center/ivr-tts-voice";
+import { resolveCallerSpeakLang } from "@/lib/call-center/recording-disclosure";
 import { applyIvrDigit, routeCallToFallbackQueue } from "@/lib/call-center/routing";
 import {
   parseTexmlForm,
@@ -23,12 +24,18 @@ function speakVoice(
   prompt: string,
   configured?: string | null,
   configuredAr?: string | null,
+  preferLang?: "en" | "ar",
 ): string {
   return pickSpeakVoice(
     refreshStaleE3ArabicPrompt(prompt),
     configured ?? undefined,
     configuredAr ?? undefined,
+    { preferLang },
   ).voice;
+}
+
+function preferLangFromMeta(meta: Record<string, unknown>): "en" | "ar" | undefined {
+  return meta.ivrLanguage === "ar" || meta.ivrLanguage === "en" ? meta.ivrLanguage : undefined;
 }
 
 export const maxDuration = 30;
@@ -99,6 +106,7 @@ export async function POST(request: Request) {
         voiceAr: configuredVoiceAr,
         elevenLabsApiKeyRef: elevenLabsKeyRef,
         audioUrl: audioUrl || undefined,
+        preferLang: preferLangFromMeta(meta),
       }),
     );
   }
@@ -119,20 +127,27 @@ export async function POST(request: Request) {
       lastTexmlDigit: digit,
     };
     await updateCall(next.id, { metadata: meta });
+    const preferLang = preferLangFromMeta(meta);
 
     if (conferenceName) {
+      const bridgeLang = resolveCallerSpeakLang(meta);
       return xml(
         await texmlConference({
           name: conferenceName,
           voice: configuredVoice,
+          voiceAr: configuredVoiceAr,
+          elevenLabsApiKeyRef: elevenLabsKeyRef,
           beep: false,
           startConferenceOnEnter: true,
           endConferenceOnExit: false,
+          preferLang: bridgeLang,
         }),
       );
     }
 
     if (result.phase === "ivr") {
+      // Soft-fail: never emit empty Say after digit 2 — default English prompt still
+      // uses preferLang so admin AR voice (Fatima) speaks when ivrLanguage=ar.
       const greeting = refreshStaleE3ArabicPrompt(
         (typeof meta.ivrGreeting === "string" && meta.ivrGreeting) ||
           result.message ||
@@ -143,11 +158,12 @@ export async function POST(request: Request) {
         await texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: holdUrl,
-          prompt: greeting,
+          prompt: greeting || "Please choose an option.",
           voice: configuredVoice,
           voiceAr: configuredVoiceAr,
           elevenLabsApiKeyRef: elevenLabsKeyRef,
           audioUrl: audioUrl || undefined,
+          preferLang,
         }),
       );
     }
@@ -157,14 +173,14 @@ export async function POST(request: Request) {
       return xml(
         await texmlQueueWait({
           holdMusicUrl: settings?.hold_music_url,
-          voice: speakVoice(holdPrompt, configuredVoice),
+          voice: speakVoice(holdPrompt, configuredVoice, configuredVoiceAr, preferLang),
           redirectUrl: holdUrl,
         }),
       );
     }
 
     const bye = result.message || "Goodbye.";
-    return xml(texmlHangup(bye, speakVoice(bye, configuredVoice)));
+    return xml(texmlHangup(bye, speakVoice(bye, configuredVoice, configuredVoiceAr, preferLang)));
   } catch (e) {
     console.error("[call-center/texml/gather] failed:", e);
     const meta = (call.metadata as Record<string, unknown> | null) ?? {};
@@ -181,6 +197,7 @@ export async function POST(request: Request) {
         voiceAr: configuredVoiceAr,
         elevenLabsApiKeyRef: elevenLabsKeyRef,
         audioUrl: audioUrl || undefined,
+        preferLang: preferLangFromMeta(meta),
       }),
     );
   }

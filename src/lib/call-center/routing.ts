@@ -505,7 +505,11 @@ async function resolveTerminalIvrNode(params: {
             ? "ar"
             : "en";
       // Must use language-aware fields (greetingAr), not English-only greetingText.
-      const greeting = refreshStaleE3ArabicPrompt(nodeSpokenText(current, ivrLanguage));
+      // Soft-fail empty AR prompt so TeXML/Call Control never gather with blank Say.
+      const rawGreeting = refreshStaleE3ArabicPrompt(nodeSpokenText(current, ivrLanguage));
+      const greeting =
+        rawGreeting.trim() ||
+        (ivrLanguage === "ar" ? "من فضلك اختر خياراً." : "Please choose an option.");
       const audioUrl = nodePromptAudioUrl(current, ivrLanguage);
       const updated = await updateCall(call.id, {
         status: "ivr",

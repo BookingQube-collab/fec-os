@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { buildSpeakPayload, callControlSpeakLanguage } from "./ivr-tts-voice";
+import {
+  buildSpeakPayload,
+  callControlSpeakLanguage,
+  texmlSayLanguage,
+} from "./ivr-tts-voice";
 import {
   decodeClientState,
   encodeClientState,
@@ -236,7 +240,7 @@ describe("client state + voice", () => {
     expect(callControlSpeakLanguage("Polly.Joanna-Neural", "en-US")).toBeUndefined();
     expect(callControlSpeakLanguage("female", "en-US")).toBe("en-US");
     expect(callControlSpeakLanguage("female", "arb")).toBe("arb");
-    // Semantic pick still returns ar-AE for TeXML/REST; Call Control must sanitize.
+    // Semantic pick still returns ar-AE for TeXML/REST; Call Control + TeXML must sanitize.
     const picked = pickSpeakVoice(
       "مرحباً بكم في إي ثري اختر اللغة",
       "Polly.Joanna-Neural",
@@ -245,6 +249,37 @@ describe("client state + voice", () => {
     expect(picked.voice).toBe("Azure.ar-AE-FatimaNeural");
     expect(picked.language).toBe("ar-AE");
     expect(callControlSpeakLanguage(picked.voice, picked.language)).toBeUndefined();
+  });
+
+  it("digit1 preferLang=en uses admin EN; digit2 preferLang=ar uses admin AR Fatima", () => {
+    const en = pickSpeakVoice(
+      "Please select the entertainment center. For Inflata Park press 1.",
+      "Polly.Matthew-Neural",
+      "Azure.ar-AE-FatimaNeural",
+      { preferLang: "en" },
+    );
+    expect(en.voice).toBe("Polly.Matthew-Neural");
+    expect(en.language).toBe("en-US");
+
+    const ar = pickSpeakVoice(
+      "أي مركز تبيه؟ اضغط 1",
+      "Polly.Matthew-Neural",
+      "Azure.ar-AE-FatimaNeural",
+      { preferLang: "ar" },
+    );
+    expect(ar.voice).toBe("Azure.ar-AE-FatimaNeural");
+    expect(ar.language).toBe("ar-AE");
+    expect(callControlSpeakLanguage(ar.voice, ar.language)).toBeUndefined();
+
+    // Short AR prompt without majority Arabic still forces Fatima when preferLang=ar.
+    const shortAr = pickSpeakVoice("اضغط 1", "Polly.Joanna-Neural", "Azure.ar-AE-FatimaNeural", {
+      preferLang: "ar",
+    });
+    expect(shortAr.voice).toBe("Azure.ar-AE-FatimaNeural");
+
+    // TeXML must also omit ar-AE for Azure (parity with Call Control Fatima fix).
+    expect(texmlSayLanguage("Azure.ar-AE-FatimaNeural", "ar-AE")).toBeUndefined();
+    expect(texmlSayLanguage("Polly.Joanna-Neural", "en-US")).toBeUndefined();
   });
 
   it("honors settings ElevenLabs ref without env", () => {

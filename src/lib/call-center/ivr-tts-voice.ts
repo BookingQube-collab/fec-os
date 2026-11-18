@@ -289,8 +289,27 @@ export function callControlSpeakLanguage(
   if (!lang) return undefined;
   // Polly.* ignores language; omit to avoid enum surprises.
   if (/^(AWS\.)?Polly\./i.test(voice)) return undefined;
+  // Azure.* embeds locale in the voice id (e.g. Azure.ar-AE-FatimaNeural).
+  // Never send ar-AE — it is not in the Call Control enum and caused silent IVR.
+  if (AZURE_VOICE_RE.test(voice)) return undefined;
   if (CALL_CONTROL_SPEAK_LANGUAGES.has(lang)) return lang;
-  // Azure.ar-AE-* / ElevenLabs / etc. — voice id carries locale; do not send invalid enum.
+  // ElevenLabs / etc. — voice id carries locale; do not send invalid enum.
+  return undefined;
+}
+
+/**
+ * Sanitize language for TeXML `<Say>`.
+ * Polly docs ignore language; Azure voice ids embed locale — omit both so TeXML never
+ * rejects Gulf `ar-AE` the way Call Control Speak did (silent Arabic after digit 2).
+ * Keep language for alice / basic man|woman / ElevenLabs when a valid BCP-47 is known.
+ */
+export function texmlSayLanguage(voice: string, language: string): string | undefined {
+  const lang = language.trim();
+  if (!lang) return undefined;
+  if (/^(AWS\.)?Polly\./i.test(voice)) return undefined;
+  if (AZURE_VOICE_RE.test(voice)) return undefined;
+  // alice / man / woman / ElevenLabs — pass through known codes only.
+  if (CALL_CONTROL_SPEAK_LANGUAGES.has(lang) || lang === "en" || lang === "ar") return lang;
   return undefined;
 }
 
@@ -480,9 +499,15 @@ export function texmlAzureSayAttrs(_voice: string): string {
 /**
  * Known-good Polly/Azure fallback when preferred voice (incl. ElevenLabs) fails.
  * Always Joanna (EN) / Fatima (AR) — never leave the caller in silence.
+ * Honors preferLang so short Arabic prompts after digit 2 still retry Fatima.
  */
-export function fallbackSpeakVoice(text: string): { voice: string; language: string } {
-  if (isArabicText(text)) {
+export function fallbackSpeakVoice(
+  text: string,
+  preferLang?: "en" | "ar",
+): { voice: string; language: string } {
+  const preferAr =
+    preferLang === "ar" || (preferLang !== "en" && isArabicText(text));
+  if (preferAr) {
     return { voice: FALLBACK_AR_TTS_VOICE, language: DEFAULT_AR_TTS_LANGUAGE };
   }
   return { voice: FALLBACK_EN_TTS_VOICE, language: "en-US" };

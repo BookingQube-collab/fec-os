@@ -24,12 +24,18 @@ function speakVoice(
   prompt: string,
   configured?: string | null,
   configuredAr?: string | null,
+  preferLang?: "en" | "ar",
 ): string {
   return pickSpeakVoice(
     refreshStaleE3ArabicPrompt(prompt),
     configured ?? undefined,
     configuredAr ?? undefined,
+    { preferLang },
   ).voice;
+}
+
+function preferLangFromMeta(meta: Record<string, unknown>): "en" | "ar" | undefined {
+  return meta.ivrLanguage === "ar" || meta.ivrLanguage === "en" ? meta.ivrLanguage : undefined;
 }
 
 export const maxDuration = 30;
@@ -242,11 +248,12 @@ export async function POST(request: Request) {
         await texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: selfUrl,
-          prompt: greeting,
+          prompt: greeting || "Please choose an option.",
           voice: configuredVoice,
           voiceAr: configuredVoiceAr,
           elevenLabsApiKeyRef: elevenLabsKeyRef,
           audioUrl: audioUrl || undefined,
+          preferLang: preferLangFromMeta(meta),
         }),
       );
     }
