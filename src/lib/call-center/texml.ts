@@ -3,13 +3,7 @@
  * Used when Call Control `Answer` returns 10007 — TeXML answers automatically and plays <Say>/<Gather>.
  */
 
-import {
-  DEFAULT_TTS_VOICE,
-  buildSpeakPayload,
-  isAzureTtsVoice,
-  pickSpeakVoice,
-  texmlAzureSayAttrs,
-} from "./ivr-tts-voice";
+import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "./ivr-tts-voice";
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
 
 export function escapeTexml(text: string): string {
@@ -32,11 +26,8 @@ function texmlSay(voice: string, text: string, language?: string): string {
   const picked = pickSpeakVoice(spoken, voice);
   const lang = language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
-  const azureAttrs = texmlAzureSayAttrs(picked.voice);
-  const body = isAzureTtsVoice(picked.voice)
-    ? buildSpeakPayload(spoken, picked.voice).payload
-    : escapeTexml(spoken);
-  return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}${azureAttrs}>${body}</Say>`;
+  // Always escape plain text — never nest SSML inside TeXML <Say> (caused silence).
+  return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}>${escapeTexml(spoken)}</Say>`;
 }
 
 export function texmlGatherMenu(input: {
@@ -52,18 +43,14 @@ export function texmlGatherMenu(input: {
   const voice = picked.voice;
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
-  const azureAttrs = texmlAzureSayAttrs(voice);
-  const prompt = isAzureTtsVoice(voice)
-    ? buildSpeakPayload(promptRaw, voice).payload
-    : escapeTexml(promptRaw);
-  // Timeout line is English — use human EN Azure Ava (not Arabic Fatima).
+  const prompt = escapeTexml(promptRaw);
+  // Timeout line is English — use Polly Joanna (not Arabic Fatima).
   const timeoutVoice = DEFAULT_TTS_VOICE;
-  const timeoutBody = buildSpeakPayload("We did not receive any input.", timeoutVoice).payload;
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
-      `<Say voice="${escapeTexml(voice)}"${langAttr}${azureAttrs}>${prompt}</Say>` +
+      `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>` +
       `</Gather>` +
-      `<Say voice="${escapeTexml(timeoutVoice)}" language="en-US"${texmlAzureSayAttrs(timeoutVoice)}>${timeoutBody}</Say>` +
+      `<Say voice="${escapeTexml(timeoutVoice)}" language="en-US">We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
   );
 }

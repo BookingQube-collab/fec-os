@@ -28,15 +28,15 @@ describe("texmlConference", () => {
       voice: "Polly.Joanna-Neural",
       preSay: "Please note that this call may be recorded for quality and training purposes.",
     });
-    // Joanna auto-upgrades to Azure Ava + telecom EQ / SSML.
-    expect(xml).toContain('voice="Azure.en-US-AvaMultilingualNeural"');
-    expect(xml).toContain('effect="eq_telecomhp8k"');
-    expect(xml).toContain('voiceSpeed="0.95"');
+    expect(xml).toContain('voice="Polly.Joanna-Neural"');
+    expect(xml).not.toContain("effect=");
+    expect(xml).not.toContain("voiceSpeed=");
+    expect(xml).not.toContain("<prosody");
+    expect(xml).not.toContain("<speak>");
     expect(xml).toContain("language=");
     expect(xml).toContain(
       "Please note that this call may be recorded for quality and training purposes.",
     );
-    expect(xml).toContain("<prosody");
     expect(xml.indexOf("<Say")).toBeLessThan(xml.indexOf("<Dial>"));
   });
 
@@ -49,8 +49,8 @@ describe("texmlConference", () => {
     expect(xml).toContain("المكالمة هذي ممكن تنسجل");
     expect(xml).toContain('voice="Azure.ar-AE-FatimaNeural"');
     expect(xml).toContain('language="ar-AE"');
-    expect(xml).toContain('effect="eq_telecomhp8k"');
-    expect(xml).toContain("<prosody");
+    expect(xml).not.toContain("effect=");
+    expect(xml).not.toContain("<prosody");
   });
 });
 

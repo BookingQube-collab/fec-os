@@ -3,16 +3,16 @@ import { describe, expect, it } from "vitest";
 import { clipTtsPreviewText, toRestTtsVoiceId } from "./tts-preview-voice";
 
 describe("toRestTtsVoiceId", () => {
-  it("auto-upgrades EN Polly / Jenny to Azure Multilingual for REST preview", () => {
-    expect(toRestTtsVoiceId("Polly.Joanna-Neural")).toBe(
-      "Azure.en-US-AvaMultilingualNeural",
+  it("keeps EN Polly Neural for REST preview (Multilingual Azure remapped to Polly)", () => {
+    expect(toRestTtsVoiceId("Polly.Joanna-Neural")).toBe("AWS.Polly.Joanna-Neural");
+    expect(toRestTtsVoiceId("Polly.Matthew-Neural")).toBe("AWS.Polly.Matthew-Neural");
+    expect(toRestTtsVoiceId("Polly.Joanna")).toBe("AWS.Polly.Joanna-Neural");
+    expect(toRestTtsVoiceId("Azure.en-US-JennyNeural")).toBe("Azure.en-US-JennyNeural");
+    expect(toRestTtsVoiceId("Azure.en-US-AvaMultilingualNeural")).toBe(
+      "AWS.Polly.Joanna-Neural",
     );
-    expect(toRestTtsVoiceId("Polly.Matthew-Neural")).toBe(
-      "Azure.en-US-AndrewMultilingualNeural",
-    );
-    expect(toRestTtsVoiceId("Polly.Joanna")).toBe("Azure.en-US-AvaMultilingualNeural");
-    expect(toRestTtsVoiceId("Azure.en-US-JennyNeural")).toBe(
-      "Azure.en-US-AvaMultilingualNeural",
+    expect(toRestTtsVoiceId("Azure.en-US-AndrewMultilingualNeural")).toBe(
+      "AWS.Polly.Matthew-Neural",
     );
   });
 
@@ -21,24 +21,18 @@ describe("toRestTtsVoiceId", () => {
     expect(toRestTtsVoiceId("Polly.Hala-Neural")).toBe("AWS.Polly.Hala-Neural");
   });
 
-  it("normalizes lowercase aws.Polly Joanna to Azure Ava", () => {
-    expect(toRestTtsVoiceId("aws.Polly.Joanna-Neural")).toBe(
-      "Azure.en-US-AvaMultilingualNeural",
-    );
+  it("normalizes lowercase aws.Polly Joanna to AWS.Polly Neural", () => {
+    expect(toRestTtsVoiceId("aws.Polly.Joanna-Neural")).toBe("AWS.Polly.Joanna-Neural");
   });
 
-  it("keeps AWS.Polly Joanna after upgrade path to Azure Ava", () => {
-    expect(toRestTtsVoiceId("AWS.Polly.Joanna-Neural")).toBe(
-      "Azure.en-US-AvaMultilingualNeural",
-    );
-    expect(toRestTtsVoiceId("AWS.Polly.Joanna")).toBe(
-      "Azure.en-US-AvaMultilingualNeural",
-    );
+  it("keeps AWS.Polly Joanna Neural for REST", () => {
+    expect(toRestTtsVoiceId("AWS.Polly.Joanna-Neural")).toBe("AWS.Polly.Joanna-Neural");
+    expect(toRestTtsVoiceId("AWS.Polly.Joanna")).toBe("AWS.Polly.Joanna-Neural");
   });
 
-  it("passes current Azure Ava / Fatima voices through", () => {
+  it("passes Azure Fatima through; remaps Multilingual Ava to Polly", () => {
     expect(toRestTtsVoiceId("Azure.en-US-AvaMultilingualNeural")).toBe(
-      "Azure.en-US-AvaMultilingualNeural",
+      "AWS.Polly.Joanna-Neural",
     );
     expect(toRestTtsVoiceId("Azure.ar-AE-FatimaNeural")).toBe("Azure.ar-AE-FatimaNeural");
   });

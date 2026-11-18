@@ -4,8 +4,8 @@ import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:c
 
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
 import {
-  azureSpeakVoiceSettings,
   buildSpeakPayload,
+  fallbackSpeakVoice,
   pickSpeakVoice,
 } from "./ivr-tts-voice";
 import type { CallCenterSettingsRow } from "./types";
@@ -202,7 +202,7 @@ export function createTelnyxClient(apiKey: string) {
       }),
     reject: (id: string, cause = "CALL_REJECTED") => action(id, "reject", { cause }),
     hangup: (id: string) => action(id, "hangup"),
-    speak: (
+    speak: async (
       id: string,
       text: string,
       clientState: Record<string, unknown>,
@@ -210,18 +210,32 @@ export function createTelnyxClient(apiKey: string) {
     ) => {
       const picked = pickSpeakVoice(text, configuredVoice);
       const spoken = buildSpeakPayload(text, picked.voice);
-      const voiceSettings =
-        azureSpeakVoiceSettings(picked.voice) ?? elevenLabsSpeakVoiceSettings(picked.voice);
-      return action(id, "speak", {
+      const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice);
+      const body = {
         ...spoken,
         ...picked,
         // Premium unlocks Polly/Azure; basic only allows male/female.
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
         ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
         client_state: encodeClientState(clientState),
-      });
+      };
+      try {
+        return await action(id, "speak", body);
+      } catch (err) {
+        // Never leave the caller in total silence — retry with known-good Polly Neural.
+        if (!(err instanceof TelnyxApiError)) throw err;
+        const fallback = fallbackSpeakVoice(text);
+        if (fallback.voice === picked.voice) throw err;
+        return action(id, "speak", {
+          payload: text,
+          payload_type: "text",
+          ...fallback,
+          service_level: "premium",
+          client_state: encodeClientState(clientState),
+        });
+      }
     },
-    gatherUsingSpeak: (
+    gatherUsingSpeak: async (
       id: string,
       text: string,
       clientState: Record<string, unknown>,
@@ -229,9 +243,8 @@ export function createTelnyxClient(apiKey: string) {
     ) => {
       const picked = pickSpeakVoice(text, configuredVoice);
       const spoken = buildSpeakPayload(text, picked.voice);
-      const voiceSettings =
-        azureSpeakVoiceSettings(picked.voice) ?? elevenLabsSpeakVoiceSettings(picked.voice);
-      return action(id, "gather_using_speak", {
+      const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice);
+      const body = {
         ...spoken,
         ...picked,
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
@@ -241,7 +254,25 @@ export function createTelnyxClient(apiKey: string) {
         timeout_millis: 8000,
         valid_digits: "0123456789*#",
         client_state: encodeClientState(clientState),
-      });
+      };
+      try {
+        return await action(id, "gather_using_speak", body);
+      } catch (err) {
+        if (!(err instanceof TelnyxApiError)) throw err;
+        const fallback = fallbackSpeakVoice(text);
+        if (fallback.voice === picked.voice) throw err;
+        return action(id, "gather_using_speak", {
+          payload: text,
+          payload_type: "text",
+          ...fallback,
+          service_level: "premium",
+          minimum_digits: 1,
+          maximum_digits: 1,
+          timeout_millis: 8000,
+          valid_digits: "0123456789*#",
+          client_state: encodeClientState(clientState),
+        });
+      }
     },
     gatherUsingAudio: (id: string, audioUrl: string, clientState: Record<string, unknown>) =>
       action(id, "gather_using_audio", {
