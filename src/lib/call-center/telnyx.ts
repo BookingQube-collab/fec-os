@@ -3,7 +3,11 @@ import "server-only";
 import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
 
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
-import { buildSpeakPayload, pickSpeakVoice } from "./ivr-tts-voice";
+import {
+  azureSpeakVoiceSettings,
+  buildSpeakPayload,
+  pickSpeakVoice,
+} from "./ivr-tts-voice";
 import type { CallCenterSettingsRow } from "./types";
 
 export { isArabicText, pickSpeakVoice } from "./ivr-tts-voice";
@@ -22,6 +26,19 @@ const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
 export function resolveTelnyxApiKey(settings: CallCenterSettingsRow | null): string {
   return settings?.telnyx_api_key?.trim() || process.env.TELNYX_API_KEY?.trim() || "";
+}
+
+/**
+ * ElevenLabs needs a Telnyx Integration Secret id (Mission Control → Secrets),
+ * referenced by env `TELNYX_ELEVENLABS_API_KEY_REF` — not a raw API key in FEC.
+ */
+function elevenLabsSpeakVoiceSettings(
+  voice: string,
+): { type: "elevenlabs"; api_key_ref: string } | undefined {
+  if (!/^ElevenLabs\./i.test(voice)) return undefined;
+  const apiKeyRef = process.env.TELNYX_ELEVENLABS_API_KEY_REF?.trim();
+  if (!apiKeyRef) return undefined;
+  return { type: "elevenlabs", api_key_ref: apiKeyRef };
 }
 
 /** Telnyx webhook public key (Mission Control → Keys & Credentials → Public Key). Base64, 32 bytes. */
@@ -193,11 +210,14 @@ export function createTelnyxClient(apiKey: string) {
     ) => {
       const picked = pickSpeakVoice(text, configuredVoice);
       const spoken = buildSpeakPayload(text, picked.voice);
+      const voiceSettings =
+        azureSpeakVoiceSettings(picked.voice) ?? elevenLabsSpeakVoiceSettings(picked.voice);
       return action(id, "speak", {
         ...spoken,
         ...picked,
         // Premium unlocks Polly/Azure; basic only allows male/female.
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
+        ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
         client_state: encodeClientState(clientState),
       });
     },
@@ -209,10 +229,13 @@ export function createTelnyxClient(apiKey: string) {
     ) => {
       const picked = pickSpeakVoice(text, configuredVoice);
       const spoken = buildSpeakPayload(text, picked.voice);
+      const voiceSettings =
+        azureSpeakVoiceSettings(picked.voice) ?? elevenLabsSpeakVoiceSettings(picked.voice);
       return action(id, "gather_using_speak", {
         ...spoken,
         ...picked,
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
+        ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
         minimum_digits: 1,
         maximum_digits: 1,
         timeout_millis: 8000,

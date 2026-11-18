@@ -6,8 +6,9 @@ export const TTS_PREVIEW_FALLBACK_TEXT =
 
 /**
  * Map Call Control speak voice ids to Telnyx REST TTS voice ids.
- * Call Control uses `Polly.Joanna-Neural`; REST accepts `AWS.Polly.Joanna-Neural`
- * (capital AWS). Lowercase `aws.Polly.Joanna-Neural` returns HTTP 500 from Telnyx.
+ * Call Control / TeXML use `Azure.*` / `Polly.*`; REST Polly needs `AWS.Polly.*`
+ * (capital AWS). Lowercase `aws.Polly.*` returns HTTP 500 from Telnyx.
+ * EN Polly Joanna is normalized to Azure Ava before this mapping runs.
  */
 export function toRestTtsVoiceId(callControlVoice: string): string {
   const voice = normalizeConfiguredTtsVoice(callControlVoice);

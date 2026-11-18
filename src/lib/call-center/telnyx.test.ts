@@ -86,29 +86,48 @@ describe("client state + voice", () => {
     expect(decodeClientState(undefined)).toEqual({});
   });
 
-  it("picks Arabic Azure Fatima vs English Polly Joanna", () => {
+  it("picks Arabic Azure Fatima vs English Azure Ava", () => {
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
       voice: "Azure.ar-AE-FatimaNeural",
       language: "ar-AE",
     });
     expect(pickSpeakVoice("Hello")).toEqual({
-      voice: "Polly.Joanna-Neural",
+      voice: "Azure.en-US-AvaMultilingualNeural",
       language: "en-US",
     });
     // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
     expect(
       pickSpeakVoice(
         "Thank you for calling E3. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0.",
-      ).language,
-    ).toBe("en-US");
-    // Standard Polly ids upgrade to Neural for more natural speech.
-    expect(pickSpeakVoice("Hello", "Polly.Joanna").voice).toBe("Polly.Joanna-Neural");
-    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
-    // Legacy Google-style id → natural Polly Neural default (not basic female).
-    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
-    // EN Polly on Arabic-majority text → Azure Fatima (Gulf), not Polly Hala.
+      ),
+    ).toEqual({
+      voice: "Azure.en-US-AvaMultilingualNeural",
+      language: "en-US",
+    });
+    // Saved Polly Joanna / Jenny auto-upgrade to Azure Ava Multilingual.
+    expect(pickSpeakVoice("Hello", "Polly.Joanna").voice).toBe(
+      "Azure.en-US-AvaMultilingualNeural",
+    );
+    expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe(
+      "Azure.en-US-AvaMultilingualNeural",
+    );
+    expect(pickSpeakVoice("Hello", "Azure.en-US-JennyNeural").voice).toBe(
+      "Azure.en-US-AvaMultilingualNeural",
+    );
+    expect(pickSpeakVoice("Hello", "Polly.Matthew-Neural").voice).toBe(
+      "Azure.en-US-AndrewMultilingualNeural",
+    );
+    // Legacy Google-style id → Azure Ava Multilingual default.
+    expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe(
+      "Azure.en-US-AvaMultilingualNeural",
+    );
+    // EN Polly/Azure on Arabic-majority text → Azure Fatima (Gulf), not Polly Hala.
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
+    ).toBe("Azure.ar-AE-FatimaNeural");
+    expect(
+      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.en-US-AvaMultilingualNeural")
+        .voice,
     ).toBe("Azure.ar-AE-FatimaNeural");
     // Saved Polly.Hala (from prior Gulf push) auto-upgrades to Azure Fatima.
     expect(
@@ -124,8 +143,12 @@ describe("client state + voice", () => {
       language: "ar-AE",
     });
     // Arabic-only saved voice must not speak English prompts.
-    expect(pickSpeakVoice("Hello", "Polly.Hala-Neural").voice).toBe("Polly.Joanna-Neural");
-    expect(pickSpeakVoice("Hello", "Azure.ar-AE-FatimaNeural").voice).toBe("Polly.Joanna-Neural");
+    expect(pickSpeakVoice("Hello", "Polly.Hala-Neural").voice).toBe(
+      "Azure.en-US-AvaMultilingualNeural",
+    );
+    expect(pickSpeakVoice("Hello", "Azure.ar-AE-FatimaNeural").voice).toBe(
+      "Azure.en-US-AvaMultilingualNeural",
+    );
     // Explicit Azure Fatima on Arabic stays Fatima.
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.ar-AE-FatimaNeural"),
@@ -135,12 +158,25 @@ describe("client state + voice", () => {
     });
   });
 
-  it("wraps Azure Arabic speak in conversational SSML", () => {
-    const ssml = buildSpeakPayload("مرحباً بكم", "Azure.ar-AE-FatimaNeural");
-    expect(ssml.payload_type).toBe("ssml");
-    expect(ssml.payload).toContain("<prosody rate=\"95%\" pitch=\"-2%\">");
-    expect(ssml.payload).toContain("مرحباً بكم");
-    expect(buildSpeakPayload("Hello", "Polly.Joanna-Neural")).toEqual({
+  it("wraps Azure EN and AR speak in conversational SSML with menu breaks", () => {
+    const ar = buildSpeakPayload("مرحباً بكم. اضغط 1", "Azure.ar-AE-FatimaNeural");
+    expect(ar.payload_type).toBe("ssml");
+    expect(ar.payload).toContain('<prosody rate="92%" pitch="-1%">');
+    expect(ar.payload).toContain("مرحباً بكم");
+    expect(ar.payload).toContain('<break time="400ms"/>');
+    expect(ar.payload).toContain('<break time="250ms"/>اضغط 1');
+
+    const en = buildSpeakPayload(
+      "Thank you for calling. For English, press 1.",
+      "Azure.en-US-AvaMultilingualNeural",
+    );
+    expect(en.payload_type).toBe("ssml");
+    expect(en.payload).toContain('<prosody rate="92%" pitch="-1%">');
+    expect(en.payload).toContain('<break time="400ms"/>');
+    expect(en.payload).toContain('<break time="250ms"/>press 1');
+
+    // Explicit legacy Polly (if somehow kept) stays plain text.
+    expect(buildSpeakPayload("Hello", "Polly.Hala-Neural")).toEqual({
       payload: "Hello",
       payload_type: "text",
     });

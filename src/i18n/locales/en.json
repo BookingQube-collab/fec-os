@@ -2150,7 +2150,7 @@
     "ttsHint": "When on, queue welcome uses TTS text if no welcome audio URL is set. IVR menu prompts always use the voice below.",
     "ttsVoice": "IVR TTS voice",
     "ttsVoiceCustom": "Custom Telnyx voice id…",
-    "ttsVoiceHint": "Used for Call Control speak/gather and TeXML Say. Default Polly Joanna Neural (EN). Arabic-majority prompts auto-use Azure Fatima Neural (UAE Gulf ar-AE; Polly Hala/Zayd/Zeina auto-upgrade). Formats: Polly.*-Neural, Azure.*, female/male. Requires Telnyx premium TTS (already used for Polly).",
+    "ttsVoiceHint": "Used for Call Control speak/gather and TeXML Say. Default Azure Ava Multilingual (EN). Arabic-majority prompts auto-use Azure Fatima Neural (UAE Gulf ar-AE). Saved Polly Joanna/Jenny and Polly Hala/Zayd/Zeina auto-upgrade. Azure uses conversational SSML + phone EQ. Formats: Azure.*, Polly.*, ElevenLabs.* (needs TELNYX_ELEVENLABS_API_KEY_REF), female/male. Requires Telnyx premium TTS.",
     "ttsPreview": "Listen",
     "ttsPreviewing": "Playing…",
     "ttsPreviewHint": "Plays a short sample with Telnyx TTS using the selected voice and TTS greeting text (requires Telnyx API key).",

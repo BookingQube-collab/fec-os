@@ -1,17 +1,22 @@
 /**
  * Telnyx Call Control / TeXML TTS voice selection for IVR speak / gather_using_speak.
  *
- * English stays on AWS Polly Joanna Neural (natural PSTN EN).
- * Arabic uses Azure Fatima Neural (UAE Gulf ar-AE) — Polly Hala/Zayd still sound
- * synthetic on phone; Azure neural is the best Gulf voice already wired on Telnyx
- * premium TTS without BYOK (ElevenLabs needs a Telnyx-side API key).
+ * English → Azure Ava Multilingual Neural (warmer than Polly Joanna on PSTN).
+ * Arabic → Azure Fatima Neural (UAE Gulf ar-AE). Polly Hala/Zayd/Zeina auto-upgrade.
+ * Both Azure languages get conversational SSML + telecom EQ on Call Control / TeXML.
  *
- * Call Control / TeXML accept `Polly.*` and `Azure.*`. Language is ignored for
- * Polly on Call Control; Azure still benefits from `ar-AE`.
+ * ElevenLabs is supported when voice is `ElevenLabs.*` and
+ * `TELNYX_ELEVENLABS_API_KEY_REF` points at a Telnyx Integration Secret — not the default
+ * (needs a paid ElevenLabs key stored in Telnyx Mission Control).
+ *
+ * Call Control / TeXML accept `Polly.*` and `Azure.*` without BYOK on Telnyx premium TTS.
  */
 
-/** Natural Neural default for English (and mixed EN+AR Language menus). */
-export const DEFAULT_TTS_VOICE = "Polly.Joanna-Neural";
+/** Natural Azure Multilingual default for English (and mixed EN+AR Language menus). */
+export const DEFAULT_TTS_VOICE = "Azure.en-US-AvaMultilingualNeural";
+
+/** Male EN counterpart when upgrading Polly Matthew / Guy. */
+export const DEFAULT_EN_MALE_TTS_VOICE = "Azure.en-US-AndrewMultilingualNeural";
 
 /**
  * Best Gulf Arabic voice available on this stack without extra credentials.
@@ -40,8 +45,8 @@ export const LEGACY_TTS_VOICE_IDS = new Set([
 ]);
 
 /**
- * Upgrade known Polly standard voices to Neural counterparts (more natural on phone).
- * Already-Neural ids pass through unchanged (Arabic Polly is upgraded later → Azure).
+ * Upgrade known Polly standard voices to Neural counterparts first;
+ * English Neural Polly is then remapped to Azure Multilingual below.
  */
 const POLLY_STANDARD_TO_NEURAL: Record<string, string> = {
   "Polly.Joanna": "Polly.Joanna-Neural",
@@ -58,12 +63,22 @@ const POLLY_STANDARD_TO_NEURAL: Record<string, string> = {
   "AWS.Polly.Zayd": "Polly.Zayd-Neural",
 };
 
+/** Saved EN Polly / older Azure EN → Azure Multilingual (more human on phone). */
+const EN_VOICE_AUTO_UPGRADE: Record<string, string> = {
+  "Polly.Joanna-Neural": DEFAULT_TTS_VOICE,
+  "Polly.Matthew-Neural": DEFAULT_EN_MALE_TTS_VOICE,
+  "Polly.Amy-Neural": "Azure.en-GB-SoniaNeural",
+  "Polly.Brian-Neural": "Azure.en-GB-RyanNeural",
+  "Azure.en-US-JennyNeural": DEFAULT_TTS_VOICE,
+  "Azure.en-US-GuyNeural": DEFAULT_EN_MALE_TTS_VOICE,
+};
+
 const PROVIDER_VOICE_RE =
   /^(Polly|AWS\.Polly|Azure|Google|Telnyx|ElevenLabs|Minimax|Resemble|Inworld|Soniox)\./i;
 
 /** Voices that can speak Arabic (kept only if already Azure Gulf / basic male|female). */
 const ARABIC_CAPABLE_VOICE_RE =
-  /^(male|female)$|Polly\.(Hala|Zayd|Zeina)|AWS\.Polly\.(Hala|Zayd|Zeina)|Azure\.ar[-_]|[\u0600-\u06FF]/i;
+  /^(male|female)$|Polly\.(Hala|Zayd|Zeina)|AWS\.Polly\.(Hala|Zayd|Zeina)|Azure\.ar[-_]|[\u0600-\u06FF]|ElevenLabs\./i;
 
 /** Polly Arabic voices that still sound AI — upgrade to Azure Gulf Neural. */
 const LEGACY_AR_POLLY_VOICE_RE =
@@ -78,6 +93,8 @@ const MSA_ARABIC_VOICE_RE = /Polly\.Zeina|AWS\.Polly\.Zeina/i;
 
 const MALE_AR_POLLY_VOICE_RE = /^(AWS\.)?Polly\.Zayd(-Neural)?$/i;
 
+const AZURE_VOICE_RE = /^Azure\./i;
+
 export type TtsVoicePreset = {
   id: string;
   label: string;
@@ -85,19 +102,25 @@ export type TtsVoicePreset = {
 
 /** Presets shown in Call Center → Settings (plus free-text custom). */
 export const TTS_VOICE_PRESETS: TtsVoicePreset[] = [
-  { id: "Polly.Joanna-Neural", label: "Polly Joanna Neural (EN female — recommended)" },
-  { id: "Polly.Matthew-Neural", label: "Polly Matthew Neural (EN male)" },
-  { id: "Polly.Amy-Neural", label: "Polly Amy Neural (EN-GB female)" },
-  { id: "Polly.Brian-Neural", label: "Polly Brian Neural (EN-GB male)" },
+  {
+    id: "Azure.en-US-AvaMultilingualNeural",
+    label: "Azure Ava Multilingual (EN female — recommended)",
+  },
+  {
+    id: "Azure.en-US-AndrewMultilingualNeural",
+    label: "Azure Andrew Multilingual (EN male)",
+  },
   {
     id: "Azure.ar-AE-FatimaNeural",
     label: "Azure Fatima Neural (AR female — UAE Gulf, recommended)",
   },
   { id: "Azure.ar-AE-HamdanNeural", label: "Azure Hamdan Neural (AR male — UAE Gulf)" },
+  { id: "Azure.en-GB-SoniaNeural", label: "Azure Sonia Neural (EN-GB female)" },
+  { id: "Azure.en-US-JennyNeural", label: "Azure Jenny Neural (EN female — legacy)" },
+  { id: "Polly.Joanna-Neural", label: "Polly Joanna Neural (EN female — legacy)" },
+  { id: "Polly.Matthew-Neural", label: "Polly Matthew Neural (EN male — legacy)" },
   { id: "Polly.Hala-Neural", label: "Polly Hala Neural (AR female — Gulf; legacy, more synthetic)" },
   { id: "Polly.Zayd-Neural", label: "Polly Zayd Neural (AR male — Gulf; legacy)" },
-  { id: "Azure.en-US-JennyNeural", label: "Azure Jenny Neural (EN female)" },
-  { id: "Azure.en-US-GuyNeural", label: "Azure Guy Neural (EN male)" },
   { id: "female", label: "Telnyx basic female (legacy)" },
   { id: "male", label: "Telnyx basic male (legacy)" },
 ];
@@ -109,6 +132,10 @@ function toCallControlVoiceId(voice: string): string {
   return voice;
 }
 
+export function isAzureTtsVoice(voice: string): boolean {
+  return AZURE_VOICE_RE.test(voice);
+}
+
 /** Normalize stored settings / UI value to a Telnyx Call Control speak voice id. */
 export function normalizeConfiguredTtsVoice(configuredVoice?: string | null): string {
   const raw = configuredVoice?.trim() ?? "";
@@ -116,10 +143,11 @@ export function normalizeConfiguredTtsVoice(configuredVoice?: string | null): st
   if (raw === "male" || raw === "female") return raw;
   const configured = toCallControlVoiceId(raw);
   // Prefer Neural when a standard Polly id is stored (old defaults / presets).
-  if (POLLY_STANDARD_TO_NEURAL[configured]) return POLLY_STANDARD_TO_NEURAL[configured];
-  if (POLLY_STANDARD_TO_NEURAL[raw]) return POLLY_STANDARD_TO_NEURAL[raw];
-  if (PROVIDER_VOICE_RE.test(configured)) return configured;
-  // Unknown bare ids (e.g. old Google-style) → natural Polly Neural default.
+  let next = POLLY_STANDARD_TO_NEURAL[configured] ?? POLLY_STANDARD_TO_NEURAL[raw] ?? configured;
+  // Joanna / Matthew / older Azure EN → Azure Multilingual (humanized default).
+  if (EN_VOICE_AUTO_UPGRADE[next]) return EN_VOICE_AUTO_UPGRADE[next];
+  if (PROVIDER_VOICE_RE.test(next)) return next;
+  // Unknown bare ids (e.g. old Google-style) → Azure Ava Multilingual.
   return DEFAULT_TTS_VOICE;
 }
 
@@ -160,8 +188,9 @@ export function arabicTtsLanguageForVoice(voice: string): string {
 
 /**
  * Pick Telnyx voice/language for speak / gather_using_speak.
- * English → Joanna (or configured EN voice). Arabic-majority → Azure Fatima
- * (auto-upgrades Polly Hala/Zayd/Zeina). Mixed Language menus stay en-US.
+ * English → Azure Ava (or configured EN voice; Joanna auto-upgrades).
+ * Arabic-majority → Azure Fatima (auto-upgrades Polly Hala/Zayd/Zeina).
+ * Mixed Language menus stay en-US with the EN human voice.
  */
 export function pickSpeakVoice(
   text: string,
@@ -170,7 +199,7 @@ export function pickSpeakVoice(
   const configured = normalizeConfiguredTtsVoice(configuredVoice);
 
   if (!isArabicText(text)) {
-    // Don't leave English prompts on an Arabic-only saved voice (e.g. Polly.Hala).
+    // Don't leave English prompts on an Arabic-only saved voice (e.g. Polly.Hala / Fatima).
     if (isArabicOnlyVoice(configured)) {
       return { voice: DEFAULT_TTS_VOICE, language: "en-US" };
     }
@@ -188,6 +217,12 @@ export function pickSpeakVoice(
   }
 
   if (isArabicCapableVoice(configured)) {
+    // EN Azure / Polly must not speak Arabic menus — switch to Fatima.
+    if (!isArabicOnlyVoice(configured) && !/^ElevenLabs\./i.test(configured) && configured !== "male" && configured !== "female") {
+      if (/^Azure\.en[-_]/i.test(configured) || /^(AWS\.)?Polly\./i.test(configured)) {
+        return { voice: DEFAULT_AR_TTS_VOICE, language: DEFAULT_AR_TTS_LANGUAGE };
+      }
+    }
     return { voice: configured, language: arabicTtsLanguageForVoice(configured) };
   }
 
@@ -204,22 +239,49 @@ function escapeSsmlText(text: string): string {
 }
 
 /**
+ * Insert short pauses between IVR menu clauses so options don't run together.
+ * Operates on already-escaped plain text (safe to inject <break> tags).
+ */
+function insertConversationalBreaks(escapedText: string): string {
+  return escapedText
+    .replace(/([.!?؟۔])(\s+)/g, '$1<break time="400ms"/>$2')
+    .replace(/\b((?:press|presses)\s+\d)\b/gi, '<break time="250ms"/>$1')
+    .replace(/(اضغط(?:ي|وا)?\s*\d)/g, '<break time="250ms"/>$1');
+}
+
+/**
  * Build Call Control speak / gather payload.
- * Azure Arabic gets mild conversational prosody (slightly slower, warmer) so
- * phone playback is less clipped/robotic than bare neural defaults.
+ * All Azure voices get conversational prosody + menu breaks so phone playback
+ * is less clipped/robotic than bare neural defaults.
  */
 export function buildSpeakPayload(
   text: string,
   voice: string,
 ): { payload: string; payload_type: "text" | "ssml" } {
-  if (!/^Azure\.ar[-_]/i.test(voice)) {
+  if (!isAzureTtsVoice(voice)) {
     return { payload: text, payload_type: "text" };
   }
-  const inner = escapeSsmlText(text);
-  // rate/pitch tuned for PSTN IVR — not exaggerated; avoid chipmunk / dirge extremes.
+  const inner = insertConversationalBreaks(escapeSsmlText(text));
+  // Slightly slower + mild pitch for warmer PSTN IVR (both EN Ava and AR Fatima).
   return {
-    payload: `<speak><prosody rate="95%" pitch="-2%">${inner}</prosody></speak>`,
+    payload: `<speak><prosody rate="92%" pitch="-1%">${inner}</prosody></speak>`,
     payload_type: "ssml",
   };
 }
-
+
+/** Call Control `voice_settings` for Azure telecom EQ (no BYOK). */
+export function azureSpeakVoiceSettings(
+  voice: string,
+): { type: "azure"; effect: "eq_telecomhp8k" } | undefined {
+  if (!isAzureTtsVoice(voice)) return undefined;
+  return { type: "azure", effect: "eq_telecomhp8k" };
+}
+
+/**
+ * TeXML `<Say>` extras for Azure — phone EQ + slightly slower speed.
+ * SSML body is applied separately via {@link buildSpeakPayload}.
+ */
+export function texmlAzureSayAttrs(voice: string): string {
+  if (!isAzureTtsVoice(voice)) return "";
+  return ` effect="eq_telecomhp8k" voiceSpeed="0.95"`;
+}

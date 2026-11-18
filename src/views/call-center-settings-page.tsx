@@ -644,7 +644,7 @@ function CallCenterSettingsPage() {
                   <Input
                     value={ttsVoice}
                     onChange={(e) => setTtsVoice(e.target.value)}
-                    placeholder="Polly.Joanna-Neural"
+                    placeholder="Azure.en-US-AvaMultilingualNeural"
                     className="mt-2"
                   />
                 ) : null}
