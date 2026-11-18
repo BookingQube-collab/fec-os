@@ -43,11 +43,13 @@ export function texmlGatherMenu(input: {
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
+  // Timeout line is English — keep Joanna so Arabic Azure/Polly is not used for EN.
+  const timeoutVoice = DEFAULT_TTS_VOICE;
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
       `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>` +
       `</Gather>` +
-      `<Say voice="${escapeTexml(voice)}" language="en-US">We did not receive any input.</Say>` +
+      `<Say voice="${escapeTexml(timeoutVoice)}" language="en-US">We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
   );
 }

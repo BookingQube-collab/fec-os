@@ -3,7 +3,7 @@ import "server-only";
 import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
 
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
-import { pickSpeakVoice } from "./ivr-tts-voice";
+import { buildSpeakPayload, pickSpeakVoice } from "./ivr-tts-voice";
 import type { CallCenterSettingsRow } from "./types";
 
 export { isArabicText, pickSpeakVoice } from "./ivr-tts-voice";
@@ -192,8 +192,9 @@ export function createTelnyxClient(apiKey: string) {
       configuredVoice?: string,
     ) => {
       const picked = pickSpeakVoice(text, configuredVoice);
+      const spoken = buildSpeakPayload(text, picked.voice);
       return action(id, "speak", {
-        payload: text,
+        ...spoken,
         ...picked,
         // Premium unlocks Polly/Azure; basic only allows male/female.
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
@@ -207,8 +208,9 @@ export function createTelnyxClient(apiKey: string) {
       configuredVoice?: string,
     ) => {
       const picked = pickSpeakVoice(text, configuredVoice);
+      const spoken = buildSpeakPayload(text, picked.voice);
       return action(id, "gather_using_speak", {
-        payload: text,
+        ...spoken,
         ...picked,
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
         minimum_digits: 1,

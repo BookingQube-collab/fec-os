@@ -36,14 +36,14 @@ describe("texmlConference", () => {
     expect(xml.indexOf("<Say")).toBeLessThan(xml.indexOf("<Dial>"));
   });
 
-  it("rewrites stale MSA Arabic preSay to Gulf copy and picks Hala", () => {
+  it("rewrites stale MSA Arabic preSay to Gulf copy and picks Azure Fatima", () => {
     const xml = texmlConference({
       name: "fecabc123",
       voice: "Polly.Joanna-Neural",
       preSay: "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.",
     });
     expect(xml).toContain("المكالمة هذي ممكن تنسجل");
-    expect(xml).toContain('voice="Polly.Hala-Neural"');
+    expect(xml).toContain('voice="Azure.ar-AE-FatimaNeural"');
     expect(xml).toContain('language="ar-AE"');
   });
 });

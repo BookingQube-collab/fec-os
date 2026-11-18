@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { buildSpeakPayload } from "./ivr-tts-voice";
 import {
   decodeClientState,
   encodeClientState,
@@ -85,9 +86,9 @@ describe("client state + voice", () => {
     expect(decodeClientState(undefined)).toEqual({});
   });
 
-  it("picks Arabic vs English Neural voices", () => {
+  it("picks Arabic Azure Fatima vs English Polly Joanna", () => {
     expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة")).toEqual({
-      voice: "Polly.Hala-Neural",
+      voice: "Azure.ar-AE-FatimaNeural",
       language: "ar-AE",
     });
     expect(pickSpeakVoice("Hello")).toEqual({
@@ -105,17 +106,43 @@ describe("client state + voice", () => {
     expect(pickSpeakVoice("Hello", "Polly.Joanna-Neural").voice).toBe("Polly.Joanna-Neural");
     // Legacy Google-style id → natural Polly Neural default (not basic female).
     expect(pickSpeakVoice("Hello", "en-US-Neural2-A").voice).toBe("Polly.Joanna-Neural");
-    // EN Polly on Arabic-majority text → Arabic Polly Neural (Polly ignores language).
+    // EN Polly on Arabic-majority text → Azure Fatima (Gulf), not Polly Hala.
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Joanna-Neural").voice,
-    ).toBe("Polly.Hala-Neural");
+    ).toBe("Azure.ar-AE-FatimaNeural");
+    // Saved Polly.Hala (from prior Gulf push) auto-upgrades to Azure Fatima.
     expect(
       pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Hala-Neural").voice,
-    ).toBe("Polly.Hala-Neural");
-    // Zeina is MSA — upgrade to Gulf Hala for live Arabic IVR (Qatar).
-    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zeina")).toEqual({
-      voice: "Polly.Hala-Neural",
+    ).toBe("Azure.ar-AE-FatimaNeural");
+    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zayd")).toEqual({
+      voice: "Azure.ar-AE-HamdanNeural",
       language: "ar-AE",
+    });
+    // Zeina MSA → Azure Fatima Gulf (not Polly Hala).
+    expect(pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Polly.Zeina")).toEqual({
+      voice: "Azure.ar-AE-FatimaNeural",
+      language: "ar-AE",
+    });
+    // Arabic-only saved voice must not speak English prompts.
+    expect(pickSpeakVoice("Hello", "Polly.Hala-Neural").voice).toBe("Polly.Joanna-Neural");
+    expect(pickSpeakVoice("Hello", "Azure.ar-AE-FatimaNeural").voice).toBe("Polly.Joanna-Neural");
+    // Explicit Azure Fatima on Arabic stays Fatima.
+    expect(
+      pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", "Azure.ar-AE-FatimaNeural"),
+    ).toEqual({
+      voice: "Azure.ar-AE-FatimaNeural",
+      language: "ar-AE",
+    });
+  });
+
+  it("wraps Azure Arabic speak in conversational SSML", () => {
+    const ssml = buildSpeakPayload("مرحباً بكم", "Azure.ar-AE-FatimaNeural");
+    expect(ssml.payload_type).toBe("ssml");
+    expect(ssml.payload).toContain("<prosody rate=\"95%\" pitch=\"-2%\">");
+    expect(ssml.payload).toContain("مرحباً بكم");
+    expect(buildSpeakPayload("Hello", "Polly.Joanna-Neural")).toEqual({
+      payload: "Hello",
+      payload_type: "text",
     });
   });
 

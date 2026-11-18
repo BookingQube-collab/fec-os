@@ -6,7 +6,7 @@ export const RECORDING_DISCLOSURE_EN =
 
 /**
  * Gulf/Qatari-leaning recording notice (Arabic).
- * Written for spoken IVR with Polly Hala (ar-AE) — not stiff MSA.
+ * Written for spoken IVR with Azure Fatima Neural (ar-AE Gulf) — not stiff MSA.
  */
 export const RECORDING_DISCLOSURE_AR =
   "للعلم، المكالمة هذي ممكن تنسجل عشان الجودة والتدريب.";
