@@ -33,6 +33,7 @@
     "docs:serve": "mkdocs serve",
     "docs:build": "mkdocs build",
     "test": "vitest run",
+    "ivr:generate-audio": "node scripts/generate-ivr-prompt-audio.mjs",
     "seed:ai-keys": "node --env-file=.env.local scripts/seed-ai-provider-keys.mjs",
     "seed:corporate-deals-w37": "node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs"
   },

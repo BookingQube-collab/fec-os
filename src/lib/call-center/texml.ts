@@ -3,8 +3,9 @@
  * Used when Call Control `Answer` returns 10007 — TeXML answers automatically and plays <Say>/<Gather>.
  */
 
-import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "./ivr-tts-voice";
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
+import { resolvePublicMediaUrl } from "./ivr-oss-prompts";
+import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "./ivr-tts-voice";
 
 export function escapeTexml(text: string): string {
   return text
@@ -36,7 +37,7 @@ function texmlPlayOrSay(input: {
   text?: string;
   audioUrl?: string;
 }): string {
-  const audio = input.audioUrl?.trim() ?? "";
+  const audio = resolvePublicMediaUrl(input.audioUrl);
   if (audio) return `<Play>${escapeTexml(audio)}</Play>`;
   return texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, input.text ?? "", undefined, input.voiceAr);
 }
@@ -58,7 +59,7 @@ export function texmlGatherMenu(input: {
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
-  const audio = input.audioUrl?.trim() ?? "";
+  const audio = resolvePublicMediaUrl(input.audioUrl);
   const gatherBody = audio
     ? `<Play>${escapeTexml(audio)}</Play>`
     : `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>`;
@@ -80,7 +81,7 @@ export function texmlQueueWait(input: {
   /** Shorter pause so Answer→Dial picks up faster on the Redirect loop. */
   pauseSeconds?: number;
 }): string {
-  const hold = input.holdMusicUrl?.trim() ?? "";
+  const hold = resolvePublicMediaUrl(input.holdMusicUrl);
   const pause = Math.max(1, Math.min(12, Math.floor(input.pauseSeconds ?? 3)));
   if (hold) {
     return texmlResponse(

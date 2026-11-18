@@ -30,6 +30,7 @@ import {
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
+import { publicAppOrigin, resolveBridgePromptAudioUrl, resolvePublicMediaUrl } from "./ivr-oss-prompts";
 import { pickSpeakVoice } from "./ivr-tts-voice";
 import {
   preAgentConnectAnnouncement,
@@ -384,7 +385,7 @@ async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promi
 }
 
 async function gather(ctx: Ctx, text: string, audioUrl?: string) {
-  const audio = audioUrl?.trim() ?? "";
+  const audio = resolvePublicMediaUrl(audioUrl);
   if (audio) {
     const ok = await exec(ctx, "gather_audio", (c) =>
       c.gatherUsingAudio(ctx.ccid, audio, { step: "ivr" }),
@@ -424,7 +425,7 @@ async function startHold(ctx: Ctx) {
 /** Welcome prompt (if configured) then hold music while agents ring. */
 async function startQueueWait(ctx: Ctx) {
   const s = ctx.settings;
-  const audio = s?.welcome_audio_url?.trim() ?? "";
+  const audio = resolvePublicMediaUrl(s?.welcome_audio_url);
   // Prefer Welcome greeting text; fall back to TTS greeting text so either field works without MP3s.
   const text = s?.welcome_greeting?.trim() || s?.tts_greeting_text?.trim() || "";
   if (audio) {
@@ -824,10 +825,11 @@ export async function prepareCallerBridge(
   const announcement = preAgentConnectAnnouncement(lang);
   const voice = settings?.tts_voice ?? "";
   const voiceAr = settings?.tts_voice_ar ?? "";
-  const bridgeAudio =
-    (lang === "ar"
-      ? settings?.bridge_prompt_audio_url_ar?.trim()
-      : settings?.bridge_prompt_audio_url_en?.trim()) || "";
+  const bridgeAudio = resolveBridgePromptAudioUrl(
+    lang,
+    settings?.bridge_prompt_audio_url_en,
+    settings?.bridge_prompt_audio_url_ar,
+  );
   const metaPromise = patchMeta(call.id, {
     bridgeInProgress: true,
     bridgeAwaitingAgent: true,
@@ -872,14 +874,6 @@ export async function prepareCallerBridge(
   const prepPromise = ensureLiveKitRoom(roomName).catch(() => undefined);
 
   await Promise.all([metaPromise, promptPromise, prepPromise]);
-}
-
-function publicAppOrigin(): string {
-  const fromEnv =
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.APP_URL?.trim() ||
-    (process.env.VERCEL_URL?.trim() ? `https://${process.env.VERCEL_URL.trim()}` : "");
-  return (fromEnv || "https://e3fec.vercel.app").replace(/\/$/, "");
 }
 
 /**

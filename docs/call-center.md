@@ -248,12 +248,14 @@ Free Polly/Azure Neural on Telnyx is **not** true Qatari speech — it will alwa
 
 | Rank | Approach | Naturalness | Setup |
 | --- | --- | --- | --- |
-| **1 (best)** | **Pre-recorded human prompts** (MP3/WAV) | True Qatari/Gulf if you record or hire talent | IVR Builder → Start/Menu/Play → Audio clip EN + AR (upload or paste HTTPS URL). Settings → Bridge prompt audio EN/AR for recording disclosure + connecting. Live path uses Telnyx `gather_using_audio` / `<Play>`; TTS is fallback when URL empty. |
-| **2** | **ElevenLabs** via Telnyx BYOK | Near-human; dialect depends on voice | 1) ElevenLabs account + API key. 2) Telnyx Mission Control → Integration Secrets → store key. 3) Set `TELNYX_ELEVENLABS_API_KEY_REF=<secret id>` in env. 4) Settings → IVR TTS EN/AR → Custom `ElevenLabs.eleven_multilingual_v2.<voice_id>` (or the example preset). Keep Joanna/Fatima as fallback if the secret is missing. |
-| **3** | Azure Fatima / Polly Joanna (current defaults) | Clear but AI-ish; Fatima is UAE Gulf, not Qatari | No extra keys; Telnyx **premium** TTS. Settings → separate EN + AR voice pickers. |
-| **4** | Self-hosted Coqui / Piper / XTTS | Usually poor on phone for Gulf Arabic; high ops cost | Not integrated; not recommended for this Telnyx IVR. |
+| **1 (best)** | **Pre-recorded human prompts** (MP3/WAV) | True Qatari/Gulf if you record or hire talent | IVR Builder → Start/Menu/Play → Audio clip EN + AR (upload or paste HTTPS URL). Settings → Bridge prompt audio EN/AR for recording disclosure + connecting. Live path uses Telnyx `gather_using_audio` / `<Play>`; TTS is fallback when Play fails. |
+| **2** | **Piper OSS Play URLs** (shipped defaults) | Natural-ish EN; Arabic is Jordanian `ar_JO` (not Qatari) | Clips in `public/ivr/{en,ar}/`. Regenerate with `npm run ivr:generate-audio`. E3 template + bridge settings default to these paths; Telnyx plays absolute `https://<app>/ivr/...`. |
+| **3** | **ElevenLabs** via Telnyx BYOK | Near-human; dialect depends on voice | 1) ElevenLabs account + API key. 2) Telnyx Mission Control → Integration Secrets → store key. 3) Set `TELNYX_ELEVENLABS_API_KEY_REF=<secret id>` in env. 4) Settings → IVR TTS EN/AR → Custom `ElevenLabs.eleven_multilingual_v2.<voice_id>`. |
+| **4** | Azure Fatima / Polly Joanna | Clear but AI-ish; Fatima is UAE Gulf, not Qatari | Fallback when a Play URL is missing or fails. Settings → separate EN + AR voice pickers. |
 
-**Admin can set today:** EN TTS voice, AR TTS voice, Listen preview, welcome/hold URLs, bridge prompt EN/AR URLs, and per-node EN/AR Play URLs on the IVR canvas (Language / Center / Service menus). Apply migration `20261118140000_call_center_ivr_voice_prompts.sql` before saving the new fields.
+**Shipped OSS clips:** `language-menu`, `center-menu`, `service-menu`, `bridge-connecting` for EN + AR. Apply migrations `20261118140000_call_center_ivr_voice_prompts.sql` and `20261118150000_call_center_ivr_oss_prompt_defaults.sql`. Re-apply the E3 IVR template (or rely on label-based OSS fallback) so menu nodes pick up Play URLs. Verify on next inbound: Language menu should `<Play>` `/ivr/en/language-menu.mp3` (absolutized), not Polly Say.
+
+**Admin can set today:** EN TTS voice, AR TTS voice, Listen preview, welcome/hold URLs, bridge prompt EN/AR URLs (defaults to Piper), and per-node EN/AR Play URLs on the IVR canvas.
 
 Local demo ingest:
 

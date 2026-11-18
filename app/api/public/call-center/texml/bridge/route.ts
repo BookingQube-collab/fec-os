@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { findCallByProviderCallId, loadSettingsRow, updateCall } from "@/lib/call-center/db";
+import { resolveBridgePromptAudioUrl } from "@/lib/call-center/ivr-oss-prompts";
 import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "@/lib/call-center/ivr-tts-voice";
 import {
   preAgentConnectAnnouncement,
@@ -73,10 +74,11 @@ export async function POST(request: Request) {
   const forceDisclose = new URL(request.url).searchParams.get("disclose") === "1";
   const alreadyDisclosed = meta.recordingDisclosurePlayed === true && !forceDisclose;
   const playDisclosure = !alreadyDisclosed;
-  const bridgeAudio =
-    (lang === "ar"
-      ? settings?.bridge_prompt_audio_url_ar?.trim()
-      : settings?.bridge_prompt_audio_url_en?.trim()) || "";
+  const bridgeAudio = resolveBridgePromptAudioUrl(
+    lang,
+    settings?.bridge_prompt_audio_url_en,
+    settings?.bridge_prompt_audio_url_ar,
+  );
   if (call && playDisclosure) {
     await updateCall(call.id, {
       metadata: {

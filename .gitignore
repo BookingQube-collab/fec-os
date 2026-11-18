@@ -43,3 +43,10 @@ tsconfig.tsbuildinfo
 
 .vercel
 .env*
+
+# MkDocs (ops manual)
+site/
+.venv-docs/
+
+# Piper TTS cache (downloaded binaries + voice models for IVR audio generation)
+.cache/piper/
