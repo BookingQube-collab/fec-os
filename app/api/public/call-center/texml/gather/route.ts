@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       if (result.phase === "queue") {
         const holdPrompt = "Please hold while we connect you.";
         return xml(
-          texmlQueueWait({
+          await texmlQueueWait({
             holdMusicUrl: settings?.hold_music_url,
             voice: speakVoice(holdPrompt, configuredVoice),
             redirectUrl: holdUrl,
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     );
     const audioUrl = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl.trim() : "";
     return xml(
-      texmlGatherMenu({
+      await texmlGatherMenu({
         actionUrl: gatherUrl,
         timeoutRedirectUrl: holdUrl,
         prompt: greeting,
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
 
     if (conferenceName) {
       return xml(
-        texmlConference({
+        await texmlConference({
           name: conferenceName,
           voice: configuredVoice,
           beep: false,
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
       );
       const audioUrl = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl.trim() : "";
       return xml(
-        texmlGatherMenu({
+        await texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: holdUrl,
           prompt: greeting,
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
     if (result.phase === "queue") {
       const holdPrompt = "Please hold while we connect you.";
       return xml(
-        texmlQueueWait({
+        await texmlQueueWait({
           holdMusicUrl: settings?.hold_music_url,
           voice: speakVoice(holdPrompt, configuredVoice),
           redirectUrl: holdUrl,
@@ -170,7 +170,7 @@ export async function POST(request: Request) {
     );
     const audioUrl = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl.trim() : "";
     return xml(
-      texmlGatherMenu({
+      await texmlGatherMenu({
         actionUrl: gatherUrl,
         timeoutRedirectUrl: holdUrl,
         prompt: greeting,

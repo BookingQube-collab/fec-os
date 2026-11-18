@@ -30,7 +30,11 @@ import {
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
-import { publicAppOrigin, resolveBridgePromptAudioUrl, resolvePublicMediaUrl } from "./ivr-oss-prompts";
+import {
+  publicAppOrigin,
+  resolveBridgePromptAudioUrl,
+  resolvePlayableMediaUrl,
+} from "./ivr-oss-prompts";
 import { pickSpeakVoice } from "./ivr-tts-voice";
 import {
   preAgentConnectAnnouncement,
@@ -385,7 +389,8 @@ async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promi
 }
 
 async function gather(ctx: Ctx, text: string, audioUrl?: string) {
-  const audio = resolvePublicMediaUrl(audioUrl);
+  // Prefer OSS/human Play when the clip is reachable; API failure → TTS Speak (never silent).
+  const audio = await resolvePlayableMediaUrl(audioUrl);
   if (audio) {
     const ok = await exec(ctx, "gather_audio", (c) =>
       c.gatherUsingAudio(ctx.ccid, audio, { step: "ivr" }),
@@ -425,7 +430,7 @@ async function startHold(ctx: Ctx) {
 /** Welcome prompt (if configured) then hold music while agents ring. */
 async function startQueueWait(ctx: Ctx) {
   const s = ctx.settings;
-  const audio = resolvePublicMediaUrl(s?.welcome_audio_url);
+  const audio = await resolvePlayableMediaUrl(s?.welcome_audio_url);
   // Prefer Welcome greeting text; fall back to TTS greeting text so either field works without MP3s.
   const text = s?.welcome_greeting?.trim() || s?.tts_greeting_text?.trim() || "";
   if (audio) {
@@ -825,11 +830,14 @@ export async function prepareCallerBridge(
   const announcement = preAgentConnectAnnouncement(lang);
   const voice = settings?.tts_voice ?? "";
   const voiceAr = settings?.tts_voice_ar ?? "";
-  const bridgeAudio = resolveBridgePromptAudioUrl(
+  const bridgeAudioConfigured = resolveBridgePromptAudioUrl(
     lang,
     settings?.bridge_prompt_audio_url_en,
     settings?.bridge_prompt_audio_url_ar,
   );
+  const bridgeAudio = bridgeAudioConfigured
+    ? await resolvePlayableMediaUrl(bridgeAudioConfigured)
+    : "";
   const metaPromise = patchMeta(call.id, {
     bridgeInProgress: true,
     bridgeAwaitingAgent: true,
@@ -841,7 +849,7 @@ export async function prepareCallerBridge(
     recordingDisclosureLang: lang,
   });
   // Call Control speak fails on TeXML-only legs (10007 path) — skip it.
-  // Prefer human-recorded bridge clip when admin set EN/AR audio URLs.
+  // Prefer human/OSS bridge clip when reachable; otherwise TTS Speak (never silent).
   const promptPromise =
     !isTexml && telnyx && call.providerCallId
       ? (bridgeAudio
@@ -975,15 +983,26 @@ async function transferTexmlCallerToLiveKit(
   // its default "application error / some bug" apology and hang up the PSTN leg.
   // Play Qatar recording disclosure immediately before joining the agent conference.
   const alreadyDisclosed = meta.recordingDisclosurePlayed === true;
-  const confXml = texmlConference({
+  const bridgeClip = alreadyDisclosed
+    ? ""
+    : await resolvePlayableMediaUrl(
+        resolveBridgePromptAudioUrl(
+          lang,
+          settings?.bridge_prompt_audio_url_en,
+          settings?.bridge_prompt_audio_url_ar,
+        ),
+      );
+  const confXml = await texmlConference({
     name: conferenceName,
     voice,
+    voiceAr: settings?.tts_voice_ar,
     beep: false,
     startConferenceOnEnter: true,
     endConferenceOnExit: false,
     maxParticipants: 2,
     participantLabel: "caller",
     preSay: alreadyDisclosed ? undefined : announcement,
+    prePlayUrl: bridgeClip || undefined,
   });
 
   await patchMeta(call.id, {

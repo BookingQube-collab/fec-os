@@ -14942,7 +14942,7 @@
     "bridgePromptAudioUrlAr": "صوت الربط (عربي)",
     "bridgePromptAudioHint": "إشعار التسجيل + «جاري توصيلك» قبل الوكيل. الافتراضي Piper OSS في /ivr/{en,ar}/bridge-connecting.mp3؛ يمكن استبداله بتسجيل قطري. TTS احتياطي إذا فشل التشغيل.",
     "ivrPromptAudioHint": "مقطع قائمة/ترحيب للرد الآلي. المقاطع باللهجة القطرية أفضل من أي TTS.",
-    "naturalVoiceGuideHint": "الافتراضي Piper OSS تحت /ivr (إنجليزي lessac + عربي أردني ar_JO — ليس قطريًا حقيقيًا). للجودة الأفضل: سجّل متحدث محلي وارفع في منشئ الرد الآلي + الربط. أعد التوليد بـ npm run ivr:generate-audio. Polly/Azure احتياطي إذا فشل التشغيل.",
+    "naturalVoiceGuideHint": "الافتراضي Piper OSS 8 كيلو هرتز تحت /ivr (إنجليزي lessac + عربي أردني ar_JO — ليس قطريًا حقيقيًا). للجودة الأفضل: سجّل متحدث محلي وارفع في منشئ الرد الآلي + الربط. أعد التوليد بـ npm run ivr:generate-audio. عطّل بـ IVR_OSS_PLAY_ENABLED=0. Polly/Azure احتياطي إذا فشل التشغيل.",
     "uploadAudio": "رفع",
     "audioUploading": "جارٍ الرفع…",
     "audioUploaded": "تم رفع الصوت — تم ملء الرابط العام. احفظ الإعدادات للتطبيق.",

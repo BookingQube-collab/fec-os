@@ -312,6 +312,7 @@ export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): st
  * then Piper OSS defaults for known E3 menus **only when IVR_OSS_PLAY_ENABLED**.
  * Relative `/ivr/...` paths are absolutized for Telnyx Play (or cleared when OSS Play is off).
  * When empty, Call Control / TeXML use TTS so the IVR is never silent.
+ * Call sites should still run {@link resolvePlayableMediaUrl} before Play.
  */
 export function nodePromptAudioUrl(node: IvrFlowNode | null | undefined, lang: IvrSpeakLang = "en"): string {
   if (!node) return "";
@@ -321,7 +322,7 @@ export function nodePromptAudioUrl(node: IvrFlowNode | null | undefined, lang: I
       ? node.data.audioUrlAr?.trim() || shared
       : node.data.audioUrlEn?.trim() || shared;
   const fallback = defaultOssAudioForNodeLabel(node.data.label, lang);
-  // resolvePublicMediaUrl strips /ivr/ when OSS Play is disabled → TTS path.
+  // resolvePublicMediaUrl strips /ivr/ when OSS Play is explicitly disabled → TTS path.
   return resolvePublicMediaUrl(configured || fallback);
 }
 
@@ -392,7 +393,9 @@ export function buildFecVenuesTemplate(
         greetingText: E3_LANG_GREETING_EN,
         greetingEn: E3_LANG_GREETING_EN,
         greetingAr: E3_LANG_GREETING_AR,
-        // No Piper Play URLs — TeXML Play-only has no TTS fallback; use Polly/Azure.
+        // Piper 8 kHz mono clips — TeXML/Call Control fall back to TTS if unreachable.
+        audioUrlEn: "/ivr/en/language-menu.mp3",
+        audioUrlAr: "/ivr/ar/language-menu.mp3",
       },
     },
     {
@@ -404,6 +407,8 @@ export function buildFecVenuesTemplate(
         greetingText: E3_LANG_GREETING_EN,
         greetingEn: E3_LANG_GREETING_EN,
         greetingAr: E3_LANG_GREETING_AR,
+        audioUrlEn: "/ivr/en/language-menu.mp3",
+        audioUrlAr: "/ivr/ar/language-menu.mp3",
         digits: [
           { digit: "1", label: "English" },
           { digit: "2", label: "العربية" },
@@ -433,6 +438,8 @@ export function buildFecVenuesTemplate(
         greetingText: E3_CENTER_GREETING_EN,
         greetingEn: E3_CENTER_GREETING_EN,
         greetingAr: E3_CENTER_GREETING_AR,
+        audioUrlEn: "/ivr/en/center-menu.mp3",
+        audioUrlAr: "/ivr/ar/center-menu.mp3",
         digits: centers.map((c) => ({
           digit: c.digit,
           label: E3_CENTER_LABELS[c.key].shortEn,
@@ -450,6 +457,8 @@ export function buildFecVenuesTemplate(
         greetingText: E3_CENTER_GREETING_AR,
         greetingEn: E3_CENTER_GREETING_EN,
         greetingAr: E3_CENTER_GREETING_AR,
+        audioUrlEn: "/ivr/en/center-menu.mp3",
+        audioUrlAr: "/ivr/ar/center-menu.mp3",
         digits: centers.map((c) => ({
           digit: c.digit,
           label: E3_CENTER_LABELS[c.key].shortAr,
@@ -500,6 +509,8 @@ export function buildFecVenuesTemplate(
           greetingText: E3_SERVICE_GREETING_EN,
           greetingEn: E3_SERVICE_GREETING_EN,
           greetingAr: E3_SERVICE_GREETING_AR,
+          audioUrlEn: "/ivr/en/service-menu.mp3",
+          audioUrlAr: "/ivr/ar/service-menu.mp3",
           digits: serviceDigits.map((d) => ({ digit: d.digit, label: d.labelEn })),
           timeoutSeconds: 15,
           maxRetries: 2,
@@ -515,6 +526,8 @@ export function buildFecVenuesTemplate(
           greetingText: E3_SERVICE_GREETING_AR,
           greetingEn: E3_SERVICE_GREETING_EN,
           greetingAr: E3_SERVICE_GREETING_AR,
+          audioUrlEn: "/ivr/en/service-menu.mp3",
+          audioUrlAr: "/ivr/ar/service-menu.mp3",
           digits: serviceDigits.map((d) => ({ digit: d.digit, label: d.labelAr })),
           timeoutSeconds: 15,
           maxRetries: 2,

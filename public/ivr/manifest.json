@@ -4,56 +4,74 @@
     "en": "en_US-lessac-medium",
     "ar": "ar_JO-kareem-medium"
   },
-  "note": "Arabic uses Piper ar_JO (Jordanian), not Qatari. Prefer human uploads for dialect.",
-  "generatedAt": "2026-11-18T10:52:31.283Z",
+  "sampleRate": 8000,
+  "channels": 1,
+  "note": "Arabic uses Piper ar_JO (Jordanian), not Qatari. Prefer human uploads for dialect. 8 kHz mono for Telnyx Play.",
+  "generatedAt": "2026-11-18T14:06:32.776Z",
   "clips": [
     {
       "id": "language-menu",
       "lang": "en",
       "path": "/ivr/en/language-menu.mp3",
-      "bytes": 240996
+      "bytes": 181484,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "language-menu",
       "lang": "ar",
       "path": "/ivr/ar/language-menu.mp3",
-      "bytes": 119997
+      "bytes": 89900,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "center-menu",
       "lang": "en",
       "path": "/ivr/en/center-menu.mp3",
-      "bytes": 130864
+      "bytes": 96812,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "center-menu",
       "lang": "ar",
       "path": "/ivr/ar/center-menu.mp3",
-      "bytes": 178720
+      "bytes": 136124,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "service-menu",
       "lang": "en",
       "path": "/ivr/en/service-menu.mp3",
-      "bytes": 220934
+      "bytes": 164636,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "service-menu",
       "lang": "ar",
       "path": "/ivr/ar/service-menu.mp3",
-      "bytes": 313303
+      "bytes": 239804,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "bridge-connecting",
       "lang": "en",
       "path": "/ivr/en/bridge-connecting.mp3",
-      "bytes": 55213
+      "bytes": 43676,
+      "sampleRate": 8000,
+      "channels": 1
     },
     {
       "id": "bridge-connecting",
       "lang": "ar",
       "path": "/ivr/ar/bridge-connecting.mp3",
-      "bytes": 92412
+      "bytes": 70028,
+      "sampleRate": 8000,
+      "channels": 1
     }
   ]
 }

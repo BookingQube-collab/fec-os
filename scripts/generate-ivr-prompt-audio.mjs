@@ -237,8 +237,7 @@ function synthesize(piperBin, voiceOnnx, text, wavOut) {
 
 function wavToMp3(wavPath, mp3Path) {
   mkdirSync(dirname(mp3Path), { recursive: true });
-  // Telnyx call audio is 8 kHz — encode mono 8 kHz MP3 for Play compatibility.
-  // Keep IVR_OSS_PLAY_ENABLED off until a live test call confirms playback.
+  // Telnyx telephony is 8 kHz — encode mono 8 kHz MP3 (22.05 kHz caused silent Play).
   run("ffmpeg", [
     "-y",
     "-i",
@@ -253,6 +252,24 @@ function wavToMp3(wavPath, mp3Path) {
     "1",
     mp3Path,
   ]);
+}
+
+function assertEightKhz(mp3Path) {
+  const probe = spawnSync(
+    "ffprobe",
+    ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", mp3Path],
+    { encoding: "utf8", shell: false },
+  );
+  if (probe.status !== 0) {
+    console.warn(`  warn: ffprobe unavailable — skip sample-rate check for ${mp3Path}`);
+    return;
+  }
+  const [rateRaw, chRaw] = (probe.stdout || "").trim().split(",");
+  const rate = Number(rateRaw);
+  const channels = Number(chRaw);
+  if (rate !== 8000 || channels !== 1) {
+    throw new Error(`${mp3Path} must be 8000 Hz mono (got ${rate} Hz / ${channels} ch)`);
+  }
 }
 
 async function main() {
@@ -277,14 +294,17 @@ async function main() {
     console.log(`→ ${prompt.lang}/${prompt.file}`);
     synthesize(piperBin, voices[prompt.lang].onnx, prompt.text, wavPath);
     wavToMp3(wavPath, mp3Path);
+    assertEightKhz(mp3Path);
     const size = readFileSync(mp3Path).length;
     manifest.push({
       id: prompt.id,
       lang: prompt.lang,
       path: `/ivr/${prompt.lang}/${prompt.file}`,
       bytes: size,
+      sampleRate: 8000,
+      channels: 1,
     });
-    console.log(`  ok ${size} bytes`);
+    console.log(`  ok ${size} bytes (8 kHz mono)`);
   }
 
   writeFileSync(
@@ -293,7 +313,9 @@ async function main() {
       {
         generator: "piper",
         voices: { en: VOICES.en.id, ar: VOICES.ar.id },
-        note: "Arabic uses Piper ar_JO (Jordanian), not Qatari. Prefer human uploads for dialect.",
+        sampleRate: 8000,
+        channels: 1,
+        note: "Arabic uses Piper ar_JO (Jordanian), not Qatari. Prefer human uploads for dialect. 8 kHz mono for Telnyx Play.",
         generatedAt: new Date().toISOString(),
         clips: manifest,
       },
@@ -301,7 +323,7 @@ async function main() {
       2,
     ),
   );
-  console.log("Done. Clips in public/ivr/{en,ar}/");
+  console.log("Done. Clips in public/ivr/{en,ar}/ (8 kHz mono MP3)");
 }
 
 main().catch((err) => {

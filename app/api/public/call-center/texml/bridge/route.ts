@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     if (!call) return xml(texmlHangup(""));
     const holdPrompt = "Please hold while we connect you.";
     return xml(
-      texmlQueueWait({
+      await texmlQueueWait({
         holdMusicUrl: settings?.hold_music_url,
         voice: pickSpeakVoice(holdPrompt, configuredVoice).voice,
         redirectUrl: holdUrl,
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     }).catch(() => undefined);
   }
   return xml(
-    texmlConference({
+    await texmlConference({
       name: conferenceName,
       voice: pickSpeakVoice(announcement, configuredVoice, configuredVoiceAr).voice,
       voiceAr: configuredVoiceAr,

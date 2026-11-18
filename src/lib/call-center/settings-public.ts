@@ -211,8 +211,7 @@ export function toPublicSettings(
     ttsGreetingText:
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",
-    // Do not inject Piper /ivr/ defaults into the admin UI when OSS Play is off —
-    // empty means TTS (Joanna / Fatima) for bridge disclosure.
+    // Empty bridge fields → runtime falls back to Piper /ivr/ defaults when OSS Play is on.
     bridgePromptAudioUrlEn: row?.bridge_prompt_audio_url_en?.trim() ?? "",
     bridgePromptAudioUrlAr: row?.bridge_prompt_audio_url_ar?.trim() ?? "",
     recordAllCalls: row?.record_all_calls !== false,

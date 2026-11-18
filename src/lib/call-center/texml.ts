@@ -4,7 +4,7 @@
  */
 
 import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
-import { resolvePublicMediaUrl } from "./ivr-oss-prompts";
+import { resolvePlayableMediaUrl } from "./ivr-oss-prompts";
 import { DEFAULT_TTS_VOICE, pickSpeakVoice } from "./ivr-tts-voice";
 
 export function escapeTexml(text: string): string {
@@ -31,39 +31,47 @@ function texmlSay(voice: string, text: string, language?: string, voiceAr?: stri
   return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}>${escapeTexml(spoken)}</Say>`;
 }
 
-function texmlPlayOrSay(input: {
+/**
+ * Play when a reachable clip URL is set; otherwise Say.
+ * Never stack Play+Say (would double-speak when Play works).
+ * `continueOnError` keeps the TeXML script alive if Telnyx cannot decode the clip
+ * so the Gather timeout Say / Redirect path still runs (never aborts into silence).
+ */
+async function texmlPlayOrSay(input: {
   voice?: string;
   voiceAr?: string;
   text?: string;
   audioUrl?: string;
-}): string {
-  // Play-only has no automatic TTS fallback in TeXML. resolvePublicMediaUrl
-  // clears unreliable Piper /ivr/ URLs unless IVR_OSS_PLAY_ENABLED=1.
-  const audio = resolvePublicMediaUrl(input.audioUrl);
-  if (audio) return `<Play>${escapeTexml(audio)}</Play>`;
+}): Promise<string> {
+  const audio = await resolvePlayableMediaUrl(input.audioUrl);
+  if (audio) {
+    return `<Play continueOnError="true">${escapeTexml(audio)}</Play>`;
+  }
   return texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, input.text ?? "", undefined, input.voiceAr);
 }
 
-export function texmlGatherMenu(input: {
+export async function texmlGatherMenu(input: {
   actionUrl: string;
   /** Where to send the caller if gather times out (usually the inbound TeXML URL). */
   timeoutRedirectUrl: string;
   prompt: string;
   voice?: string;
   voiceAr?: string;
-  /** When set, Play this clip inside Gather instead of TTS Say. */
+  /** When set, Play this clip inside Gather instead of TTS Say (after reachability check). */
   audioUrl?: string;
   language?: string;
-}): string {
+}): Promise<string> {
   const promptRaw = refreshStaleE3ArabicPrompt(input.prompt.trim() || "Please choose an option.");
   const picked = pickSpeakVoice(promptRaw, input.voice, input.voiceAr);
   const voice = picked.voice;
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
-  const audio = resolvePublicMediaUrl(input.audioUrl);
+  // Reachable Play URL → Piper/human clip. Unreachable / OSS-off → Say (never silent).
+  // Do not nest Say after Play: Telnyx continues after successful Play and would double-speak.
+  const audio = await resolvePlayableMediaUrl(input.audioUrl);
   const gatherBody = audio
-    ? `<Play>${escapeTexml(audio)}</Play>`
+    ? `<Play continueOnError="true">${escapeTexml(audio)}</Play>`
     : `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>`;
   // Timeout line is English — use Polly Joanna (not Arabic Fatima).
   const timeoutVoice = DEFAULT_TTS_VOICE;
@@ -76,21 +84,22 @@ export function texmlGatherMenu(input: {
   );
 }
 
-export function texmlQueueWait(input: {
+export async function texmlQueueWait(input: {
   holdMusicUrl?: string;
   voice?: string;
   redirectUrl: string;
   /** Shorter pause so Answer→Dial picks up faster on the Redirect loop. */
   pauseSeconds?: number;
-}): string {
-  const hold = resolvePublicMediaUrl(input.holdMusicUrl);
+}): Promise<string> {
+  const hold = await resolvePlayableMediaUrl(input.holdMusicUrl);
   const pause = Math.max(1, Math.min(12, Math.floor(input.pauseSeconds ?? 3)));
   if (hold) {
     return texmlResponse(
-      `<Play loop="1">${escapeTexml(hold)}</Play>` +
+      `<Play loop="1" continueOnError="true">${escapeTexml(hold)}</Play>` +
         `<Redirect method="POST">${escapeTexml(input.redirectUrl)}</Redirect>`,
     );
   }
+  // Hold URL missing/unreachable — speak hold prompt (never silent loop).
   const holdPrompt = "Please hold while we connect you.";
   return texmlResponse(
     texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, holdPrompt) +
@@ -100,7 +109,7 @@ export function texmlQueueWait(input: {
 }
 
 /** Put the live TeXML PSTN leg into a named conference (same call — no customer redial). */
-export function texmlConference(input: {
+export async function texmlConference(input: {
   name: string;
   voice?: string;
   beep?: boolean;
@@ -116,7 +125,7 @@ export function texmlConference(input: {
   voiceAr?: string;
   /** When set, Play this clip before Dial instead of TTS preSay. */
   prePlayUrl?: string;
-}): string {
+}): Promise<string> {
   const name = input.name.trim();
   const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
   if (!name) {
@@ -137,7 +146,7 @@ export function texmlConference(input: {
   ]
     .filter(Boolean)
     .join(" ");
-  const preface = texmlPlayOrSay({
+  const preface = await texmlPlayOrSay({
     voice,
     voiceAr: input.voiceAr,
     text: input.preSay ?? "",

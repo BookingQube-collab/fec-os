@@ -156,7 +156,7 @@ export async function POST(request: Request) {
           `[call-center/texml] conference join leg from=${ids.from} to=${ids.to} conf=${confName}`,
         );
         return xml(
-          texmlConference({
+          await texmlConference({
             name: confName,
             voice: configuredVoice,
             beep: false,
@@ -220,7 +220,7 @@ export async function POST(request: Request) {
       (call.status === "answered" || call.status === "held" || prev.bridgePendingSip)
     ) {
       return xml(
-        texmlConference({
+        await texmlConference({
           name: conferenceName,
           voice: configuredVoice,
           beep: false,
@@ -238,7 +238,7 @@ export async function POST(request: Request) {
       );
       const audioUrl = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl.trim() : "";
       return xml(
-        texmlGatherMenu({
+        await texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: selfUrl,
           prompt: greeting,
@@ -252,7 +252,7 @@ export async function POST(request: Request) {
     // queued / ringing / offered / connecting — hold until agent Answers.
     const holdPrompt = "Please hold while we connect you.";
     return xml(
-      texmlQueueWait({
+      await texmlQueueWait({
         holdMusicUrl: settings?.hold_music_url,
         voice: speakVoice(holdPrompt, configuredVoice),
         redirectUrl: selfUrl,

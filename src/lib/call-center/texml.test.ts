@@ -1,16 +1,34 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 
 import {
   texmlCallIds,
   texmlConference,
   texmlDialSip,
+  texmlGatherMenu,
   texmlQueueWait,
   updateTexmlCall,
 } from "./texml";
 
 describe("texmlConference", () => {
-  it("puts the live leg into a named conference without redial", () => {
-    const xml = texmlConference({
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("cdn.example") || url.includes("/ivr/")) {
+          return new Response(null, { status: 200 });
+        }
+        return new Response(null, { status: 404 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("puts the live leg into a named conference without redial", async () => {
+    const xml = await texmlConference({
       name: "fecabc123",
       beep: false,
       endConferenceOnExit: false,
@@ -22,8 +40,8 @@ describe("texmlConference", () => {
     expect(xml).toContain('maxParticipants="2"');
   });
 
-  it("prepends recording disclosure Say before Dial when preSay is set", () => {
-    const xml = texmlConference({
+  it("prepends recording disclosure Say before Dial when preSay is set", async () => {
+    const xml = await texmlConference({
       name: "fecabc123",
       voice: "Polly.Joanna-Neural",
       preSay: "Please note that this call may be recorded for quality and training purposes.",
@@ -40,8 +58,8 @@ describe("texmlConference", () => {
     expect(xml.indexOf("<Say")).toBeLessThan(xml.indexOf("<Dial>"));
   });
 
-  it("rewrites stale MSA Arabic preSay to Gulf copy and picks Azure Fatima", () => {
-    const xml = texmlConference({
+  it("rewrites stale MSA Arabic preSay to Gulf copy and picks Azure Fatima", async () => {
+    const xml = await texmlConference({
       name: "fecabc123",
       voice: "Polly.Joanna-Neural",
       preSay: "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.",
@@ -53,19 +71,73 @@ describe("texmlConference", () => {
     expect(xml).not.toContain("<prosody");
   });
 
-  it("prefers prePlayUrl over TTS preSay for human bridge clips", () => {
-    const xml = texmlConference({
+  it("prefers prePlayUrl over TTS preSay for human bridge clips", async () => {
+    const xml = await texmlConference({
       name: "fecabc123",
       voice: "Polly.Joanna-Neural",
       preSay: "Please note that this call may be recorded.",
       prePlayUrl: "https://cdn.example/bridge-en.mp3",
     });
-    expect(xml).toContain("<Play>https://cdn.example/bridge-en.mp3</Play>");
+    expect(xml).toContain(
+      '<Play continueOnError="true">https://cdn.example/bridge-en.mp3</Play>',
+    );
     expect(xml).not.toContain("Please note that this call may be recorded.");
     expect(xml.indexOf("<Play")).toBeLessThan(xml.indexOf("<Dial>"));
   });
+
+  it("falls back to Say when prePlayUrl is unreachable", async () => {
+    const xml = await texmlConference({
+      name: "fecabc123",
+      voice: "Polly.Joanna-Neural",
+      preSay: "Please note that this call may be recorded.",
+      prePlayUrl: "https://missing.example/gone.mp3",
+    });
+    expect(xml).not.toContain("<Play>");
+    expect(xml).toContain("Please note that this call may be recorded.");
+  });
 });
 
+describe("texmlGatherMenu", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("cdn.example")) return new Response(null, { status: 200 });
+        return new Response(null, { status: 404 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("plays reachable audio without stacking Say", async () => {
+    const xml = await texmlGatherMenu({
+      actionUrl: "https://example.com/gather",
+      timeoutRedirectUrl: "https://example.com/texml",
+      prompt: "For English press 1.",
+      voice: "Polly.Joanna-Neural",
+      audioUrl: "https://cdn.example/lang.mp3",
+    });
+    expect(xml).toContain('<Play continueOnError="true">https://cdn.example/lang.mp3</Play>');
+    expect(xml).not.toContain("For English press 1.");
+    expect(xml).toContain("We did not receive any input.");
+  });
+
+  it("uses Say when audio URL is unreachable", async () => {
+    const xml = await texmlGatherMenu({
+      actionUrl: "https://example.com/gather",
+      timeoutRedirectUrl: "https://example.com/texml",
+      prompt: "For English press 1.",
+      voice: "Polly.Joanna-Neural",
+      audioUrl: "https://missing.example/lang.mp3",
+    });
+    expect(xml).not.toContain("<Play>");
+    expect(xml).toContain("For English press 1.");
+  });
+});
 
 describe("texmlDialSip", () => {
   it("emits Dial Sip with answerOnBridge and no pre-Dial Speak", () => {
@@ -79,13 +151,17 @@ describe("texmlDialSip", () => {
     );
     expect(xml).toContain("<Sip>sip:abc123@k4xpy1vcnur.us.sip.livekit.cloud</Sip>");
     expect(xml).not.toContain("Connecting you now.");
-    expect(xml).toContain("<Redirect method=\"POST\">https://example.com/texml</Redirect>");
+    expect(xml).toContain('<Redirect method="POST">https://example.com/texml</Redirect>');
   });
 });
 
 describe("texmlQueueWait", () => {
-  it("uses a short pause by default for faster Answer pickup", () => {
-    const xml = texmlQueueWait({
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uses a short pause by default for faster Answer pickup", async () => {
+    const xml = await texmlQueueWait({
       redirectUrl: "https://example.com/texml",
     });
     expect(xml).toContain('<Pause length="3"/>');
@@ -111,11 +187,12 @@ describe("updateTexmlCall", () => {
   });
 
   it("posts Status=completed as form-urlencoded (not JSON)", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ status: "completed" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "completed" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
