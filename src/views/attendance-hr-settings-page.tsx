@@ -313,11 +313,16 @@ export default function AttendanceHrSettingsPage() {
       return result.data;
     },
     onSuccess: (result) => {
-      toast.success(
-        result.cleared > 0
-          ? t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared })
-          : t("attendanceHr.settings.clearStuckTestNone"),
-      );
+      const clearedFetch = Boolean((result as { clearedFetch?: boolean }).clearedFetch);
+      if (result.cleared > 0 && clearedFetch) {
+        toast.success(t("attendanceHr.settings.clearStuckTestAndFetchDone", { count: result.cleared }));
+      } else if (result.cleared > 0) {
+        toast.success(t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared }));
+      } else if (clearedFetch) {
+        toast.success(t("attendanceHr.settings.clearStuckFetchDone"));
+      } else {
+        toast.success(t("attendanceHr.settings.clearStuckTestNone"));
+      }
       invalidateAttendanceBootstrap(qc);
     },
     onError: (e: Error) =>

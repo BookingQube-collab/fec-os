@@ -1,8 +1,11 @@
 import { ADMS_ONLINE_WINDOW_MS, isAdmsDeviceOnline } from "./constants";
 import { formatAdmsGetRequestCommand } from "./parse-adms";
 
-/** Browser poll budget. The status API finalizes the row; the request itself does not wait. */
-export const ADMS_CONNECTION_TEST_TIMEOUT_MS = 30_000;
+/**
+ * How long a connection test stays open waiting for a live ADMS poll.
+ * Handshake Delay=120s — budget one poll interval plus margin before DEVICE_STALE.
+ */
+export const ADMS_CONNECTION_TEST_TIMEOUT_MS = 150_000;
 /** One finished test must settle before the next one is queued for the same device. */
 export const ADMS_CONNECTION_TEST_COOLDOWN_MS = 15_000;
 /**
@@ -27,6 +30,7 @@ export type AdmsDiagnosisCode =
   | "SERIAL_MISMATCH"
   | "SERVER_ERROR"
   | "DEVICE_STALE"
+  | "NO_COMMAND_POLL"
   | "REGISTRATION_FAILED";
 
 export const ADMS_DIAGNOSIS_MESSAGES: Record<AdmsDiagnosisCode, string> = {
@@ -38,7 +42,10 @@ export const ADMS_DIAGNOSIS_MESSAGES: Record<AdmsDiagnosisCode, string> = {
   COMMAND_NOT_ACKNOWLEDGED: "Command was delivered to the terminal but no acknowledgement was received.",
   SERIAL_MISMATCH: "Requests are arriving from a serial number different from the serial configured for this device.",
   SERVER_ERROR: "FEC-OS ADMS endpoint returned an error.",
-  DEVICE_STALE: "Device was previously online but communication has stopped.",
+  DEVICE_STALE:
+    "Device was previously online but has not contacted FEC-OS recently. Confirm venue Wi‑Fi, Cloud Server host/port 443, then reboot the terminal and run the test again.",
+  NO_COMMAND_POLL:
+    "Venue Wi‑Fi can be fine while ADMS Cloud Server polling is broken. Last contact was handshake/upload (cdata) only — this terminal has not polled /iclock/getrequest, so Fetch commands cannot be delivered. Re-check Cloud Server host/port 443, reboot, then wait until Last endpoint shows getrequest.",
   REGISTRATION_FAILED: "Device registration is incomplete.",
 };
 
@@ -301,14 +308,22 @@ export function admsOpenTestPollAction(
   return "record";
 }
 
+function waitingForLiveContact(facts: AdmsConnectionTestFacts): boolean {
+  if (!facts.queuedAt) return false;
+  const queued = new Date(facts.queuedAt).getTime();
+  if (!Number.isFinite(queued)) return false;
+  const timeoutMs = facts.timeoutMs > 0 ? facts.timeoutMs : ADMS_CONNECTION_TEST_TIMEOUT_MS;
+  return facts.now - queued < timeoutMs;
+}
+
 function resolveDiagnosis(facts: AdmsConnectionTestFacts): {
   status: AdmsTestStatus;
   diagnosis: AdmsDiagnosis | null;
 } {
-  const messageFor = (code: AdmsDiagnosisCode): AdmsDiagnosis => ({
+  const messageFor = (code: AdmsDiagnosisCode, provisional = false): AdmsDiagnosis => ({
     code,
     message: diagnosisMessage(code, facts.registrationIssues),
-    provisional: false,
+    provisional,
   });
 
   if (!facts.registrationOk) {
@@ -320,11 +335,23 @@ function resolveDiagnosis(facts: AdmsConnectionTestFacts): {
   if (facts.serialMismatch && facts.contactClass !== "online") {
     return { status: "failed", diagnosis: messageFor("SERIAL_MISMATCH") };
   }
-  if (facts.contactClass === "online") {
+  // A poll during this open window counts even if last_adms_at had been stale at start.
+  if (facts.contactClass === "online" || facts.contactedDuringTest) {
     return { status: "passed", diagnosis: messageFor("CONNECTED") };
   }
+  const waiting = waitingForLiveContact(facts);
   if (facts.contactClass === "stale") {
+    if (waiting) {
+      return { status: "running", diagnosis: messageFor("DEVICE_STALE", true) };
+    }
+    // age >5m and last hit was handshake/upload only — Wi‑Fi OK ≠ command polling
+    if (facts.lastEndpoint && !isAdmsCommandPollEndpoint(facts.lastEndpoint)) {
+      return { status: "failed", diagnosis: messageFor("NO_COMMAND_POLL") };
+    }
     return { status: "failed", diagnosis: messageFor("DEVICE_STALE") };
+  }
+  if (waiting) {
+    return { status: "running", diagnosis: messageFor("NEVER_CONNECTED", true) };
   }
   return { status: "failed", diagnosis: messageFor("NEVER_CONNECTED") };
 }
@@ -364,11 +391,17 @@ export function buildAdmsTestStages(facts: AdmsConnectionTestFacts): AdmsTestSta
 
 export function evaluateAdmsConnectionTest(facts: AdmsConnectionTestFacts): AdmsConnectionEvaluation {
   const resolved = resolveDiagnosis(facts);
+  const timedOut =
+    resolved.status === "failed" &&
+    Boolean(facts.queuedAt) &&
+    !waitingForLiveContact(facts) &&
+    (facts.contactClass === "stale" || facts.contactClass === "never_connected") &&
+    !facts.contactedDuringTest;
   return {
     status: resolved.status,
     diagnosis: resolved.diagnosis,
     stages: buildAdmsTestStages(facts),
-    timedOut: false,
+    timedOut,
     roundTripMs: null,
   };
 }

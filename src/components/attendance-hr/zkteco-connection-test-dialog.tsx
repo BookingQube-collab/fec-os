@@ -62,6 +62,7 @@ const DIAGNOSIS_LABEL: Record<AdmsDiagnosisCode, string> = {
   SERIAL_MISMATCH: "attendanceHr.settings.diagnosisSerialMismatch",
   SERVER_ERROR: "attendanceHr.settings.diagnosisServerError",
   DEVICE_STALE: "attendanceHr.settings.diagnosisDeviceStale",
+  NO_COMMAND_POLL: "attendanceHr.settings.diagnosisNoCommandPoll",
   REGISTRATION_FAILED: "attendanceHr.settings.diagnosisRegistration",
 };
 
@@ -131,11 +132,16 @@ export function ZktecoConnectionTestDialog({
       return result.data;
     },
     onSuccess: (result) => {
-      toast.success(
-        result.cleared > 0
-          ? t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared })
-          : t("attendanceHr.settings.clearStuckTestNone"),
-      );
+      const clearedFetch = Boolean((result as { clearedFetch?: boolean }).clearedFetch);
+      if (result.cleared > 0 && clearedFetch) {
+        toast.success(t("attendanceHr.settings.clearStuckTestAndFetchDone", { count: result.cleared }));
+      } else if (result.cleared > 0) {
+        toast.success(t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared }));
+      } else if (clearedFetch) {
+        toast.success(t("attendanceHr.settings.clearStuckFetchDone"));
+      } else {
+        toast.success(t("attendanceHr.settings.clearStuckTestNone"));
+      }
       invalidateAttendanceBootstrap(qc);
       if (device) start.mutate(device.id);
     },
@@ -239,6 +245,15 @@ export function ZktecoConnectionTestDialog({
               </p>
             ) : null}
 
+            {testing && (view.contactClass === "stale" || view.contactClass === "never_connected") ? (
+              <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.testPollHint")}</p>
+            ) : null}
+
+            {(diagnosisCode === "DEVICE_STALE" || diagnosisCode === "NO_COMMAND_POLL") &&
+            !view.diagnosis?.provisional ? (
+              <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.diagnosisDeviceStaleSteps")}</p>
+            ) : null}
+
             <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.clearStuckTestHint")}</p>
 
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
@@ -254,6 +269,8 @@ export function ZktecoConnectionTestDialog({
               <dd>{formatWhen(view.lastContactAt)}</dd>
               <dt className="text-muted-foreground">{t("attendanceHr.settings.testLastEndpoint")}</dt>
               <dd className="font-mono">{view.lastEndpoint || "—"}</dd>
+              <dt className="text-muted-foreground">{t("attendanceHr.settings.testLastSourceIp")}</dt>
+              <dd className="font-mono">{view.lastSourceIp || "—"}</dd>
             </dl>
 
             <div className="space-y-1">

@@ -212,14 +212,30 @@ describe("evaluateAdmsConnectionTest", () => {
       false,
     );
 
-    const stalePolled = evaluateAdmsConnectionTest(
+    const staleWaiting = evaluateAdmsConnectionTest(
       facts({
         queuedAt: new Date(NOW - 5_000).toISOString(),
         contactClass: "stale",
         lastEndpoint: "getrequest",
       }),
     );
+    expect(staleWaiting.status).toBe("running");
+    expect(staleWaiting.timedOut).toBe(false);
+    expect(staleWaiting.diagnosis).toMatchObject({
+      code: "DEVICE_STALE",
+      message: ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE,
+      provisional: true,
+    });
+
+    const stalePolled = evaluateAdmsConnectionTest(
+      facts({
+        queuedAt: new Date(NOW - ADMS_CONNECTION_TEST_TIMEOUT_MS).toISOString(),
+        contactClass: "stale",
+        lastEndpoint: "getrequest",
+      }),
+    );
     expect(stalePolled.status).toBe("failed");
+    expect(stalePolled.timedOut).toBe(true);
     expect(stalePolled.diagnosis).toMatchObject({
       code: "DEVICE_STALE",
       message: ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE,
@@ -233,12 +249,30 @@ describe("evaluateAdmsConnectionTest", () => {
     ]);
     expect(stalePolled.stages.some((stage) => stage.state === "warn" || stage.state === "pending")).toBe(false);
 
+    const staleLiveContact = evaluateAdmsConnectionTest(
+      facts({
+        queuedAt: new Date(NOW - 5_000).toISOString(),
+        contactClass: "stale",
+        contactedDuringTest: true,
+        lastEndpoint: "getrequest",
+      }),
+    );
+    expect(staleLiveContact.status).toBe("passed");
+    expect(staleLiveContact.diagnosis?.code).toBe("CONNECTED");
+
     const staleHandshakeOnly = evaluateAdmsConnectionTest(
       facts({ contactClass: "stale", lastEndpoint: "cdata", queuedAt: null }),
     );
-    expect(staleHandshakeOnly.diagnosis?.code).toBe("DEVICE_STALE");
+    expect(staleHandshakeOnly.status).toBe("failed");
+    expect(staleHandshakeOnly.diagnosis?.code).toBe("NO_COMMAND_POLL");
+    expect(staleHandshakeOnly.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.NO_COMMAND_POLL);
     expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("pass");
     expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
+
+    const staleNoEndpoint = evaluateAdmsConnectionTest(
+      facts({ contactClass: "stale", lastEndpoint: null, queuedAt: null }),
+    );
+    expect(staleNoEndpoint.diagnosis?.code).toBe("DEVICE_STALE");
 
     const never = evaluateAdmsConnectionTest(facts({ contactClass: "never_connected", queuedAt: null }));
     expect(never.status).toBe("failed");
@@ -246,6 +280,15 @@ describe("evaluateAdmsConnectionTest", () => {
     expect(never.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.NEVER_CONNECTED);
     expect(never.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("fail");
     expect(never.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
+
+    const neverWaiting = evaluateAdmsConnectionTest(
+      facts({
+        contactClass: "never_connected",
+        queuedAt: new Date(NOW - 5_000).toISOString(),
+      }),
+    );
+    expect(neverWaiting.status).toBe("running");
+    expect(neverWaiting.diagnosis).toMatchObject({ code: "NEVER_CONNECTED", provisional: true });
 
     const neverWithEndpoint = evaluateAdmsConnectionTest(
       facts({ contactClass: "never_connected", lastEndpoint: "getrequest", queuedAt: null }),
@@ -355,7 +398,7 @@ describe("connection test rate limit", () => {
     expect(
       connectionTestStartBlock({
         now: NOW,
-        active: { queuedAt: new Date(NOW - 5_000).toISOString(), timeoutMs: 30_000 },
+        active: { queuedAt: new Date(NOW - 5_000).toISOString(), timeoutMs: ADMS_CONNECTION_TEST_TIMEOUT_MS },
       }),
     ).toEqual({ allowed: false, reason: "active" });
     expect(
@@ -368,7 +411,10 @@ describe("connection test rate limit", () => {
     expect(
       connectionTestStartBlock({
         now: NOW,
-        active: { queuedAt: new Date(NOW - 31_000).toISOString(), timeoutMs: 30_000 },
+        active: {
+          queuedAt: new Date(NOW - ADMS_CONNECTION_TEST_TIMEOUT_MS - 1_000).toISOString(),
+          timeoutMs: ADMS_CONNECTION_TEST_TIMEOUT_MS,
+        },
         lastCompletedAt: new Date(NOW - 60_000).toISOString(),
       }).allowed,
     ).toBe(true);

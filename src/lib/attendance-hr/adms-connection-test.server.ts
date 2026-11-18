@@ -493,17 +493,20 @@ export async function startAdmsConnectionTest(
     active: device.active,
   });
   const contactClass = classifyAdmsContact(device.last_adms_at);
+  const queuedAt = new Date().toISOString();
+  // Online devices finalize immediately. Stale / never-connected stay open until a live
+  // poll arrives or ADMS_CONNECTION_TEST_TIMEOUT_MS elapses (covers Delay=120s).
   const inserted = await sb
     .from("attendance_adms_connection_tests")
     .insert({
       device_id: device.id,
       location_id: device.location_id,
       serial_number: device.serial_number?.trim() || null,
-      status: "queued",
+      status: contactClass === "online" ? "queued" : "running",
       diagnosis: null,
       command_id: null,
       command_body: null,
-      queued_at: null,
+      queued_at: queuedAt,
       timeout_ms: ADMS_CONNECTION_TEST_TIMEOUT_MS,
       last_contact_at: device.last_adms_at,
       last_endpoint: device.last_adms_endpoint,
@@ -549,6 +552,7 @@ export async function clearStuckAdmsConnectionTests(
   deviceId: string,
 ): Promise<{
   cleared: number;
+  clearedFetch: boolean;
   contactClass: AdmsContactClass;
   lastContactAt: string | null;
   lastEndpoint: string | null;
@@ -604,8 +608,39 @@ export async function clearStuckAdmsConnectionTests(
       });
     }
   }
+  // Undelivered punch fetches sit forever while the terminal is offline. Clearing
+  // them with the stuck test removes the "waiting for /iclock/getrequest" banner.
+  let clearedFetch = false;
+  const pending = await sb
+    .from("attendance_devices")
+    .select("adms_pending_cmd")
+    .eq("id", deviceId)
+    .maybeSingle();
+  if (!pending.error && String((pending.data as { adms_pending_cmd?: string | null } | null)?.adms_pending_cmd ?? "").trim()) {
+    const { error: fetchErr } = await sb
+      .from("attendance_devices")
+      .update({ adms_pending_cmd: null, adms_cmd_queued_at: null })
+      .eq("id", deviceId);
+    if (fetchErr && !/adms_pending_cmd|adms_cmd_queued_at/i.test(fetchErr.message)) {
+      throw fetchErr;
+    }
+    if (!fetchErr) {
+      clearedFetch = true;
+      await logEvent(sb, {
+        deviceId,
+        locationId: device.location_id,
+        serialNumber: device.serial_number,
+        testId: null,
+        eventType: "fetch_cleared",
+        endpoint: device.last_adms_endpoint,
+        result: "cleared",
+        metadata: { mode: "clear_stuck_fetch" },
+      });
+    }
+  }
   return {
     cleared: stuck.length,
+    clearedFetch,
     contactClass: classifyAdmsContact(device.last_adms_at),
     lastContactAt: device.last_adms_at,
     lastEndpoint: device.last_adms_endpoint,
