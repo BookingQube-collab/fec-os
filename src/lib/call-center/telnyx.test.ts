@@ -95,6 +95,14 @@ describe("client state + voice", () => {
       voice: "Polly.Joanna-Neural",
       language: "en-US",
     });
+    // Explicit Settings AR voice wins over EN Joanna for Arabic text.
+    expect(
+      pickSpeakVoice(
+        "مرحباً بكم في إي ثري اختر اللغة",
+        "Polly.Joanna-Neural",
+        "ElevenLabs.eleven_multilingual_v2.abc123",
+      ).voice,
+    ).toBe("ElevenLabs.eleven_multilingual_v2.abc123");
     // Bilingual Language menu must stay en-US so DTMF barge-in works for digit 0.
     expect(
       pickSpeakVoice(

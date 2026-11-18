@@ -20,14 +20,25 @@ export function texmlResponse(body: string): string {
 }
 
 /** Build `<Say>` with voice (+ language when useful for Azure/alice; Polly ignores language). */
-function texmlSay(voice: string, text: string, language?: string): string {
+function texmlSay(voice: string, text: string, language?: string, voiceAr?: string): string {
   const spoken = refreshStaleE3ArabicPrompt(text).trim();
   if (!spoken) return "";
-  const picked = pickSpeakVoice(spoken, voice);
+  const picked = pickSpeakVoice(spoken, voice, voiceAr);
   const lang = language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   // Always escape plain text — never nest SSML inside TeXML <Say> (caused silence).
   return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}>${escapeTexml(spoken)}</Say>`;
+}
+
+function texmlPlayOrSay(input: {
+  voice?: string;
+  voiceAr?: string;
+  text?: string;
+  audioUrl?: string;
+}): string {
+  const audio = input.audioUrl?.trim() ?? "";
+  if (audio) return `<Play>${escapeTexml(audio)}</Play>`;
+  return texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, input.text ?? "", undefined, input.voiceAr);
 }
 
 export function texmlGatherMenu(input: {
@@ -36,19 +47,26 @@ export function texmlGatherMenu(input: {
   timeoutRedirectUrl: string;
   prompt: string;
   voice?: string;
+  voiceAr?: string;
+  /** When set, Play this clip inside Gather instead of TTS Say. */
+  audioUrl?: string;
   language?: string;
 }): string {
   const promptRaw = refreshStaleE3ArabicPrompt(input.prompt.trim() || "Please choose an option.");
-  const picked = pickSpeakVoice(promptRaw, input.voice);
+  const picked = pickSpeakVoice(promptRaw, input.voice, input.voiceAr);
   const voice = picked.voice;
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
+  const audio = input.audioUrl?.trim() ?? "";
+  const gatherBody = audio
+    ? `<Play>${escapeTexml(audio)}</Play>`
+    : `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>`;
   // Timeout line is English — use Polly Joanna (not Arabic Fatima).
   const timeoutVoice = DEFAULT_TTS_VOICE;
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
-      `<Say voice="${escapeTexml(voice)}"${langAttr}>${prompt}</Say>` +
+      gatherBody +
       `</Gather>` +
       `<Say voice="${escapeTexml(timeoutVoice)}" language="en-US">We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
@@ -91,6 +109,10 @@ export function texmlConference(input: {
   participantLabel?: string;
   /** Optional TTS before Dial (e.g. Qatar recording disclosure). */
   preSay?: string;
+  /** Optional Arabic TTS voice when preSay is Arabic-majority. */
+  voiceAr?: string;
+  /** When set, Play this clip before Dial instead of TTS preSay. */
+  prePlayUrl?: string;
 }): string {
   const name = input.name.trim();
   const voice = input.voice?.trim() || DEFAULT_TTS_VOICE;
@@ -112,7 +134,12 @@ export function texmlConference(input: {
   ]
     .filter(Boolean)
     .join(" ");
-  const preface = texmlSay(voice, input.preSay ?? "");
+  const preface = texmlPlayOrSay({
+    voice,
+    voiceAr: input.voiceAr,
+    text: input.preSay ?? "",
+    audioUrl: input.prePlayUrl,
+  });
   return texmlResponse(
     `${preface}<Dial><Conference ${attrs}>${escapeTexml(name)}</Conference></Dial>`,
   );

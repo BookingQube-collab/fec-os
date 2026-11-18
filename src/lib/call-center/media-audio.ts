@@ -3,7 +3,7 @@
 export const CALL_CENTER_MEDIA_BUCKET = "call-center-media";
 export const CALL_CENTER_MEDIA_MAX_BYTES = 8 * 1024 * 1024;
 
-export const CALL_CENTER_AUDIO_KINDS = ["welcome", "hold"] as const;
+export const CALL_CENTER_AUDIO_KINDS = ["welcome", "hold", "ivr", "bridge"] as const;
 export type CallCenterAudioKind = (typeof CALL_CENTER_AUDIO_KINDS)[number];
 
 const AUDIO_MIME_BY_EXT: Record<string, string> = {

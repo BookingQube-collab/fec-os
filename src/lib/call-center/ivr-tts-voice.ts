@@ -4,13 +4,12 @@
  * English → AWS Polly Joanna Neural (proven on this PSTN path; Multilingual Azure caused silence).
  * Arabic → Azure Fatima Neural (UAE Gulf ar-AE). Polly Hala/Zayd/Zeina auto-upgrade.
  *
+ * For true Qatari accent: prefer recorded MP3/WAV Play URLs on IVR nodes / bridge settings.
+ * Best near-human TTS upgrade: ElevenLabs.* + TELNYX_ELEVENLABS_API_KEY_REF (paid).
+ *
  * SSML / telecom EQ / voiceSpeed are intentionally NOT applied: nesting SSML inside TeXML
  * `<Say>` and sending Azure `voice_settings.effect` correlated with total inbound silence
  * after 210cbb1. Plain text + known-good voice ids restore audio.
- *
- * ElevenLabs is supported when voice is `ElevenLabs.*` and
- * `TELNYX_ELEVENLABS_API_KEY_REF` points at a Telnyx Integration Secret — not the default
- * (needs a paid ElevenLabs key stored in Telnyx Mission Control).
  *
  * Call Control / TeXML accept `Polly.*` and `Azure.*` without BYOK on Telnyx premium TTS.
  */
@@ -110,22 +109,43 @@ export type TtsVoicePreset = {
 
 /** Presets shown in Call Center → Settings (plus free-text custom). */
 export const TTS_VOICE_PRESETS: TtsVoicePreset[] = [
-  { id: "Polly.Joanna-Neural", label: "Polly Joanna Neural (EN female — recommended)" },
+  { id: "Polly.Joanna-Neural", label: "Polly Joanna Neural (EN female — default)" },
   { id: "Polly.Matthew-Neural", label: "Polly Matthew Neural (EN male)" },
   { id: "Polly.Amy-Neural", label: "Polly Amy Neural (EN-GB female)" },
   { id: "Polly.Brian-Neural", label: "Polly Brian Neural (EN-GB male)" },
   {
     id: "Azure.ar-AE-FatimaNeural",
-    label: "Azure Fatima Neural (AR female — UAE Gulf, recommended)",
+    label: "Azure Fatima Neural (AR female — UAE Gulf, default)",
   },
   { id: "Azure.ar-AE-HamdanNeural", label: "Azure Hamdan Neural (AR male — UAE Gulf)" },
   { id: "Azure.en-US-JennyNeural", label: "Azure Jenny Neural (EN female)" },
   { id: "Azure.en-US-GuyNeural", label: "Azure Guy Neural (EN male)" },
   { id: "Polly.Hala-Neural", label: "Polly Hala Neural (AR female — Gulf; legacy, more synthetic)" },
   { id: "Polly.Zayd-Neural", label: "Polly Zayd Neural (AR male — Gulf; legacy)" },
+  {
+    id: "ElevenLabs.eleven_multilingual_v2.EXAVITQu4vr4xnSDxMaL",
+    label: "ElevenLabs multilingual (example — needs TELNYX_ELEVENLABS_API_KEY_REF + your voice id)",
+  },
   { id: "female", label: "Telnyx basic female (legacy)" },
   { id: "male", label: "Telnyx basic male (legacy)" },
 ];
+
+/** English-oriented presets (Settings EN picker). */
+export const TTS_VOICE_PRESETS_EN: TtsVoicePreset[] = TTS_VOICE_PRESETS.filter(
+  (p) =>
+    !/^Azure\.ar[-_]/i.test(p.id) &&
+    !/^(AWS\.)?Polly\.(Hala|Zayd|Zeina)/i.test(p.id),
+);
+
+/** Arabic-oriented presets (Settings AR picker). */
+export const TTS_VOICE_PRESETS_AR: TtsVoicePreset[] = TTS_VOICE_PRESETS.filter(
+  (p) =>
+    /^Azure\.ar[-_]/i.test(p.id) ||
+    /^(AWS\.)?Polly\.(Hala|Zayd|Zeina)/i.test(p.id) ||
+    /^ElevenLabs\./i.test(p.id) ||
+    p.id === "female" ||
+    p.id === "male",
+);
 
 /** Strip AWS. prefix — Call Control speak uses Polly.* (REST TTS uses AWS.Polly.*). */
 function toCallControlVoiceId(voice: string): string {
@@ -190,25 +210,37 @@ export function arabicTtsLanguageForVoice(voice: string): string {
 
 /**
  * Pick Telnyx voice/language for speak / gather_using_speak.
- * English → Polly Joanna (or configured EN voice; Multilingual Azure remapped).
- * Arabic-majority → Azure Fatima (auto-upgrades Polly Hala/Zayd/Zeina).
+ * English → Settings EN voice (default Polly Joanna; Multilingual Azure remapped).
+ * Arabic-majority → Settings AR voice when set (default Azure Fatima); else EN voice with
+ * auto-upgrade of Polly Hala/Zayd/Zeina → Fatima/Hamdan.
  * Mixed Language menus stay en-US with the EN voice.
  */
 export function pickSpeakVoice(
   text: string,
   configuredVoice?: string,
+  configuredVoiceAr?: string,
 ): { voice: string; language: string } {
-  const configured = normalizeConfiguredTtsVoice(configuredVoice);
+  const configuredEn = normalizeConfiguredTtsVoice(configuredVoice);
+  const arRaw = configuredVoiceAr?.trim() ?? "";
+  const configuredAr = arRaw ? normalizeConfiguredTtsVoice(arRaw) : "";
 
   if (!isArabicText(text)) {
     // Don't leave English prompts on an Arabic-only saved voice (e.g. Polly.Hala / Fatima).
-    if (isArabicOnlyVoice(configured)) {
+    if (isArabicOnlyVoice(configuredEn)) {
       return { voice: DEFAULT_TTS_VOICE, language: "en-US" };
     }
-    return { voice: configured, language: "en-US" };
+    return { voice: configuredEn, language: "en-US" };
   }
 
+  // Prefer explicit Arabic voice from Settings when present.
+  const configured = configuredAr || configuredEn;
+
   if (configured === "male" || configured === "female") {
+    return { voice: configured, language: DEFAULT_AR_TTS_LANGUAGE };
+  }
+
+  // Explicit ElevenLabs AR (or shared) voice — keep as selected (needs Telnyx secret).
+  if (/^ElevenLabs\./i.test(configured)) {
     return { voice: configured, language: DEFAULT_AR_TTS_LANGUAGE };
   }
 
@@ -219,10 +251,11 @@ export function pickSpeakVoice(
   }
 
   if (isArabicCapableVoice(configured)) {
-    // EN Azure / Polly must not speak Arabic menus — switch to Fatima.
+    // EN Azure / Polly must not speak Arabic menus — switch to Fatima
+    // (unless an explicit AR voice was configured separately).
     if (
+      !configuredAr &&
       !isArabicOnlyVoice(configured) &&
-      !/^ElevenLabs\./i.test(configured) &&
       configured !== "male" &&
       configured !== "female"
     ) {

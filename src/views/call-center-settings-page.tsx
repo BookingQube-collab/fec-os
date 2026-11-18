@@ -39,8 +39,11 @@ import {
   saveCallCenterWhatsappTemplate,
 } from "@/lib/call-center/call-center.functions";
 import {
+  DEFAULT_AR_TTS_VOICE,
   DEFAULT_TTS_VOICE,
   TTS_VOICE_PRESETS,
+  TTS_VOICE_PRESETS_AR,
+  TTS_VOICE_PRESETS_EN,
 } from "@/lib/call-center/ivr-tts-voice";
 import { recoverMisplacedOutboundSipHost } from "@/lib/call-center/sip-ids";
 import type { CallCenterSettingsPublic } from "@/lib/call-center/types";
@@ -49,6 +52,8 @@ import { CallCenterShell } from "@/views/call-center-section-nav";
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 const TTS_PRESET_IDS = new Set(TTS_VOICE_PRESETS.map((p) => p.id));
+const TTS_PRESET_IDS_EN = new Set(TTS_VOICE_PRESETS_EN.map((p) => p.id));
+const TTS_PRESET_IDS_AR = new Set(TTS_VOICE_PRESETS_AR.map((p) => p.id));
 
 type SectionTag = { label: string; variant?: "secondary" | "outline" | "info" | "muted" };
 
@@ -158,7 +163,10 @@ function CallCenterSettingsPage() {
   const [holdMusicUrl, setHoldMusicUrl] = useState("");
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsVoice, setTtsVoice] = useState(DEFAULT_TTS_VOICE);
+  const [ttsVoiceAr, setTtsVoiceAr] = useState(DEFAULT_AR_TTS_VOICE);
   const [ttsGreetingText, setTtsGreetingText] = useState("");
+  const [bridgePromptAudioUrlEn, setBridgePromptAudioUrlEn] = useState("");
+  const [bridgePromptAudioUrlAr, setBridgePromptAudioUrlAr] = useState("");
   const [recordAllCalls, setRecordAllCalls] = useState(true);
   const [recordingStorageBaseUrl, setRecordingStorageBaseUrl] = useState("");
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
@@ -213,7 +221,10 @@ function CallCenterSettingsPage() {
     setHoldMusicUrl(s.holdMusicUrl);
     setTtsEnabled(s.ttsEnabled);
     setTtsVoice(s.ttsVoice);
+    setTtsVoiceAr(s.ttsVoiceAr || DEFAULT_AR_TTS_VOICE);
     setTtsGreetingText(s.ttsGreetingText);
+    setBridgePromptAudioUrlEn(s.bridgePromptAudioUrlEn ?? "");
+    setBridgePromptAudioUrlAr(s.bridgePromptAudioUrlAr ?? "");
     setRecordAllCalls(s.recordAllCalls !== false);
     setRecordingStorageBaseUrl(s.recordingStorageBaseUrl ?? "");
     setWhatsappEnabled(s.whatsappEnabled);
@@ -355,7 +366,10 @@ function CallCenterSettingsPage() {
       holdMusicUrl,
       ttsEnabled,
       ttsVoice,
+      ttsVoiceAr,
       ttsGreetingText,
+      bridgePromptAudioUrlEn,
+      bridgePromptAudioUrlAr,
       recordAllCalls,
       recordingStorageBaseUrl,
       whatsappEnabled,
@@ -564,10 +578,10 @@ function CallCenterSettingsPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>{t("callCenter.ttsVoice")}</Label>
+                <Label>{t("callCenter.ttsVoiceEn")}</Label>
                 <div className="flex gap-2">
                   <Select
-                    value={TTS_PRESET_IDS.has(ttsVoice) ? ttsVoice : "__custom__"}
+                    value={TTS_PRESET_IDS_EN.has(ttsVoice) || TTS_PRESET_IDS.has(ttsVoice) ? ttsVoice : "__custom__"}
                     onValueChange={(v) => {
                       if (v === "__custom__") {
                         setTtsVoice((prev) => (TTS_PRESET_IDS.has(prev) ? "" : prev));
@@ -580,7 +594,7 @@ function CallCenterSettingsPage() {
                       <SelectValue placeholder={DEFAULT_TTS_VOICE} />
                     </SelectTrigger>
                     <SelectContent>
-                      {TTS_VOICE_PRESETS.map((p) => (
+                      {TTS_VOICE_PRESETS_EN.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           {p.label}
                         </SelectItem>
@@ -648,14 +662,117 @@ function CallCenterSettingsPage() {
                     className="mt-2"
                   />
                 ) : null}
-                <p className="text-xs text-muted-foreground">{t("callCenter.ttsVoiceHint")}</p>
-                <p className="text-xs text-muted-foreground">{t("callCenter.ttsPreviewHint")}</p>
               </div>
               <div className="space-y-1.5">
-                <Label>{t("callCenter.ttsGreetingText")}</Label>
-                <Input value={ttsGreetingText} onChange={(e) => setTtsGreetingText(e.target.value)} />
+                <Label>{t("callCenter.ttsVoiceAr")}</Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={TTS_PRESET_IDS_AR.has(ttsVoiceAr) || TTS_PRESET_IDS.has(ttsVoiceAr) ? ttsVoiceAr : "__custom__"}
+                    onValueChange={(v) => {
+                      if (v === "__custom__") {
+                        setTtsVoiceAr((prev) => (TTS_PRESET_IDS.has(prev) ? "" : prev));
+                        return;
+                      }
+                      setTtsVoiceAr(v);
+                    }}
+                  >
+                    <SelectTrigger className="min-w-0 flex-1">
+                      <SelectValue placeholder={DEFAULT_AR_TTS_VOICE} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TTS_VOICE_PRESETS_AR.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">{t("callCenter.ttsVoiceCustom")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    disabled={!canEdit || previewingTts || !ttsVoiceAr.trim()}
+                    onClick={() => {
+                      void (async () => {
+                        setPreviewingTts(true);
+                        try {
+                          if (ttsPreviewAudioRef.current) {
+                            ttsPreviewAudioRef.current.pause();
+                            ttsPreviewAudioRef.current = null;
+                          }
+                          if (ttsPreviewUrlRef.current) {
+                            URL.revokeObjectURL(ttsPreviewUrlRef.current);
+                            ttsPreviewUrlRef.current = null;
+                          }
+                          const result = await previewCallCenterTtsVoice({
+                            voice: ttsVoiceAr.trim() || DEFAULT_AR_TTS_VOICE,
+                            text: "مرحباً بكم في إي ثري. اختر من القائمة.",
+                          });
+                          if (!result.ok) throw new Error(result.error);
+                          const binary = atob(result.data.dataBase64);
+                          const bytes = new Uint8Array(binary.length);
+                          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+                          const blob = new Blob([bytes], {
+                            type: result.data.contentType || "audio/mpeg",
+                          });
+                          const objectUrl = URL.createObjectURL(blob);
+                          ttsPreviewUrlRef.current = objectUrl;
+                          const audio = new Audio(objectUrl);
+                          ttsPreviewAudioRef.current = audio;
+                          audio.onended = () => {
+                            URL.revokeObjectURL(objectUrl);
+                            if (ttsPreviewUrlRef.current === objectUrl) ttsPreviewUrlRef.current = null;
+                          };
+                          await audio.play();
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error ? error.message : t("callCenter.ttsPreviewFailed"),
+                          );
+                        } finally {
+                          setPreviewingTts(false);
+                        }
+                      })();
+                    }}
+                  >
+                    <Volume2 className="size-3.5" aria-hidden />
+                    {previewingTts ? t("callCenter.ttsPreviewing") : t("callCenter.ttsPreview")}
+                  </Button>
+                </div>
+                {!TTS_PRESET_IDS.has(ttsVoiceAr) ? (
+                  <Input
+                    value={ttsVoiceAr}
+                    onChange={(e) => setTtsVoiceAr(e.target.value)}
+                    placeholder="Azure.ar-AE-FatimaNeural"
+                    className="mt-2"
+                  />
+                ) : null}
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.ttsVoiceHint")}</p>
+            <p className="text-xs text-muted-foreground">{t("callCenter.ttsPreviewHint")}</p>
+            <div className="space-y-1.5">
+              <Label>{t("callCenter.ttsGreetingText")}</Label>
+              <Input value={ttsGreetingText} onChange={(e) => setTtsGreetingText(e.target.value)} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <CallCenterAudioUrlField
+                kind="bridge"
+                label={t("callCenter.bridgePromptAudioUrlEn")}
+                value={bridgePromptAudioUrlEn}
+                onChange={setBridgePromptAudioUrlEn}
+                disabled={!canEdit}
+              />
+              <CallCenterAudioUrlField
+                kind="bridge"
+                label={t("callCenter.bridgePromptAudioUrlAr")}
+                value={bridgePromptAudioUrlAr}
+                onChange={setBridgePromptAudioUrlAr}
+                disabled={!canEdit}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t("callCenter.naturalVoiceGuideHint")}</p>
           </section>
 
           <section className="space-y-3 rounded-2xl border border-border/50 bg-card p-4 sm:p-5">

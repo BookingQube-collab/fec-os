@@ -137,7 +137,7 @@ async function startAdminGatewayAiPrompt(ctx: Ctx, call: CallCenterCall) {
       : "To speak with a human agent, press zero.";
   const spoken = clip(`${welcome} ${gatherHint}`);
   await exec(ctx, "ai_welcome_gather", (c) =>
-    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ai_session" }, voiceOf(ctx)),
+    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ai_session" }, voiceOf(ctx), voiceArOf(ctx)),
   );
   await patchMeta(call.id, { aiWelcomeSpoken: true });
 }
@@ -309,6 +309,10 @@ function voiceOf(ctx: Ctx): string {
   return ctx.settings?.tts_voice ?? "";
 }
 
+function voiceArOf(ctx: Ctx): string {
+  return ctx.settings?.tts_voice_ar ?? "";
+}
+
 /** Telnyx uses `incoming`; some payloads use `inbound`. Empty = unknown (allow). */
 function isInboundTelnyxDirection(direction: string | undefined): boolean {
   const dir = (direction ?? "").trim().toLowerCase();
@@ -390,7 +394,7 @@ async function gather(ctx: Ctx, text: string, audioUrl?: string) {
   // Rewrite known MSA defaults still sitting in call metadata / saved graphs.
   const spoken = clip(refreshStaleE3ArabicPrompt(text)) || DEFAULT_IVR_PROMPT;
   await exec(ctx, "gather", (c) =>
-    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ivr" }, voiceOf(ctx)),
+    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ivr" }, voiceOf(ctx), voiceArOf(ctx)),
   );
 }
 
@@ -400,7 +404,9 @@ async function speakThenHangup(ctx: Ctx, text: string) {
     await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
     return;
   }
-  const ok = await exec(ctx, "speak", (c) => c.speak(ctx.ccid, prompt, { step: "final" }, voiceOf(ctx)));
+  const ok = await exec(ctx, "speak", (c) =>
+    c.speak(ctx.ccid, prompt, { step: "final" }, voiceOf(ctx), voiceArOf(ctx)),
+  );
   if (!ok) await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
 }
 
@@ -425,7 +431,9 @@ async function startQueueWait(ctx: Ctx) {
     const ok = await exec(ctx, "welcome_audio", (c) => c.playbackStart(ctx.ccid, audio, { step: "welcome" }, false));
     if (ok) return;
   } else if (s?.tts_enabled && text) {
-    const ok = await exec(ctx, "welcome_speak", (c) => c.speak(ctx.ccid, clip(text), { step: "welcome" }, voiceOf(ctx)));
+    const ok = await exec(ctx, "welcome_speak", (c) =>
+      c.speak(ctx.ccid, clip(text), { step: "welcome" }, voiceOf(ctx), voiceArOf(ctx)),
+    );
     if (ok) return;
   }
   await startHold(ctx);
@@ -672,7 +680,7 @@ export async function handleTelnyxEvent(
           (typeof meta.aiGatherPrompt === "string" && meta.aiGatherPrompt.trim()) ||
           "To speak with a human agent, press zero.";
         await exec(ctx, "ai_reprompt", (c) =>
-          c.gatherUsingSpeak(ctx.ccid, clip(hint), { step: "ai_session" }, voiceOf(ctx)),
+          c.gatherUsingSpeak(ctx.ccid, clip(hint), { step: "ai_session" }, voiceOf(ctx), voiceArOf(ctx)),
         );
         return done(true, "AI session waiting", call.id);
       }
@@ -815,6 +823,11 @@ export async function prepareCallerBridge(
   const lang = resolveCallerSpeakLang(meta);
   const announcement = preAgentConnectAnnouncement(lang);
   const voice = settings?.tts_voice ?? "";
+  const voiceAr = settings?.tts_voice_ar ?? "";
+  const bridgeAudio =
+    (lang === "ar"
+      ? settings?.bridge_prompt_audio_url_ar?.trim()
+      : settings?.bridge_prompt_audio_url_en?.trim()) || "";
   const metaPromise = patchMeta(call.id, {
     bridgeInProgress: true,
     bridgeAwaitingAgent: true,
@@ -826,11 +839,35 @@ export async function prepareCallerBridge(
     recordingDisclosureLang: lang,
   });
   // Call Control speak fails on TeXML-only legs (10007 path) — skip it.
+  // Prefer human-recorded bridge clip when admin set EN/AR audio URLs.
   const promptPromise =
     !isTexml && telnyx && call.providerCallId
-      ? telnyx
-          .speak(call.providerCallId, announcement, { step: "connecting", callId: call.id }, voice)
-          .catch(() => undefined)
+      ? (bridgeAudio
+          ? telnyx
+              .playbackStart(
+                call.providerCallId,
+                bridgeAudio,
+                { step: "connecting", callId: call.id },
+                false,
+              )
+              .catch(() =>
+                telnyx.speak(
+                  call.providerCallId!,
+                  announcement,
+                  { step: "connecting", callId: call.id },
+                  voice,
+                  voiceAr,
+                ),
+              )
+          : telnyx
+              .speak(
+                call.providerCallId,
+                announcement,
+                { step: "connecting", callId: call.id },
+                voice,
+                voiceAr,
+              )
+        ).catch(() => undefined)
       : Promise.resolve(undefined);
   const prepPromise = ensureLiveKitRoom(roomName).catch(() => undefined);
 
@@ -871,7 +908,7 @@ async function transferTexmlCallerToLiveKit(
   const apiKey = resolveTelnyxApiKey(settings);
   const lang = resolveCallerSpeakLang(meta);
   const announcement = preAgentConnectAnnouncement(lang);
-  const voice = pickSpeakVoice(announcement, settings?.tts_voice).voice;
+  const voice = pickSpeakVoice(announcement, settings?.tts_voice, settings?.tts_voice_ar).voice;
   const conferenceName = `fec${call.id.replace(/-/g, "").slice(0, 28)}`;
   const joinDid =
     settings?.outbound_caller_id_e164?.trim() ||
@@ -1231,6 +1268,7 @@ async function restoreHoldAfterBridgeFailure(
         "We are still trying to connect you. Please stay on the line.",
         { step: "bridge_failed" },
         voice,
+        settings?.tts_voice_ar ?? "",
       )
       .catch(() => undefined);
   }

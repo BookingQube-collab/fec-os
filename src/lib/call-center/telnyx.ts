@@ -207,8 +207,9 @@ export function createTelnyxClient(apiKey: string) {
       text: string,
       clientState: Record<string, unknown>,
       configuredVoice?: string,
+      configuredVoiceAr?: string,
     ) => {
-      const picked = pickSpeakVoice(text, configuredVoice);
+      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr);
       const spoken = buildSpeakPayload(text, picked.voice);
       const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice);
       const body = {
@@ -240,8 +241,9 @@ export function createTelnyxClient(apiKey: string) {
       text: string,
       clientState: Record<string, unknown>,
       configuredVoice?: string,
+      configuredVoiceAr?: string,
     ) => {
-      const picked = pickSpeakVoice(text, configuredVoice);
+      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr);
       const spoken = buildSpeakPayload(text, picked.voice);
       const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice);
       const body = {

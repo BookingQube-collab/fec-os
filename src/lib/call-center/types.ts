@@ -141,7 +141,13 @@ export type CallCenterSettingsRow = {
   hold_music_url: string;
   tts_enabled: boolean;
   tts_voice: string;
+  /** Arabic-majority IVR speak voice (Azure Fatima / ElevenLabs / …). */
+  tts_voice_ar: string;
   tts_greeting_text: string;
+  /** Human-recorded EN bridge prompt (recording disclosure + connecting). */
+  bridge_prompt_audio_url_en: string;
+  /** Human-recorded AR/Qatari bridge prompt (recording disclosure + connecting). */
+  bridge_prompt_audio_url_ar: string;
   /** When true (default), auto-start LiveKit egress on answer / outbound dial. */
   record_all_calls: boolean;
   /**
@@ -252,7 +258,10 @@ export type CallCenterSettingsPublic = {
   holdMusicUrl: string;
   ttsEnabled: boolean;
   ttsVoice: string;
+  ttsVoiceAr: string;
   ttsGreetingText: string;
+  bridgePromptAudioUrlEn: string;
+  bridgePromptAudioUrlAr: string;
   /** Auto-start LiveKit room recording on every bridged/outbound call. */
   recordAllCalls: boolean;
   /** Public base URL for egress/CDN recordings (no trailing slash required). */

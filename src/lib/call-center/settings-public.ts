@@ -207,9 +207,12 @@ export function toPublicSettings(
     holdMusicUrl: row?.hold_music_url?.trim() ?? "",
     ttsEnabled: Boolean(row?.tts_enabled),
     ttsVoice: normalizeConfiguredTtsVoice(row?.tts_voice),
+    ttsVoiceAr: normalizeConfiguredTtsVoice(row?.tts_voice_ar || "Azure.ar-AE-FatimaNeural"),
     ttsGreetingText:
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",
+    bridgePromptAudioUrlEn: row?.bridge_prompt_audio_url_en?.trim() ?? "",
+    bridgePromptAudioUrlAr: row?.bridge_prompt_audio_url_ar?.trim() ?? "",
     recordAllCalls: row?.record_all_calls !== false,
     recordingStorageBaseUrl: row?.recording_storage_base_url?.trim() ?? "",
     instagramEnabled: Boolean(row?.instagram_enabled),

@@ -35,6 +35,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { CallCenterAudioUrlField } from "@/components/call-center/audio-url-field";
 import { FecButton as Button } from "@/components/fec";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -272,16 +273,30 @@ function Inspector({
               placeholder="النص بالعربية…"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Audio clip URL</Label>
-            <Input
+          <div className="space-y-3">
+            <CallCenterAudioUrlField
+              kind="ivr"
+              label="Audio clip (English)"
+              value={data.audioUrlEn ?? data.audioUrl ?? ""}
+              onChange={(url) =>
+                patch({
+                  audioUrlEn: url,
+                  // Keep shared audioUrl for older graphs / TeXML fallbacks.
+                  audioUrl: data.audioUrlAr?.trim() ? data.audioUrl : url,
+                })
+              }
               disabled={!canEdit}
-              value={data.audioUrl ?? ""}
-              onChange={(e) => patch({ audioUrl: e.target.value.trim() })}
-              placeholder="https://…/prompt.mp3"
+            />
+            <CallCenterAudioUrlField
+              kind="ivr"
+              label="Audio clip (Arabic / Qatari)"
+              value={data.audioUrlAr ?? ""}
+              onChange={(url) => patch({ audioUrlAr: url })}
+              disabled={!canEdit}
             />
             <p className="text-[0.7rem] text-muted-foreground">
-              Optional. When set, Call Control prefers this clip over TTS text.
+              Optional. When set, live IVR plays this clip instead of TTS (gold standard for natural
+              Qatari Arabic). Leave blank to keep Polly/Azure/ElevenLabs speak.
             </p>
           </div>
         </div>
@@ -322,13 +337,25 @@ function Inspector({
               placeholder="النص بالعربية…"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Audio clip URL</Label>
-            <Input
+          <div className="space-y-3">
+            <CallCenterAudioUrlField
+              kind="ivr"
+              label="Audio clip (English)"
+              value={data.audioUrlEn ?? data.audioUrl ?? ""}
+              onChange={(url) =>
+                patch({
+                  audioUrlEn: url,
+                  audioUrl: data.audioUrlAr?.trim() ? data.audioUrl : url,
+                })
+              }
               disabled={!canEdit}
-              value={data.audioUrl ?? ""}
-              onChange={(e) => patch({ audioUrl: e.target.value.trim() })}
-              placeholder="https://…/prompt.mp3"
+            />
+            <CallCenterAudioUrlField
+              kind="ivr"
+              label="Audio clip (Arabic / Qatari)"
+              value={data.audioUrlAr ?? ""}
+              onChange={(url) => patch({ audioUrlAr: url })}
+              disabled={!canEdit}
             />
           </div>
         </div>

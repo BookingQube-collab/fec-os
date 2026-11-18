@@ -52,6 +52,18 @@ describe("texmlConference", () => {
     expect(xml).not.toContain("effect=");
     expect(xml).not.toContain("<prosody");
   });
+
+  it("prefers prePlayUrl over TTS preSay for human bridge clips", () => {
+    const xml = texmlConference({
+      name: "fecabc123",
+      voice: "Polly.Joanna-Neural",
+      preSay: "Please note that this call may be recorded.",
+      prePlayUrl: "https://cdn.example/bridge-en.mp3",
+    });
+    expect(xml).toContain("<Play>https://cdn.example/bridge-en.mp3</Play>");
+    expect(xml).not.toContain("Please note that this call may be recorded.");
+    expect(xml.indexOf("<Play")).toBeLessThan(xml.indexOf("<Dial>"));
+  });
 });
 
 

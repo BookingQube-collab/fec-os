@@ -33,6 +33,7 @@ import {
   followDefaultEdge,
   followDigitEdge,
   followHandleEdge,
+  nodePromptAudioUrl,
   nodeSpokenText,
   recoverDigitZeroAgentNode,
   type IvrFlowJson,
@@ -362,9 +363,9 @@ export async function routeInboundCall(input: {
           : menu.greetingText || "IVR menu active.",
       );
       const audioUrl =
-        start?.data.audioUrl?.trim() ||
-        entry?.data.audioUrl?.trim() ||
-        "";
+        nodePromptAudioUrl(speakNode, "en") ||
+        nodePromptAudioUrl(entry, "en") ||
+        nodePromptAudioUrl(start, "en");
       const call = await createCall({
         direction: "inbound",
         status: "ivr",
@@ -385,7 +386,7 @@ export async function routeInboundCall(input: {
           ivrNodeId: entry?.id ?? start?.id ?? null,
           ivrGreeting: greeting,
           ivrLanguage: "en" as IvrSpeakLang,
-          ...(audioUrl ? { ivrAudioUrl: audioUrl } : {}),
+          ivrAudioUrl: audioUrl || null,
         },
       });
       return {
@@ -505,6 +506,7 @@ async function resolveTerminalIvrNode(params: {
             : "en";
       // Must use language-aware fields (greetingAr), not English-only greetingText.
       const greeting = refreshStaleE3ArabicPrompt(nodeSpokenText(current, ivrLanguage));
+      const audioUrl = nodePromptAudioUrl(current, ivrLanguage);
       const updated = await updateCall(call.id, {
         status: "ivr",
         ivrDigit: digit,
@@ -513,6 +515,7 @@ async function resolveTerminalIvrNode(params: {
           ivrNodeId: current.id,
           ivrGreeting: greeting,
           ivrLanguage,
+          ivrAudioUrl: audioUrl || null,
         },
       });
       return { call: updated, offeredUserIds: [], phase: "ivr", message: greeting };
@@ -803,10 +806,10 @@ export async function applyIvrDigit(callId: string, digit: string): Promise<Inbo
     if (!nextMenu) throw new Error("Nested IVR menu not found.");
     const nextEntry = findEntryInteractiveNode(nextMenu.flowJson);
     const nextStart = findStartNode(nextMenu.flowJson);
-    const nextAudio =
-      nextStart?.data.audioUrl?.trim() || nextEntry?.data.audioUrl?.trim() || "";
     const nextLang: IvrSpeakLang =
       meta.ivrLanguage === "ar" || meta.ivrLanguage === "en" ? meta.ivrLanguage : "en";
+    const nextAudio =
+      nodePromptAudioUrl(nextEntry, nextLang) || nodePromptAudioUrl(nextStart, nextLang);
     const nextGreeting = refreshStaleE3ArabicPrompt(
       nextEntry
         ? nodeSpokenText(nextEntry, nextLang)

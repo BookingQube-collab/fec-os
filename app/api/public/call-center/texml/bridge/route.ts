@@ -42,6 +42,7 @@ export async function POST(request: Request) {
   const ids = texmlCallIds(form);
   const settings = await loadSettingsRow();
   const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
+  const configuredVoiceAr = settings?.tts_voice_ar?.trim() || "";
   const holdUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
   const confFromQuery = new URL(request.url).searchParams.get("conf")?.trim() || "";
 
@@ -72,6 +73,10 @@ export async function POST(request: Request) {
   const forceDisclose = new URL(request.url).searchParams.get("disclose") === "1";
   const alreadyDisclosed = meta.recordingDisclosurePlayed === true && !forceDisclose;
   const playDisclosure = !alreadyDisclosed;
+  const bridgeAudio =
+    (lang === "ar"
+      ? settings?.bridge_prompt_audio_url_ar?.trim()
+      : settings?.bridge_prompt_audio_url_en?.trim()) || "";
   if (call && playDisclosure) {
     await updateCall(call.id, {
       metadata: {
@@ -84,13 +89,15 @@ export async function POST(request: Request) {
   return xml(
     texmlConference({
       name: conferenceName,
-      voice: pickSpeakVoice(announcement, configuredVoice).voice,
+      voice: pickSpeakVoice(announcement, configuredVoice, configuredVoiceAr).voice,
+      voiceAr: configuredVoiceAr,
       beep: false,
       startConferenceOnEnter: true,
       endConferenceOnExit: false,
       maxParticipants: 2,
       participantLabel: "caller",
-      preSay: playDisclosure ? announcement : undefined,
+      preSay: playDisclosure && !bridgeAudio ? announcement : undefined,
+      prePlayUrl: playDisclosure && bridgeAudio ? bridgeAudio : undefined,
     }),
   );
 }

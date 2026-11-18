@@ -94,6 +94,17 @@ export function CallCenterAudioUrlField({ kind, label, value, onChange, disabled
           {uploading ? t("callCenter.audioUploading") : t("callCenter.uploadAudio")}
         </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        {kind === "welcome"
+          ? t("callCenter.welcomeAudioUrlHint")
+          : kind === "hold"
+            ? t("callCenter.holdMusicUrlHint")
+            : kind === "bridge"
+              ? t("callCenter.bridgePromptAudioHint")
+              : kind === "ivr"
+                ? t("callCenter.ivrPromptAudioHint")
+                : t("callCenter.audioUploadHint")}
+      </p>
       <p className="text-xs text-muted-foreground">{t("callCenter.audioUploadHint")}</p>
     </div>
   );

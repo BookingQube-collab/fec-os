@@ -45,8 +45,12 @@ export type IvrNodeData = {
   greetingAr?: string;
   messageEn?: string;
   messageAr?: string;
-  /** Optional clip URL for play/start/menu prompts (Call Control playback when set). */
+  /** Optional shared clip URL for play/start/menu prompts (Call Control playback when set). */
   audioUrl?: string;
+  /** Optional English clip; preferred over audioUrl when IVR language is EN. */
+  audioUrlEn?: string;
+  /** Optional Arabic / Qatari clip; preferred over audioUrl when IVR language is AR. */
+  audioUrlAr?: string;
   digits?: IvrMenuDigit[];
   queueId?: string | null;
   agentUserId?: string | null;
@@ -153,6 +157,8 @@ export function parseIvrFlowJson(raw: unknown): IvrFlowJson {
             ? refreshStaleE3ArabicPrompt(String(dataRaw.messageAr))
             : undefined,
         audioUrl: dataRaw.audioUrl != null ? String(dataRaw.audioUrl) : undefined,
+        audioUrlEn: dataRaw.audioUrlEn != null ? String(dataRaw.audioUrlEn) : undefined,
+        audioUrlAr: dataRaw.audioUrlAr != null ? String(dataRaw.audioUrlAr) : undefined,
         digits: digitsRaw
           ?.filter((d): d is Record<string, unknown> => Boolean(d) && typeof d === "object")
           .map((d) => ({
@@ -297,6 +303,20 @@ export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): st
     node.data.label ||
     ""
   );
+}
+
+/**
+ * Resolve a pre-recorded prompt URL for a node.
+ * Prefers language-specific clips; falls back to shared audioUrl.
+ * When set, Call Control uses gather_using_audio / playback instead of TTS.
+ */
+export function nodePromptAudioUrl(node: IvrFlowNode | null | undefined, lang: IvrSpeakLang = "en"): string {
+  if (!node) return "";
+  const shared = node.data.audioUrl?.trim() ?? "";
+  if (lang === "ar") {
+    return node.data.audioUrlAr?.trim() || shared;
+  }
+  return node.data.audioUrlEn?.trim() || shared;
 }
 
 export type FecVenueQueueMap = {

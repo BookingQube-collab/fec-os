@@ -20,8 +20,16 @@ import {
 } from "@/lib/call-center/texml";
 import { assertCallCenterWebhook } from "@/lib/call-center/webhook-auth";
 
-function speakVoice(prompt: string, configured?: string | null): string {
-  return pickSpeakVoice(refreshStaleE3ArabicPrompt(prompt), configured ?? undefined).voice;
+function speakVoice(
+  prompt: string,
+  configured?: string | null,
+  configuredAr?: string | null,
+): string {
+  return pickSpeakVoice(
+    refreshStaleE3ArabicPrompt(prompt),
+    configured ?? undefined,
+    configuredAr ?? undefined,
+  ).voice;
 }
 
 export const maxDuration = 30;
@@ -83,6 +91,7 @@ export async function POST(request: Request) {
   const ids = texmlCallIds(form);
   const settings = await loadSettingsRow();
   const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
+  const configuredVoiceAr = settings?.tts_voice_ar?.trim() || "";
   const gatherUrl = publicTexmlUrl("/api/public/call-center/texml/gather", request.url);
   const selfUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
   const outboundDid = settings?.outbound_caller_id_e164?.trim() || "";
@@ -227,12 +236,15 @@ export async function POST(request: Request) {
           settings?.tts_greeting_text ||
           "Please choose an option.",
       );
+      const audioUrl = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl.trim() : "";
       return xml(
         texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: selfUrl,
           prompt: greeting,
           voice: configuredVoice,
+          voiceAr: configuredVoiceAr,
+          audioUrl: audioUrl || undefined,
         }),
       );
     }

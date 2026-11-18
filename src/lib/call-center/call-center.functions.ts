@@ -286,7 +286,10 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     holdMusicUrl: z.string().max(1000).optional(),
     ttsEnabled: z.boolean().optional(),
     ttsVoice: z.string().max(120).optional(),
+    ttsVoiceAr: z.string().max(120).optional(),
     ttsGreetingText: z.string().max(2000).optional(),
+    bridgePromptAudioUrlEn: z.string().max(1000).optional(),
+    bridgePromptAudioUrlAr: z.string().max(1000).optional(),
     recordAllCalls: z.boolean().optional(),
     recordingStorageBaseUrl: z.string().trim().max(2000).optional(),
     instagramEnabled: z.boolean().optional(),
@@ -412,10 +415,19 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
         hold_music_url: data.holdMusicUrl ?? existing?.hold_music_url ?? "",
         tts_enabled: data.ttsEnabled ?? existing?.tts_enabled ?? false,
         tts_voice: normalizeConfiguredTtsVoice(data.ttsVoice ?? existing?.tts_voice ?? ""),
+        tts_voice_ar: (() => {
+          const raw = (data.ttsVoiceAr ?? existing?.tts_voice_ar ?? "Azure.ar-AE-FatimaNeural").trim();
+          if (!raw) return "Azure.ar-AE-FatimaNeural";
+          return normalizeConfiguredTtsVoice(raw);
+        })(),
         tts_greeting_text:
           data.ttsGreetingText ??
           existing?.tts_greeting_text ??
           "Welcome. Press a digit from the menu or stay on the line.",
+        bridge_prompt_audio_url_en:
+          data.bridgePromptAudioUrlEn ?? existing?.bridge_prompt_audio_url_en ?? "",
+        bridge_prompt_audio_url_ar:
+          data.bridgePromptAudioUrlAr ?? existing?.bridge_prompt_audio_url_ar ?? "",
         record_all_calls: data.recordAllCalls ?? existing?.record_all_calls ?? true,
         recording_storage_base_url: await (async () => {
           const incoming =
