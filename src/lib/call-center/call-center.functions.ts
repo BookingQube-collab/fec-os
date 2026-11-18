@@ -287,6 +287,13 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
     ttsEnabled: z.boolean().optional(),
     ttsVoice: z.string().max(120).optional(),
     ttsVoiceAr: z.string().max(120).optional(),
+    /** Telnyx Integration Secret identifier (not the raw ElevenLabs key). */
+    elevenLabsApiKeyRef: z.string().trim().max(120).optional(),
+    /**
+     * Optional paste of raw ElevenLabs API key — creates/updates Telnyx Integration Secret
+     * and stores only the identifier. Never persisted in FEC DB and never returned to client.
+     */
+    elevenLabsApiKey: z.string().max(500).optional(),
     ttsGreetingText: z.string().max(2000).optional(),
     bridgePromptAudioUrlEn: z.string().max(1000).optional(),
     bridgePromptAudioUrlAr: z.string().max(1000).optional(),
@@ -419,6 +426,41 @@ export const saveCallCenterSettings = createSafeAuthenticatedAction(
           const raw = (data.ttsVoiceAr ?? existing?.tts_voice_ar ?? "Azure.ar-AE-FatimaNeural").trim();
           if (!raw) return "Azure.ar-AE-FatimaNeural";
           return normalizeConfiguredTtsVoice(raw);
+        })(),
+        telnyx_elevenlabs_api_key_ref: await (async () => {
+          const pastedKey = (data.elevenLabsApiKey ?? "").trim();
+          const requestedRef = (data.elevenLabsApiKeyRef ?? "").trim();
+          const existingRef = existing?.telnyx_elevenlabs_api_key_ref?.trim() ?? "";
+          const identifier =
+            requestedRef ||
+            existingRef ||
+            process.env.TELNYX_ELEVENLABS_API_KEY_REF?.trim() ||
+            "elevenlabs_api_key";
+          // Paste of raw ElevenLabs key → create/update Telnyx Integration Secret; store ref only.
+          if (pastedKey && !/^•+$/.test(pastedKey) && pastedKey.length >= 16) {
+            const telnyxKey = keepSecret(existing?.telnyx_api_key ?? "", data.telnyxApiKey);
+            const apiKey =
+              telnyxKey.trim() ||
+              process.env.TELNYX_API_KEY?.trim() ||
+              "";
+            if (!apiKey) {
+              throw new Error(
+                "Telnyx API key is required to store the ElevenLabs key as a Telnyx Integration Secret. Add it in Carrier settings first.",
+              );
+            }
+            const { upsertTelnyxElevenLabsIntegrationSecret } = await import("./elevenlabs-secret");
+            await upsertTelnyxElevenLabsIntegrationSecret({
+              telnyxApiKey: apiKey,
+              elevenLabsApiKey: pastedKey,
+              identifier,
+            });
+            return identifier;
+          }
+          // Empty string clears the settings ref (env fallback still applies).
+          if (data.elevenLabsApiKeyRef !== undefined) {
+            return requestedRef;
+          }
+          return existingRef;
         })(),
         tts_greeting_text:
           data.ttsGreetingText ??
@@ -593,7 +635,13 @@ export const previewCallCenterTtsVoice = createSafeAuthenticatedAction(
       data.text?.trim() ||
       settings?.tts_greeting_text?.trim() ||
       "Welcome. Thank you for calling. This is a sample of the selected voice.";
-    return synthesizeTelnyxTtsPreview({ apiKey, voice, text: sample });
+    return synthesizeTelnyxTtsPreview({
+      apiKey,
+      voice,
+      text: sample,
+      voiceAr: settings?.tts_voice_ar,
+      elevenLabsApiKeyRef: settings?.telnyx_elevenlabs_api_key_ref,
+    });
   },
   { auth: ADMIN_AUTH },
 );

@@ -21,9 +21,23 @@ export async function synthesizeTelnyxTtsPreview(input: {
   apiKey: string;
   voice: string;
   text: string;
+  /** Optional Settings AR voice so Arabic samples use Fatima/Charlotte, matching live IVR. */
+  voiceAr?: string;
+  elevenLabsApiKeyRef?: string | null;
 }): Promise<{ contentType: string; dataBase64: string }> {
   const sample = clipTtsPreviewText(input.text);
-  const picked = pickSpeakVoice(sample, input.voice);
+  // When previewing an AR preset, pass it as voiceAr so pickSpeakVoice matches live calls.
+  const looksArabic = /[\u0600-\u06FF]/.test(sample);
+  const isArVoice =
+    /^Azure\.ar[-_]/i.test(input.voice) ||
+    /^(AWS\.)?Polly\.(Hala|Zayd|Zeina)/i.test(input.voice) ||
+    /^ElevenLabs\./i.test(input.voice);
+  const picked = pickSpeakVoice(
+    sample,
+    looksArabic && isArVoice ? undefined : input.voice,
+    looksArabic && isArVoice ? input.voice : input.voiceAr,
+    { elevenLabsApiKeyRef: input.elevenLabsApiKeyRef },
+  );
   const restVoice = toRestTtsVoiceId(picked.voice);
 
   const response = await fetch(TELNYX_TTS_URL, {

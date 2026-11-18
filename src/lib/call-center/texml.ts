@@ -25,13 +25,21 @@ export function texmlResponse(body: string): string {
 }
 
 /** Build `<Say>` with voice (+ language when useful for Azure/alice; Polly ignores language). */
-function texmlSay(voice: string, text: string, language?: string, voiceAr?: string): string {
+function texmlSay(
+  voice: string,
+  text: string,
+  language?: string,
+  voiceAr?: string,
+  elevenLabsKeyRef?: string | null,
+): string {
   const spoken = refreshStaleE3ArabicPrompt(text).trim();
   if (!spoken) return "";
-  const picked = pickSpeakVoice(spoken, voice, voiceAr);
+  const picked = pickSpeakVoice(spoken, voice, voiceAr, {
+    elevenLabsApiKeyRef: elevenLabsKeyRef,
+  });
   const lang = language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
-  const elevenAttr = texmlElevenLabsSayAttrs(picked.voice);
+  const elevenAttr = texmlElevenLabsSayAttrs(picked.voice, elevenLabsKeyRef);
   // Always escape plain text — never nest SSML inside TeXML <Say> (caused silence).
   return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}${elevenAttr}>${escapeTexml(spoken)}</Say>`;
 }
@@ -47,12 +55,19 @@ async function texmlPlayOrSay(input: {
   voiceAr?: string;
   text?: string;
   audioUrl?: string;
+  elevenLabsApiKeyRef?: string | null;
 }): Promise<string> {
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
   if (audio) {
     return `<Play continueOnError="true">${escapeTexml(audio)}</Play>`;
   }
-  return texmlSay(input.voice?.trim() || DEFAULT_TTS_VOICE, input.text ?? "", undefined, input.voiceAr);
+  return texmlSay(
+    input.voice?.trim() || DEFAULT_TTS_VOICE,
+    input.text ?? "",
+    undefined,
+    input.voiceAr,
+    input.elevenLabsApiKeyRef,
+  );
 }
 
 export async function texmlGatherMenu(input: {
@@ -62,12 +77,15 @@ export async function texmlGatherMenu(input: {
   prompt: string;
   voice?: string;
   voiceAr?: string;
+  /** Settings/env Telnyx Integration Secret id for ElevenLabs. */
+  elevenLabsApiKeyRef?: string | null;
   /** When set, Play this clip inside Gather instead of TTS Say (after reachability check). */
   audioUrl?: string;
   language?: string;
 }): Promise<string> {
   const promptRaw = refreshStaleE3ArabicPrompt(input.prompt.trim() || "Please choose an option.");
-  const picked = pickSpeakVoice(promptRaw, input.voice, input.voiceAr);
+  const pickOpts = { elevenLabsApiKeyRef: input.elevenLabsApiKeyRef };
+  const picked = pickSpeakVoice(promptRaw, input.voice, input.voiceAr, pickOpts);
   const voice = picked.voice;
   const lang = input.language?.trim() || picked.language;
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
@@ -76,13 +94,18 @@ export async function texmlGatherMenu(input: {
   // Empty / OSS-off / unreachable → always <Say> with prompt (never silent Gather).
   // Do not nest Say after Play: Telnyx continues after successful Play and would double-speak.
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
-  const elevenAttr = texmlElevenLabsSayAttrs(voice);
+  const elevenAttr = texmlElevenLabsSayAttrs(voice, input.elevenLabsApiKeyRef);
   const gatherBody = audio
     ? `<Play continueOnError="true">${escapeTexml(audio)}</Play>`
     : `<Say voice="${escapeTexml(voice)}"${langAttr}${elevenAttr}>${prompt}</Say>`;
   // Timeout line is English — same EN speak path (ElevenLabs when keyed, else Joanna).
-  const timeoutPicked = pickSpeakVoice("We did not receive any input.", input.voice, input.voiceAr);
-  const timeoutEleven = texmlElevenLabsSayAttrs(timeoutPicked.voice);
+  const timeoutPicked = pickSpeakVoice(
+    "We did not receive any input.",
+    input.voice,
+    input.voiceAr,
+    pickOpts,
+  );
+  const timeoutEleven = texmlElevenLabsSayAttrs(timeoutPicked.voice, input.elevenLabsApiKeyRef);
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
       gatherBody +
@@ -131,6 +154,8 @@ export async function texmlConference(input: {
   preSay?: string;
   /** Optional Arabic TTS voice when preSay is Arabic-majority. */
   voiceAr?: string;
+  /** Settings/env Telnyx Integration Secret id for ElevenLabs. */
+  elevenLabsApiKeyRef?: string | null;
   /** When set, Play this clip before Dial instead of TTS preSay. */
   prePlayUrl?: string;
 }): Promise<string> {
@@ -159,6 +184,7 @@ export async function texmlConference(input: {
     voiceAr: input.voiceAr,
     text: input.preSay ?? "",
     audioUrl: input.prePlayUrl,
+    elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
   });
   return texmlResponse(
     `${preface}<Dial><Conference ${attrs}>${escapeTexml(name)}</Conference></Dial>`,

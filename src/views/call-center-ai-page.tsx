@@ -55,6 +55,8 @@ function baseSettingsPayload(s: CallCenterSettingsPublic) {
     holdMusicUrl: s.holdMusicUrl,
     ttsEnabled: s.ttsEnabled,
     ttsVoice: s.ttsVoice,
+    ttsVoiceAr: s.ttsVoiceAr,
+    elevenLabsApiKeyRef: s.elevenLabsApiKeyRef,
     ttsGreetingText: s.ttsGreetingText,
     whatsappEnabled: s.whatsappEnabled,
     whatsappPhoneNumberId: s.whatsappPhoneNumberId,

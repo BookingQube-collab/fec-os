@@ -405,7 +405,8 @@ const SETTINGS_COLUMNS_PRE_SENDPULSE =
 
 const SETTINGS_COLUMNS_PRE_VOICE_PROMPTS = `${SETTINGS_COLUMNS_PRE_SENDPULSE}, sendpulse_webhook_secret, sendpulse_whatsapp_number`;
 
-const SETTINGS_COLUMNS = `${SETTINGS_COLUMNS_PRE_VOICE_PROMPTS}, tts_voice_ar, bridge_prompt_audio_url_en, bridge_prompt_audio_url_ar`;
+const SETTINGS_COLUMNS_PRE_ELEVENLABS = `${SETTINGS_COLUMNS_PRE_VOICE_PROMPTS}, tts_voice_ar, bridge_prompt_audio_url_en, bridge_prompt_audio_url_ar`;
+const SETTINGS_COLUMNS = `${SETTINGS_COLUMNS_PRE_ELEVENLABS}, telnyx_elevenlabs_api_key_ref`;
 
 const SETTINGS_COLUMNS_LEGACY_OMNI =
   "enabled, ivr_enabled, business_hours_enabled, business_hours_json, timezone, default_queue_id, telnyx_sip_uri, telnyx_connection_id, telnyx_api_key, telnyx_webhook_secret, livekit_sip_trunk_id, livekit_sip_inbound_trunk_id, livekit_sip_dispatch_rule_id, inbound_mode, telnyx_dtmf_mode, qatar_did_e164, webhook_shared_secret, notes, ai_first_answer_enabled, ai_handoff_enabled, ai_notes, ai_system_prompt_en, ai_system_prompt_ar, ai_welcome_en, ai_welcome_ar, ai_provider, ai_model, ai_api_key, ai_base_url, ai_languages, ai_handoff_after_seconds, ai_handoff_keywords, ai_handoff_queue_id, ai_livekit_agent_name, whatsapp_enabled, whatsapp_phone_number_id, whatsapp_waba_id, whatsapp_access_token, whatsapp_verify_token, whatsapp_auto_reply_enabled, whatsapp_auto_reply_text, outbound_caller_id_e164, webhook_outbound_url, after_hours_greeting, after_hours_action, welcome_greeting, welcome_audio_url, hold_music_url, tts_enabled, tts_voice, tts_greeting_text, record_all_calls, recording_storage_base_url, instagram_enabled, instagram_page_id, instagram_ig_user_id, instagram_page_access_token, instagram_verify_token, messenger_enabled, messenger_page_id, messenger_page_access_token, messenger_verify_token, m365_enabled, m365_mailbox, m365_tenant_id, m365_client_id, m365_client_secret, m365_webhook_client_state";
@@ -501,6 +502,7 @@ function mapSettingsRow(row: Record<string, unknown>): CallCenterSettingsRow {
     tts_enabled: Boolean(row.tts_enabled ?? false),
     tts_voice: String(row.tts_voice ?? "Polly.Joanna-Neural"),
     tts_voice_ar: String(row.tts_voice_ar ?? "Azure.ar-AE-FatimaNeural"),
+    telnyx_elevenlabs_api_key_ref: String(row.telnyx_elevenlabs_api_key_ref ?? ""),
     tts_greeting_text: String(
       row.tts_greeting_text ?? "Welcome. Press a digit from the menu or stay on the line.",
     ),
@@ -542,11 +544,16 @@ export async function loadSettingsRow(): Promise<CallCenterSettingsRow | null> {
   // Before migration 20261115140000 / 20261116140000 / 20261116150000 / 20261116180000 / 20261116200000 / 20261118140000, newer columns may be missing — fall back.
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_|sendpulse_|tts_voice_ar|bridge_prompt_audio/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_|sendpulse_|tts_voice_ar|bridge_prompt_audio|telnyx_elevenlabs/i.test(
       result.error.message,
     )
   ) {
-    if (/tts_voice_ar|bridge_prompt_audio/i.test(result.error.message)) {
+    if (/telnyx_elevenlabs/i.test(result.error.message)) {
+      result = await table<Record<string, unknown>>("call_center_settings")
+        .select(SETTINGS_COLUMNS_PRE_ELEVENLABS)
+        .eq("id", CALL_CENTER_SETTINGS_ID)
+        .maybeSingle();
+    } else if (/tts_voice_ar|bridge_prompt_audio/i.test(result.error.message)) {
       result = await table<Record<string, unknown>>("call_center_settings")
         .select(SETTINGS_COLUMNS_PRE_VOICE_PROMPTS)
         .eq("id", CALL_CENTER_SETTINGS_ID)
@@ -635,6 +642,7 @@ export async function saveSettingsRow(
         tts_enabled: row.tts_enabled,
         tts_voice: row.tts_voice,
         tts_voice_ar: row.tts_voice_ar ?? "Azure.ar-AE-FatimaNeural",
+        telnyx_elevenlabs_api_key_ref: row.telnyx_elevenlabs_api_key_ref ?? "",
         tts_greeting_text: row.tts_greeting_text,
         bridge_prompt_audio_url_en: row.bridge_prompt_audio_url_en ?? "",
         bridge_prompt_audio_url_ar: row.bridge_prompt_audio_url_ar ?? "",
@@ -668,7 +676,7 @@ export async function saveSettingsRow(
     .maybeSingle();
   if (
     result.error &&
-    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_|sendpulse_|tts_voice_ar|bridge_prompt_audio/i.test(
+    /inbound_mode|livekit_sip_inbound|telnyx_dtmf|qatar_did|record_all_calls|whatsapp_auto_reply|recording_storage|instagram_|messenger_|m365_|sendpulse_|tts_voice_ar|bridge_prompt_audio|telnyx_elevenlabs/i.test(
       result.error.message,
     )
   ) {

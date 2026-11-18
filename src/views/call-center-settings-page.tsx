@@ -164,6 +164,10 @@ function CallCenterSettingsPage() {
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsVoice, setTtsVoice] = useState(DEFAULT_TTS_VOICE);
   const [ttsVoiceAr, setTtsVoiceAr] = useState(DEFAULT_AR_TTS_VOICE);
+  const [elevenLabsApiKeyRef, setElevenLabsApiKeyRef] = useState("");
+  const [elevenLabsApiKey, setElevenLabsApiKey] = useState("");
+  const [elevenLabsApiKeyRefSet, setElevenLabsApiKeyRefSet] = useState(false);
+  const [elevenLabsEnvRefSet, setElevenLabsEnvRefSet] = useState(false);
   const [ttsGreetingText, setTtsGreetingText] = useState("");
   const [bridgePromptAudioUrlEn, setBridgePromptAudioUrlEn] = useState("");
   const [bridgePromptAudioUrlAr, setBridgePromptAudioUrlAr] = useState("");
@@ -222,6 +226,10 @@ function CallCenterSettingsPage() {
     setTtsEnabled(s.ttsEnabled);
     setTtsVoice(s.ttsVoice);
     setTtsVoiceAr(s.ttsVoiceAr || DEFAULT_AR_TTS_VOICE);
+    setElevenLabsApiKeyRef(s.elevenLabsApiKeyRef ?? "");
+    setElevenLabsApiKey("");
+    setElevenLabsApiKeyRefSet(Boolean(s.elevenLabsApiKeyRefSet));
+    setElevenLabsEnvRefSet(Boolean(s.elevenLabsEnvRefSet));
     setTtsGreetingText(s.ttsGreetingText);
     setBridgePromptAudioUrlEn(s.bridgePromptAudioUrlEn ?? "");
     setBridgePromptAudioUrlAr(s.bridgePromptAudioUrlAr ?? "");
@@ -367,6 +375,8 @@ function CallCenterSettingsPage() {
       ttsEnabled,
       ttsVoice,
       ttsVoiceAr,
+      elevenLabsApiKeyRef,
+      elevenLabsApiKey: elevenLabsApiKey.trim() || undefined,
       ttsGreetingText,
       bridgePromptAudioUrlEn,
       bridgePromptAudioUrlAr,
@@ -409,6 +419,7 @@ function CallCenterSettingsPage() {
     setTelnyxApiKey("");
     setTelnyxWebhookSecret("");
     setWebhookSharedSecret("");
+    setElevenLabsApiKey("");
     setWhatsappAccessToken("");
     setWhatsappVerifyToken("");
     setInstagramPageAccessToken("");
@@ -752,6 +763,47 @@ function CallCenterSettingsPage() {
             </div>
             <p className="text-xs text-muted-foreground">{t("callCenter.ttsVoiceHint")}</p>
             <p className="text-xs text-muted-foreground">{t("callCenter.ttsPreviewHint")}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="cc-elevenlabs-ref">{t("callCenter.elevenLabsApiKeyRef")}</Label>
+                  {elevenLabsApiKeyRefSet ? (
+                    <Badge variant="secondary">{t("callCenterAdmin.secretSaved")}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t("callCenterAdmin.secretNotSet")}</Badge>
+                  )}
+                  {elevenLabsEnvRefSet ? (
+                    <Badge variant="outline">{t("callCenter.elevenLabsEnvRefBadge")}</Badge>
+                  ) : null}
+                </div>
+                <Input
+                  id="cc-elevenlabs-ref"
+                  value={elevenLabsApiKeyRef}
+                  onChange={(e) => setElevenLabsApiKeyRef(e.target.value)}
+                  placeholder="elevenlabs_api_key"
+                  autoComplete="off"
+                  disabled={!canEdit}
+                />
+                <p className="text-xs text-muted-foreground">{t("callCenter.elevenLabsApiKeyRefHint")}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cc-elevenlabs-key">{t("callCenter.elevenLabsApiKey")}</Label>
+                <Input
+                  id="cc-elevenlabs-key"
+                  type="password"
+                  value={elevenLabsApiKey}
+                  onChange={(e) => setElevenLabsApiKey(e.target.value)}
+                  placeholder={
+                    elevenLabsApiKeyRefSet
+                      ? t("callCenter.elevenLabsApiKeyPlaceholderSet")
+                      : t("callCenter.elevenLabsApiKeyPlaceholder")
+                  }
+                  autoComplete="new-password"
+                  disabled={!canEdit}
+                />
+                <p className="text-xs text-muted-foreground">{t("callCenter.elevenLabsApiKeyHint")}</p>
+              </div>
+            </div>
             <div className="space-y-1.5">
               <Label>{t("callCenter.ttsGreetingText")}</Label>
               <Input value={ttsGreetingText} onChange={(e) => setTtsGreetingText(e.target.value)} />

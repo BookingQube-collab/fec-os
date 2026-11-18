@@ -44,6 +44,7 @@ export async function POST(request: Request) {
   const settings = await loadSettingsRow();
   const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
   const configuredVoiceAr = settings?.tts_voice_ar?.trim() || "";
+  const elevenLabsKeyRef = settings?.telnyx_elevenlabs_api_key_ref?.trim() || "";
   const holdUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
   const confFromQuery = new URL(request.url).searchParams.get("conf")?.trim() || "";
 
@@ -91,8 +92,12 @@ export async function POST(request: Request) {
   return xml(
     await texmlConference({
       name: conferenceName,
-      voice: pickSpeakVoice(announcement, configuredVoice, configuredVoiceAr).voice,
+      voice: pickSpeakVoice(announcement, configuredVoice, configuredVoiceAr, {
+        elevenLabsApiKeyRef: elevenLabsKeyRef,
+        preferLang: lang,
+      }).voice,
       voiceAr: configuredVoiceAr,
+      elevenLabsApiKeyRef: elevenLabsKeyRef,
       beep: false,
       startConferenceOnEnter: true,
       endConferenceOnExit: false,

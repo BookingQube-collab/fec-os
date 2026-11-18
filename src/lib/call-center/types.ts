@@ -143,6 +143,11 @@ export type CallCenterSettingsRow = {
   tts_voice: string;
   /** Arabic-majority IVR speak voice (Azure Fatima / ElevenLabs / …). */
   tts_voice_ar: string;
+  /**
+   * Telnyx Integration Secret identifier for ElevenLabs BYOK (not the raw API key).
+   * Env `TELNYX_ELEVENLABS_API_KEY_REF` is the fallback when this is empty.
+   */
+  telnyx_elevenlabs_api_key_ref: string;
   tts_greeting_text: string;
   /** Human-recorded EN bridge prompt (recording disclosure + connecting). */
   bridge_prompt_audio_url_en: string;
@@ -259,6 +264,12 @@ export type CallCenterSettingsPublic = {
   ttsEnabled: boolean;
   ttsVoice: string;
   ttsVoiceAr: string;
+  /** Telnyx Integration Secret identifier (safe to show — not the raw ElevenLabs key). */
+  elevenLabsApiKeyRef: string;
+  /** True when settings or env has a Telnyx ElevenLabs secret ref. */
+  elevenLabsApiKeyRefSet: boolean;
+  /** True when process.env.TELNYX_ELEVENLABS_API_KEY_REF is set (Vercel). */
+  elevenLabsEnvRefSet: boolean;
   ttsGreetingText: string;
   bridgePromptAudioUrlEn: string;
   bridgePromptAudioUrlAr: string;

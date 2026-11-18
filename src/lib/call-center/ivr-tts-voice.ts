@@ -192,13 +192,18 @@ export function isElevenLabsTtsVoice(voice: string): boolean {
   return ELEVENLABS_VOICE_RE.test(voice);
 }
 
-/** Telnyx Integration Secret identifier for ElevenLabs BYOK (not the raw API key). */
-export function elevenLabsApiKeyRef(): string {
+/**
+ * Telnyx Integration Secret identifier for ElevenLabs BYOK (not the raw API key).
+ * Prefer settings-saved ref; fall back to process.env `TELNYX_ELEVENLABS_API_KEY_REF`.
+ */
+export function elevenLabsApiKeyRef(settingsRef?: string | null): string {
+  const fromSettings = settingsRef?.trim() || "";
+  if (fromSettings) return fromSettings;
   return process.env.TELNYX_ELEVENLABS_API_KEY_REF?.trim() || "";
 }
 
-export function isElevenLabsKeyRefConfigured(): boolean {
-  return Boolean(elevenLabsApiKeyRef());
+export function isElevenLabsKeyRefConfigured(settingsRef?: string | null): boolean {
+  return Boolean(elevenLabsApiKeyRef(settingsRef));
 }
 
 /**
@@ -206,8 +211,12 @@ export function isElevenLabsKeyRefConfigured(): boolean {
  * Hala/Zeina / remapped Ava) to known-good multilingual ElevenLabs voice ids.
  * Explicit custom Polly/Azure/ElevenLabs selections are left alone.
  */
-export function maybeUpgradeToElevenLabs(voice: string, lang: "en" | "ar"): string {
-  if (!isElevenLabsKeyRefConfigured()) return voice;
+export function maybeUpgradeToElevenLabs(
+  voice: string,
+  lang: "en" | "ar",
+  settingsRef?: string | null,
+): string {
+  if (!isElevenLabsKeyRefConfigured(settingsRef)) return voice;
   if (ELEVENLABS_VOICE_RE.test(voice)) return voice;
   if (lang === "en" && AUTO_UPGRADE_EN_VOICE_RE.test(voice)) {
     return DEFAULT_ELEVENLABS_EN_VOICE;
@@ -220,13 +229,69 @@ export function maybeUpgradeToElevenLabs(voice: string, lang: "en" | "ar"): stri
 
 /**
  * TeXML `<Say>` extras for ElevenLabs — `api_key_ref` required by Telnyx.
- * Empty when voice is not ElevenLabs or the secret env is missing.
+ * Empty when voice is not ElevenLabs or the secret ref is missing.
  */
-export function texmlElevenLabsSayAttrs(voice: string): string {
+export function texmlElevenLabsSayAttrs(voice: string, settingsRef?: string | null): string {
   if (!ELEVENLABS_VOICE_RE.test(voice)) return "";
-  const ref = elevenLabsApiKeyRef();
+  const ref = elevenLabsApiKeyRef(settingsRef);
   if (!ref) return "";
   return ` api_key_ref="${ref.replace(/"/g, "&quot;")}"`;
+}
+
+/**
+ * Call Control speak / gather_using_speak `language` enum (Telnyx OpenAPI).
+ * Notably **missing** Gulf `ar-AE` — only MSA `arb` for Arabic.
+ * Sending `ar-AE` with Azure Fatima causes invalid_enumerated_value and silent IVR.
+ * Azure voice ids already embed locale (`Azure.ar-AE-FatimaNeural`), so omit language.
+ */
+const CALL_CONTROL_SPEAK_LANGUAGES = new Set([
+  "arb",
+  "cmn-CN",
+  "cy-GB",
+  "da-DK",
+  "de-DE",
+  "en-AU",
+  "en-GB",
+  "en-GB-WLS",
+  "en-IN",
+  "en-US",
+  "es-ES",
+  "es-MX",
+  "es-US",
+  "fr-CA",
+  "fr-FR",
+  "hi-IN",
+  "is-IS",
+  "it-IT",
+  "ja-JP",
+  "ko-KR",
+  "nb-NO",
+  "nl-NL",
+  "pl-PL",
+  "pt-BR",
+  "pt-PT",
+  "ro-RO",
+  "ru-RU",
+  "sv-SE",
+  "tr-TR",
+]);
+
+/**
+ * Sanitize language for Call Control Speak/Gather.
+ * Polly ignores language — omit. Azure embeds locale in the voice id — omit when not in enum
+ * (fixes Fatima + `ar-AE` rejects). Valid enum values pass through.
+ */
+export function callControlSpeakLanguage(
+  voice: string,
+  language: string,
+): string | undefined {
+  const lang = language.trim();
+  if (!lang) return undefined;
+  // Polly.* ignores language; omit to avoid enum surprises.
+  if (/^(AWS\.)?Polly\./i.test(voice)) return undefined;
+  if (CALL_CONTROL_SPEAK_LANGUAGES.has(lang)) return lang;
+  // Azure.ar-AE-* / ElevenLabs / etc. — voice id carries locale; do not send invalid enum.
+  return undefined;
 }
 
 /** Normalize stored settings / UI value to a Telnyx Call Control speak voice id. */
@@ -279,28 +344,44 @@ export function arabicTtsLanguageForVoice(voice: string): string {
   return MSA_ARABIC_VOICE_RE.test(voice) ? "arb" : DEFAULT_AR_TTS_LANGUAGE;
 }
 
+export type PickSpeakVoiceOptions = {
+  /** Settings or env Telnyx Integration Secret id for ElevenLabs BYOK. */
+  elevenLabsApiKeyRef?: string | null;
+  /**
+   * When set from call metadata `ivrLanguage`, force EN/AR voice path even if
+   * text detection would disagree (e.g. short AR prompts).
+   */
+  preferLang?: "en" | "ar";
+};
+
 /**
  * Pick Telnyx voice/language for speak / gather_using_speak.
- * With TELNYX_ELEVENLABS_API_KEY_REF: Joanna/Fatima → ElevenLabs Rachel/Charlotte.
+ * With ElevenLabs secret (env or settings): Joanna/Fatima → ElevenLabs Rachel/Charlotte.
  * Without: English → Settings EN (default Polly Joanna); Arabic-majority → Settings AR
  * (default Azure Fatima) with Polly Hala/Zayd/Zeina → Fatima/Hamdan.
  * Mixed Language menus stay en-US with the EN voice.
+ *
+ * Note: returned `language` may be `ar-AE` (semantic / TeXML / REST). Call Control must
+ * run it through {@link callControlSpeakLanguage} before Speak/Gather.
  */
 export function pickSpeakVoice(
   text: string,
   configuredVoice?: string,
   configuredVoiceAr?: string,
+  options?: PickSpeakVoiceOptions,
 ): { voice: string; language: string } {
   const configuredEn = normalizeConfiguredTtsVoice(configuredVoice);
   const arRaw = configuredVoiceAr?.trim() ?? "";
   const configuredAr = arRaw ? normalizeConfiguredTtsVoice(arRaw) : "";
-  const elevenReady = isElevenLabsKeyRefConfigured();
+  const elevenRef = options?.elevenLabsApiKeyRef;
+  const elevenReady = isElevenLabsKeyRefConfigured(elevenRef);
+  const preferAr = options?.preferLang === "ar" || (options?.preferLang !== "en" && isArabicText(text));
 
-  if (!isArabicText(text)) {
+  if (!preferAr) {
     // Don't leave English prompts on an Arabic-only saved voice (e.g. Polly.Hala / Fatima).
     if (isArabicOnlyVoice(configuredEn)) {
       return {
-        voice: maybeUpgradeToElevenLabs(DEFAULT_TTS_VOICE, "en"),
+        voice: maybeUpgradeToElevenLabs(DEFAULT_TTS_VOICE, "en", elevenRef),
         language: "en-US",
       };
     }
@@ -309,7 +390,7 @@ export function pickSpeakVoice(
       return { voice: DEFAULT_TTS_VOICE, language: "en-US" };
     }
     return {
-      voice: maybeUpgradeToElevenLabs(configuredEn, "en"),
+      voice: maybeUpgradeToElevenLabs(configuredEn, "en", elevenRef),
       language: "en-US",
     };
   }
@@ -333,7 +414,7 @@ export function pickSpeakVoice(
   if (LEGACY_AR_POLLY_VOICE_RE.test(configured) || MSA_ARABIC_VOICE_RE.test(configured)) {
     const azure = upgradeArabicPollyToAzure(configured);
     return {
-      voice: maybeUpgradeToElevenLabs(azure, "ar"),
+      voice: maybeUpgradeToElevenLabs(azure, "ar", elevenRef),
       language: DEFAULT_AR_TTS_LANGUAGE,
     };
   }
@@ -349,19 +430,19 @@ export function pickSpeakVoice(
     ) {
       if (/^Azure\.en[-_]/i.test(configured) || /^(AWS\.)?Polly\./i.test(configured)) {
         return {
-          voice: maybeUpgradeToElevenLabs(DEFAULT_AR_TTS_VOICE, "ar"),
+          voice: maybeUpgradeToElevenLabs(DEFAULT_AR_TTS_VOICE, "ar", elevenRef),
           language: DEFAULT_AR_TTS_LANGUAGE,
         };
       }
     }
     return {
-      voice: maybeUpgradeToElevenLabs(configured, "ar"),
+      voice: maybeUpgradeToElevenLabs(configured, "ar", elevenRef),
       language: arabicTtsLanguageForVoice(configured),
     };
   }
 
   return {
-    voice: maybeUpgradeToElevenLabs(DEFAULT_AR_TTS_VOICE, "ar"),
+    voice: maybeUpgradeToElevenLabs(DEFAULT_AR_TTS_VOICE, "ar", elevenRef),
     language: DEFAULT_AR_TTS_LANGUAGE,
   };
 }

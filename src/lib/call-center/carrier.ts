@@ -144,7 +144,14 @@ async function startAdminGatewayAiPrompt(ctx: Ctx, call: CallCenterCall) {
       : "To speak with a human agent, press zero.";
   const spoken = clip(`${welcome} ${gatherHint}`);
   await exec(ctx, "ai_welcome_gather", (c) =>
-    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ai_session" }, voiceOf(ctx), voiceArOf(ctx)),
+    c.gatherUsingSpeak(
+      ctx.ccid,
+      spoken,
+      { step: "ai_session" },
+      voiceOf(ctx),
+      voiceArOf(ctx),
+      elevenLabsRefOf(ctx),
+    ),
   );
   await patchMeta(call.id, { aiWelcomeSpoken: true });
 }
@@ -320,6 +327,10 @@ function voiceArOf(ctx: Ctx): string {
   return ctx.settings?.tts_voice_ar ?? "";
 }
 
+function elevenLabsRefOf(ctx: Ctx): string {
+  return ctx.settings?.telnyx_elevenlabs_api_key_ref?.trim() || "";
+}
+
 /** Telnyx uses `incoming`; some payloads use `inbound`. Empty = unknown (allow). */
 function isInboundTelnyxDirection(direction: string | undefined): boolean {
   const dir = (direction ?? "").trim().toLowerCase();
@@ -405,7 +416,14 @@ async function gather(ctx: Ctx, text: string, audioUrl?: string) {
   // Rewrite known MSA defaults still sitting in call metadata / saved graphs.
   const spoken = clip(refreshStaleE3ArabicPrompt(text)) || DEFAULT_IVR_PROMPT;
   await exec(ctx, "gather", (c) =>
-    c.gatherUsingSpeak(ctx.ccid, spoken, { step: "ivr" }, voiceOf(ctx), voiceArOf(ctx)),
+    c.gatherUsingSpeak(
+      ctx.ccid,
+      spoken,
+      { step: "ivr" },
+      voiceOf(ctx),
+      voiceArOf(ctx),
+      elevenLabsRefOf(ctx),
+    ),
   );
 }
 
@@ -416,7 +434,7 @@ async function speakThenHangup(ctx: Ctx, text: string) {
     return;
   }
   const ok = await exec(ctx, "speak", (c) =>
-    c.speak(ctx.ccid, prompt, { step: "final" }, voiceOf(ctx), voiceArOf(ctx)),
+    c.speak(ctx.ccid, prompt, { step: "final" }, voiceOf(ctx), voiceArOf(ctx), elevenLabsRefOf(ctx)),
   );
   if (!ok) await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
 }
@@ -443,7 +461,14 @@ async function startQueueWait(ctx: Ctx) {
     if (ok) return;
   } else if (s?.tts_enabled && text) {
     const ok = await exec(ctx, "welcome_speak", (c) =>
-      c.speak(ctx.ccid, clip(text), { step: "welcome" }, voiceOf(ctx), voiceArOf(ctx)),
+      c.speak(
+        ctx.ccid,
+        clip(text),
+        { step: "welcome" },
+        voiceOf(ctx),
+        voiceArOf(ctx),
+        elevenLabsRefOf(ctx),
+      ),
     );
     if (ok) return;
   }
@@ -691,7 +716,14 @@ export async function handleTelnyxEvent(
           (typeof meta.aiGatherPrompt === "string" && meta.aiGatherPrompt.trim()) ||
           "To speak with a human agent, press zero.";
         await exec(ctx, "ai_reprompt", (c) =>
-          c.gatherUsingSpeak(ctx.ccid, clip(hint), { step: "ai_session" }, voiceOf(ctx), voiceArOf(ctx)),
+          c.gatherUsingSpeak(
+            ctx.ccid,
+            clip(hint),
+            { step: "ai_session" },
+            voiceOf(ctx),
+            voiceArOf(ctx),
+            elevenLabsRefOf(ctx),
+          ),
         );
         return done(true, "AI session waiting", call.id);
       }
@@ -872,6 +904,7 @@ export async function prepareCallerBridge(
                   { step: "connecting", callId: call.id },
                   voice,
                   voiceAr,
+                  settings?.telnyx_elevenlabs_api_key_ref,
                 ),
               )
           : telnyx
@@ -881,6 +914,7 @@ export async function prepareCallerBridge(
                 { step: "connecting", callId: call.id },
                 voice,
                 voiceAr,
+                settings?.telnyx_elevenlabs_api_key_ref,
               )
         ).catch(() => undefined)
       : Promise.resolve(undefined);
@@ -915,7 +949,10 @@ async function transferTexmlCallerToLiveKit(
   const apiKey = resolveTelnyxApiKey(settings);
   const lang = resolveCallerSpeakLang(meta);
   const announcement = preAgentConnectAnnouncement(lang);
-  const voice = pickSpeakVoice(announcement, settings?.tts_voice, settings?.tts_voice_ar).voice;
+  const voice = pickSpeakVoice(announcement, settings?.tts_voice, settings?.tts_voice_ar, {
+    elevenLabsApiKeyRef: settings?.telnyx_elevenlabs_api_key_ref,
+    preferLang: lang,
+  }).voice;
   const conferenceName = `fec${call.id.replace(/-/g, "").slice(0, 28)}`;
   const joinDid =
     settings?.outbound_caller_id_e164?.trim() ||
@@ -1001,6 +1038,7 @@ async function transferTexmlCallerToLiveKit(
     name: conferenceName,
     voice,
     voiceAr: settings?.tts_voice_ar,
+    elevenLabsApiKeyRef: settings?.telnyx_elevenlabs_api_key_ref,
     beep: false,
     startConferenceOnEnter: true,
     endConferenceOnExit: false,
@@ -1287,6 +1325,7 @@ async function restoreHoldAfterBridgeFailure(
         { step: "bridge_failed" },
         voice,
         settings?.tts_voice_ar ?? "",
+        settings?.telnyx_elevenlabs_api_key_ref,
       )
       .catch(() => undefined);
   }

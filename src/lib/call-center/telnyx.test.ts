@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { buildSpeakPayload } from "./ivr-tts-voice";
+import { buildSpeakPayload, callControlSpeakLanguage } from "./ivr-tts-voice";
 import {
   decodeClientState,
   encodeClientState,
@@ -227,6 +227,44 @@ describe("client state + voice", () => {
       payload: "Hello",
       payload_type: "text",
     });
+  });
+
+  it("omits Call Control language for Azure Fatima (ar-AE is not in Speak enum)", () => {
+    // Root cause of live Fatima failure: language=ar-AE → invalid_enumerated_value.
+    expect(callControlSpeakLanguage("Azure.ar-AE-FatimaNeural", "ar-AE")).toBeUndefined();
+    expect(callControlSpeakLanguage("Azure.ar-AE-HamdanNeural", "ar-AE")).toBeUndefined();
+    expect(callControlSpeakLanguage("Polly.Joanna-Neural", "en-US")).toBeUndefined();
+    expect(callControlSpeakLanguage("female", "en-US")).toBe("en-US");
+    expect(callControlSpeakLanguage("female", "arb")).toBe("arb");
+    // Semantic pick still returns ar-AE for TeXML/REST; Call Control must sanitize.
+    const picked = pickSpeakVoice(
+      "مرحباً بكم في إي ثري اختر اللغة",
+      "Polly.Joanna-Neural",
+      "Azure.ar-AE-FatimaNeural",
+    );
+    expect(picked.voice).toBe("Azure.ar-AE-FatimaNeural");
+    expect(picked.language).toBe("ar-AE");
+    expect(callControlSpeakLanguage(picked.voice, picked.language)).toBeUndefined();
+  });
+
+  it("honors settings ElevenLabs ref without env", () => {
+    const prevEleven = process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+    delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+    try {
+      expect(
+        pickSpeakVoice("Hello", "Polly.Joanna-Neural", undefined, {
+          elevenLabsApiKeyRef: "settings_secret_id",
+        }).voice,
+      ).toBe("ElevenLabs.eleven_multilingual_v2.21m00Tcm4TlvDq8ikWAM");
+      expect(
+        pickSpeakVoice("مرحباً بكم في إي ثري اختر اللغة", undefined, "Azure.ar-AE-FatimaNeural", {
+          elevenLabsApiKeyRef: "settings_secret_id",
+        }).voice,
+      ).toBe("ElevenLabs.eleven_multilingual_v2.XB0fDUnXU5powFXDhCwa");
+    } finally {
+      if (prevEleven === undefined) delete process.env.TELNYX_ELEVENLABS_API_KEY_REF;
+      else process.env.TELNYX_ELEVENLABS_API_KEY_REF = prevEleven;
+    }
   });
 
 

@@ -92,6 +92,7 @@ export async function POST(request: Request) {
   const settings = await loadSettingsRow();
   const configuredVoice = settings?.tts_voice?.trim() || DEFAULT_TTS_VOICE;
   const configuredVoiceAr = settings?.tts_voice_ar?.trim() || "";
+  const elevenLabsKeyRef = settings?.telnyx_elevenlabs_api_key_ref?.trim() || "";
   const gatherUrl = publicTexmlUrl("/api/public/call-center/texml/gather", request.url);
   const selfUrl = publicTexmlUrl("/api/public/call-center/texml", request.url);
   const outboundDid = settings?.outbound_caller_id_e164?.trim() || "";
@@ -244,6 +245,7 @@ export async function POST(request: Request) {
           prompt: greeting,
           voice: configuredVoice,
           voiceAr: configuredVoiceAr,
+          elevenLabsApiKeyRef: elevenLabsKeyRef,
           audioUrl: audioUrl || undefined,
         }),
       );

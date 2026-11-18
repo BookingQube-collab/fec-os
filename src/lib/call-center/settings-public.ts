@@ -208,6 +208,12 @@ export function toPublicSettings(
     ttsEnabled: Boolean(row?.tts_enabled),
     ttsVoice: normalizeConfiguredTtsVoice(row?.tts_voice),
     ttsVoiceAr: normalizeConfiguredTtsVoice(row?.tts_voice_ar || "Azure.ar-AE-FatimaNeural"),
+    elevenLabsApiKeyRef: row?.telnyx_elevenlabs_api_key_ref?.trim() || "",
+    elevenLabsApiKeyRefSet: Boolean(
+      row?.telnyx_elevenlabs_api_key_ref?.trim() ||
+        process.env.TELNYX_ELEVENLABS_API_KEY_REF?.trim(),
+    ),
+    elevenLabsEnvRefSet: Boolean(process.env.TELNYX_ELEVENLABS_API_KEY_REF?.trim()),
     ttsGreetingText:
       row?.tts_greeting_text?.trim() ||
       "Welcome. Press a digit from the menu or stay on the line.",

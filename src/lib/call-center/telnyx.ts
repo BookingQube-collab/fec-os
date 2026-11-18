@@ -5,6 +5,7 @@ import { createPublicKey, timingSafeEqual, verify as cryptoVerify } from "node:c
 import { CarrierNotConfiguredError, TelnyxApiError } from "./carrier-errors";
 import {
   buildSpeakPayload,
+  callControlSpeakLanguage,
   elevenLabsApiKeyRef,
   fallbackSpeakVoice,
   isElevenLabsTtsVoice,
@@ -30,15 +31,21 @@ export function resolveTelnyxApiKey(settings: CallCenterSettingsRow | null): str
   return settings?.telnyx_api_key?.trim() || process.env.TELNYX_API_KEY?.trim() || "";
 }
 
+/** Settings DB ref, else env `TELNYX_ELEVENLABS_API_KEY_REF`. */
+export function resolveElevenLabsApiKeyRef(settings: CallCenterSettingsRow | null): string {
+  return elevenLabsApiKeyRef(settings?.telnyx_elevenlabs_api_key_ref);
+}
+
 /**
  * ElevenLabs needs a Telnyx Integration Secret id (Mission Control → Secrets),
- * referenced by env `TELNYX_ELEVENLABS_API_KEY_REF` — not a raw API key in FEC.
+ * referenced by settings or env `TELNYX_ELEVENLABS_API_KEY_REF` — not a raw API key in FEC.
  */
 function elevenLabsSpeakVoiceSettings(
   voice: string,
+  settingsRef?: string | null,
 ): { type: "elevenlabs"; api_key_ref: string } | undefined {
   if (!isElevenLabsTtsVoice(voice)) return undefined;
-  const apiKeyRef = elevenLabsApiKeyRef();
+  const apiKeyRef = elevenLabsApiKeyRef(settingsRef);
   if (!apiKeyRef) return undefined;
   return { type: "elevenlabs", api_key_ref: apiKeyRef };
 }
@@ -210,13 +217,19 @@ export function createTelnyxClient(apiKey: string) {
       clientState: Record<string, unknown>,
       configuredVoice?: string,
       configuredVoiceAr?: string,
+      elevenLabsKeyRef?: string | null,
     ) => {
-      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr);
+      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr, {
+        elevenLabsApiKeyRef: elevenLabsKeyRef,
+      });
       const spoken = buildSpeakPayload(text, picked.voice);
-      const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice);
+      const language = callControlSpeakLanguage(picked.voice, picked.language);
+      const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice, elevenLabsKeyRef);
       const body = {
         ...spoken,
-        ...picked,
+        voice: picked.voice,
+        // Omit language when not in Call Control enum (e.g. ar-AE with Azure Fatima).
+        ...(language ? { language } : {}),
         // Premium unlocks Polly/Azure; basic only allows male/female.
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
         ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
@@ -230,10 +243,12 @@ export function createTelnyxClient(apiKey: string) {
         if (!(err instanceof TelnyxApiError)) throw err;
         const fallback = fallbackSpeakVoice(text);
         if (fallback.voice === picked.voice) throw err;
+        const fallbackLang = callControlSpeakLanguage(fallback.voice, fallback.language);
         return action(id, "speak", {
           payload: text,
           payload_type: "text",
-          ...fallback,
+          voice: fallback.voice,
+          ...(fallbackLang ? { language: fallbackLang } : {}),
           service_level: "premium",
           client_state: encodeClientState(clientState),
         });
@@ -245,13 +260,18 @@ export function createTelnyxClient(apiKey: string) {
       clientState: Record<string, unknown>,
       configuredVoice?: string,
       configuredVoiceAr?: string,
+      elevenLabsKeyRef?: string | null,
     ) => {
-      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr);
+      const picked = pickSpeakVoice(text, configuredVoice, configuredVoiceAr, {
+        elevenLabsApiKeyRef: elevenLabsKeyRef,
+      });
       const spoken = buildSpeakPayload(text, picked.voice);
-      const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice);
+      const language = callControlSpeakLanguage(picked.voice, picked.language);
+      const voiceSettings = elevenLabsSpeakVoiceSettings(picked.voice, elevenLabsKeyRef);
       const body = {
         ...spoken,
-        ...picked,
+        voice: picked.voice,
+        ...(language ? { language } : {}),
         service_level: picked.voice === "male" || picked.voice === "female" ? "basic" : "premium",
         ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
         minimum_digits: 1,
@@ -266,10 +286,12 @@ export function createTelnyxClient(apiKey: string) {
         if (!(err instanceof TelnyxApiError)) throw err;
         const fallback = fallbackSpeakVoice(text);
         if (fallback.voice === picked.voice) throw err;
+        const fallbackLang = callControlSpeakLanguage(fallback.voice, fallback.language);
         return action(id, "gather_using_speak", {
           payload: text,
           payload_type: "text",
-          ...fallback,
+          voice: fallback.voice,
+          ...(fallbackLang ? { language: fallbackLang } : {}),
           service_level: "premium",
           minimum_digits: 1,
           maximum_digits: 1,
