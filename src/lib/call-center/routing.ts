@@ -25,7 +25,11 @@ import {
   setAgentStatus,
   updateCall,
 } from "./db";
-import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
+import {
+  isIvrLanguageMenuLabel,
+  refreshStaleE3ArabicPrompt,
+  refreshStaleE3EnglishPrompt,
+} from "./e3-ivr-prompt";
 import {
   findEntryInteractiveNode,
   findStartNode,
@@ -355,13 +359,21 @@ export async function routeInboundCall(input: {
       const flow = menu.flowJson;
       const entry = flowHasGraph(flow) ? findEntryInteractiveNode(flow) : null;
       const start = flowHasGraph(flow) ? findStartNode(flow) : null;
-      // First prompt is the Language menu (bilingual EN) until digit 1/2 is pressed.
+      // First prompt is the Language menu — EN then AR as two speaks (never one mixed Joanna Say).
       const speakNode = entry ?? start ?? null;
-      const greeting = refreshStaleE3ArabicPrompt(
+      const greetingEn = refreshStaleE3EnglishPrompt(
         speakNode
           ? nodeSpokenText(speakNode, "en")
           : menu.greetingText || "IVR menu active.",
       );
+      const greetingAr = refreshStaleE3ArabicPrompt(
+        speakNode ? nodeSpokenText(speakNode, "ar") : "",
+      );
+      const bilingualLangMenu =
+        Boolean(speakNode && isIvrLanguageMenuLabel(speakNode.data.label)) &&
+        Boolean(greetingEn.trim()) &&
+        Boolean(greetingAr.trim());
+      const greeting = bilingualLangMenu ? greetingEn : greetingEn || greetingAr;
       const audioUrl =
         nodePromptAudioUrl(speakNode, "en") ||
         nodePromptAudioUrl(entry, "en") ||
@@ -385,7 +397,11 @@ export async function routeInboundCall(input: {
         metadata: {
           ivrNodeId: entry?.id ?? start?.id ?? null,
           ivrGreeting: greeting,
-          ivrLanguage: "en" as IvrSpeakLang,
+          ivrGreetingEn: bilingualLangMenu ? greetingEn : null,
+          ivrGreetingAr: bilingualLangMenu ? greetingAr : null,
+          ivrBilingualMenu: bilingualLangMenu,
+          // Language menu is pre-selection — do not force EN voice for the AR half.
+          ivrLanguage: bilingualLangMenu ? null : ("en" as IvrSpeakLang),
           ivrAudioUrl: audioUrl || null,
         },
       });
@@ -393,7 +409,7 @@ export async function routeInboundCall(input: {
         call: updated,
         offeredUserIds: [],
         phase: "ivr",
-        message: greeting,
+        message: bilingualLangMenu ? `${greetingEn} ${greetingAr}` : greeting,
       };
     }
   }
@@ -506,7 +522,10 @@ async function resolveTerminalIvrNode(params: {
             : "en";
       // Must use language-aware fields (greetingAr), not English-only greetingText.
       // Soft-fail empty AR prompt so TeXML/Call Control never gather with blank Say.
-      const rawGreeting = refreshStaleE3ArabicPrompt(nodeSpokenText(current, ivrLanguage));
+      const rawGreeting =
+        ivrLanguage === "ar"
+          ? refreshStaleE3ArabicPrompt(nodeSpokenText(current, "ar"))
+          : refreshStaleE3EnglishPrompt(nodeSpokenText(current, "en"));
       const greeting =
         rawGreeting.trim() ||
         (ivrLanguage === "ar" ? "من فضلك اختر خياراً." : "Please choose an option.");
@@ -518,6 +537,10 @@ async function resolveTerminalIvrNode(params: {
           ...prevMeta,
           ivrNodeId: current.id,
           ivrGreeting: greeting,
+          // Clear bilingual Language halves after digit 1/2 — next menu is monolingual.
+          ivrGreetingEn: null,
+          ivrGreetingAr: null,
+          ivrBilingualMenu: false,
           ivrLanguage,
           ivrAudioUrl: audioUrl || null,
         },

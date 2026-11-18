@@ -29,7 +29,7 @@ import {
   waitForSipParticipantInRoom,
 } from "./livekit-sip";
 import { shouldSkipHoldMusic } from "./incoming-offer";
-import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
+import { refreshStaleE3ArabicPrompt, refreshStaleE3EnglishPrompt } from "./e3-ivr-prompt";
 import {
   isIvrOssMediaPath,
   ivrOssPlayEnabled,
@@ -378,7 +378,15 @@ async function startPromptForAnsweredCall(ctx: Ctx, call: CallCenterCall): Promi
   } else if (call.status === "ivr") {
     const greeting = typeof meta.ivrGreeting === "string" ? meta.ivrGreeting : "";
     const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
-    await gather(ctx, greeting, audio, preferLang);
+    const bilingual =
+      meta.ivrBilingualMenu === true &&
+      typeof meta.ivrGreetingEn === "string" &&
+      typeof meta.ivrGreetingAr === "string";
+    await gather(ctx, bilingual ? String(meta.ivrGreetingEn) : greeting, audio, preferLang, {
+      bilingual,
+      promptAr: bilingual ? String(meta.ivrGreetingAr) : undefined,
+      callId: call.id,
+    });
   } else if (WAITING_STATUSES.has(call.status)) {
     await startQueueWait(ctx);
   } else if (call.status === "answered" && !call.agentUserId && (meta.aiSession || meta.ai_answered)) {
@@ -419,6 +427,7 @@ async function gather(
   text: string,
   audioUrl?: string,
   preferLang?: "en" | "ar",
+  options?: { promptAr?: string; bilingual?: boolean; callId?: string },
 ) {
   // Hard safety: never gather_using_audio for Piper /ivr/ unless dual-flag verified.
   // Successful Telnyx gather_using_audio can still play silence — TTS Speak is safer.
@@ -431,10 +440,56 @@ async function gather(
     );
     if (ok) return;
   }
+
+  // Language menu: Speak EN (admin EN voice), then Gather AR (admin AR / Fatima).
+  const arHalf = (options?.promptAr ?? "").trim();
+  if (options?.bilingual && arHalf && !preferLang) {
+    const enSpoken =
+      clip(refreshStaleE3EnglishPrompt(text)) || DEFAULT_IVR_PROMPT;
+    const arSpoken =
+      clip(refreshStaleE3ArabicPrompt(arHalf)) || DEFAULT_IVR_PROMPT_AR;
+    if (options.callId) {
+      await patchMeta(options.callId, {
+        ivrPendingGatherAr: arSpoken,
+        ivrBilingualPending: true,
+      });
+    }
+    const ok = await exec(ctx, "speak_lang_en", (c) =>
+      c.speak(
+        ctx.ccid,
+        enSpoken,
+        { step: "ivr_bilingual_en" },
+        voiceOf(ctx),
+        voiceArOf(ctx),
+        elevenLabsRefOf(ctx),
+        "en",
+      ),
+    );
+    if (ok) return;
+    // Speak failed — fall through to single AR gather so the menu is never silent.
+    await exec(ctx, "gather", (c) =>
+      c.gatherUsingSpeak(
+        ctx.ccid,
+        arSpoken,
+        { step: "ivr" },
+        voiceOf(ctx),
+        voiceArOf(ctx),
+        elevenLabsRefOf(ctx),
+        "ar",
+      ),
+    );
+    return;
+  }
+
   // Rewrite known MSA defaults still sitting in call metadata / saved graphs.
   // Soft-fail: never speak empty after digit 2 — Arabic default + preferLang → Fatima.
   const fallback = preferLang === "ar" ? DEFAULT_IVR_PROMPT_AR : DEFAULT_IVR_PROMPT;
-  const spoken = clip(refreshStaleE3ArabicPrompt(text)) || fallback;
+  const spoken =
+    clip(
+      preferLang === "ar"
+        ? refreshStaleE3ArabicPrompt(text)
+        : refreshStaleE3EnglishPrompt(text),
+    ) || fallback;
   await exec(ctx, "gather", (c) =>
     c.gatherUsingSpeak(
       ctx.ccid,
@@ -519,8 +574,22 @@ async function applyRouteResult(ctx: Ctx, result: InboundRouteResult) {
   if (result.phase === "ivr") {
     const greeting = typeof meta.ivrGreeting === "string" && meta.ivrGreeting ? meta.ivrGreeting : result.message;
     const audio = typeof meta.ivrAudioUrl === "string" ? meta.ivrAudioUrl : "";
+    const bilingual =
+      meta.ivrBilingualMenu === true &&
+      typeof meta.ivrGreetingEn === "string" &&
+      typeof meta.ivrGreetingAr === "string";
     // After digit 1/2, ivrLanguage forces admin EN/AR voice for the next menu (never silence).
-    await gather(ctx, greeting, audio, preferLangOf(meta));
+    await gather(
+      ctx,
+      bilingual ? String(meta.ivrGreetingEn) : greeting,
+      audio,
+      preferLangOf(meta),
+      {
+        bilingual,
+        promptAr: bilingual ? String(meta.ivrGreetingAr) : undefined,
+        callId: call.id,
+      },
+    );
     return;
   }
 
@@ -798,7 +867,21 @@ export async function handleTelnyxEvent(
         const nextMeta = metaOf(updated);
         const greeting = typeof nextMeta.ivrGreeting === "string" ? String(nextMeta.ivrGreeting) : "";
         const audio = typeof nextMeta.ivrAudioUrl === "string" ? String(nextMeta.ivrAudioUrl) : "";
-        await gather(ctx, greeting, audio, preferLangOf(nextMeta));
+        const bilingual =
+          nextMeta.ivrBilingualMenu === true &&
+          typeof nextMeta.ivrGreetingEn === "string" &&
+          typeof nextMeta.ivrGreetingAr === "string";
+        await gather(
+          ctx,
+          bilingual ? String(nextMeta.ivrGreetingEn) : greeting,
+          audio,
+          preferLangOf(nextMeta),
+          {
+            bilingual,
+            promptAr: bilingual ? String(nextMeta.ivrGreetingAr) : undefined,
+            callId: call.id,
+          },
+        );
         return done(true, "IVR retry", call.id);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "IVR failed";
@@ -814,6 +897,16 @@ export async function handleTelnyxEvent(
       const step = typeof ev.clientState.step === "string" ? ev.clientState.step : "";
       if (step === "final") {
         await exec(ctx, "hangup", (c) => c.hangup(ctx.ccid));
+      } else if (step === "ivr_bilingual_en") {
+        // Language menu: EN Speak finished → Gather with Arabic (admin AR / Fatima).
+        const meta = metaOf(call);
+        const ar =
+          (typeof meta.ivrPendingGatherAr === "string" && meta.ivrPendingGatherAr.trim()) ||
+          (typeof meta.ivrGreetingAr === "string" && meta.ivrGreetingAr.trim()) ||
+          DEFAULT_IVR_PROMPT_AR;
+        await patchMeta(call.id, { ivrBilingualPending: false, ivrPendingGatherAr: null });
+        await gather(ctx, ar, "", "ar");
+        return done(true, "ivr_bilingual_ar_gather", call.id);
       } else if (step === "welcome") {
         // Agent may have answered (bridge) while the welcome prompt was playing.
         // Restarting hold after playback_stop races Telnyx transfer → SIP never publishes

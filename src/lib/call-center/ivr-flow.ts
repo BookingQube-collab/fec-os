@@ -8,6 +8,7 @@ import {
   E3_SERVICE_GREETING_AR,
   E3_SERVICE_GREETING_EN,
   refreshStaleE3ArabicPrompt,
+  refreshStaleE3EnglishPrompt,
   type E3CenterKey,
 } from "./e3-ivr-prompt";
 import { defaultOssAudioForNodeLabel, resolvePublicMediaUrl } from "./ivr-oss-prompts";
@@ -141,18 +142,24 @@ export function parseIvrFlowJson(raw: unknown): IvrFlowJson {
         label: String(dataRaw.label ?? type),
         greetingText:
           dataRaw.greetingText != null
-            ? refreshStaleE3ArabicPrompt(String(dataRaw.greetingText))
+            ? refreshStaleE3EnglishPrompt(refreshStaleE3ArabicPrompt(String(dataRaw.greetingText)))
             : undefined,
         messageText:
           dataRaw.messageText != null
-            ? refreshStaleE3ArabicPrompt(String(dataRaw.messageText))
+            ? refreshStaleE3EnglishPrompt(refreshStaleE3ArabicPrompt(String(dataRaw.messageText)))
             : undefined,
-        greetingEn: dataRaw.greetingEn != null ? String(dataRaw.greetingEn) : undefined,
+        greetingEn:
+          dataRaw.greetingEn != null
+            ? refreshStaleE3EnglishPrompt(String(dataRaw.greetingEn))
+            : undefined,
         greetingAr:
           dataRaw.greetingAr != null
             ? refreshStaleE3ArabicPrompt(String(dataRaw.greetingAr))
             : undefined,
-        messageEn: dataRaw.messageEn != null ? String(dataRaw.messageEn) : undefined,
+        messageEn:
+          dataRaw.messageEn != null
+            ? refreshStaleE3EnglishPrompt(String(dataRaw.messageEn))
+            : undefined,
         messageAr:
           dataRaw.messageAr != null
             ? refreshStaleE3ArabicPrompt(String(dataRaw.messageAr))
@@ -296,14 +303,15 @@ export function nodeSpokenText(node: IvrFlowNode, lang: IvrSpeakLang = "en"): st
     // Saved graphs often still hold pre-Gulf MSA defaults — refresh at speak time.
     return refreshStaleE3ArabicPrompt(raw);
   }
-  return (
+  const raw =
     node.data.greetingEn ||
     node.data.messageEn ||
     node.data.greetingText ||
     node.data.messageText ||
     node.data.label ||
-    ""
-  );
+    "";
+  // Strip legacy bilingual EN+AR Language strings so EN voice never speaks Arabic glyphs.
+  return refreshStaleE3EnglishPrompt(raw);
 }
 
 /**

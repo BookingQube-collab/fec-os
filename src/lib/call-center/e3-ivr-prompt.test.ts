@@ -8,7 +8,9 @@ import {
   E3_LANG_GREETING_EN,
   E3_SERVICE_GREETING_AR,
   E3_SERVICE_GREETING_EN,
+  E3_LANG_GREETING_EN_BILINGUAL_LEGACY,
   refreshStaleE3ArabicPrompt,
+  refreshStaleE3EnglishPrompt,
 } from "./e3-ivr-prompt";
 import {
   buildFecVenuesTemplate,
@@ -23,9 +25,10 @@ import { CALL_CENTER_VENUE_QUEUE_IDS } from "./types";
 describe("E3 IVR spoken prompts", () => {
   it("covers language, center, and service scripts", () => {
     expect(E3_LANG_GREETING_EN).toMatch(/press 1/i);
-    expect(E3_LANG_GREETING_EN).toMatch(/اضغط 2/);
+    expect(E3_LANG_GREETING_EN).not.toMatch(/[\u0600-\u06FF]/);
     expect(E3_LANG_GREETING_EN).toMatch(/press 0/i);
     expect(E3_LANG_GREETING_EN).toMatch(/agent/i);
+    expect(E3_LANG_GREETING_AR).toMatch(/اضغط 2/);
     expect(E3_CENTER_GREETING_EN).toMatch(/Inflata Park/i);
     expect(E3_CENTER_GREETING_EN).toMatch(/Kids Driving School/i);
     expect(E3_CENTER_GREETING_EN).toMatch(/Urban Arena/i);
@@ -49,6 +52,16 @@ describe("E3 IVR spoken prompts", () => {
     expect(refreshStaleE3ArabicPrompt(staleCenter)).toBe(E3_CENTER_GREETING_AR);
     expect(refreshStaleE3ArabicPrompt(E3_CENTER_GREETING_AR)).toBe(E3_CENTER_GREETING_AR);
     expect(refreshStaleE3ArabicPrompt("نص مخصص من المحرر")).toBe("نص مخصص من المحرر");
+  });
+
+  it("rewrites bilingual Language EN to English-only", () => {
+    expect(refreshStaleE3EnglishPrompt(E3_LANG_GREETING_EN_BILINGUAL_LEGACY)).toBe(
+      E3_LANG_GREETING_EN,
+    );
+    expect(refreshStaleE3EnglishPrompt(E3_LANG_GREETING_EN)).toBe(E3_LANG_GREETING_EN);
+    expect(refreshStaleE3EnglishPrompt(E3_LANG_GREETING_EN_BILINGUAL_LEGACY)).not.toMatch(
+      /[\u0600-\u06FF]/,
+    );
   });
 
   it("refreshes MSA greetingAr when loading a saved graph", () => {

@@ -93,6 +93,10 @@ export async function POST(request: Request) {
       // fall through to repeat
     }
     const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+    const bilingual =
+      meta.ivrBilingualMenu === true &&
+      typeof meta.ivrGreetingEn === "string" &&
+      typeof meta.ivrGreetingAr === "string";
     const greeting = refreshStaleE3ArabicPrompt(
       (typeof meta.ivrGreeting === "string" && meta.ivrGreeting) || "Please choose an option.",
     );
@@ -101,7 +105,8 @@ export async function POST(request: Request) {
       await texmlGatherMenu({
         actionUrl: gatherUrl,
         timeoutRedirectUrl: holdUrl,
-        prompt: greeting,
+        prompt: bilingual ? String(meta.ivrGreetingEn) : greeting,
+        promptAr: bilingual ? String(meta.ivrGreetingAr) : undefined,
         voice: configuredVoice,
         voiceAr: configuredVoiceAr,
         elevenLabsApiKeyRef: elevenLabsKeyRef,
@@ -146,8 +151,12 @@ export async function POST(request: Request) {
     }
 
     if (result.phase === "ivr") {
-      // Soft-fail: never emit empty Say after digit 2 — default English prompt still
-      // uses preferLang so admin AR voice (Fatima) speaks when ivrLanguage=ar.
+      // Soft-fail: never emit empty Say after digit 2 — preferLang + TeXML-safe AR voice
+      // (Polly Hala when Azure has no BYOK; Fatima silent on TeXML without api_key_ref).
+      const bilingual =
+        meta.ivrBilingualMenu === true &&
+        typeof meta.ivrGreetingEn === "string" &&
+        typeof meta.ivrGreetingAr === "string";
       const greeting = refreshStaleE3ArabicPrompt(
         (typeof meta.ivrGreeting === "string" && meta.ivrGreeting) ||
           result.message ||
@@ -158,7 +167,10 @@ export async function POST(request: Request) {
         await texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: holdUrl,
-          prompt: greeting || "Please choose an option.",
+          prompt: bilingual
+            ? String(meta.ivrGreetingEn)
+            : greeting || (preferLang === "ar" ? "من فضلك اختر خياراً." : "Please choose an option."),
+          promptAr: bilingual ? String(meta.ivrGreetingAr) : undefined,
           voice: configuredVoice,
           voiceAr: configuredVoiceAr,
           elevenLabsApiKeyRef: elevenLabsKeyRef,

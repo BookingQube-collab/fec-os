@@ -238,6 +238,10 @@ export async function POST(request: Request) {
     }
 
     if (call.status === "ivr") {
+      const bilingual =
+        meta.ivrBilingualMenu === true &&
+        typeof meta.ivrGreetingEn === "string" &&
+        typeof meta.ivrGreetingAr === "string";
       const greeting = refreshStaleE3ArabicPrompt(
         (typeof meta.ivrGreeting === "string" && meta.ivrGreeting) ||
           settings?.tts_greeting_text ||
@@ -248,7 +252,10 @@ export async function POST(request: Request) {
         await texmlGatherMenu({
           actionUrl: gatherUrl,
           timeoutRedirectUrl: selfUrl,
-          prompt: greeting || "Please choose an option.",
+          prompt: bilingual
+            ? String(meta.ivrGreetingEn)
+            : greeting || "Please choose an option.",
+          promptAr: bilingual ? String(meta.ivrGreetingAr) : undefined,
           voice: configuredVoice,
           voiceAr: configuredVoiceAr,
           elevenLabsApiKeyRef: elevenLabsKeyRef,

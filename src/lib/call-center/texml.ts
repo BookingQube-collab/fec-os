@@ -3,12 +3,18 @@
  * Used when Call Control `Answer` returns 10007 — TeXML answers automatically and plays <Say>/<Gather>.
  */
 
-import { refreshStaleE3ArabicPrompt } from "./e3-ivr-prompt";
+import {
+  refreshStaleE3ArabicPrompt,
+  refreshStaleE3EnglishPrompt,
+} from "./e3-ivr-prompt";
 import { resolvePlayableMediaUrl } from "./ivr-oss-prompts";
 import {
   DEFAULT_TTS_VOICE,
+  isArabicText,
   pickSpeakVoice,
+  texmlAzureSayAttrsWithKey,
   texmlElevenLabsSayAttrs,
+  texmlSafeSpeakVoice,
   texmlSayLanguage,
 } from "./ivr-tts-voice";
 
@@ -33,18 +39,28 @@ function texmlSay(
   voiceAr?: string,
   elevenLabsKeyRef?: string | null,
   preferLang?: "en" | "ar",
+  azureApiKeyRef?: string | null,
 ): string {
-  const spoken = refreshStaleE3ArabicPrompt(text).trim();
+  const preferAr =
+    preferLang === "ar" || (preferLang !== "en" && isArabicText(text));
+  const spoken = (
+    preferAr ? refreshStaleE3ArabicPrompt(text) : refreshStaleE3EnglishPrompt(text)
+  ).trim();
   if (!spoken) return "";
   const picked = pickSpeakVoice(spoken, voice, voiceAr, {
     elevenLabsApiKeyRef: elevenLabsKeyRef,
-    preferLang,
+    preferLang: preferLang ?? (preferAr ? "ar" : "en"),
   });
-  const lang = texmlSayLanguage(picked.voice, language?.trim() || picked.language);
+  const safeVoice = texmlSafeSpeakVoice(picked.voice, preferAr ? "ar" : "en", {
+    azureApiKeyRef,
+    elevenLabsApiKeyRef: elevenLabsKeyRef,
+  });
+  const lang = texmlSayLanguage(safeVoice, language?.trim() || picked.language);
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
-  const elevenAttr = texmlElevenLabsSayAttrs(picked.voice, elevenLabsKeyRef);
+  const elevenAttr = texmlElevenLabsSayAttrs(safeVoice, elevenLabsKeyRef);
+  const azureAttr = texmlAzureSayAttrsWithKey(safeVoice, azureApiKeyRef);
   // Always escape plain text — never nest SSML inside TeXML <Say> (caused silence).
-  return `<Say voice="${escapeTexml(picked.voice)}"${langAttr}${elevenAttr}>${escapeTexml(spoken)}</Say>`;
+  return `<Say voice="${escapeTexml(safeVoice)}"${langAttr}${elevenAttr}${azureAttr}>${escapeTexml(spoken)}</Say>`;
 }
 
 /**
@@ -59,6 +75,7 @@ async function texmlPlayOrSay(input: {
   text?: string;
   audioUrl?: string;
   elevenLabsApiKeyRef?: string | null;
+  azureApiKeyRef?: string | null;
   preferLang?: "en" | "ar";
 }): Promise<string> {
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
@@ -72,6 +89,7 @@ async function texmlPlayOrSay(input: {
     input.voiceAr,
     input.elevenLabsApiKeyRef,
     input.preferLang,
+    input.azureApiKeyRef,
   );
 }
 
@@ -80,23 +98,45 @@ export async function texmlGatherMenu(input: {
   /** Where to send the caller if gather times out (usually the inbound TeXML URL). */
   timeoutRedirectUrl: string;
   prompt: string;
+  /**
+   * Optional Arabic half for Language menu — emits a second `<Say>` with AR voice
+   * after the English `prompt` (never one mixed Say with Joanna speaking Arabic).
+   */
+  promptAr?: string;
   voice?: string;
   voiceAr?: string;
   /** Settings/env Telnyx Integration Secret id for ElevenLabs. */
   elevenLabsApiKeyRef?: string | null;
+  /** Optional Telnyx Integration Secret for Azure TeXML BYOK. */
+  azureApiKeyRef?: string | null;
   /** When set, Play this clip inside Gather instead of TTS Say (after reachability check). */
   audioUrl?: string;
   language?: string;
   /** Force EN/AR voice from call metadata `ivrLanguage` after digit 1/2. */
   preferLang?: "en" | "ar";
 }): Promise<string> {
-  const promptRaw = refreshStaleE3ArabicPrompt(input.prompt.trim() || "Please choose an option.");
+  const promptArRaw = (input.promptAr ?? "").trim();
+  const bilingual = Boolean(promptArRaw) && input.preferLang !== "ar" && input.preferLang !== "en";
+  const promptRaw = bilingual
+    ? refreshStaleE3EnglishPrompt(input.prompt.trim() || "Please choose an option.")
+    : input.preferLang === "ar" || isArabicText(input.prompt)
+      ? refreshStaleE3ArabicPrompt(input.prompt.trim() || "من فضلك اختر خياراً.")
+      : refreshStaleE3EnglishPrompt(input.prompt.trim() || "Please choose an option.");
   const pickOpts = {
     elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
-    preferLang: input.preferLang,
+    preferLang: bilingual ? ("en" as const) : input.preferLang,
   };
   const picked = pickSpeakVoice(promptRaw, input.voice, input.voiceAr, pickOpts);
-  const voice = picked.voice;
+  const langHint: "en" | "ar" =
+    bilingual || input.preferLang === "en"
+      ? "en"
+      : input.preferLang === "ar" || isArabicText(promptRaw)
+        ? "ar"
+        : "en";
+  const voice = texmlSafeSpeakVoice(picked.voice, langHint, {
+    azureApiKeyRef: input.azureApiKeyRef,
+    elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+  });
   const lang = texmlSayLanguage(voice, input.language?.trim() || picked.language);
   const langAttr = lang ? ` language="${escapeTexml(lang)}"` : "";
   const prompt = escapeTexml(promptRaw);
@@ -105,9 +145,30 @@ export async function texmlGatherMenu(input: {
   // Do not nest Say after Play: Telnyx continues after successful Play and would double-speak.
   const audio = await resolvePlayableMediaUrl(input.audioUrl);
   const elevenAttr = texmlElevenLabsSayAttrs(voice, input.elevenLabsApiKeyRef);
-  const gatherBody = audio
+  const azureAttr = texmlAzureSayAttrsWithKey(voice, input.azureApiKeyRef);
+  let gatherBody = audio
     ? `<Play continueOnError="true">${escapeTexml(audio)}</Play>`
-    : `<Say voice="${escapeTexml(voice)}"${langAttr}${elevenAttr}>${prompt}</Say>`;
+    : `<Say voice="${escapeTexml(voice)}"${langAttr}${elevenAttr}${azureAttr}>${prompt}</Say>`;
+
+  // Language menu: second Say with admin AR voice (TeXML-safe — Polly Hala if Azure has no BYOK).
+  if (!audio && bilingual) {
+    const arText = refreshStaleE3ArabicPrompt(promptArRaw);
+    const arPicked = pickSpeakVoice(arText, input.voice, input.voiceAr, {
+      elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+      preferLang: "ar",
+    });
+    const arVoice = texmlSafeSpeakVoice(arPicked.voice, "ar", {
+      azureApiKeyRef: input.azureApiKeyRef,
+      elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+    });
+    const arLang = texmlSayLanguage(arVoice, arPicked.language);
+    const arLangAttr = arLang ? ` language="${escapeTexml(arLang)}"` : "";
+    const arEleven = texmlElevenLabsSayAttrs(arVoice, input.elevenLabsApiKeyRef);
+    const arAzure = texmlAzureSayAttrsWithKey(arVoice, input.azureApiKeyRef);
+    gatherBody +=
+      `<Say voice="${escapeTexml(arVoice)}"${arLangAttr}${arEleven}${arAzure}>${escapeTexml(arText)}</Say>`;
+  }
+
   // Timeout line is English — same EN speak path (ElevenLabs when keyed, else Joanna).
   const timeoutPicked = pickSpeakVoice(
     "We did not receive any input.",
@@ -115,14 +176,18 @@ export async function texmlGatherMenu(input: {
     input.voiceAr,
     { elevenLabsApiKeyRef: input.elevenLabsApiKeyRef, preferLang: "en" },
   );
-  const timeoutLang = texmlSayLanguage(timeoutPicked.voice, "en-US");
+  const timeoutVoice = texmlSafeSpeakVoice(timeoutPicked.voice, "en", {
+    azureApiKeyRef: input.azureApiKeyRef,
+    elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+  });
+  const timeoutLang = texmlSayLanguage(timeoutVoice, "en-US");
   const timeoutLangAttr = timeoutLang ? ` language="${escapeTexml(timeoutLang)}"` : "";
-  const timeoutEleven = texmlElevenLabsSayAttrs(timeoutPicked.voice, input.elevenLabsApiKeyRef);
+  const timeoutEleven = texmlElevenLabsSayAttrs(timeoutVoice, input.elevenLabsApiKeyRef);
   return texmlResponse(
     `<Gather numDigits="1" timeout="8" action="${escapeTexml(input.actionUrl)}" method="POST">` +
       gatherBody +
       `</Gather>` +
-      `<Say voice="${escapeTexml(timeoutPicked.voice)}"${timeoutLangAttr}${timeoutEleven}>We did not receive any input.</Say>` +
+      `<Say voice="${escapeTexml(timeoutVoice)}"${timeoutLangAttr}${timeoutEleven}>We did not receive any input.</Say>` +
       `<Redirect method="POST">${escapeTexml(input.timeoutRedirectUrl)}</Redirect>`,
   );
 }
@@ -168,6 +233,8 @@ export async function texmlConference(input: {
   voiceAr?: string;
   /** Settings/env Telnyx Integration Secret id for ElevenLabs. */
   elevenLabsApiKeyRef?: string | null;
+  /** Optional Telnyx Integration Secret for Azure TeXML BYOK. */
+  azureApiKeyRef?: string | null;
   /** When set, Play this clip before Dial instead of TTS preSay. */
   prePlayUrl?: string;
   /** Force EN/AR voice from call metadata `ivrLanguage`. */
@@ -199,6 +266,7 @@ export async function texmlConference(input: {
     text: input.preSay ?? "",
     audioUrl: input.prePlayUrl,
     elevenLabsApiKeyRef: input.elevenLabsApiKeyRef,
+    azureApiKeyRef: input.azureApiKeyRef,
     preferLang: input.preferLang,
   });
   return texmlResponse(

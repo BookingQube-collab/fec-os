@@ -512,4 +512,45 @@ export function fallbackSpeakVoice(
   }
   return { voice: FALLBACK_EN_TTS_VOICE, language: "en-US" };
 }
+
+/**
+ * TeXML `<Say>` Azure voices need `api_key_ref` (Telnyx docs: ElevenLabs, Azure, Rime).
+ * Without a BYOK secret, Azure Fatima Say is silent on live TeXML (digit 2 / AR menus).
+ * Polly Neural is included in Telnyx premium and stays audible — use Hala/Hamdan for AR.
+ * Call Control Speak can still use Azure Fatima without this remap.
+ */
+export function texmlSafeSpeakVoice(
+  voice: string,
+  lang: "en" | "ar",
+  options?: { azureApiKeyRef?: string | null; elevenLabsApiKeyRef?: string | null },
+): string {
+  if (ELEVENLABS_VOICE_RE.test(voice)) {
+    // ElevenLabs also needs api_key_ref — soft-fail to Polly/Azure fallbacks when missing.
+    if (!isElevenLabsKeyRefConfigured(options?.elevenLabsApiKeyRef)) {
+      return lang === "ar" ? "Polly.Hala-Neural" : FALLBACK_EN_TTS_VOICE;
+    }
+    return voice;
+  }
+  if (!AZURE_VOICE_RE.test(voice)) return voice;
+  const azureRef = options?.azureApiKeyRef?.trim() || process.env.TELNYX_AZURE_API_KEY_REF?.trim() || "";
+  if (azureRef) return voice;
+  if (lang === "ar") {
+    return /Hamdan|Male|male|Guy|Andrew|Brian|Zayd/i.test(voice)
+      ? "Polly.Zayd-Neural"
+      : "Polly.Hala-Neural";
+  }
+  return FALLBACK_EN_TTS_VOICE;
+}
+
+/** Optional TeXML Azure BYOK attrs when TELNYX_AZURE_API_KEY_REF (or arg) is set. */
+export function texmlAzureSayAttrsWithKey(
+  voice: string,
+  azureApiKeyRef?: string | null,
+): string {
+  if (!AZURE_VOICE_RE.test(voice)) return "";
+  const ref =
+    azureApiKeyRef?.trim() || process.env.TELNYX_AZURE_API_KEY_REF?.trim() || "";
+  if (!ref) return "";
+  return ` api_key_ref="${ref.replace(/"/g, "&quot;")}"`;
+}
 

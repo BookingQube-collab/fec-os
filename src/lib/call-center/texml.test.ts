@@ -59,20 +59,28 @@ describe("texmlConference", () => {
     expect(xml.indexOf("<Say")).toBeLessThan(xml.indexOf("<Dial>"));
   });
 
-  it("rewrites stale MSA Arabic preSay to Gulf copy and picks Azure Fatima", async () => {
-    const xml = await texmlConference({
-      name: "fecabc123",
-      voice: "Polly.Joanna-Neural",
-      voiceAr: "Azure.ar-AE-FatimaNeural",
-      preSay: "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.",
-      preferLang: "ar",
-    });
-    expect(xml).toContain("المكالمة هذي ممكن تنسجل");
-    expect(xml).toContain('voice="Azure.ar-AE-FatimaNeural"');
-    // Azure embeds locale in the voice id — omit language (same Fatima silence fix as Call Control).
-    expect(xml).not.toContain('language="ar-AE"');
-    expect(xml).not.toContain("effect=");
-    expect(xml).not.toContain("<prosody");
+  it("rewrites stale MSA Arabic preSay to Gulf and uses TeXML-safe Polly Hala without Azure BYOK", async () => {
+    const prevAzure = process.env.TELNYX_AZURE_API_KEY_REF;
+    delete process.env.TELNYX_AZURE_API_KEY_REF;
+    try {
+      const xml = await texmlConference({
+        name: "fecabc123",
+        voice: "Polly.Joanna-Neural",
+        voiceAr: "Azure.ar-AE-FatimaNeural",
+        preSay: "يرجى ملاحظة أن هذه المكالمة قد يتم تسجيلها لأغراض الجودة والتدريب.",
+        preferLang: "ar",
+      });
+      expect(xml).toContain("المكالمة هذي ممكن تنسجل");
+      // Without Azure api_key_ref, Fatima Say is silent on TeXML — remap to Hala.
+      expect(xml).toContain('voice="Polly.Hala-Neural"');
+      expect(xml).not.toContain("Azure.ar-AE-FatimaNeural");
+      expect(xml).not.toContain('language="ar-AE"');
+      expect(xml).not.toContain("effect=");
+      expect(xml).not.toContain("<prosody");
+    } finally {
+      if (prevAzure === undefined) delete process.env.TELNYX_AZURE_API_KEY_REF;
+      else process.env.TELNYX_AZURE_API_KEY_REF = prevAzure;
+    }
   });
 
   it("prefers prePlayUrl over TTS preSay for human bridge clips", async () => {
@@ -185,35 +193,88 @@ describe("texmlGatherMenu", () => {
     }
   });
 
-  it("digit1 preferLang=en uses admin EN voice; digit2 preferLang=ar uses admin AR Fatima without ar-AE language", async () => {
-    const enXml = await texmlGatherMenu({
-      actionUrl: "https://example.com/gather",
-      timeoutRedirectUrl: "https://example.com/texml",
-      prompt:
-        "Please select the entertainment center you would like assistance with. For Inflata Park, press 1.",
-      voice: "Polly.Matthew-Neural",
-      voiceAr: "Azure.ar-AE-FatimaNeural",
-      preferLang: "en",
-    });
-    expect(enXml).toContain('voice="Polly.Matthew-Neural"');
-    expect(enXml).toContain("Inflata Park");
-    expect(enXml).not.toContain("Azure.ar-AE-FatimaNeural");
+  it("digit1 preferLang=en uses admin EN voice; digit2 preferLang=ar remaps Azure Fatima→Polly Hala without Azure BYOK", async () => {
+    const prevAzure = process.env.TELNYX_AZURE_API_KEY_REF;
+    delete process.env.TELNYX_AZURE_API_KEY_REF;
+    try {
+      const enXml = await texmlGatherMenu({
+        actionUrl: "https://example.com/gather",
+        timeoutRedirectUrl: "https://example.com/texml",
+        prompt:
+          "Please select the entertainment center you would like assistance with. For Inflata Park, press 1.",
+        voice: "Polly.Matthew-Neural",
+        voiceAr: "Azure.ar-AE-FatimaNeural",
+        preferLang: "en",
+      });
+      expect(enXml).toContain('voice="Polly.Matthew-Neural"');
+      expect(enXml).toContain("Inflata Park");
+      expect(enXml).not.toContain("Azure.ar-AE-FatimaNeural");
 
-    const arPrompt =
-      "أي مركز تبيه المساعدة فيه؟ لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال اضغط 2.";
+      const arPrompt =
+        "أي مركز تبيه المساعدة فيه؟ لإنفلاتا بارك في سيتي سنتر اضغط 1. لمدرسة القيادة للأطفال اضغط 2.";
+      const arXml = await texmlGatherMenu({
+        actionUrl: "https://example.com/gather",
+        timeoutRedirectUrl: "https://example.com/texml",
+        prompt: arPrompt,
+        voice: "Polly.Matthew-Neural",
+        voiceAr: "Azure.ar-AE-FatimaNeural",
+        preferLang: "ar",
+      });
+      // TeXML Azure needs api_key_ref — without it Fatima Say is silent; Hala stays audible.
+      expect(arXml).toContain('voice="Polly.Hala-Neural"');
+      expect(arXml).not.toContain("Azure.ar-AE-FatimaNeural");
+      expect(arXml).toContain("إنفلاتا بارك");
+      expect(arXml).not.toContain('language="ar-AE"');
+      expect(arXml).not.toContain("<Play>");
+      expect(arXml).toContain("<Gather");
+    } finally {
+      if (prevAzure === undefined) delete process.env.TELNYX_AZURE_API_KEY_REF;
+      else process.env.TELNYX_AZURE_API_KEY_REF = prevAzure;
+    }
+  });
+
+  it("keeps Azure Fatima on TeXML when azureApiKeyRef is provided", async () => {
+    const arPrompt = "أي مركز تبيه المساعدة فيه؟ لإنفلاتا بارك اضغط 1.";
     const arXml = await texmlGatherMenu({
       actionUrl: "https://example.com/gather",
       timeoutRedirectUrl: "https://example.com/texml",
       prompt: arPrompt,
-      voice: "Polly.Matthew-Neural",
+      voice: "Polly.Joanna-Neural",
       voiceAr: "Azure.ar-AE-FatimaNeural",
       preferLang: "ar",
+      azureApiKeyRef: "azure_secret_id",
     });
     expect(arXml).toContain('voice="Azure.ar-AE-FatimaNeural"');
-    expect(arXml).toContain("إنفلاتا بارك");
+    expect(arXml).toContain('api_key_ref="azure_secret_id"');
     expect(arXml).not.toContain('language="ar-AE"');
-    expect(arXml).not.toContain("<Play>");
-    expect(arXml).toContain("<Gather");
+  });
+
+  it("splits Language menu into EN Say + AR Say with distinct voices", async () => {
+    const prevAzure = process.env.TELNYX_AZURE_API_KEY_REF;
+    delete process.env.TELNYX_AZURE_API_KEY_REF;
+    try {
+      const xml = await texmlGatherMenu({
+        actionUrl: "https://example.com/gather",
+        timeoutRedirectUrl: "https://example.com/texml",
+        prompt:
+          "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. To speak with an agent, press 0.",
+        promptAr:
+          "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزي اضغط 1. للعربي اضغط 2. عشان تتكلم مع موظف اضغط 0.",
+        voice: "Polly.Joanna-Neural",
+        voiceAr: "Azure.ar-AE-FatimaNeural",
+      });
+      expect(xml).toContain('voice="Polly.Joanna-Neural"');
+      expect(xml).toContain("For English, press 1");
+      expect(xml).toContain('voice="Polly.Hala-Neural"');
+      expect(xml).toContain("للعربي اضغط 2");
+      // Two Say verbs inside Gather (EN then AR).
+      const gatherInner = xml.match(/<Gather[^>]*>([\s\S]*)<\/Gather>/)?.[1] ?? "";
+      expect(gatherInner.match(/<Say /g)?.length).toBe(2);
+      expect(gatherInner).not.toContain("للعربية، اضغط 2");
+    } finally {
+      if (prevAzure === undefined) delete process.env.TELNYX_AZURE_API_KEY_REF;
+      else process.env.TELNYX_AZURE_API_KEY_REF = prevAzure;
+    }
   });
 });
 

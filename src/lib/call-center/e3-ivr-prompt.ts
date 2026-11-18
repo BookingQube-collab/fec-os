@@ -32,13 +32,21 @@ export const E3_CENTER_LABELS = {
 
 export type E3CenterKey = keyof typeof E3_CENTER_LABELS;
 
-/** Step 1 — welcome + language (+ early agent). */
+/**
+ * Step 1 — English half of the language menu (EN voice only).
+ * Arabic must NOT be embedded here — Joanna mangling Arabic was the wrong-voice bug.
+ * TeXML/Call Control speak EN then AR as two separate Say/Speak verbs.
+ */
 export const E3_LANG_GREETING_EN =
-  "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0. للتحدث مع موظف، اضغط 0.";
+  "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. To speak with an agent, press 0.";
 
-/** Gulf/Qatari-leaning spoken Arabic — clear for IVR, not stiff MSA. */
+/** Gulf/Qatari-leaning Arabic half of the language menu (AR voice / Fatima or TeXML-safe Hala). */
 export const E3_LANG_GREETING_AR =
   "شكراً لاتصالك بـ E3 للفعاليات والترفيه. للإنجليزي اضغط 1. للعربي اضغط 2. عشان تتكلم مع موظف اضغط 0.";
+
+/** Prior bilingual EN+AR single string still stored on many live Language nodes. */
+export const E3_LANG_GREETING_EN_BILINGUAL_LEGACY =
+  "Thank you for calling E3, Events and Entertainment Enterprises. For English, press 1. للعربية، اضغط 2. To speak with an agent, press 0. للتحدث مع موظف، اضغط 0.";
 
 /** Step 2 — select entertainment center. */
 export const E3_CENTER_GREETING_EN =
@@ -80,8 +88,13 @@ const STALE_E3_ARABIC_PROMPTS: Record<string, string> = {
     "لحظة من فضلك، بنوصلك بالموظف الحين.",
 };
 
+/** Prior bilingual EN strings → English-only (Arabic spoken as a second Say). */
+const STALE_E3_ENGLISH_PROMPTS: Record<string, string> = {
+  [E3_LANG_GREETING_EN_BILINGUAL_LEGACY]: E3_LANG_GREETING_EN,
+};
+
 /** Normalize whitespace so DB/UI copies still match known MSA defaults. */
-function normalizeArabicPromptKey(text: string): string {
+function normalizePromptKey(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
@@ -91,8 +104,33 @@ function normalizeArabicPromptKey(text: string): string {
  */
 export function refreshStaleE3ArabicPrompt(text: string): string {
   if (!text) return text;
-  const key = normalizeArabicPromptKey(text);
+  const key = normalizePromptKey(text);
   return STALE_E3_ARABIC_PROMPTS[key] ?? text;
+}
+
+/**
+ * Rewrite known bilingual Language-menu EN strings to English-only.
+ * Also strips residual Arabic-script runs so EN TTS never speaks Arabic glyphs.
+ */
+export function refreshStaleE3EnglishPrompt(text: string): string {
+  if (!text) return text;
+  const key = normalizePromptKey(text);
+  const mapped = STALE_E3_ENGLISH_PROMPTS[key];
+  if (mapped) return mapped;
+  // Safety: drop Arabic-script segments from mixed Language prompts still in metadata.
+  if (/[\u0600-\u06FF]/.test(text) && /[A-Za-z]/.test(text)) {
+    const stripped = text
+      .replace(/[\u0600-\u06FF][\u0600-\u06FF\s،,.!؟?]*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return stripped || E3_LANG_GREETING_EN;
+  }
+  return text;
+}
+
+/** True when an IVR node is the Language menu (1 EN / 2 AR). */
+export function isIvrLanguageMenuLabel(label: string | undefined | null): boolean {
+  return /lang|language|لغة/i.test(label || "");
 }
 
 /**

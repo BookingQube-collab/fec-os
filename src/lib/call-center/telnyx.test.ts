@@ -6,6 +6,7 @@ vi.mock("server-only", () => ({}));
 import {
   buildSpeakPayload,
   callControlSpeakLanguage,
+  texmlSafeSpeakVoice,
   texmlSayLanguage,
 } from "./ivr-tts-voice";
 import {
@@ -280,6 +281,12 @@ describe("client state + voice", () => {
     // TeXML must also omit ar-AE for Azure (parity with Call Control Fatima fix).
     expect(texmlSayLanguage("Azure.ar-AE-FatimaNeural", "ar-AE")).toBeUndefined();
     expect(texmlSayLanguage("Polly.Joanna-Neural", "en-US")).toBeUndefined();
+
+    // TeXML Azure without BYOK → audible Polly Hala (Fatima Say is silent on TeXML).
+    expect(texmlSafeSpeakVoice("Azure.ar-AE-FatimaNeural", "ar")).toBe("Polly.Hala-Neural");
+    expect(
+      texmlSafeSpeakVoice("Azure.ar-AE-FatimaNeural", "ar", { azureApiKeyRef: "azure_ref" }),
+    ).toBe("Azure.ar-AE-FatimaNeural");
   });
 
   it("honors settings ElevenLabs ref without env", () => {
