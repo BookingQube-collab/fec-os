@@ -28,6 +28,7 @@ export const config = {
      * - API (withAuthRouteRequest) and ADMS iclock
      * - PWA worker / favicon / common static extensions
      */
-    "/((?!_next/|favicon.ico|api/|iclock/|sw\\.js|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|webmanifest|ico|woff|woff2|ttf|eot|css|js|map|txt|xml|json)$).*)",
+    // Include mp3/wav/ogg/m4a so Telnyx <Play> can fetch public/ivr clips without auth.
+    "/((?!_next/|favicon.ico|api/|iclock/|sw\\.js|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|webmanifest|ico|woff|woff2|ttf|eot|css|js|map|txt|xml|json|mp3|wav|ogg|m4a)$).*)",
   ],
 };
