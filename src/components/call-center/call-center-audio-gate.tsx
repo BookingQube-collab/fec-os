@@ -7,8 +7,8 @@ import {
 } from "@/lib/call-center/softphone-audio";
 
 /**
- * Primes Call Center AudioContext on first pointer/key gesture anywhere under /call-center.
- * Renders children unchanged.
+ * Primes Call Center AudioContext on first pointer/key gesture in the protected shell
+ * (agents only — mounted via CallCenterShellSoftphone). Renders children unchanged.
  */
 export function CallCenterAudioGate({ children }: { children: React.ReactNode }) {
   const primed = useRef(false);

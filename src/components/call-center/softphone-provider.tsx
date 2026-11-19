@@ -1041,6 +1041,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
 
   useEffect(() => {
     if (!canUse) return;
+    const onDialerHome = pathname === "/call-center";
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -1058,7 +1059,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
         }
         return;
       }
-      if (e.key === "Enter" && !typing && !activeCall && !incoming) {
+      // Enter→dial only on the dialer page (softphone is shell-wide for agents).
+      if (onDialerHome && e.key === "Enter" && !typing && !activeCall && !incoming) {
         e.preventDefault();
         void onDial();
       }
@@ -1066,7 +1068,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers close over latest via refs intentionally light
-  }, [canUse, incoming?.id, activeCall?.id, dialDigits]);
+  }, [canUse, pathname, incoming?.id, activeCall?.id, dialDigits]);
 
   const value: SoftphoneContextValue = {
     canUse,

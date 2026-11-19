@@ -45,6 +45,7 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | Path | Purpose |
 |------|---------|
 | `/call-center` | Agent console: 3-zone dialer (status bar, keypad / in-call, queues + speed dial + notes) |
+| Softphone (shell-wide) | `CallCenterShellSoftphone` in protected AppShell — agents with `call_center.view` / `call_center.agent` get incoming overlay + ringtone on any route (Available + queue); Answer uses floating LiveKit room off `/call-center`. Interim until Android APK. |
 | Android APK (Capacitor) | Thin shell + FCM high-priority offers when the app is closed — see [call-center-android.md](./call-center-android.md) |
 | `POST /api/public/call-center/queue-timeouts` | Cron: advance sequential offers (~15s) + max_wait when no softphone is polling (`CRON_SECRET`) |
 | `/call-center/live` | Agents + active calls wallboard + remote status (admin) |
