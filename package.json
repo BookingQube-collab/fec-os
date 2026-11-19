@@ -61,6 +61,7 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tanstack/react-query": "^5.83.0",
+    "@vercel/speed-insights": "^2.1.0",
     "@xyflow/react": "^12.12.1",
     "ascii-reveal": "^0.3.0",
     "class-variance-authority": "^0.7.1",
