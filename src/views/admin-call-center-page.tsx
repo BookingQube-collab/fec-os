@@ -70,7 +70,7 @@ function AdminCallCenterPage() {
   const [saving, setSaving] = useState(false);
 
   const [queueName, setQueueName] = useState("Support");
-  const [queueStrategy, setQueueStrategy] = useState<CallCenterQueueStrategy>("simultaneous");
+  const [queueStrategy, setQueueStrategy] = useState<CallCenterQueueStrategy>("sequential");
   const [didE164, setDidE164] = useState("+974");
   const [didLabel, setDidLabel] = useState("");
   const [didQueueId, setDidQueueId] = useState("");
@@ -148,6 +148,7 @@ function AdminCallCenterPage() {
       eventId: null,
       wrapUpSeconds: 30,
       maxWaitSeconds: 120,
+      offerRingSeconds: 15,
       isActive: true,
       sortOrder: bundle.data?.queues.length ?? 0,
     });
@@ -370,6 +371,7 @@ function AdminCallCenterPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="sequential">sequential</SelectItem>
                       <SelectItem value="simultaneous">simultaneous</SelectItem>
                       <SelectItem value="round_robin">round_robin</SelectItem>
                       <SelectItem value="longest_idle">longest_idle</SelectItem>

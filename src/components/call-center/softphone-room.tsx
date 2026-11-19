@@ -24,7 +24,7 @@ import {
   stopSoftphoneRingtone,
   unlockSoftphoneAudio,
 } from "@/lib/call-center/softphone-audio";
-import type { CallCenterTransferTarget } from "@/lib/call-center/types";
+import type { CallCenterTransferOption, CallCenterTransferTarget } from "@/lib/call-center/types";
 import { cn } from "@/lib/utils";
 
 function isLiveKitAccessToken(value: string): boolean {
@@ -51,6 +51,7 @@ export function CallCenterSoftphoneRoom({
   answeredAt,
   callerLabel,
   transferTargets = [],
+  transferOptions = [],
   compact = false,
   micMuted = false,
   speakerMuted = false,
@@ -67,7 +68,9 @@ export function CallCenterSoftphoneRoom({
   held: boolean;
   answeredAt?: string | null;
   callerLabel?: string | null;
+  /** @deprecated Prefer transferOptions (agents + queues). */
   transferTargets?: CallCenterTransferTarget[];
+  transferOptions?: CallCenterTransferOption[];
   compact?: boolean;
   micMuted?: boolean;
   speakerMuted?: boolean;
@@ -402,23 +405,68 @@ export function CallCenterSoftphoneRoom({
         <div className="mt-5 space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
           <p className="text-sm font-semibold text-foreground">{t("callCenter.divertTitle")}</p>
           <p className="text-xs text-muted-foreground">{t("callCenter.transferHint")}</p>
-          {transferTargets.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {transferTargets.map((agent) => (
-                <Button
-                  key={agent.userId}
-                  type="button"
-                  size="sm"
-                  variant={transferTarget === agent.userId ? "default" : "secondary"}
-                  onClick={() => setTransferTarget(agent.userId)}
-                >
-                  {agent.label}
-                </Button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">{t("callCenter.noAvailableAgents")}</p>
-          )}
+          {(() => {
+            const options: CallCenterTransferOption[] =
+              transferOptions.length > 0
+                ? transferOptions
+                : transferTargets.map((a) => ({
+                    kind: "agent" as const,
+                    id: a.userId,
+                    label: a.label,
+                    status: a.status,
+                  }));
+            const agents = options.filter((o) => o.kind === "agent");
+            const queues = options.filter((o) => o.kind === "queue");
+            if (options.length === 0) {
+              return (
+                <p className="text-xs text-muted-foreground">{t("callCenter.noAvailableAgents")}</p>
+              );
+            }
+            return (
+              <div className="space-y-3">
+                {agents.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t("callCenter.transferAgents")}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {agents.map((agent) => (
+                        <Button
+                          key={agent.id}
+                          type="button"
+                          size="sm"
+                          variant={transferTarget === agent.id ? "default" : "secondary"}
+                          onClick={() => setTransferTarget(agent.id)}
+                        >
+                          {agent.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {queues.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t("callCenter.transferQueues")}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {queues.map((queue) => (
+                        <Button
+                          key={queue.id}
+                          type="button"
+                          size="sm"
+                          variant={transferTarget === queue.id ? "default" : "outline"}
+                          onClick={() => setTransferTarget(queue.id)}
+                        >
+                          {queue.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
           <Input
             value={transferTarget}
             onChange={(e) => setTransferTarget(e.target.value)}

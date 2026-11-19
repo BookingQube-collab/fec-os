@@ -503,6 +503,23 @@ export async function deleteLiveKitRoom(roomName: string): Promise<void> {
 }
 
 /**
+ * Remove only the softphone agent from a LiveKit room (keep PSTN/SIP caller).
+ * Used for cold transfer so the original agent disconnects while the caller stays.
+ */
+export async function removeAgentFromLiveKitRoom(
+  roomName: string,
+  agentUserId: string,
+): Promise<void> {
+  if (!roomName.trim() || !agentUserId.trim()) return;
+  const identity = `cc-agent-${agentUserId}`;
+  try {
+    await (await roomClient()).removeParticipant(roomName, identity);
+  } catch {
+    // Agent may already have left / room gone.
+  }
+}
+
+/**
  * Explicitly dispatch a LiveKit Agent into the call room (IVR / AI first answer).
  * Requires a registered agent with `agentName` matching settings.
  */

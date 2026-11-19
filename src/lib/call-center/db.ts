@@ -113,6 +113,7 @@ function mapQueue(row: Record<string, unknown>): CallCenterQueue {
     eventId: row.event_id ? String(row.event_id) : null,
     wrapUpSeconds: Number(row.wrap_up_seconds ?? 30),
     maxWaitSeconds: Number(row.max_wait_seconds ?? 120),
+    offerRingSeconds: Math.max(0, Math.min(120, Number(row.offer_ring_seconds ?? 15) || 0)),
     requiredSkills: Array.isArray(row.required_skills) ? row.required_skills.map(String) : [],
     serviceLevelSeconds: Math.max(1, Number(row.service_level_seconds ?? 20) || 20),
     isActive: Boolean(row.is_active),
@@ -704,6 +705,7 @@ export async function upsertQueue(input: {
   eventId: string | null;
   wrapUpSeconds: number;
   maxWaitSeconds: number;
+  offerRingSeconds?: number;
   requiredSkills?: string[];
   serviceLevelSeconds?: number;
   isActive: boolean;
@@ -715,6 +717,7 @@ export async function upsertQueue(input: {
     event_id: input.eventId,
     wrap_up_seconds: input.wrapUpSeconds,
     max_wait_seconds: input.maxWaitSeconds,
+    offer_ring_seconds: Math.max(0, Math.min(120, input.offerRingSeconds ?? 15)),
     required_skills: (input.requiredSkills ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean),
     service_level_seconds: Math.max(1, input.serviceLevelSeconds ?? 20),
     is_active: input.isActive,

@@ -521,11 +521,25 @@ Then: enable **Call Center**, map each DID on `/call-center/numbers` to a queue 
 5. Failure paths: dial a bad number (CDR `failed` + toast), call while the number is blocklisted (rejected), hang up before an agent answers (CDR `missed`).
 6. Unit tests: `npx vitest run src/lib/call-center`.
 
+### Queue strategies (Dialer → Queues)
+
+| Strategy | Behavior |
+|----------|----------|
+| **`sequential`** (venue default) | Offer **one** agent by member priority; if no answer / decline / `offer_ring_seconds` timeout → next agent; stop when answered or `max_wait_seconds` exhausted |
+| **`simultaneous`** | Ring all available members; first Answer wins |
+| **`round_robin` / `longest_idle`** | One agent per offer (idle tie-break); auto-advance when `offer_ring_seconds` &gt; 0 |
+
+Configure on **`/call-center/queues`**: strategy, **Offer ring (sec)** (default 15), **Max wait (sec)**, wrap-up. Create and edit are both supported. Venue queues (InflataPark, Urban Arena, Kids Driving School, Birthday enquiry, E3 General Support) migrate to **`sequential` + 15s** ring; **Apply E3 IVR template** also aligns them.
+
+### Cold transfer (Dialer in-call Divert)
+
+While on a live call: open **Divert / Transfer** → pick an **available agent** or **queue** (e.g. Birthday enquiry) → **Cold divert**. FEC keeps the PSTN/SIP caller in the LiveKit room, removes the transferring agent (ACW), and re-offers the CDR. When the target answers they join the same room (no second Telnyx dial). Warm transfer still records consult intent only.
+
 ### Known gaps (next phases)
 
-- Queue `max_wait_seconds` is enforced on softphone poll / workspace load (missed + hangup carrier leg); a dedicated cron is still optional for quieter periods.
+- Queue `max_wait_seconds` and sequential `offer_ring_seconds` advance run on softphone poll / workspace load (missed + hangup carrier leg / next agent); a dedicated cron is still optional for quieter periods.
 - Voicemail: after-hours / IVR voicemail speaks the prompt (Call Control) and creates the voicemail row, but does not record the caller's message yet.
-- PSTN transfers (SIP REFER / Telnyx transfer from the softphone) are not fully wired (`transferPendingSip` is still only a flag). Softphone DTMF now uses LiveKit `publishDtmf` (RFC 2833 toward SIP). Recording egress start + `egress_*` webhook URL sync are wired; storage credentials remain an ops requirement.
+- Cold transfer to **agent/queue** (same LiveKit room handoff) is wired for live PSTN/SIP callers. External E.164 cold divert and SIP REFER still end/flag only. Warm consult/merge is not finished. Softphone DTMF uses LiveKit `publishDtmf` (RFC 2833 toward SIP). Recording egress start + `egress_*` webhook URL sync are wired; storage credentials remain an ops requirement.
 - Whisper/barge on SIP legs needs LiveKit TrackPermissions; SIP-trunk IVR prompts need a LiveKit Agents worker (dispatch is wired when agent name is set; worker not shipped in-repo).
 - Outbound "answered" is only known after the dial resolves; CDR is created already `answered` (with a `dialing` state in metadata) for UI compatibility.
 - Power dialer pacing / AMD, Telnyx number provisioning in-app, and Telnyx → LiveKit failure recovery after transfer remain manual.

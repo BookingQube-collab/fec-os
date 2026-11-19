@@ -46,6 +46,11 @@ import {
 } from "./ivr-flow";
 import { isArabicText } from "./ivr-tts-voice";
 import { languageFromIvrDigit } from "./recording-disclosure";
+import {
+  appendDeclinedAgent,
+  isOrderedQueueStrategy,
+  shouldAdvanceSequentialOffer,
+} from "./queue-offer";
 import type {
   CallCenterCall,
   CallCenterMediaSession,
@@ -66,11 +71,18 @@ function pickAgents(
   if (agents.length === 0) return [];
   const sorted = [...agents].sort((a, b) => {
     if (a.priority !== b.priority) return a.priority - b.priority;
+    if (strategy === "longest_idle") {
+      const aTime = a.lastCallAt ?? "";
+      const bTime = b.lastCallAt ?? "";
+      return aTime.localeCompare(bTime);
+    }
+    // sequential / round_robin: priority first, then idle as tie-break
     const aTime = a.lastCallAt ?? "";
     const bTime = b.lastCallAt ?? "";
     return aTime.localeCompare(bTime);
   });
   if (strategy === "simultaneous") return sorted.map((a) => a.userId);
+  // sequential, round_robin, longest_idle: offer exactly one agent
   return [sorted[0]!.userId];
 }
 
@@ -122,8 +134,9 @@ export async function offerCallToQueue(params: {
   const offeredUserIds = (await resolveQueueAgents(params.queue)).filter((id) => !declined.has(id));
   const now = new Date().toISOString();
   const livekitRoom = params.call.livekitRoom || roomNameForCall(params.call.id);
-  const agentUserId =
-    params.queue.strategy === "simultaneous" ? null : (offeredUserIds[0] ?? null);
+  const agentUserId = isOrderedQueueStrategy(params.queue.strategy)
+    ? (offeredUserIds[0] ?? null)
+    : null;
 
   const call = await updateCall(params.call.id, {
     status: offeredUserIds.length > 0 ? "offered" : "queued",
@@ -985,6 +998,14 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   }
 
   const livekitRoom = existing.livekitRoom || roomNameForCall(callId);
+  const priorMeta = (existing.metadata as Record<string, unknown> | null) ?? {};
+  // Cold transfer keeps the PSTN/SIP caller in the same LiveKit room — skip re-bridge.
+  const alreadyBridgedInRoom = Boolean(
+    priorMeta.sipParticipantIdentity &&
+      (priorMeta.bridgeVerifiedAt ||
+        priorMeta.bridgedAt ||
+        priorMeta.coldTransferKeepRoom === true),
+  );
 
   // Atomic claim prevents two agents from bridging the same simultaneous offer.
   const claimed = await claimCallForAnswer(callId, agentUserId, livekitRoom);
@@ -1002,7 +1023,8 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
   const needsPstnBridge =
     claimed.provider === "telnyx" &&
     claimed.direction === "inbound" &&
-    Boolean(claimed.providerCallId);
+    Boolean(claimed.providerCallId) &&
+    !alreadyBridgedInRoom;
 
   // Phase 1 only: connecting prompt + room prep. Transfer happens in completePstnBridge
   // after the softphone publishes audio (LiveKit will not accept the SIP INVITE otherwise).
@@ -1044,7 +1066,15 @@ export async function answerCall(callId: string, agentUserId: string): Promise<{
           bridgeAwaitingAgent: true,
           bridgeInProgress: true,
         }
-      : afterMeta,
+      : {
+          ...afterMeta,
+          bridgeAwaitingAgent: false,
+          bridgeInProgress: false,
+          transferPendingSip: false,
+          ...(alreadyBridgedInRoom
+            ? { coldTransferCompletedAt: now, coldTransferKeepRoom: true }
+            : {}),
+        },
   });
   await setAgentStatus(agentUserId, "busy", { lastCallAt: now });
 
@@ -1234,10 +1264,79 @@ export async function completePstnBridge(
 }
 
 /**
+ * When an ordered/sequential offer exceeds offer_ring_seconds without answer,
+ * skip the current agent and offer the next by priority.
+ */
+export async function advanceTimedOutQueueOffers(): Promise<{ advanced: number }> {
+  const [queues, waiting] = await Promise.all([listQueues(), listWaitingCallsForTimeout()]);
+  const byId = new Map(queues.map((q) => [q.id, q]));
+  let advanced = 0;
+  const nowMs = Date.now();
+
+  for (const call of waiting) {
+    if (call.status !== "offered" || !call.queueId) continue;
+    const queue = byId.get(call.queueId);
+    if (!queue) continue;
+    if (
+      !shouldAdvanceSequentialOffer({
+        status: call.status,
+        strategy: queue.strategy,
+        offerRingSeconds: queue.offerRingSeconds,
+        offeredAt: call.offeredAt,
+        nowMs,
+      })
+    ) {
+      continue;
+    }
+
+    const skippedAgent =
+      call.agentUserId ||
+      (Array.isArray((call.metadata as Record<string, unknown> | null)?.offeredUserIds)
+        ? String(
+            ((call.metadata as Record<string, unknown>).offeredUserIds as unknown[])[0] ?? "",
+          )
+        : "");
+    if (!skippedAgent) continue;
+
+    const meta = (call.metadata as Record<string, unknown> | null) ?? {};
+    const nextDeclined = appendDeclinedAgent(meta.declinedBy, skippedAgent);
+    const patched = await updateCall(call.id, {
+      metadata: {
+        ...meta,
+        declinedBy: nextDeclined,
+        lastOfferSkipReason: "offer_ring_timeout",
+        lastOfferSkippedAgent: skippedAgent,
+        lastOfferSkippedAt: new Date().toISOString(),
+      },
+      agentUserId: null,
+    });
+
+    const result = await offerCallToQueue({
+      call: patched,
+      queue,
+      eventId: patched.eventId,
+    });
+    advanced += 1;
+
+    // No one left to ring — leave as queued; max_wait will eventually miss.
+    if (result.offeredUserIds.length === 0 && result.call.status === "queued") {
+      // keep caller on hold
+    }
+  }
+
+  return { advanced };
+}
+
+/**
  * Enforce queue max_wait_seconds: abandon waiting/IVR legs past the limit.
+ * Also advances sequential/ordered offers past offer_ring_seconds.
  * Safe to call from softphone poll / workspace load (idempotent).
  */
-export async function enforceQueueWaitTimeouts(): Promise<{ timedOut: number }> {
+export async function enforceQueueWaitTimeouts(): Promise<{
+  timedOut: number;
+  advanced: number;
+}> {
+  const advancedResult = await advanceTimedOutQueueOffers().catch(() => ({ advanced: 0 }));
   const [queues, waiting] = await Promise.all([listQueues(), listWaitingCallsForTimeout()]);
   const byId = new Map(queues.map((q) => [q.id, q]));
   let timedOut = 0;
@@ -1247,7 +1346,7 @@ export async function enforceQueueWaitTimeouts(): Promise<{ timedOut: number }> 
     const queue = call.queueId ? byId.get(call.queueId) : null;
     const maxWait = queue?.maxWaitSeconds ?? 0;
     if (maxWait <= 0) continue;
-    const anchor = call.offeredAt || call.startedAt;
+    const anchor = call.startedAt;
     const ageSec = Math.floor((nowMs - new Date(anchor).getTime()) / 1000);
     if (ageSec < maxWait) continue;
 
@@ -1273,9 +1372,13 @@ export async function enforceQueueWaitTimeouts(): Promise<{ timedOut: number }> 
     }
   }
 
-  return { timedOut };
+  return { timedOut, advanced: advancedResult.advanced };
 }
 
+/**
+ * Skip this agent and re-offer the queue (sequential / simultaneous).
+ * Ends the call only when there is no queue (or no agents left and no carrier to keep holding).
+ */
 export async function declineCall(callId: string, agentUserId: string): Promise<CallCenterCall> {
   const { getCall } = await import("./db");
   const existing = await getCall(callId);
@@ -1283,20 +1386,44 @@ export async function declineCall(callId: string, agentUserId: string): Promise<
   if (existing.agentUserId && existing.agentUserId !== agentUserId) {
     throw new Error("Call belongs to another agent.");
   }
-  const isCarrierCall = existing.provider === "telnyx" || existing.provider === "livekit_sip";
-  if (isCarrierCall && !existing.agentUserId && existing.status !== "ended") {
-    // Shared (simultaneous) offer to a live caller: one agent declining must not drop the
-    // caller. Hide it for this agent only; others keep ringing.
-    const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
-    const declinedBy = Array.isArray(meta.declinedBy) ? (meta.declinedBy as string[]) : [];
-    return updateCall(callId, {
-      metadata: { ...meta, declinedBy: [...new Set([...declinedBy, agentUserId])] },
-    });
+  if (!["ringing", "offered", "queued"].includes(existing.status)) {
+    throw new Error("Call is no longer ringing.");
   }
+
+  const isCarrierCall = existing.provider === "telnyx" || existing.provider === "livekit_sip";
+  const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+  const nextDeclined = appendDeclinedAgent(meta.declinedBy, agentUserId);
+
+  // Simultaneous (no directed agent) or ordered directed offer: skip agent, keep caller.
+  if (existing.queueId && existing.status !== "ended") {
+    const queues = await listQueues();
+    const queue = queues.find((q) => q.id === existing.queueId);
+    if (queue) {
+      const patched = await updateCall(callId, {
+        metadata: {
+          ...meta,
+          declinedBy: nextDeclined,
+          lastOfferSkipReason: "agent_declined",
+          lastOfferSkippedAgent: agentUserId,
+          lastOfferSkippedAt: new Date().toISOString(),
+        },
+        agentUserId: null,
+      });
+      const result = await offerCallToQueue({
+        call: patched,
+        queue,
+        eventId: patched.eventId,
+      });
+      return result.call;
+    }
+  }
+
+  // No queue to cascade into — end the offer.
   const declined = await updateCall(callId, {
     status: "declined",
     hangupReason: "Agent declined",
     endedAt: new Date().toISOString(),
+    metadata: { ...meta, declinedBy: nextDeclined },
   });
   if (isCarrierCall) {
     const { endCarrierLeg } = await import("./carrier");
@@ -1484,6 +1611,11 @@ export async function placeOutboundCall(input: {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * Cold transfer: keep the PSTN/SIP caller in the LiveKit room, disconnect the
+ * transferring agent, and re-offer the CDR to a target agent or queue.
+ * When the target answers they join the same room (alreadyBridgedInRoom skips re-dial).
+ */
 export async function requestTransfer(input: {
   callId: string;
   agentUserId: string;
@@ -1501,43 +1633,130 @@ export async function requestTransfer(input: {
   }
   const now = new Date().toISOString();
   const target = input.target.trim();
-  const targetIsAgent = UUID_RE.test(target);
+  const targetIsUuid = UUID_RE.test(target);
+  const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+  const livekitRoom = existing.livekitRoom || roomNameForCall(existing.id);
+  const hasLiveCaller =
+    Boolean(meta.sipParticipantIdentity) ||
+    Boolean(meta.bridgedAt) ||
+    Boolean(meta.bridgeVerifiedAt) ||
+    existing.provider === "livekit_sip" ||
+    (existing.provider === "telnyx" && Boolean(existing.providerCallId));
 
-  if (input.type === "cold" && targetIsAgent) {
-    // Re-offer same CDR to destination agent (in-app divert). SIP REFER still pending for PSTN.
+  if (input.type === "warm") {
+    return updateCall(input.callId, {
+      transferType: "warm",
+      transferTarget: target,
+      transferredAt: now,
+      hangupReason: `warm_transfer:${target}`,
+      status: "held",
+      metadata: {
+        ...meta,
+        transferPendingSip: true,
+        transferType: "warm",
+        transferTarget: target,
+        warmConsultRoom: livekitRoom,
+        previousAgentUserId: input.agentUserId,
+      },
+    });
+  }
+
+  // --- Cold transfer ---
+  const queues = await listQueues();
+  const targetQueue = targetIsUuid ? queues.find((q) => q.id === target) : null;
+  const targetAgent = targetIsUuid && !targetQueue ? await getAgentStatus(target) : null;
+
+  if (!targetQueue && !targetAgent && targetIsUuid) {
+    throw new Error("Transfer target agent or queue not found.");
+  }
+  if (!targetQueue && !targetAgent && !targetIsUuid) {
+    // External E.164 / SIP URI — flag only (REFER / dial-out not wired as cold handoff).
     await setAgentStatus(input.agentUserId, "acw", { lastCallAt: now });
     return updateCall(input.callId, {
       transferType: "cold",
       transferTarget: target,
       transferredAt: now,
       hangupReason: `cold_transfer:${target}`,
-      status: "offered",
-      agentUserId: target,
-      offeredAt: now,
-      answeredAt: null,
-      endedAt: null,
+      status: "ended",
+      endedAt: now,
       metadata: {
+        ...meta,
         transferPendingSip: true,
         transferType: "cold",
         transferTarget: target,
         previousAgentUserId: input.agentUserId,
+        coldTransferExternal: true,
       },
     });
   }
 
+  // Drop original agent softphone; keep SIP caller in the room.
+  if (livekitRoom && hasLiveCaller) {
+    try {
+      const { removeAgentFromLiveKitRoom } = await import("./livekit-sip");
+      await removeAgentFromLiveKitRoom(livekitRoom, input.agentUserId);
+    } catch {
+      // best effort — softphone client also clears on cold transfer
+    }
+  }
+
+  await setAgentStatus(input.agentUserId, "acw", { lastCallAt: now });
+
+  const transferMeta: Record<string, unknown> = {
+    ...meta,
+    transferPendingSip: false,
+    transferType: "cold",
+    transferTarget: target,
+    previousAgentUserId: input.agentUserId,
+    coldTransferKeepRoom: hasLiveCaller,
+    coldTransferAt: now,
+    // Exclude transferrer from sequential re-offer on the same queue.
+    declinedBy: appendDeclinedAgent(meta.declinedBy, input.agentUserId),
+    // Target joins existing room — do not re-run Telnyx→LiveKit dial.
+    bridgeAwaitingAgent: false,
+    bridgeInProgress: false,
+  };
+
+  if (targetQueue) {
+    const staged = await updateCall(input.callId, {
+      transferType: "cold",
+      transferTarget: targetQueue.id,
+      transferredAt: now,
+      hangupReason: `cold_transfer:queue:${targetQueue.id}`,
+      status: "queued",
+      queueId: targetQueue.id,
+      agentUserId: null,
+      offeredAt: null,
+      answeredAt: null,
+      endedAt: null,
+      livekitRoom,
+      metadata: transferMeta,
+    });
+    const result = await offerCallToQueue({
+      call: staged,
+      queue: targetQueue,
+      eventId: staged.eventId ?? targetQueue.eventId,
+    });
+    return result.call;
+  }
+
+  // Direct agent cold transfer
   return updateCall(input.callId, {
-    transferType: input.type,
+    transferType: "cold",
     transferTarget: target,
     transferredAt: now,
-    hangupReason:
-      input.type === "cold" ? `cold_transfer:${target}` : `warm_transfer:${target}`,
-    status: input.type === "cold" ? "ended" : "held",
-    endedAt: input.type === "cold" ? now : null,
+    hangupReason: `cold_transfer:${target}`,
+    status: "offered",
+    agentUserId: target,
+    queueId: existing.queueId,
+    offeredAt: now,
+    answeredAt: null,
+    endedAt: null,
+    livekitRoom,
     metadata: {
-      transferPendingSip: true,
-      transferType: input.type,
-      transferTarget: target,
-      warmConsultRoom: input.type === "warm" ? existing.livekitRoom : undefined,
+      ...transferMeta,
+      offeredUserIds: [target],
+      offeredAtMeta: now,
     },
   });
 }

@@ -650,10 +650,11 @@ export const saveCallCenterQueue = createSafeAuthenticatedAction(
   z.object({
     id: z.string().uuid().optional(),
     name: z.string().trim().min(1).max(120),
-    strategy: z.enum(["simultaneous", "round_robin", "longest_idle"]),
+    strategy: z.enum(["simultaneous", "round_robin", "longest_idle", "sequential"]),
     eventId: optionalUuid.optional(),
     wrapUpSeconds: z.number().int().min(0).max(600),
     maxWaitSeconds: z.number().int().min(0).max(3600),
+    offerRingSeconds: z.number().int().min(0).max(120).optional(),
     requiredSkills: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     serviceLevelSeconds: z.number().int().min(1).max(600).optional(),
     isActive: z.boolean(),
@@ -667,6 +668,7 @@ export const saveCallCenterQueue = createSafeAuthenticatedAction(
       eventId: data.eventId ?? null,
       wrapUpSeconds: data.wrapUpSeconds,
       maxWaitSeconds: data.maxWaitSeconds,
+      offerRingSeconds: data.offerRingSeconds ?? 15,
       requiredSkills: data.requiredSkills ?? [],
       serviceLevelSeconds: data.serviceLevelSeconds ?? 20,
       isActive: data.isActive,
@@ -954,14 +956,36 @@ export const applyCallCenterFecVenuesIvrTemplate = createSafeAuthenticatedAction
       const created = await upsertQueue({
         id: def.id,
         name: def.name,
-        strategy: "simultaneous",
+        strategy: "sequential",
         eventId: null,
         wrapUpSeconds: 30,
         maxWaitSeconds: 120,
+        offerRingSeconds: 15,
         isActive: true,
         sortOrder: def.sortOrder,
       });
       resolved[def.id] = created.id;
+    }
+
+    // Align existing venue queues to sequential ring (Apply E3 updates).
+    for (const def of VENUE_QUEUE_DEFS) {
+      const qid = resolved[def.id];
+      const existing = existingQueues.find((q) => q.id === qid);
+      if (!existing) continue;
+      if (existing.strategy === "sequential" && existing.offerRingSeconds === 15) continue;
+      await upsertQueue({
+        id: existing.id,
+        name: existing.name,
+        strategy: "sequential",
+        eventId: existing.eventId,
+        wrapUpSeconds: existing.wrapUpSeconds,
+        maxWaitSeconds: existing.maxWaitSeconds,
+        offerRingSeconds: 15,
+        requiredSkills: existing.requiredSkills,
+        serviceLevelSeconds: existing.serviceLevelSeconds,
+        isActive: existing.isActive,
+        sortOrder: existing.sortOrder,
+      });
     }
 
     const flow = buildFecVenuesTemplate({
@@ -1042,6 +1066,8 @@ export const loadCallCenterAgentWorkspace = createSafeAuthenticatedAction(
       recentCalls: recent,
       settings: toPublicSettings(settings, provider.name === "livekit"),
       dids: dids.filter((d) => d.isActive),
+      /** All active queues — used for cold transfer picker (Birthday enquiry, etc.). */
+      queues: queues.filter((q) => q.isActive),
       myQueues,
       myMemberships,
       wrapUpSeconds,

@@ -21,7 +21,12 @@ export const CALL_CENTER_VENUE_QUEUE_IDS = {
 export const CALL_CENTER_AGENT_STATUSES = ["available", "busy", "away", "acw", "offline"] as const;
 export type CallCenterAgentStatusValue = (typeof CALL_CENTER_AGENT_STATUSES)[number];
 
-export const CALL_CENTER_QUEUE_STRATEGIES = ["simultaneous", "round_robin", "longest_idle"] as const;
+export const CALL_CENTER_QUEUE_STRATEGIES = [
+  "simultaneous",
+  "round_robin",
+  "longest_idle",
+  "sequential",
+] as const;
 export type CallCenterQueueStrategy = (typeof CALL_CENTER_QUEUE_STRATEGIES)[number];
 
 export const CALL_CENTER_IVR_ACTIONS = [
@@ -344,6 +349,11 @@ export type CallCenterQueue = {
   eventId: string | null;
   wrapUpSeconds: number;
   maxWaitSeconds: number;
+  /**
+   * Per-agent ring window for ordered strategies (sequential / round_robin / longest_idle).
+   * When exceeded without answer, the offer advances to the next member. 0 = no auto-advance.
+   */
+  offerRingSeconds: number;
   /** Skills required to be offered first (intersect with agent/member skills). */
   requiredSkills: string[];
   /** Target answer time for service-level % (seconds). */
@@ -551,9 +561,18 @@ export type CallCenterSpeedDial = {
 export type CallCenterSupervisorMode = "whisper" | "barge";
 
 export type CallCenterTransferTarget = {
+  /** Agent UUID (legacy softphone picker). */
   userId: string;
   status: CallCenterAgentStatusValue;
   label: string;
+};
+
+/** Dialer divert picker: available agent or active queue. */
+export type CallCenterTransferOption = {
+  kind: "agent" | "queue";
+  id: string;
+  label: string;
+  status?: CallCenterAgentStatusValue;
 };
 
 export type CallCenterHoliday = {

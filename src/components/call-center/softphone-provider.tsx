@@ -60,6 +60,7 @@ import type {
   CallCenterMediaSession,
   CallCenterQueue,
   CallCenterSpeedDial,
+  CallCenterTransferOption,
   CallCenterTransferTarget,
 } from "@/lib/call-center/types";
 import { canUserDo } from "@/lib/rbac";
@@ -94,6 +95,7 @@ type SoftphoneContextValue = {
   incoming: CallCenterCall | null;
   recentCalls: CallCenterCall[];
   transferTargets: CallCenterTransferTarget[];
+  transferOptions: CallCenterTransferOption[];
   agentUserId: string | null;
   myQueues: CallCenterQueue[];
   wrapUpSeconds: number;
@@ -459,6 +461,25 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
         label: a.displayName,
       }));
   }, [wallboard.data?.agents, workspace.data?.agents, user?.id]);
+
+  const transferOptions = useMemo((): CallCenterTransferOption[] => {
+    const agents: CallCenterTransferOption[] = transferTargets.map((a) => ({
+      kind: "agent",
+      id: a.userId,
+      label: a.label,
+      status: a.status,
+    }));
+    const queues = (wallboard.data?.queues ?? workspace.data?.queues ?? [])
+      .filter((q) => q.isActive)
+      .map(
+        (q): CallCenterTransferOption => ({
+          kind: "queue",
+          id: q.id,
+          label: q.name,
+        }),
+      );
+    return [...agents, ...queues];
+  }, [transferTargets, wallboard.data?.queues, workspace.data?.queues]);
 
   const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["call-center"] });
@@ -1040,6 +1061,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     incoming,
     recentCalls: workspace.data?.recentCalls ?? [],
     transferTargets,
+    transferOptions,
     agentUserId: user?.id ?? null,
     myQueues: workspace.data?.myQueues ?? [],
     wrapUpSeconds: workspace.data?.wrapUpSeconds ?? 30,
@@ -1115,6 +1137,7 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
                 : t("callCenter.unknownCaller")
             }
             transferTargets={transferTargets}
+            transferOptions={transferOptions}
             micMuted={micMuted}
             speakerMuted={speakerMuted}
             onMicMutedChange={setMicMuted}

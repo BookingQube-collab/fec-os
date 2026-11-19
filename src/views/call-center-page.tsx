@@ -664,6 +664,7 @@ function CallCenterPage() {
                     ) || t("callCenter.unknownCaller")
                   }
                   transferTargets={phone.transferTargets}
+                  transferOptions={phone.transferOptions}
                   micMuted={phone.micMuted}
                   speakerMuted={phone.speakerMuted}
                   onMicMutedChange={phone.setMicMuted}
