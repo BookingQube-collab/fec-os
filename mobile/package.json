@@ -1,0 +1,23 @@
+{
+  "name": "fec-call-center-android",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Thin Capacitor Android shell for FEC Call Center softphone + FCM",
+  "scripts": {
+    "sync": "npx cap sync android",
+    "open": "npx cap open android",
+    "add:android": "npx cap add android",
+    "build:web": "node ./scripts/copy-www.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7.1.0",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/local-notifications": "^7.0.3",
+    "@capacitor/push-notifications": "^7.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "typescript": "^5.8.3"
+  }
+}

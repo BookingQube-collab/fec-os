@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <meta name="format-detection" content="telephone=no" />
+    <title>FEC Call Center</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b3d2e;
+        color: #f4f7f5;
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: center;
+      }
+      p {
+        opacity: 0.85;
+        max-width: 22rem;
+        text-align: center;
+        line-height: 1.45;
+      }
+    </style>
+    <script>
+      // Fallback if Capacitor server.url is unset — normally the WebView loads the remote URL directly.
+      (function () {
+        var target = "https://e3fec.vercel.app/call-center";
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var callId = params.get("callId") || params.get("offer");
+          if (callId) target += "?callId=" + encodeURIComponent(callId);
+        } catch (e) {}
+        setTimeout(function () {
+          if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+            return;
+          }
+          window.location.replace(target);
+        }, 400);
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Opening FEC Call Center softphone…</p>
+  </body>
+</html>

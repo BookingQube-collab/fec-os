@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { EnablePhoneNotifications } from "@/components/call-center/enable-phone-notifications";
 import { CallCenterSoftphoneRoom } from "@/components/call-center/softphone-room";
 import { useCallCenterSoftphone } from "@/components/call-center/softphone-provider";
 import { FecButton as Button, FecLoader } from "@/components/fec";
@@ -409,6 +410,7 @@ function CallCenterPage() {
                   {phone.speakerMuted ? t("callCenter.speakerOff") : t("callCenter.speakerOn")}
                 </span>
               </Button>
+              <EnablePhoneNotifications />
               <Button
                 type="button"
                 variant="outline"

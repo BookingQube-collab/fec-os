@@ -46,6 +46,10 @@ import {
 } from "@/lib/call-center/call-center.functions";
 import { collectOwnedE164s, remotePartyE164 } from "@/lib/call-center/call-party";
 import {
+  clearCallCenterDeepLinkParams,
+  readCallCenterDeepLinkCallId,
+} from "@/lib/call-center/capacitor-push";
+import {
   canShowIncomingOffer,
   pickActiveIncomingOffer,
 } from "@/lib/call-center/incoming-offer";
@@ -207,6 +211,8 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   /** Call id waiting for softphone onReady → completeCallCenterPstnBridge. */
   const needsPstnBridgeRef = useRef<string | null>(null);
   const pstnBridgeInFlightRef = useRef(false);
+  /** From Capacitor / FCM deep link `?callId=` / `?offer=`. */
+  const [deepLinkCallId, setDeepLinkCallId] = useState<string | null>(null);
 
   const workspace = useQuery({
     queryKey: WORKSPACE_KEY,
@@ -268,11 +274,22 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
   });
 
   // Disabled queries keep stale data — never surface Incoming during ACW/busy from cache.
+  // Deep-link callId (FCM tap) is preferred so the overlay surfaces immediately.
   const incoming = allowIncoming
-    ? pickActiveIncomingOffer(
-        ringingQuery.data ?? workspace.data?.ringing,
-        workspace.data?.recentCalls ?? [],
-      )
+    ? (() => {
+        const candidates = ringingQuery.data ?? workspace.data?.ringing ?? [];
+        const recent = workspace.data?.recentCalls ?? [];
+        if (deepLinkCallId) {
+          const preferred =
+            candidates.find((c) => c.id === deepLinkCallId) ??
+            recent.find((c) => c.id === deepLinkCallId);
+          if (preferred) {
+            const picked = pickActiveIncomingOffer([preferred], recent);
+            if (picked) return picked;
+          }
+        }
+        return pickActiveIncomingOffer(candidates, recent);
+      })()
     : null;
   wrapUpRef.current = workspace.data?.wrapUpSeconds ?? 30;
   const autoAnswerEnabled = Boolean(workspace.data?.status.autoAnswer);
@@ -287,6 +304,22 @@ export function CallCenterSoftphoneProvider({ children }: { children: ReactNode 
     if (!outboundCallerId && defaultCallerId) setOutboundCallerId(defaultCallerId);
     else if (!outboundCallerId && callerIdOptions[0]) setOutboundCallerId(callerIdOptions[0]);
   }, [defaultCallerId, callerIdOptions, outboundCallerId]);
+
+  // Capacitor / notification deep link → surface offer quickly and refresh ringing poll.
+  useEffect(() => {
+    if (!canUse) return;
+    const fromUrl = readCallCenterDeepLinkCallId();
+    if (!fromUrl) return;
+    setDeepLinkCallId(fromUrl);
+    clearCallCenterDeepLinkParams();
+    void queryClient.invalidateQueries({ queryKey: RINGING_KEY });
+    void queryClient.invalidateQueries({ queryKey: WORKSPACE_KEY });
+  }, [canUse, pathname, queryClient]);
+
+  useEffect(() => {
+    if (!deepLinkCallId || !incoming) return;
+    if (incoming.id === deepLinkCallId) setDeepLinkCallId(null);
+  }, [deepLinkCallId, incoming?.id]);
 
   useEffect(() => {
     const reason = workspace.data?.status.awayReason ?? "";

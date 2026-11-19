@@ -1,0 +1,13 @@
+node_modules/
+android/
+ios/
+.idea/
+*.iml
+.DS_Store
+google-services.json
+**/google-services.json
+*.jks
+*.keystore
+local.properties
+.capacitor/
+dist/

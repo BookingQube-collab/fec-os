@@ -153,6 +153,20 @@ export async function offerCallToQueue(params: {
     },
   });
 
+  // High-priority FCM so Capacitor agents get the ring when the web softphone is closed.
+  // Graceful no-op when Firebase is unset — never block IVR / queue routing.
+  if (offeredUserIds.length > 0) {
+    void import("./fcm")
+      .then(({ deliverCallCenterFcmOffer }) =>
+        deliverCallCenterFcmOffer(offeredUserIds, {
+          callId: call.id,
+          from: call.fromE164 || "",
+          queue: params.queue.name || "",
+        }),
+      )
+      .catch(() => undefined);
+  }
+
   return {
     call,
     offeredUserIds,

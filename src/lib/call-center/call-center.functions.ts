@@ -1114,6 +1114,39 @@ export const pollCallCenterIncoming = createSafeAuthenticatedAction(
   { auth: AGENT_AUTH },
 );
 
+/** Register an FCM device token for closed-app incoming call alerts (Capacitor Android). */
+export const registerCallCenterFcmToken = createSafeAuthenticatedAction(
+  z.object({
+    token: z.string().trim().min(8).max(4096),
+    platform: z.enum(["android", "ios", "web"]).optional(),
+  }),
+  async (data, context) => {
+    const { upsertCallCenterFcmToken } = await import("./fcm");
+    await upsertCallCenterFcmToken({
+      userId: context.userId,
+      token: data.token,
+      platform: data.platform ?? "android",
+    });
+    return { ok: true as const };
+  },
+  { auth: AGENT_AUTH },
+);
+
+export const unregisterCallCenterFcmToken = createSafeAuthenticatedAction(
+  z.object({
+    token: z.string().trim().min(8).max(4096).optional(),
+  }),
+  async (data, context) => {
+    const { deleteCallCenterFcmToken } = await import("./fcm");
+    await deleteCallCenterFcmToken({
+      userId: context.userId,
+      token: data.token,
+    });
+    return { ok: true as const };
+  },
+  { auth: AGENT_AUTH },
+);
+
 export const testCallCenterRing = createSafeAuthenticatedAction(
   z.object({
     fromE164: z.string().trim().max(20).optional(),

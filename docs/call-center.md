@@ -45,6 +45,8 @@ Without Telnyx credentials, agents can still use **Test ring** and **Outbound di
 | Path | Purpose |
 |------|---------|
 | `/call-center` | Agent console: 3-zone dialer (status bar, keypad / in-call, queues + speed dial + notes) |
+| Android APK (Capacitor) | Thin shell + FCM high-priority offers when the app is closed — see [call-center-android.md](./call-center-android.md) |
+| `POST /api/public/call-center/queue-timeouts` | Cron: advance sequential offers (~15s) + max_wait when no softphone is polling (`CRON_SECRET`) |
 | `/call-center/live` | Agents + active calls wallboard + remote status (admin) |
 | `/call-center/calls` | CDR filters (date, queue, direction, phone/notes/tags) |
 | `/call-center/numbers` | DIDs CRUD + queue / IVR / event mapping |
